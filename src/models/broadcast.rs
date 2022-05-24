@@ -1,7 +1,8 @@
 use crate::errors::{ApiError, Result};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::{FromRow, PgPool};
+use std::result::Result as StdResult;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -10,6 +11,10 @@ pub struct BroadcastFilter {
     pub blockchain_id: Uuid,
     pub org_id: Uuid,
     pub name: String,
+    #[serde(
+        serialize_with = "serialize_as_array",
+        deserialize_with = "deserialize_as_array"
+    )]
     pub addresses: Option<String>,
     pub callback_url: String,
     pub auth_token: String,
@@ -18,6 +23,33 @@ pub struct BroadcastFilter {
     pub last_processed_height: Option<i64>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Custom serializer implementation for casting `Option<String>` to `Option<Vec<&str>>`
+fn serialize_as_array<S>(addresses: &Option<String>, s: S) -> StdResult<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match addresses {
+        Some(addresses) => {
+            let addresses: Vec<&str> = addresses
+                .split(", ")
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+                .collect();
+            s.serialize_some(&addresses)
+        }
+        None => s.serialize_none(),
+    }
+}
+
+/// Custom deserializer implementation for casting `Option<Vec<String>>` to `Option<String>`
+fn deserialize_as_array<'de, D>(deserializer: D) -> StdResult<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let addresses: Option<Vec<String>> = Deserialize::deserialize(deserializer)?;
+    Ok(addresses.map(|v| v.join(", ")))
 }
 
 impl BroadcastFilter {
@@ -49,7 +81,7 @@ impl BroadcastFilter {
         .bind(&req.blockchain_id)
         .bind(&req.org_id)
         .bind(&req.name)
-        .bind(&req.addresses)
+        .bind(&req.addresses.join(", "))
         .bind(&req.callback_url)
         .bind(&req.auth_token)
         .bind(&req.txn_types)
@@ -71,7 +103,7 @@ impl BroadcastFilter {
         .bind(&req.blockchain_id)
         .bind(&req.org_id)
         .bind(&req.name)
-        .bind(&req.addresses)
+        .bind(&req.addresses.join(", "))
         .bind(&req.callback_url)
         .bind(&req.auth_token)
         .bind(&req.txn_types)
@@ -97,7 +129,7 @@ pub struct BroadcastFilterRequest {
     pub blockchain_id: Uuid,
     pub org_id: Uuid,
     pub name: String,
-    pub addresses: Option<String>,
+    pub addresses: Vec<String>,
     pub callback_url: String,
     pub auth_token: String,
     pub txn_types: String,

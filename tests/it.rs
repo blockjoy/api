@@ -528,7 +528,7 @@ async fn it_should_crud_broadcast_filters() -> anyhow::Result<()> {
                 org_id: org.id,
                 blockchain_id: blockchain.id,
                 name: "My filter".into(),
-                addresses: Some("1234".into()),
+                addresses: vec!["1234".into()],
                 callback_url: "https://api.example/com/helium".into(),
                 auth_token: "1234".into(),
                 txn_types: "payment_v1, payment_v2".into(),
