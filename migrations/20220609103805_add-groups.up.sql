@@ -1,4 +1,4 @@
-CREATE TYPE enum_groupable_type AS ENUM ('hosts', 'nodes');
+CREATE TYPE enum_groupable_type AS ENUM ('host', 'node');
 
 CREATE TABLE IF NOT EXISTS groups (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

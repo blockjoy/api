@@ -20,6 +20,8 @@ mod org;
 pub use org::*;
 mod user;
 pub use user::*;
+mod group;
+pub use group::*;
 
 pub const STAKE_QUOTA_DEFAULT: i64 = 5;
 pub const FEE_BPS_DEFAULT: i64 = 300;
