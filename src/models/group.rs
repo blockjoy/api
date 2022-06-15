@@ -1,6 +1,7 @@
+use crate::errors::{ApiError, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, sqlx::Type)]
@@ -20,10 +21,35 @@ pub struct Group {
     updated_at: DateTime<Utc>,
 }
 
+impl Group {
+    pub async fn create(req: &GroupRequest, db: &PgPool) -> Result<Self> {
+        sqlx::query_as::<_, Self>(
+            r##"
+            INSERT INTO groups
+                (name, org_id)
+            VALUES
+                ($1,$2)
+            RETURNING *
+            "##,
+        )
+        .bind(&req.name)
+        .bind(&req.org_id)
+        .fetch_one(db)
+        .await
+        .map_err(ApiError::from)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Groupable {
     id: Uuid,
     group_id: Uuid,
     groupable_id: Uuid,
     groupable_type: GroupableType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupRequest {
+    pub name: String,
+    pub org_id: Uuid,
 }

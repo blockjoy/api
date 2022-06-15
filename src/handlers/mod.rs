@@ -726,3 +726,12 @@ pub async fn get_org_members(
     let org = Org::find_all_members(&id, db.as_ref()).await?;
     Ok((StatusCode::OK, Json(org)))
 }
+
+pub async fn create_group(
+    Extension(db): Extension<DbPool>,
+    Json(group): Json<GroupRequest>,
+    _auth: Authentication,
+) -> ApiResult<impl IntoResponse> {
+    let group = Group::create(&group, db.as_ref()).await?;
+    Ok((StatusCode::OK, Json(group)))
+}
