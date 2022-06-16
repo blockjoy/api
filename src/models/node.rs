@@ -59,7 +59,7 @@ pub enum NodeStatus {
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Node {
-    id: Uuid,
+    pub id: Uuid,
     org_id: Uuid,
     host_id: Uuid,
     name: Option<String>,

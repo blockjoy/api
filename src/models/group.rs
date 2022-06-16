@@ -1,4 +1,7 @@
 use crate::errors::{ApiError, Result};
+use crate::models::Host;
+use crate::models::Node;
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
@@ -13,15 +16,76 @@ pub enum GroupableType {
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct Groupable {
+    id: Uuid,
+    group_id: Uuid,
+    groupable_id: Uuid,
+    groupable_type: GroupableType,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Group {
     id: Uuid,
     name: String,
     org_id: Uuid,
+    #[sqlx(default)]
+    member_count: Option<i64>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
 
 impl Group {
+    pub async fn find_by_id(id: Uuid, db: &PgPool) -> Result<Self> {
+        sqlx::query_as::<_, Self>(
+            r##"
+            SELECT
+                groups.*,
+                (SELECT count(*) from groupable where groupable.group_id = groups.id) as member_count
+            FROM
+                groups
+            WHERE
+                groups.id = $1"##
+            )
+            .bind(id)
+            .fetch_one(db)
+            .await
+            .map_err(ApiError::from)
+    }
+
+    pub async fn find_items(id: Uuid, db: &PgPool) -> Result<GroupResponse> {
+        let items = sqlx::query_as::<_, Groupable>(
+            r##"
+            SELECT
+                *
+            FROM
+                groupable
+            WHERE
+                group_id = $1"##,
+        )
+        .bind(id)
+        .fetch_all(db)
+        .await
+        .map_err(ApiError::from)?;
+
+        let mut group_response = GroupResponse {
+            group_id: id,
+            nodes: Vec::new(),
+            hosts: Vec::new(),
+        };
+
+        for item in items {
+            match item.groupable_type {
+                GroupableType::Node => {
+                    group_response.nodes.push(item.groupable_id);
+                }
+                GroupableType::Host => {
+                    group_response.hosts.push(item.groupable_id);
+                }
+            }
+        }
+        Ok(group_response)
+    }
+
     pub async fn create(req: &GroupRequest, db: &PgPool) -> Result<Self> {
         sqlx::query_as::<_, Self>(
             r##"
@@ -38,18 +102,60 @@ impl Group {
         .await
         .map_err(ApiError::from)
     }
-}
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
-pub struct Groupable {
-    id: Uuid,
-    group_id: Uuid,
-    groupable_id: Uuid,
-    groupable_type: GroupableType,
+    pub async fn add(req: &GroupAddRequest, db: &PgPool) -> Result<Self> {
+        let mut group = Self::find_by_id(req.group_id, db).await?;
+
+        let (items, type_) = if let Some(nodes) = &req.nodes {
+            let mut node_items = Vec::new();
+            for node in nodes {
+                node_items.push(Node::find_by_id(node, db).await?.id);
+            }
+            Ok((nodes, GroupableType::Node))
+        } else if let Some(hosts) = &req.hosts {
+            let mut hosts_items = Vec::new();
+            for host in hosts {
+                hosts_items.push(Host::find_by_id(*host, db).await?.id);
+            }
+            Ok((hosts, GroupableType::Host))
+        } else {
+            Err(ApiError::UnexpectedError(anyhow!("missing group items")))
+        }?;
+
+        for item in items {
+            sqlx::query(
+                "INSERT INTO groupable (group_id, groupable_id, groupable_type) values($1, $2, $3)",
+            )
+            .bind(group.id)
+            .bind(item)
+            .bind(type_)
+            .execute(db)
+            .await
+            .map_err(ApiError::from)?;
+            if let Some(member_count) = group.member_count.as_mut() {
+                *member_count += 1;
+            }
+        }
+        Ok(group)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupRequest {
     pub name: String,
     pub org_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupAddRequest {
+    pub group_id: Uuid,
+    pub nodes: Option<Vec<Uuid>>,
+    pub hosts: Option<Vec<Uuid>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GroupResponse {
+    pub group_id: Uuid,
+    pub nodes: Vec<Uuid>,
+    pub hosts: Vec<Uuid>,
 }

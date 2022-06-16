@@ -90,4 +90,7 @@ pub fn api_router() -> Router {
         .route("/orgs/:id", put(update_org))
         .route("/orgs/:id/members", get(get_org_members))
         .route("/groups", post(create_group))
+        .route("/groups/add", post(add_to_group))
+        .route("/groups/:id", get(get_group))
+        .route("/groups/:id/items", get(get_group_items))
 }

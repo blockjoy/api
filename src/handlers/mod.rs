@@ -735,3 +735,30 @@ pub async fn create_group(
     let group = Group::create(&group, db.as_ref()).await?;
     Ok((StatusCode::OK, Json(group)))
 }
+
+pub async fn add_to_group(
+    Extension(db): Extension<DbPool>,
+    Json(req): Json<GroupAddRequest>,
+    _auth: Authentication,
+) -> ApiResult<impl IntoResponse> {
+    let group = Group::add(&req, db.as_ref()).await?;
+    Ok((StatusCode::OK, Json(group)))
+}
+
+pub async fn get_group(
+    Extension(db): Extension<DbPool>,
+    Path(id): Path<Uuid>,
+    _auth: Authentication,
+) -> ApiResult<impl IntoResponse> {
+    let group = Group::find_by_id(id, db.as_ref()).await?;
+    Ok((StatusCode::OK, Json(group)))
+}
+
+pub async fn get_group_items(
+    Extension(db): Extension<DbPool>,
+    Path(id): Path<Uuid>,
+    _auth: Authentication,
+) -> ApiResult<impl IntoResponse> {
+    let items = Group::find_items(id, db.as_ref()).await?;
+    Ok((StatusCode::OK, Json(items)))
+}
