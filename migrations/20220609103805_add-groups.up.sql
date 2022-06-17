@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS groups (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_org_id on groups(org_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_org_id on groups(org_id, lower(name));
 
 CREATE TABLE IF NOT EXISTS groupable (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
