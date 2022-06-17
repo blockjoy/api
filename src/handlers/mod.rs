@@ -759,6 +759,6 @@ pub async fn get_group_items(
     Path(id): Path<Uuid>,
     _auth: Authentication,
 ) -> ApiResult<impl IntoResponse> {
-    let items = Group::find_items(id, db.as_ref()).await?;
+    let items = Group::get_members(id, db.as_ref()).await?;
     Ok((StatusCode::OK, Json(items)))
 }

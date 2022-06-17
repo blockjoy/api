@@ -52,7 +52,7 @@ impl Group {
             .map_err(ApiError::from)
     }
 
-    pub async fn find_items(id: Uuid, db: &PgPool) -> Result<GroupResponse> {
+    pub async fn get_members(id: Uuid, db: &PgPool) -> Result<GroupResponse> {
         let items = sqlx::query_as::<_, Groupable>(
             r##"
             SELECT
