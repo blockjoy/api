@@ -25,13 +25,13 @@ pub struct Groupable {
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Group {
-    id: Uuid,
-    name: String,
-    org_id: Uuid,
+    pub id: Uuid,
+    pub name: String,
+    pub org_id: Uuid,
     #[sqlx(default)]
-    member_count: Option<i64>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+    pub member_count: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 impl Group {

@@ -15,7 +15,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 mod broadcast;
+mod group;
+
 pub use broadcast::*;
+pub use group::*;
 
 #[derive(Deserialize)]
 pub struct QueryParams {
@@ -725,40 +728,4 @@ pub async fn get_org_members(
     let _ = Org::find_org_user(&user_id, &id, db.as_ref()).await?;
     let org = Org::find_all_members(&id, db.as_ref()).await?;
     Ok((StatusCode::OK, Json(org)))
-}
-
-pub async fn create_group(
-    Extension(db): Extension<DbPool>,
-    Json(group): Json<GroupRequest>,
-    _auth: Authentication,
-) -> ApiResult<impl IntoResponse> {
-    let group = Group::create(&group, db.as_ref()).await?;
-    Ok((StatusCode::OK, Json(group)))
-}
-
-pub async fn add_to_group(
-    Extension(db): Extension<DbPool>,
-    Json(req): Json<GroupAddRequest>,
-    _auth: Authentication,
-) -> ApiResult<impl IntoResponse> {
-    let group = Group::add(&req, db.as_ref()).await?;
-    Ok((StatusCode::OK, Json(group)))
-}
-
-pub async fn get_group(
-    Extension(db): Extension<DbPool>,
-    Path(id): Path<Uuid>,
-    _auth: Authentication,
-) -> ApiResult<impl IntoResponse> {
-    let group = Group::find_by_id(id, db.as_ref()).await?;
-    Ok((StatusCode::OK, Json(group)))
-}
-
-pub async fn get_group_items(
-    Extension(db): Extension<DbPool>,
-    Path(id): Path<Uuid>,
-    _auth: Authentication,
-) -> ApiResult<impl IntoResponse> {
-    let items = Group::get_members(id, db.as_ref()).await?;
-    Ok((StatusCode::OK, Json(items)))
 }
