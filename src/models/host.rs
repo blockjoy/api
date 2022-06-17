@@ -106,6 +106,15 @@ impl Host {
         Ok(host)
     }
 
+    pub async fn find_all_by_ids(ids: &[Uuid], db: &PgPool) -> Result<Vec<Host>> {
+        sqlx::query("SELECT * FROM hosts WHERE id = ANY($1)")
+            .bind(ids)
+            .map(Self::from)
+            .fetch_all(db)
+            .await
+            .map_err(ApiError::from)
+    }
+
     pub async fn find_by_token(token: &str, db: &PgPool) -> Result<Self> {
         let mut host = sqlx::query("SELECT * FROM hosts WHERE token = $1")
             .bind(token)

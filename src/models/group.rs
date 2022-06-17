@@ -108,17 +108,23 @@ impl Group {
         let mut group = Self::find_by_id(req.group_id, db).await?;
 
         let (items, type_) = if let Some(nodes) = &req.nodes {
-            let mut node_items = Vec::new();
-            for node in nodes {
-                node_items.push(Node::find_by_id(node, db).await?.id);
-            }
-            Ok((nodes, GroupableType::Node))
+            Ok((
+                Node::find_all_by_ids(nodes, db)
+                    .await?
+                    .iter()
+                    .map(|v| v.id)
+                    .collect::<Vec<Uuid>>(),
+                GroupableType::Node,
+            ))
         } else if let Some(hosts) = &req.hosts {
-            let mut hosts_items = Vec::new();
-            for host in hosts {
-                hosts_items.push(Host::find_by_id(*host, db).await?.id);
-            }
-            Ok((hosts, GroupableType::Host))
+            Ok((
+                Host::find_all_by_ids(hosts, db)
+                    .await?
+                    .iter()
+                    .map(|v| v.id)
+                    .collect::<Vec<Uuid>>(),
+                GroupableType::Host,
+            ))
         } else {
             Err(ApiError::UnexpectedError(anyhow!("missing group items")))
         }?;

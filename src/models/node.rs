@@ -87,6 +87,14 @@ impl Node {
             .map_err(ApiError::from)
     }
 
+    pub async fn find_all_by_ids(ids: &[Uuid], db: &PgPool) -> Result<Vec<Node>> {
+        sqlx::query_as::<_, Node>("SELECT * FROM nodes where id = ANY($1)")
+            .bind(ids)
+            .fetch_all(db)
+            .await
+            .map_err(ApiError::from)
+    }
+
     pub async fn create(req: &NodeCreateRequest, db: &PgPool) -> Result<Node> {
         let mut tx = db.begin().await?;
         let node = sqlx::query_as::<_, Node>(
