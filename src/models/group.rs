@@ -67,23 +67,24 @@ impl Group {
         .await
         .map_err(ApiError::from)?;
 
-        let mut group_response = GroupResponse {
-            group_id: id,
-            nodes: Vec::new(),
-            hosts: Vec::new(),
-        };
+        let mut nodes = Vec::new();
+        let mut hosts = Vec::new();
 
         for item in items {
             match item.groupable_type {
                 GroupableType::Node => {
-                    group_response.nodes.push(item.groupable_id);
+                    nodes.push(item.groupable_id);
                 }
                 GroupableType::Host => {
-                    group_response.hosts.push(item.groupable_id);
+                    hosts.push(item.groupable_id);
                 }
             }
         }
-        Ok(group_response)
+        Ok(GroupResponse {
+            group_id: id,
+            nodes: (!nodes.is_empty()).then(|| nodes),
+            hosts: (!hosts.is_empty()).then(|| hosts),
+        })
     }
 
     pub async fn create(req: &GroupRequest, db: &PgPool) -> Result<Self> {
@@ -156,6 +157,6 @@ pub struct GroupAddRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GroupResponse {
     pub group_id: Uuid,
-    pub nodes: Vec<Uuid>,
-    pub hosts: Vec<Uuid>,
+    pub nodes: Option<Vec<Uuid>>,
+    pub hosts: Option<Vec<Uuid>>,
 }
