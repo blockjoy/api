@@ -21,11 +21,23 @@ async fn check_org_access(auth: Authentication, org_id: Uuid, db: &DbPool) -> Ap
 
 pub async fn create_group(
     Extension(db): Extension<DbPool>,
-    Json(group): Json<GroupRequest>,
+    Json(req): Json<GroupCreateRequest>,
     auth: Authentication,
 ) -> ApiResult<impl IntoResponse> {
+    check_org_access(auth, req.org_id, &db).await?;
+    let group = Group::create(&req, db.as_ref()).await?;
+    Ok((StatusCode::OK, Json(group)))
+}
+
+pub async fn update_group(
+    Extension(db): Extension<DbPool>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<GroupUpdateRequest>,
+    auth: Authentication,
+) -> ApiResult<impl IntoResponse> {
+    let group = Group::find_by_id(id, db.as_ref()).await?;
     check_org_access(auth, group.org_id, &db).await?;
-    let group = Group::create(&group, db.as_ref()).await?;
+    let group = Group::update(id, &req, db.as_ref()).await?;
     Ok((StatusCode::OK, Json(group)))
 }
 

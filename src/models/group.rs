@@ -100,7 +100,7 @@ impl Group {
         })
     }
 
-    pub async fn create(req: &GroupRequest, db: &PgPool) -> Result<Self> {
+    pub async fn create(req: &GroupCreateRequest, db: &PgPool) -> Result<Self> {
         sqlx::query_as::<_, Self>(
             r##"
             INSERT INTO groups
@@ -115,6 +115,17 @@ impl Group {
         .fetch_one(db)
         .await
         .map_err(ApiError::from)
+    }
+
+    pub async fn update(id: Uuid, req: &GroupUpdateRequest, db: &PgPool) -> Result<Self> {
+        sqlx::query_as::<_, Self>("UPDATE groups SET name = $1 WHERE id = $2 RETURNING *")
+            .bind(&req.name)
+            .bind(id)
+            .fetch_one(db)
+            .await
+            .map_err(ApiError::from)?;
+
+        Self::find_by_id(id, db).await
     }
 
     pub async fn add_members(req: &GroupMemberRequest, db: &PgPool) -> Result<Self> {
@@ -180,9 +191,14 @@ impl Group {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GroupRequest {
+pub struct GroupCreateRequest {
     pub name: String,
     pub org_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupUpdateRequest {
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
