@@ -52,6 +52,20 @@ pub async fn add_to_group(
     Ok((StatusCode::OK, Json(group)))
 }
 
+pub async fn delete_group(
+    Extension(db): Extension<DbPool>,
+    Path(id): Path<Uuid>,
+    auth: Authentication,
+) -> ApiResult<impl IntoResponse> {
+    let group = Group::find_by_id(id, db.as_ref()).await?;
+    check_org_access(auth, group.org_id, &db).await?;
+    let result = Group::delete(id, db.as_ref()).await?;
+    Ok((
+        StatusCode::OK,
+        Json(format!("Successfully deleted {} record(s).", result)),
+    ))
+}
+
 pub async fn delete_from_group(
     Extension(db): Extension<DbPool>,
     Json(req): Json<GroupMemberRequest>,

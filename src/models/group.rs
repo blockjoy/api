@@ -188,6 +188,20 @@ impl Group {
             Ok(0)
         }
     }
+
+    pub async fn delete(id: Uuid, db: &PgPool) -> Result<u64> {
+        let mut tx = db.begin().await?;
+        let deleted_group = sqlx::query("DELETE FROM groups WHERE id = $1")
+            .bind(id)
+            .execute(&mut tx)
+            .await?;
+        let deleted_members = sqlx::query("DELETE FROM groupable WHERE group_id = $1")
+            .bind(id)
+            .execute(&mut tx)
+            .await?;
+        tx.commit().await?;
+        Ok(deleted_group.rows_affected() + deleted_members.rows_affected())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -92,6 +92,7 @@ pub fn api_router() -> Router {
         .route("/groups", post(create_group))
         .route("/groups/:id", put(update_group))
         .route("/groups/:id", get(get_group))
+        .route("/groups/:id", delete(delete_group))
         .route("/groups/:id/members", get(get_group_members))
         .route("/groups/members", post(add_to_group))
         .route("/groups/members", delete(delete_from_group))
