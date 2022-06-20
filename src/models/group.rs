@@ -117,7 +117,7 @@ impl Group {
         .map_err(ApiError::from)
     }
 
-    pub async fn add(req: &GroupAddRequest, db: &PgPool) -> Result<Self> {
+    pub async fn add_members(req: &GroupMemberRequest, db: &PgPool) -> Result<Self> {
         let mut group = Self::find_by_id(req.group_id, db).await?;
 
         let (items, type_) = if let Some(nodes) = &req.nodes {
@@ -158,6 +158,25 @@ impl Group {
         }
         Ok(group)
     }
+
+    pub async fn delete_members(req: &GroupMemberRequest, db: &PgPool) -> Result<u64> {
+        let mut ids = Vec::<Uuid>::new();
+        if let Some(nodes) = &req.nodes {
+            ids.extend(nodes);
+        }
+        if let Some(hosts) = &req.hosts {
+            ids.extend(hosts);
+        }
+        if !ids.is_empty() {
+            let deleted_members = sqlx::query("DELETE FROM groupable WHERE groupable_id = ANY($1)")
+                .bind(ids)
+                .execute(db)
+                .await?;
+            Ok(deleted_members.rows_affected())
+        } else {
+            Ok(0)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,7 +186,7 @@ pub struct GroupRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GroupAddRequest {
+pub struct GroupMemberRequest {
     pub group_id: Uuid,
     pub nodes: Option<Vec<Uuid>>,
     pub hosts: Option<Vec<Uuid>>,

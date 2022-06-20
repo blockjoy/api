@@ -31,13 +31,27 @@ pub async fn create_group(
 
 pub async fn add_to_group(
     Extension(db): Extension<DbPool>,
-    Json(req): Json<GroupAddRequest>,
+    Json(req): Json<GroupMemberRequest>,
     auth: Authentication,
 ) -> ApiResult<impl IntoResponse> {
     let group = Group::find_by_id(req.group_id, db.as_ref()).await?;
     check_org_access(auth, group.org_id, &db).await?;
-    let group = Group::add(&req, db.as_ref()).await?;
+    let group = Group::add_members(&req, db.as_ref()).await?;
     Ok((StatusCode::OK, Json(group)))
+}
+
+pub async fn delete_from_group(
+    Extension(db): Extension<DbPool>,
+    Json(req): Json<GroupMemberRequest>,
+    auth: Authentication,
+) -> ApiResult<impl IntoResponse> {
+    let group = Group::find_by_id(req.group_id, db.as_ref()).await?;
+    check_org_access(auth, group.org_id, &db).await?;
+    let result = Group::delete_members(&req, db.as_ref()).await?;
+    Ok((
+        StatusCode::OK,
+        Json(format!("Successfully deleted {} record(s).", result)),
+    ))
 }
 
 pub async fn get_group(
@@ -50,13 +64,13 @@ pub async fn get_group(
     Ok((StatusCode::OK, Json(group)))
 }
 
-pub async fn get_group_items(
+pub async fn get_group_members(
     Extension(db): Extension<DbPool>,
     Path(id): Path<Uuid>,
     auth: Authentication,
 ) -> ApiResult<impl IntoResponse> {
     let group = Group::find_by_id(id, db.as_ref()).await?;
     check_org_access(auth, group.org_id, &db).await?;
-    let items = Group::get_members(id, db.as_ref()).await?;
-    Ok((StatusCode::OK, Json(items)))
+    let members = Group::get_members(id, db.as_ref()).await?;
+    Ok((StatusCode::OK, Json(members)))
 }
