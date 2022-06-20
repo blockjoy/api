@@ -1,6 +1,5 @@
 use crate::errors::{ApiError, Result};
-use crate::models::Host;
-use crate::models::Node;
+use crate::models::{Host, Node};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -53,33 +52,47 @@ impl Group {
     }
 
     pub async fn get_members(id: Uuid, db: &PgPool) -> Result<GroupResponse> {
-        let items = sqlx::query_as::<_, Groupable>(
+        let hosts = sqlx::query(
             r##"
             SELECT
-                *
+                hosts.*
             FROM
                 groupable
+            INNER JOIN
+                hosts
+            ON
+                hosts.id = groupable.groupable_id
             WHERE
-                group_id = $1"##,
+                groupable.group_id = $1
+            ORDER BY
+                lower(hosts.name) DESC"##,
         )
-        .bind(id)
+        .bind(&id)
+        .map(Host::from)
         .fetch_all(db)
         .await
         .map_err(ApiError::from)?;
 
-        let mut nodes = Vec::new();
-        let mut hosts = Vec::new();
+        let nodes = sqlx::query_as::<_, Node>(
+            r##"
+            SELECT
+                nodes.*
+            FROM
+                groupable
+            INNER JOIN
+                nodes
+            ON
+                nodes.id = groupable.groupable_id
+            WHERE
+                groupable.group_id = $1
+            ORDER BY
+                lower(nodes.name) DESC"##,
+        )
+        .bind(&id)
+        .fetch_all(db)
+        .await
+        .map_err(ApiError::from)?;
 
-        for item in items {
-            match item.groupable_type {
-                GroupableType::Node => {
-                    nodes.push(item.groupable_id);
-                }
-                GroupableType::Host => {
-                    hosts.push(item.groupable_id);
-                }
-            }
-        }
         Ok(GroupResponse {
             group_id: id,
             nodes: (!nodes.is_empty()).then(|| nodes),
@@ -163,6 +176,6 @@ pub struct GroupAddRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GroupResponse {
     pub group_id: Uuid,
-    pub nodes: Option<Vec<Uuid>>,
-    pub hosts: Option<Vec<Uuid>>,
+    pub nodes: Option<Vec<Node>>,
+    pub hosts: Option<Vec<Host>>,
 }
