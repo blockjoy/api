@@ -22,7 +22,7 @@ pub struct Groupable {
     groupable_type: GroupableType,
 }
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow, PartialEq)]
 pub struct Group {
     pub id: Uuid,
     pub name: String,
@@ -101,7 +101,7 @@ impl Group {
     }
 
     pub async fn create(req: &GroupCreateRequest, db: &PgPool) -> Result<Self> {
-        sqlx::query_as::<_, Self>(
+        let mut group = sqlx::query_as::<_, Self>(
             r##"
             INSERT INTO groups
                 (name, org_id)
@@ -114,7 +114,9 @@ impl Group {
         .bind(&req.org_id)
         .fetch_one(db)
         .await
-        .map_err(ApiError::from)
+        .map_err(ApiError::from)?;
+        group.member_count = Some(0);
+        Ok(group)
     }
 
     pub async fn update(id: Uuid, req: &GroupUpdateRequest, db: &PgPool) -> Result<Self> {

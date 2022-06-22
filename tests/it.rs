@@ -1279,6 +1279,272 @@ async fn it_should_crud_org() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn it_should_crud_groups() -> anyhow::Result<()> {
+    let db = Arc::new(setup().await);
+    let db_cloned = Arc::clone(&db);
+    let app = Router::new()
+        .route("/groups", post(create_group))
+        .layer(Extension(db_cloned.clone()))
+        .layer(TraceLayer::new_for_http());
+
+    let user = get_admin_user(&db).await;
+    let orgs = Org::find_all_by_user(&user.id, db.as_ref()).await?;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/groups")
+        .header(
+            "Authorization",
+            format!(
+                "Bearer {}",
+                user.token.clone().unwrap_or_else(|| "".to_string())
+            ),
+        )
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_string(&GroupCreateRequest {
+            name: String::from("test_org"),
+            org_id: orgs[0].id,
+        })?))?;
+
+    let resp = app.oneshot(req).await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = hyper::body::to_bytes(resp.into_body()).await?;
+    let group: Group = serde_json::from_slice(&body)?;
+
+    assert_eq!(group.name, "test_org");
+    assert_eq!(group.org_id, orgs[0].id);
+    assert_eq!(group.member_count, Some(0));
+
+    // GET
+    let app = Router::new()
+        .route("/groups/:id", get(get_group))
+        .layer(Extension(db_cloned.clone()))
+        .layer(TraceLayer::new_for_http());
+
+    let path = format!("/groups/{}", &group.id);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(&path)
+        .header(
+            "Authorization",
+            format!(
+                "Bearer {}",
+                user.token.clone().unwrap_or_else(|| "".to_string())
+            ),
+        )
+        .header("Content-Type", "application/json")
+        .body(Body::empty())?;
+
+    let resp = app.oneshot(req).await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = hyper::body::to_bytes(resp.into_body()).await?;
+    let returned_group: Group = serde_json::from_slice(&body)?;
+    assert_eq!(group, returned_group);
+
+    // UPDATE
+    let app = Router::new()
+        .route("/groups/:id", put(update_group))
+        .layer(Extension(db_cloned.clone()))
+        .layer(TraceLayer::new_for_http());
+
+    let path = format!("/groups/{}", &group.id);
+    let new_name = String::from("test_group_new");
+
+    let req = Request::builder()
+        .method("PUT")
+        .uri(&path)
+        .header(
+            "Authorization",
+            format!(
+                "Bearer {}",
+                user.token.clone().unwrap_or_else(|| "".to_string())
+            ),
+        )
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_string(&OrgRequest {
+            name: new_name.clone(),
+        })?))?;
+
+    let resp = app.oneshot(req).await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = hyper::body::to_bytes(resp.into_body()).await?;
+    let group: Group = serde_json::from_slice(&body)?;
+
+    assert_eq!(group.name, new_name);
+
+    // POST (members)
+    let app = Router::new()
+        .route("/hosts", post(create_host))
+        .layer(Extension(db_cloned.clone()))
+        .layer(TraceLayer::new_for_http());
+
+    let mut hosts = Vec::new();
+    for i in 0..2 {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/hosts")
+            .header("Content-Type", "application/json")
+            .header(
+                "Authorization",
+                format!(
+                    "Bearer {}",
+                    user.token.clone().unwrap_or_else(|| "".to_string())
+                ),
+            )
+            .body(Body::from(serde_json::to_string(&HostRequest {
+                org_id: None,
+                name: format!("Test Host {}", i),
+                version: Some("0.1.0".to_string()),
+                location: Some(i.to_string()),
+                cpu_count: None,
+                mem_size: None,
+                disk_size: None,
+                os: None,
+                os_version: None,
+                ip_addr: format!("192.168.8.{}", i)
+                    .parse()
+                    .expect("Couldn't parse ip address"),
+                val_ip_addrs: None,
+                token: format!("1234{}", i),
+                status: ConnectionStatus::Online,
+            })?))?;
+
+        let resp = app.clone().oneshot(req).await?;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = hyper::body::to_bytes(resp.into_body()).await?;
+        let host: Host = serde_json::from_slice(&body)?;
+        hosts.push(host);
+    }
+
+    let app = Router::new()
+        .route("/groups/members", post(add_to_group))
+        .layer(Extension(db_cloned.clone()))
+        .layer(TraceLayer::new_for_http());
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/groups/members")
+        .header(
+            "Authorization",
+            format!(
+                "Bearer {}",
+                user.token.clone().unwrap_or_else(|| "".to_string())
+            ),
+        )
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_string(&GroupMemberRequest {
+            group_id: group.id,
+            nodes: None,
+            hosts: Some(hosts.iter().map(|v| v.id).collect()),
+        })?))?;
+
+    let resp = app.oneshot(req).await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = hyper::body::to_bytes(resp.into_body()).await?;
+    let group: Group = serde_json::from_slice(&body)?;
+
+    assert_eq!(group.name, "test_group_new");
+    assert_eq!(group.org_id, orgs[0].id);
+    assert_eq!(group.member_count, Some(2));
+
+    // GET (members)
+    let app = Router::new()
+        .route("/groups/:id/members", get(get_group_members))
+        .layer(Extension(db_cloned.clone()))
+        .layer(TraceLayer::new_for_http());
+
+    let path = format!("/groups/{}/members", &group.id);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(&path)
+        .header(
+            "Authorization",
+            format!(
+                "Bearer {}",
+                user.token.clone().unwrap_or_else(|| "".to_string())
+            ),
+        )
+        .header("Content-Type", "application/json")
+        .body(Body::empty())?;
+
+    let resp = app.oneshot(req).await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = hyper::body::to_bytes(resp.into_body()).await?;
+    let members: GroupResponse = serde_json::from_slice(&body)?;
+
+    assert_eq!(members.hosts.unwrap().len(), 2);
+    assert_eq!(members.group_id, group.id);
+
+    // DELETE (members)
+    let app = Router::new()
+        .route("/groups/members", delete(delete_from_group))
+        .layer(Extension(db_cloned.clone()))
+        .layer(TraceLayer::new_for_http());
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/groups/members")
+        .header(
+            "Authorization",
+            format!(
+                "Bearer {}",
+                user.token.clone().unwrap_or_else(|| "".to_string())
+            ),
+        )
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_string(&GroupMemberRequest {
+            group_id: group.id,
+            nodes: None,
+            hosts: Some(vec![hosts[0].id]),
+        })?))?;
+
+    let resp = app.oneshot(req).await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = hyper::body::to_bytes(resp.into_body()).await?;
+    let result: String = serde_json::from_slice(&body)?;
+    assert_eq!(result, "Successfully deleted 1 record(s).");
+
+    // DELETE (groups)
+    let app = Router::new()
+        .route("/groups/:id", delete(delete_group))
+        .layer(Extension(db_cloned.clone()))
+        .layer(TraceLayer::new_for_http());
+
+    let path = format!("/groups/{}", &group.id);
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(&path)
+        .header(
+            "Authorization",
+            format!(
+                "Bearer {}",
+                user.token.clone().unwrap_or_else(|| "".to_string())
+            ),
+        )
+        .header("Content-Type", "application/json")
+        .body(Body::empty())?;
+
+    let resp = app.oneshot(req).await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = hyper::body::to_bytes(resp.into_body()).await?;
+    let result: String = serde_json::from_slice(&body)?;
+    assert_eq!(result, "Successfully deleted 1 record(s).");
+
+    Ok(())
+}
+
 async fn setup() -> PgPool {
     dotenv::dotenv().ok();
 
