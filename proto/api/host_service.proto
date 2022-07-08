@@ -1,0 +1,11 @@
+syntax="proto3";
+
+package blockjoy.api;
+
+import "api_messages.proto";
+
+// see https://discord.com/channels/835766935719247873/968766899884294174/994894495348949073
+service Hosts {
+  // reflects https://stakejoy.stoplight.io/docs/blockvisor-api/328bb218cffa6-list-pending-commands-for-host
+  rpc ListPendingCommands(stream HostPendingCommandsRequest) returns (stream HostPendingCommandsResponse) {}
+}

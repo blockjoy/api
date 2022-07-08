@@ -26,8 +26,57 @@ message Timestamps {
   google.protobuf.Timestamp updated_at = 2;
 }
 
+message UUID {
+  string value = 1;
+}
+
+message NodeInfo {
+  enum NodeStatus {
+      Available = 0;
+      Broadcasting = 1;
+      Cancelled = 2;
+      Consensus = 3;
+      Creating = 4;
+      Delegating = 5;
+      Delinquent = 6;
+      Disabled = 7;
+      Earning = 8;
+      Electing = 9;
+      Elected = 10;
+      Exporting = 11;
+      Ingesting = 12;
+      Installing = 13;
+      Migrating = 14;
+      Mining = 15;
+      Minting = 16;
+      Processing = 17;
+      Relaying = 18;
+      Removed = 19;
+      Removing = 20;
+      Running = 21;
+      Snapshoting = 22;
+      Staked = 23;
+      Staking = 24;
+      Started = 25;
+      Starting = 26;
+      Stopped = 27;
+      Stopping = 28;
+      Synced = 29;
+      Syncing = 30;
+      Upgrading = 31;
+      Validating = 32;
+  }
+
+  optional string version = 2;
+  optional string ip_addr = 3;
+  optional int64 block_height = 4;
+  optional string node_data = 5;
+  NodeStatus status = 6;
+  bool is_online = 7;
+}
+
 message Organization {
-  uint64 id = 1;
+  UUID id = 1;
   string name = 2;
   bool is_personal = 3;
   // TODO: Define role message type
@@ -38,7 +87,7 @@ message Organization {
 
 message Payment {
   string hash = 1;
-  uint64 user_id = 2;
+  UUID user_id = 2;
   int64 block = 3;
   string payer = 4;
   string payee = 5;
@@ -48,14 +97,14 @@ message Payment {
 }
 
 message User {
-  uint64 id = 1;
+  UUID id = 1;
   string email = 2;
   string password = 3;
   Timestamps timestamps = 4;
 }
 
 message UserSummary {
-  uint64 id = 1;
+  UUID id = 1;
   string email = 2;
   string pay_address = 3;
   int64 staking_quota = 4;
@@ -66,8 +115,74 @@ message UserSummary {
   int64 payments_total = 9;
   google.protobuf.Timestamp joined_at = 10;
 }
+
+message Command {
+  enum CommandValue {
+    CREATE_NODE = 0;
+    RESTART_NODE = 1;
+    KILL_NODE = 2;
+    SHUTDOWN_NODE = 3;
+    DELETE_NODE = 4;
+    UPDATE_NODE = 5;
+    MIGRATE_NODE = 6;
+    GET_NODE_VERSION = 7;
+    GET_BVS_VERSION = 8;
+    UPDATE_BVS = 9;
+    RESTART_BVS = 10;
+    REMOVE_BVS = 11;
+  }
+
+  UUID id = 1;
+  UUID host_id = 2;
+  CommandValue cmd = 3;
+  optional string sub_cmd = 4;
+  optional string response = 5;
+  optional int32 exit_status = 6;
+  optional google.protobuf.Timestamp created_at = 7;
+  optional google.protobuf.Timestamp completed_at = 8;
+}
 ///
 
+/**
+ * Command related
+ */
+message UpdateCommandResultRequest {
+  UUID id = 1;
+  optional string response = 2;
+  optional int32 exit_status = 3;
+}
+
+message UpdateCommandResultResponse {
+  ResponseStatus status = 1;
+  Command command = 2;
+}
+///
+
+/**
+ * Node related
+ */
+message UpdateNodeInfoRequest {
+  UUID id = 1;
+  NodeInfo info = 2;
+}
+
+message UpdateNodeInfoResponse {
+  ResponseStatus status = 1;
+}
+///
+
+/**
+ * Host related
+ */
+message HostPendingCommandsRequest {
+  UUID id = 1;
+}
+
+message HostPendingCommandsResponse {
+  ResponseStatus status = 1;
+  repeated Command commands = 2;
+}
+///
 /**
  * User related messages
  */
@@ -90,7 +205,7 @@ message GetUserSummariesResponse {
 }
 
 message GetUserOrgsRequest {
-  uint64 id = 1;
+  UUID id = 1;
 }
 
 message GetUserOrgsResponse {
@@ -99,7 +214,7 @@ message GetUserOrgsResponse {
 }
 
 message GetUserSummaryRequest {
-  uint64 id = 1;
+  UUID id = 1;
 }
 
 message GetUserSummaryResponse {
@@ -108,7 +223,7 @@ message GetUserSummaryResponse {
 }
 
 message GetUserPaymentsRequest {
-  uint64 id = 1;
+  UUID id = 1;
 }
 
 message GetUserPaymentsResponse {

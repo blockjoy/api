@@ -1,0 +1,11 @@
+syntax="proto3";
+
+package blockjoy.api;
+
+import "api_messages.proto";
+
+// see https://discord.com/channels/835766935719247873/968766899884294174/994894495348949073
+service Nodes {
+  // reflects https://stakejoy.stoplight.io/docs/blockvisor-api/f9ca532d5de2b-update-node-info
+  rpc UpdateNode(UpdateNodeInfoRequest) returns (UpdateNodeInfoResponse) {}
+}
