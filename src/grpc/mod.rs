@@ -1,3 +1,6 @@
+mod deserialize;
+mod serialize;
+
 use tonic::{Request, Status};
 
 pub mod blockjoy {
