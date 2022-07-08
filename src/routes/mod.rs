@@ -1,8 +1,8 @@
 //! routes/mod.rs
 
-mod node;
-mod group;
-mod command;
+mod nodes;
+mod groups;
+mod commands;
 mod validators;
 mod broadcast_filters;
 mod orgs;
@@ -38,7 +38,7 @@ pub fn api_router() -> Router {
         .nest("/host_provisions", host_provisions::routes())
         .nest("/broadcast_filters", broadcast_filters::routes())
         .nest("/validators", validators::routes())
-        .nest("/commands", command::routes())
-        .nest("/nodes", node::routes())
-        .nest("/groups", group::routes())
+        .nest("/commands", commands::routes())
+        .nest("/nodes", nodes::routes())
+        .nest("/groups", groups::routes())
 }
