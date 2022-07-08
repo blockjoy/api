@@ -1,14 +1,14 @@
 //! routes/mod.rs
 
-mod nodes;
-mod groups;
-mod commands;
-mod validators;
 mod broadcast_filters;
+mod commands;
+mod groups;
+mod host_provisions;
+mod hosts;
+mod nodes;
 mod orgs;
 mod users;
-mod hosts;
-mod host_provisions;
+mod validators;
 
 use crate::handlers::*;
 use axum::routing::{delete, get, post, put};
@@ -29,7 +29,6 @@ pub fn api_router() -> Router {
         .route("/rewards", post(create_rewards))
         .route("/payments", post(create_payments))
         .route("/qr/:id", get(get_qr))
-
         .route("/blockchains", get(list_blockchains))
         // Nested routes
         .nest("/orgs", orgs::routes())
