@@ -1,0 +1,118 @@
+syntax="proto3";
+
+package blockjoy.api;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/any.proto";
+
+/**
+ * Common message types
+ */
+message ResponseStatus {
+  enum ResponseCode {
+    UNKNOWN = 0;
+    SUCCESS = 1;
+    ERROR = 2;
+    PENDING = 3;
+  }
+
+  ResponseCode code = 1;
+  repeated string messages = 2;
+  google.protobuf.Timestamp received_at = 3;
+}
+
+message Timestamps {
+  google.protobuf.Timestamp created_at = 1;
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message Organization {
+  uint64 id = 1;
+  string name = 2;
+  bool is_personal = 3;
+  // TODO: Define role message type
+  string role = 4;
+  int64 member_count = 5;
+  Timestamps timestamps = 6;
+}
+
+message Payment {
+  string hash = 1;
+  uint64 user_id = 2;
+  int64 block = 3;
+  string payer = 4;
+  string payee = 5;
+  int64 amount = 6;
+  int64 oracle_price = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message User {
+  uint64 id = 1;
+  string email = 2;
+  string password = 3;
+  Timestamps timestamps = 4;
+}
+
+message UserSummary {
+  uint64 id = 1;
+  string email = 2;
+  string pay_address = 3;
+  int64 staking_quota = 4;
+  int64 fee_bps = 5;
+  int64 validator_count = 6;
+  int64 rewards_total = 7;
+  int64 invoices_total = 8;
+  int64 payments_total = 9;
+  google.protobuf.Timestamp joined_at = 10;
+}
+///
+
+/**
+ * User related messages
+ */
+message CreateUserRequest {
+  string email = 1;
+  string password = 2;
+  string password_confirm = 3;
+}
+
+message CreateUserResponse {
+  ResponseStatus status = 1;
+  User user = 2;
+}
+
+message GetUserSummariesRequest {}
+
+message GetUserSummariesResponse {
+  ResponseStatus status = 1;
+  repeated UserSummary summaries = 2;
+}
+
+message GetUserOrgsRequest {
+  uint64 id = 1;
+}
+
+message GetUserOrgsResponse {
+  ResponseStatus status = 1;
+  repeated Organization orgs = 2;
+}
+
+message GetUserSummaryRequest {
+  uint64 id = 1;
+}
+
+message GetUserSummaryResponse {
+  ResponseStatus status = 1;
+  UserSummary summary = 2;
+}
+
+message GetUserPaymentsRequest {
+  uint64 id = 1;
+}
+
+message GetUserPaymentsResponse {
+  ResponseStatus status = 1;
+  repeated Payment payments = 2;
+}
+///

@@ -1,0 +1,14 @@
+syntax="proto3";
+
+package blockjoy.api;
+
+import "api_messages.proto";
+
+// User related functions
+service Users {
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {}
+  rpc GetUserSummaries(GetUserSummariesRequest) returns (stream GetUserSummariesResponse) {}
+  rpc GetUserOrgs(GetUserOrgsRequest) returns (stream GetUserOrgsResponse) {}
+  rpc GetUserSummary(GetUserSummaryRequest) returns (GetUserSummaryResponse) {}
+  rpc GetUserPayments(GetUserPaymentsRequest) returns (stream GetUserPaymentsResponse) {}
+}

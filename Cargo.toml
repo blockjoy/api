@@ -18,9 +18,13 @@ argon2 = "0.2.0"
 axum = "0.5.6"
 chrono = {version = "0.4.19", features = ["serde"]}
 dotenv = "0.15.0"
+futures = "0.3"
+hyper = {version = "0.14.18", features = ["full"]}
 jsonwebtoken = "7.2.0"
 log = "0.4.14"
 petname = "1.1.0"
+prost = "0.10.4"
+prost-types = "0.10.1"
 qrcode-generator = "4.1.1"
 rand_core = {version = "0.6", features = ["std"]}
 random-string = "1.0.0"
@@ -30,12 +34,13 @@ serde_json = "1.0.81"
 sqlx = {version = "0.5", features = ["postgres", "runtime-tokio-rustls", "migrate", "chrono", "uuid", "json"]}
 thiserror = "1.0.24"
 tokio = {version = "1.2.0", default-features = false, features = ["io-util", "sync", "macros"]}
+tonic = "0.7.2"
+tower = {version = "0.4.12", features = ["util"]}
 tower-http = {version = "0.3.2", features = ["cors", "trace", "compression-gzip"]}
 tracing = "0.1.34"
 tracing-subscriber = {version = "0.3.11", features = ["env-filter"]}
 uuid = {version = "0.8", features = ["serde", "v4"]}
 validator = {version = "0.13.0", features = ["derive"]}
 
-[dev-dependencies]
-hyper = {version = "0.14.18", features = ["full"]}
-tower = {version = "0.4.12", features = ["util"]}
+[build-dependencies]
+tonic-build = "0.7.2"
