@@ -31,42 +31,134 @@ fn possible_routes() -> Vec<(&'static str, &'static str, StatusCode)> {
         // Command routes
         ("/commands/id", "GET", StatusCode::INTERNAL_SERVER_ERROR),
         ("/commands/id", "DELETE", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/commands/id/response", "PUT", StatusCode::INTERNAL_SERVER_ERROR),
+        (
+            "/commands/id/response",
+            "PUT",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
         // Validator routes
         ("/validators", "GET", StatusCode::INTERNAL_SERVER_ERROR),
         ("/validators/id", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/validators/id/migrate", "POST", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/validators/id/status", "PUT", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/validators/id/stake_status", "PUT", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/validators/id/owner_address", "PUT", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/validators/id/penalty", "PUT", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/validators/id/identity", "PUT", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/validators/staking", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/validators/consensus", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/validators/needs_attention", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/validators/inventory/count", "GET", StatusCode::INTERNAL_SERVER_ERROR),
+        (
+            "/validators/id/migrate",
+            "POST",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/validators/id/status",
+            "PUT",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/validators/id/stake_status",
+            "PUT",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/validators/id/owner_address",
+            "PUT",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/validators/id/penalty",
+            "PUT",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/validators/id/identity",
+            "PUT",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/validators/staking",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/validators/consensus",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/validators/needs_attention",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/validators/inventory/count",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
         // Broadcast filter routes
-        ("/broadcast_filters", "POST", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/broadcast_filters/id", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/broadcast_filters/id", "PUT", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/broadcast_filters/id", "DELETE", StatusCode::INTERNAL_SERVER_ERROR),
+        (
+            "/broadcast_filters",
+            "POST",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/broadcast_filters/id",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/broadcast_filters/id",
+            "PUT",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/broadcast_filters/id",
+            "DELETE",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
         // Organization routes
         ("/orgs", "POST", StatusCode::INTERNAL_SERVER_ERROR),
         ("/orgs/id", "GET", StatusCode::INTERNAL_SERVER_ERROR),
         ("/orgs/id", "DELETE", StatusCode::INTERNAL_SERVER_ERROR),
         ("/orgs/id", "PUT", StatusCode::INTERNAL_SERVER_ERROR),
         ("/orgs/id/members", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/orgs/id/broadcast_filters", "GET", StatusCode::INTERNAL_SERVER_ERROR),
+        (
+            "/orgs/id/broadcast_filters",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
         // User routes
         ("/users", "POST", StatusCode::INTERNAL_SERVER_ERROR),
         ("/users/id/orgs", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/users/id/summary", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/users/id/payments", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/users/id/rewards/summary", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/users/id/validators", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/users/id/validators", "POST", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/users/id/validators/staking/export", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/users/id/invoices", "GET", StatusCode::INTERNAL_SERVER_ERROR),
+        (
+            "/users/id/summary",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/users/id/payments",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/users/id/rewards/summary",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/users/id/validators",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/users/id/validators",
+            "POST",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/users/id/validators/staking/export",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/users/id/invoices",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
         ("/users/summary", "GET", StatusCode::INTERNAL_SERVER_ERROR),
         // Host routes
         ("/hosts", "POST", StatusCode::INTERNAL_SERVER_ERROR),
@@ -75,14 +167,42 @@ fn possible_routes() -> Vec<(&'static str, &'static str, StatusCode)> {
         ("/hosts/id", "PUT", StatusCode::INTERNAL_SERVER_ERROR),
         ("/hosts/id", "DELETE", StatusCode::INTERNAL_SERVER_ERROR),
         ("/hosts/id/status", "PUT", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/hosts/id/commands", "POST", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/hosts/id/commands", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/hosts/id/commands/pending", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/hosts/token/:token", "GET", StatusCode::INTERNAL_SERVER_ERROR),
+        (
+            "/hosts/id/commands",
+            "POST",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/hosts/id/commands",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/hosts/id/commands/pending",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/hosts/token/:token",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
         // Host provisions routes
-        ("/host_provisions", "POST", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/host_provisions/id", "GET", StatusCode::INTERNAL_SERVER_ERROR),
-        ("/host_provisions/id/hosts", "POST", StatusCode::INTERNAL_SERVER_ERROR),
+        (
+            "/host_provisions",
+            "POST",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/host_provisions/id",
+            "GET",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "/host_provisions/id/hosts",
+            "POST",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     ]
 }
 

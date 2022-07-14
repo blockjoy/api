@@ -1,10 +1,10 @@
+pub mod action;
 pub mod auth;
 pub mod errors;
+pub mod events;
 pub mod grpc;
 pub mod handlers;
 pub mod models;
 pub mod multiplex;
 pub mod routes;
 pub mod server;
-pub mod action;
-pub mod events;

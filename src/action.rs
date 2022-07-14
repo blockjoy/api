@@ -1,8 +1,5 @@
 //! Executable actions (command pattern)
 
-use std::sync::Arc;
-use sqlx::Postgres;
-
 pub type ExecutionResult<R> = Result<R, Box<dyn std::error::Error>>;
 
 /// Create executable action

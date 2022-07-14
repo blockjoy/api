@@ -1,8 +1,8 @@
 //! Build the event system
 
-use std::fmt::Display;
-use std::sync::Arc;
 use crate::errors::ApiError;
+use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum EventTypes {
@@ -10,13 +10,26 @@ pub enum EventTypes {
     UpdateCommand,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct Payload {
+    pub msg: String,
+}
+
+impl Display for Payload {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.msg)
+    }
+}
+
 pub trait IntoPayload: Display {
-    fn into_payload(&self) -> Self
-        where Self: Sized;
+    fn into_payload(&self) -> Payload;
 }
 
 pub struct EventDispatcher {
-    handlers: Vec<(EventTypes, Box<dyn FnOnce(Arc<dyn IntoPayload>) -> Result<(), ApiError>>)>
+    handlers: Vec<(
+        EventTypes,
+        Box<dyn FnOnce(Arc<dyn IntoPayload>) -> Result<(), ApiError>>,
+    )>,
 }
 
 impl EventDispatcher {
@@ -26,7 +39,8 @@ impl EventDispatcher {
 
     /// Register event handler to defined event
     pub fn register<F>(&mut self, evt: EventTypes, handler: F) -> Result<(), ApiError>
-        where F: Fn(Arc<dyn IntoPayload>) -> Result<(), ApiError> + 'static
+    where
+        F: Fn(Arc<dyn IntoPayload>) -> Result<(), ApiError> + 'static,
     {
         self.handlers.push((evt, Box::new(handler)));
 
@@ -50,17 +64,17 @@ impl EventDispatcher {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
     use crate::errors::ApiError;
-    use crate::events::{EventDispatcher, EventTypes, IntoPayload};
+    use crate::events::{EventDispatcher, EventTypes, IntoPayload, Payload};
+    use std::sync::Arc;
 
     impl IntoPayload for String {
-        fn into_payload(&self) -> Self {
-            self.clone()
+        fn into_payload(&self) -> Payload {
+            Payload { msg: self.clone() }
         }
     }
 
-    fn test_handler(pl: Arc<impl IntoPayload>) -> Result<(), ApiError> {
+    fn test_handler(pl: Arc<dyn IntoPayload>) -> Result<(), ApiError> {
         println!("some handler with payload: {}", pl.into_payload());
         Ok(())
     }
@@ -69,7 +83,7 @@ mod test {
     fn can_create_payload() {
         let pl = String::from("the payload");
 
-        assert_eq!(pl.into_payload(), "the payload".to_string())
+        pl.into_payload();
     }
 
     #[test]
@@ -81,17 +95,20 @@ mod test {
     fn can_register_handler() {
         let mut dispatcher = EventDispatcher::new();
 
-        dispatcher.register(EventTypes::NewCommand, test_handler).expect("register didn't work");
+        dispatcher
+            .register(EventTypes::NewCommand, test_handler)
+            .expect("register didn't work");
     }
 
-    /*
-    #[test]
-    fn can_notify_handlers() {
+    #[tokio::test]
+    async fn can_notify_handlers() {
         let mut dispatcher = EventDispatcher::new();
 
-        dispatcher.register(EventTypes::NewCommand, test_handler).expect("register didn't work");
-        dispatcher.notify(EventTypes::NewCommand, Arc::new("asdasdf".to_string()));
+        dispatcher
+            .register(EventTypes::NewCommand, test_handler)
+            .expect("register didn't work");
+        dispatcher
+            .notify(EventTypes::NewCommand, Arc::new("asdasdf".to_string()))
+            .await;
     }
-
-     */
 }
