@@ -3,7 +3,7 @@ use crate::errors::ApiError;
 use crate::models::*;
 use anyhow::anyhow;
 use axum::extract::{Extension, FromRequest, RequestParts};
-use axum::{async_trait, Router};
+use axum::{async_trait, middleware, Router};
 use log::{debug, warn};
 use routes::api_router;
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -12,11 +12,16 @@ use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use axum::body::BoxBody;
+use axum::http::Request;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 pub mod routes;
+pub mod authentication;
 
 pub type DbPool = Arc<PgPool>;
 
@@ -130,4 +135,34 @@ pub fn server(db: Arc<Pool<Postgres>>) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         .layer(Extension(db))
+        // add user as extension, if applicable
+        .layer(middleware::from_fn(user_extension_from_token))
+        // add user as extension, if applicable
+        .layer(middleware::from_fn(host_extension_from_token))
+}
+
+/// Add the user as request extension as identified by the Authorization header
+/// No response will be generated, as not finding a user might be desired behaviour
+async fn user_extension_from_token(
+    mut request: Request<BoxBody>,
+    next: Next<BoxBody>,
+) -> Result<impl IntoResponse, Response> {
+    if let Some(user) = authentication::user(&request) {
+        request.extensions_mut().insert(user);
+    };
+
+    Ok(next.run(request).await)
+}
+
+/// Add the host as request extension as identified by the Authorization header
+/// No response will be generated, as not finding a host might be desired behaviour
+async fn host_extension_from_token(
+    mut request: Request<BoxBody>,
+    next: Next<BoxBody>,
+) -> Result<impl IntoResponse, Response> {
+    if let Some(host) = authentication::host(&request) {
+        request.extensions_mut().insert(host);
+    };
+
+    Ok(next.run(request).await)
 }
