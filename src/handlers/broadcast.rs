@@ -1,6 +1,6 @@
 use crate::errors;
+use crate::http::DbPool;
 use crate::models::*;
-use crate::server::DbPool;
 use axum::extract::{Extension, Json, Path};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;

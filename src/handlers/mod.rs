@@ -1,7 +1,7 @@
 use crate::errors;
 use crate::errors::ApiError;
+use crate::http::DbPool;
 use crate::models::*;
-use crate::server::DbPool;
 use axum::body::{Body, Bytes};
 use axum::extract::{Extension, Json, Path, Query};
 use axum::http::StatusCode;

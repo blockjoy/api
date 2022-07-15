@@ -1,6 +1,6 @@
 //! Routes namespaced by ***/host_provisions***
 
-use crate::routes::*;
+use crate::http::routes::*;
 
 pub fn routes() -> Router {
     Router::new()

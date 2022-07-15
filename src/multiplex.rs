@@ -1,3 +1,6 @@
+//! Multiplex service providing both, HTTP and gRPC
+//! @see https://github.com/tokio-rs/axum/blob/d1043db25449a557f824c2ef8887817f0c306a31/examples/rest-grpc-multiplex/src/multiplex_service.rs
+
 use axum::{body::BoxBody, http::header::CONTENT_TYPE, response::IntoResponse};
 use futures::{future::BoxFuture, ready};
 use hyper::{Body, Request, Response};

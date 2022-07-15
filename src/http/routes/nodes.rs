@@ -1,6 +1,6 @@
 //! Routes namespaced by ***/nodes***
 
-use crate::routes::*;
+use crate::http::routes::*;
 
 pub fn routes() -> Router {
     Router::new()

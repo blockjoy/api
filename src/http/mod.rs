@@ -1,12 +1,13 @@
 use crate::auth;
 use crate::errors::ApiError;
 use crate::models::*;
-use crate::routes::api_router;
 use anyhow::anyhow;
-use axum::async_trait;
 use axum::extract::{Extension, FromRequest, RequestParts};
+use axum::{async_trait, Router};
 use log::{debug, warn};
+use routes::api_router;
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::{Pool, Postgres};
 use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -14,6 +15,8 @@ use std::time::Duration;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
+
+pub mod routes;
 
 pub type DbPool = Arc<PgPool>;
 
@@ -71,6 +74,10 @@ where
     }
 }
 
+#[deprecated(
+    since = "feat/grpc",
+    note = "starting the HTTP server directly is no longer desired"
+)]
 pub async fn start() -> anyhow::Result<()> {
     let db_url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
 
@@ -110,4 +117,17 @@ pub async fn start() -> anyhow::Result<()> {
     Ok(axum::Server::bind(&addr.parse()?)
         .serve(app.into_make_service())
         .await?)
+}
+
+pub fn server(db: Arc<Pool<Postgres>>) -> Router {
+    api_router()
+        .layer(
+            CorsLayer::new()
+                .allow_headers(Any)
+                .allow_methods(Any)
+                .allow_origin(Any),
+        )
+        .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new())
+        .layer(Extension(db))
 }

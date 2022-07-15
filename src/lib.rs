@@ -4,7 +4,6 @@ pub mod errors;
 pub mod events;
 pub mod grpc;
 pub mod handlers;
+pub mod http;
 pub mod models;
 pub mod multiplex;
-pub mod routes;
-pub mod server;
