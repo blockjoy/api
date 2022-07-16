@@ -86,6 +86,12 @@ impl From<PgRow> for Host {
     }
 }
 
+impl casbin_authorization::auth::Authorizable for Host {
+    fn get_role(&self) -> String {
+        "host".to_string()
+    }
+}
+
 impl Host {
     pub async fn find_all(db: &PgPool) -> Result<Vec<Self>> {
         sqlx::query("SELECT * FROM hosts order by lower(name)")

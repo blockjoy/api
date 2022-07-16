@@ -175,6 +175,12 @@ pub struct User {
     pub created_at: DateTime<Utc>,
 }
 
+impl casbin_authorization::auth::Authorizable for User {
+    fn get_role(&self) -> String {
+        "user".to_string()
+    }
+}
+
 impl User {
     pub fn verify_password(&self, password: &str) -> Result<()> {
         let argon2 = Argon2::default();

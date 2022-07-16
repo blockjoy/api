@@ -1,11 +1,15 @@
 use crate::errors;
 use crate::errors::ApiError;
-use crate::http::DbPool;
 use crate::models::*;
 use axum::body::{Body, Bytes};
 use axum::extract::{Extension, Json, Path, Query};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use casbin_authorization::{
+    auth,
+    auth::Authorizable
+};
+use casbin_macros::validate_privileges;
 use errors::Result as ApiResult;
 use log::debug;
 use qrcode_generator;
@@ -615,7 +619,9 @@ pub async fn list_commands(
     Ok((StatusCode::OK, Json(commands)))
 }
 
+#[validate_privileges(subject = "host", object = "users", action = "create")]
 pub async fn list_pending_commands(
+    Extension(host): Extension<Host>,
     Extension(db): Extension<DbPool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<impl IntoResponse> {

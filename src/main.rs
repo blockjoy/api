@@ -2,12 +2,12 @@ use api::grpc;
 use api::http;
 use api::multiplex::MultiplexService;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use api::models::DbPool;
 
-async fn db_connection() -> Arc<Pool<Postgres>> {
+async fn db_connection() -> DbPool {
     let db_url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
 
     let db_max_conn: u32 = std::env::var("DB_MAX_CONN")

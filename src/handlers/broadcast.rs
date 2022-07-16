@@ -1,5 +1,4 @@
 use crate::errors;
-use crate::http::DbPool;
 use crate::models::*;
 use axum::extract::{Extension, Json, Path};
 use axum::http::StatusCode;

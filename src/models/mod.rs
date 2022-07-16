@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use sqlx::{FromRow, PgPool};
 use std::convert::From;
+use std::sync::Arc;
 use uuid::Uuid;
 
 mod blockchain;
@@ -23,6 +24,8 @@ pub use user::*;
 
 pub const STAKE_QUOTA_DEFAULT: i64 = 5;
 pub const FEE_BPS_DEFAULT: i64 = 300;
+
+pub type DbPool = Arc<PgPool>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]

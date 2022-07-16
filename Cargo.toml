@@ -16,12 +16,15 @@ angry-purple-tiger = "0.1.0"
 anyhow = "1.0.40"
 argon2 = "0.2.0"
 axum = "0.5.6"
+casbin_authorization = { path = "../casbin_authorization" }
+casbin_macros = { path = "../casbin_authorization/casbin_macros" }
 chrono = {version = "0.4.19", features = ["serde"]}
 dotenv = "0.15.0"
 futures = "0.3"
 hyper = {version = "0.14.18", features = ["full"]}
 jsonwebtoken = "7.2.0"
-log = "0.4.14"
+# tstaetter: log 0.4.14 causes compilation errors on my local machine
+log = ">= 0.4.17"
 petname = "1.1.0"
 prost = "0.10.4"
 prost-types = "0.10.1"

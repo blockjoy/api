@@ -3,21 +3,20 @@ mod serialize;
 
 use crate::grpc::blockjoy::commands_server::{Commands, CommandsServer};
 use crate::grpc::blockjoy::{UpdateCommandResultRequest, UpdateCommandResultResponse};
-use sqlx::{Pool, Postgres};
-use std::sync::Arc;
 use tonic::codegen::InterceptedService;
 use tonic::{Request, Response, Status};
+use crate::models::DbPool;
 
 pub mod blockjoy {
     tonic::include_proto!("blockjoy.api");
 }
 
 pub struct CommandsServerImpl {
-    db: Arc<Pool<Postgres>>,
+    db: DbPool,
 }
 
 impl CommandsServerImpl {
-    pub fn new(db: Arc<Pool<Postgres>>) -> Self {
+    pub fn new(db: DbPool) -> Self {
         Self { db }
     }
 }
@@ -33,7 +32,7 @@ impl Commands for CommandsServerImpl {
 }
 
 pub fn server(
-    db: Arc<Pool<Postgres>>,
+    db: DbPool,
 ) -> InterceptedService<
     CommandsServer<CommandsServerImpl>,
     fn(Request<()>) -> Result<Request<()>, Status>,
