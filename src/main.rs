@@ -1,8 +1,8 @@
+use std::sync::Arc;
 use api::grpc;
 use api::http;
 use api::multiplex::MultiplexService;
 use sqlx::postgres::PgPoolOptions;
-use std::sync::Arc;
 use std::time::Duration;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use api::models::DbPool;
@@ -18,6 +18,7 @@ async fn db_connection() -> DbPool {
         .unwrap_or_else(|_| "2".to_string())
         .parse()
         .unwrap();
+
     let db = PgPoolOptions::new()
         .max_connections(db_max_conn)
         .min_connections(db_min_conn)
@@ -46,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let db = db_connection().await;
+    let db  = db_connection().await;
     let addr = build_address().parse()?;
     let rest_service = http::server(db.clone());
     let grpc_service = grpc::server(db.clone());

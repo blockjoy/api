@@ -4,7 +4,6 @@ use crate::models::*;
 use anyhow::anyhow;
 use axum::extract::{Extension, FromRequest, RequestParts};
 use axum::{async_trait, middleware, Router};
-use hyper::Body;
 use log::{debug, warn};
 use routes::api_router;
 use sqlx::postgres::{PgPoolOptions};
@@ -15,10 +14,11 @@ use std::time::Duration;
 use axum::http::Request;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use crate::models::DbPool;
+use crate::auth::FindableByToken;
 
 pub mod routes;
 pub mod authentication;
@@ -132,42 +132,28 @@ pub fn server(db: DbPool) -> Router {
         )
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
-        .layer(Extension(db.clone()))
-        // add user as extension, if applicable
-        // .layer(middleware::from_fn(user_extension_from_token))
-        // add user as extension, if applicable
-        //.layer(middleware::from_fn(host_extension_from_token))
-        .route_layer(middleware::from_fn(move |req, next| {
-            host_extension_from_token(req, next, db.clone())
-        }))
+        .layer(
+            ServiceBuilder::new()
+                .layer(Extension(db.clone()))
+                // add user as extension, if applicable
+                .layer(middleware::from_fn(subject_extension_from_token::<_, User>))
+                // add host as extension, if applicable
+                .layer(middleware::from_fn(subject_extension_from_token::<_, Host>))
+        )
 }
 
-/// Add the user as request extension as identified by the Authorization header
-/// No response will be generated, as not finding a user might be desired behaviour
-async fn user_extension_from_token(
-    mut request: Request<Body>,
-    next: Next<Body>,
+/// Add the authorizable subject to request extensions as identified by the Authorization header
+/// TODO: No response will be generated, as not finding a subject might be desired behaviour???
+///     maybe better return Status::UNAUTHENTICATED if no subject can't be found, as the missing
+///     extension raises an error on handler call. How about unauthenticated routes??
+async fn subject_extension_from_token<B, R>(
+    mut request: Request<B>,
+    next: Next<B>,
 ) -> Result<impl IntoResponse, Response>
+where R: FindableByToken
 {
-    if let Ok(user) = authentication::user(&request).await {
-        request.extensions_mut().insert(user);
-    };
-
-    Ok(next.run(request).await)
-}
-
-/// Add the host as request extension as identified by the Authorization header
-/// TODO: No response will be generated, as not finding a host might be desired behaviour???
-///     maybe better return Status::UNAUTHENTICATED if no host can't be found, as the missing
-///     extension raises an error on handler call
-async fn host_extension_from_token(
-    mut request: Request<Body>,
-    next: Next<Body>,
-    db: DbPool,
-) -> Result<impl IntoResponse, Response>
-{
-    if let Ok(host) = authentication::host(&request, db).await {
-        request.extensions_mut().insert(host);
+    if let Ok(subject) = authentication::resource::<B, R>(&request).await {
+        request.extensions_mut().insert(subject);
     };
 
     Ok(next.run(request).await)

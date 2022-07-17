@@ -5,9 +5,16 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 const JWT_SECRET: &str = "?G'A$jNW<$6x(PdFP?4VdRvmotIV^^";
+
+#[tonic::async_trait]
+pub trait FindableByToken: Send + Sync + 'static {
+    async fn find_by_token(token: &str, db: &PgPool) -> Result<Self>
+        where Self: Sized;
+}
 
 pub struct AuthData {
     pub user_id: uuid::Uuid,

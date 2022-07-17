@@ -10,11 +10,13 @@ use chrono::{DateTime, Utc};
 use rand_core::OsRng;
 use sendgrid::v3::*;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Row};
 use std::fmt;
 use std::str::FromStr;
+use sqlx::postgres::PgRow;
 use uuid::Uuid;
 use validator::Validate;
+use crate::auth::FindableByToken;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
@@ -175,9 +177,56 @@ pub struct User {
     pub created_at: DateTime<Utc>,
 }
 
+impl From<PgRow> for User {
+    fn from(row: PgRow) -> Self {
+        User {
+            id: row
+                .try_get("id").expect("Couldn't try_get id for user."),
+            email: row
+                .try_get("email")
+                .expect("Couldn't try_get email for user."),
+            hashword: row
+                .try_get("hashword")
+                .expect("Couldn't try_get hashword for user."),
+            role: row
+                .try_get("role")
+                .expect("Couldn't try_get role for user."),
+            salt: row
+                .try_get("salt")
+                .expect("Couldn't try_get salt for user."),
+            refresh: row
+                .try_get("refresh")
+                .expect("Couldn't try_get refresh for user."),
+            token: row
+                .try_get("token")
+                .expect("Couldn't try_get token for user."),
+            fee_bps: row
+                .try_get("fee_bps")
+                .expect("Couldn't try_get fee_bps for user."),
+            staking_quota: row
+                .try_get("staking_quota")
+                .expect("Couldn't try_get staking_quota for user."),
+            created_at: row
+                .try_get("created_at")
+                .expect("Couldn't try_get created_at for user."),
+        }
+    }
+}
+
 impl casbin_authorization::auth::Authorizable for User {
     fn get_role(&self) -> String {
         "user".to_string()
+    }
+}
+
+#[tonic::async_trait]
+impl FindableByToken for User {
+    async fn find_by_token(token: &str, db: &PgPool) -> Result<Self> {
+        Ok(sqlx::query("SELECT * FROM users WHERE token = $1")
+            .bind(token)
+            .map(Self::from)
+            .fetch_one(db)
+            .await?)
     }
 }
 

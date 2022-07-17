@@ -6,6 +6,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgPool, Row};
 use std::convert::From;
 use uuid::Uuid;
+use crate::auth::FindableByToken;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
@@ -92,6 +93,23 @@ impl casbin_authorization::auth::Authorizable for Host {
     }
 }
 
+#[tonic::async_trait]
+impl FindableByToken for Host {
+    async fn find_by_token(token: &str, db: &PgPool) -> Result<Self> {
+        let mut host = sqlx::query("SELECT * FROM hosts WHERE token = $1")
+            .bind(token)
+            .map(Self::from)
+            .fetch_one(db)
+            .await?;
+
+        // Add Validators list
+        host.validators = Some(Validator::find_all_by_host(host.id, db).await?);
+        host.nodes = Some(Node::find_all_by_host(host.id, db).await?);
+
+        Ok(host)
+    }
+}
+
 impl Host {
     pub async fn find_all(db: &PgPool) -> Result<Vec<Self>> {
         sqlx::query("SELECT * FROM hosts order by lower(name)")
@@ -110,20 +128,6 @@ impl Host {
 
         // Add Validators list
         host.validators = Some(Validator::find_all_by_host(host.id, db).await?);
-
-        Ok(host)
-    }
-
-    pub async fn find_by_token(token: &str, db: &PgPool) -> Result<Self> {
-        let mut host = sqlx::query("SELECT * FROM hosts WHERE token = $1")
-            .bind(token)
-            .map(Self::from)
-            .fetch_one(db)
-            .await?;
-
-        // Add Validators list
-        host.validators = Some(Validator::find_all_by_host(host.id, db).await?);
-        host.nodes = Some(Node::find_all_by_host(host.id, db).await?);
 
         Ok(host)
     }

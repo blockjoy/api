@@ -3,9 +3,9 @@ mod serialize;
 
 use crate::grpc::blockjoy::commands_server::{Commands, CommandsServer};
 use crate::grpc::blockjoy::{UpdateCommandResultRequest, UpdateCommandResultResponse};
+use crate::models::DbPool;
 use tonic::codegen::InterceptedService;
 use tonic::{Request, Response, Status};
-use crate::models::DbPool;
 
 pub mod blockjoy {
     tonic::include_proto!("blockjoy.api");

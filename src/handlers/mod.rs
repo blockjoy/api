@@ -17,6 +17,7 @@ use qrcode_generator::QrCodeEcc;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
+use crate::auth::FindableByToken;
 
 mod broadcast;
 pub use broadcast::*;
