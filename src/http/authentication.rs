@@ -23,10 +23,8 @@ pub async fn resource<B, R>(
 }
 
 /// Extract auth token from headers
-///
-/// TODO: Looks like headers can't be read from request?
 fn get_auth_token<B>(request: &Request<B>) -> Option<&str> {
-    let token = request
+    request
         .headers()
         .get(http::header::AUTHORIZATION)
         .and_then(|hv| hv.to_str().ok())
@@ -34,7 +32,5 @@ fn get_auth_token<B>(request: &Request<B>) -> Option<&str> {
             let words = hv.split("Bearer").collect::<Vec<&str>>();
 
             words.get(1).map(|w| w.trim())
-        });
-
-    token
+        })
 }
