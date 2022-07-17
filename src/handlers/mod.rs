@@ -620,7 +620,8 @@ pub async fn list_commands(
     Ok((StatusCode::OK, Json(commands)))
 }
 
-#[validate_privileges(subject = "host", object = "users", action = "create")]
+#[allow(unused_variables)]
+#[validate_privileges(subject = "host", object = "host_commands", action = "read_all")]
 pub async fn list_pending_commands(
     Extension(host): Extension<Host>,
     Extension(db): Extension<DbPool>,
