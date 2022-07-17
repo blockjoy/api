@@ -7,6 +7,7 @@ use sqlx::PgConnection;
 use sqlx::{FromRow, PgPool};
 use std::convert::From;
 use std::sync::Arc;
+use casbin_authorization::auth::OwnershipState;
 use uuid::Uuid;
 
 mod blockchain;
@@ -79,6 +80,23 @@ pub struct Command {
     pub exit_status: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
+}
+
+#[tonic::async_trait]
+impl casbin_authorization::auth::Owned<Host, &PgPool> for Command {
+    async fn is_owned_by(host: Host, db: &'static PgPool) -> OwnershipState {
+        match sqlx::query_as::<_, Self>("SELECT * FROM commands where host_id = $1")
+            .bind(host.id)
+            .fetch_one(db)
+            .await
+            .map_err(ApiError::from)
+        {
+            Ok(_) => OwnershipState::Owned,
+            Err(_) => OwnershipState::NotOwned,
+        }
+
+
+    }
 }
 
 impl Command {

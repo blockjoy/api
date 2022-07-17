@@ -441,6 +441,7 @@ dependencies = [
 name = "casbin_authorization"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "casbin",
  "casbin_macros",
  "thiserror",
