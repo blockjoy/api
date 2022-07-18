@@ -1,0 +1,20 @@
+[package]
+name = "casbin_authorization"
+version = "0.1.0"
+edition = "2021"
+authors = ["tstaetter <thomas@blockjoy.com>"]
+
+[features]
+default = ["macros"]
+macros = ["casbin_macros"]
+
+[dependencies]
+casbin = { version = "2.0.9", default-features = false, features = ["runtime-async-std", "logging", "incremental"] }
+casbin_macros = { path = "./casbin_macros", optional = true }
+thiserror = "1.0.31"
+axum = "0.5.6"
+
+[dev-dependencies]
+anyhow = "1.0.40"
+tokio = { version = "1.2.0", default-features = false, features = ["io-util", "sync", "macros"] }
+tower = { version = "0.4", features = ["full"] }

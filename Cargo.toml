@@ -16,8 +16,8 @@ angry-purple-tiger = "0.1.0"
 anyhow = "1.0.40"
 argon2 = "0.2.0"
 axum = "0.5.6"
-casbin_authorization = { path = "../casbin_authorization" }
-casbin_macros = { path = "../casbin_authorization/casbin_macros" }
+casbin_authorization = { path = "./casbin_authorization" }
+casbin_macros = { path = "./casbin_authorization/casbin_macros" }
 chrono = {version = "0.4.19", features = ["serde"]}
 dotenv = "0.15.0"
 futures = "0.3"
@@ -44,6 +44,9 @@ tracing = "0.1.34"
 tracing-subscriber = {version = "0.3.11", features = ["env-filter"]}
 uuid = {version = "0.8", features = ["serde", "v4"]}
 validator = {version = "0.13.0", features = ["derive"]}
+
+[dev-dependencies]
+axum-macros = "0.2.3"
 
 [build-dependencies]
 tonic-build = "0.7.2"

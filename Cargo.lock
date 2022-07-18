@@ -66,6 +66,7 @@ dependencies = [
  "anyhow",
  "argon2",
  "axum",
+ "axum-macros",
  "casbin_authorization",
  "casbin_macros",
  "chrono",
@@ -327,6 +328,18 @@ dependencies = [
  "http",
  "http-body",
  "mime",
+]
+
+[[package]]
+name = "axum-macros"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6293dae2ec708e679da6736e857cf8532886ef258e92930f38279c12641628b8"
+dependencies = [
+ "heck 0.4.0",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
