@@ -2,15 +2,15 @@
 FROM rust:alpine as build
 
 # We are indirectly depending on libbrotli.
-RUN apk update && apk add protobuf && apk add libc-dev && apk add protobuf-dev && apk add protoc
+RUN apk update && apk add libc-dev protobuf-dev
 
 WORKDIR /usr/src/api
 
 COPY . .
 
-ENV PATH="${PATH}:/usr/include:/usr/include/google:/usr/include/google/protobuf"
+# ENV PATH="${PATH}:/usr/include:/usr/include/google:/usr/include/google/protobuf"
 ENV RUSTFLAGS -Ctarget-feature=-crt-static
-RUN alias protoc=/usr/bin/protoc
+# RUN alias protoc=/usr/bin/protoc
 RUN cargo build --release
 RUN strip target/release/api
 
