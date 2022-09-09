@@ -24,6 +24,16 @@ message CreateUserResponse {
   ResponseMeta meta = 1;
 }
 
+message UpdateUserRequest {
+  RequestMeta meta = 1;
+  User user = 2;
+}
+
+message UpdateUserResponse {
+  ResponseMeta meta = 1;
+  User user = 2;
+}
+
 message UpsertConfigurationRequest {
   RequestMeta meta = 1;
   repeated UserConfigurationParameter params = 3;
@@ -42,14 +52,27 @@ message GetConfigurationResponse {
   repeated UserConfigurationParameter params = 2;
 }
 
+message ResetPasswordRequest {
+  string email = 1;
+}
+
+message ResetPasswordResponse {
+  ResponseMeta meta = 1;
+}
+
 /* User related services */
 service UserService {
   /* Retrieve a single user */
   rpc Get(GetUserRequest) returns (GetUserResponse) {}
   /* Create a single user */
   rpc Create(CreateUserRequest) returns (CreateUserResponse) {}
+  /* Update a single user. */
+  rpc Update(UpdateUserRequest) returns (UpdateUserResponse) {}
   /* Create/update configuration parameters */
   rpc UpsertConfiguration(UpsertConfigurationRequest) returns (UpsertConfigurationResponse) {}
   /* Retrieve all configuration parameters */
   rpc GetConfiguration(GetConfigurationRequest) returns (GetConfigurationResponse) {}
+  /* Send the reset password email out to this user. Intentionally returns nothing to hide whether
+  the user was registered or not */
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse) {}
 }
