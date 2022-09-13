@@ -1,4 +1,4 @@
-use api::auth::jwt_token::*;
+use api::auth::token::*;
 use axum::http::header::AUTHORIZATION;
 use axum::http::Request;
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
@@ -29,7 +29,7 @@ fn setup() -> TestData {
 #[test]
 fn should_encode_token() -> anyhow::Result<()> {
     let id = Uuid::new_v4();
-    let token = JwtToken::new(id, 123123, TokenHolderType::User);
+    let token = AuthToken::new(id, 123123, TokenHolderType::User);
     let secret = env::var("JWT_SECRET").expect("Secret not available in env");
     let header = Header::new(Algorithm::HS512);
 
@@ -46,13 +46,13 @@ fn should_encode_token() -> anyhow::Result<()> {
 fn should_decode_valid_token() -> anyhow::Result<()> {
     let id = Uuid::new_v4();
     let secret = env::var("JWT_SECRET").expect("Secret not available in env");
-    let token = JwtToken::new(id, _before_values.now, TokenHolderType::User);
+    let token = AuthToken::new(id, _before_values.now, TokenHolderType::User);
     let token_str = token.encode().unwrap();
     let mut validation = Validation::new(Algorithm::HS512);
 
     validation.validate_exp = true;
 
-    match jsonwebtoken::decode::<JwtToken>(
+    match jsonwebtoken::decode::<AuthToken>(
         token_str.as_str(),
         &DecodingKey::from_secret(secret.as_bytes()),
         &validation,
@@ -69,13 +69,13 @@ fn should_decode_valid_token() -> anyhow::Result<()> {
 fn should_panic_on_decode_expired_token() {
     let id = Uuid::new_v4();
     let secret = env::var("JWT_SECRET").expect("Secret not available in env");
-    let token = JwtToken::new(id, 123123, TokenHolderType::User);
+    let token = AuthToken::new(id, 123123, TokenHolderType::User);
     let token_str = token.encode().unwrap();
     let mut validation = Validation::new(Algorithm::HS512);
 
     validation.validate_exp = true;
 
-    match jsonwebtoken::decode::<JwtToken>(
+    match jsonwebtoken::decode::<AuthToken>(
         token_str.as_str(),
         &DecodingKey::from_secret(secret.as_bytes()),
         &validation,
@@ -96,7 +96,7 @@ fn should_panic_with_invalid_token() {
         .header(AUTHORIZATION, "some-token")
         .body(())
         .unwrap();
-    let _ = JwtToken::new_for_request(&request).unwrap();
+    let _ = AuthToken::new_for_request(&request).unwrap();
 }
 
 #[before(call = "setup")]
@@ -109,7 +109,7 @@ fn should_not_work_with_empty_token() {
         .body(())
         .unwrap();
 
-    assert!(JwtToken::new_for_request(&request).is_err());
+    assert!(AuthToken::new_for_request(&request).is_err());
 }
 
 #[before(call = "setup")]
@@ -117,14 +117,14 @@ fn should_not_work_with_empty_token() {
 fn should_get_valid_token() -> anyhow::Result<()> {
     let id = Uuid::new_v4();
     let exp = _before_values.now + 60 * 60 * 24;
-    let token = JwtToken::new(id, exp, TokenHolderType::User);
+    let token = AuthToken::new(id, exp, TokenHolderType::User);
     let encoded = base64::encode(token.encode().unwrap());
     let request = Request::builder()
         .header(AUTHORIZATION, format!("Bearer {}", encoded))
         .uri("/")
         .method("GET")
         .body(())?;
-    let token = JwtToken::new_for_request(&request).unwrap();
+    let token = AuthToken::new_for_request(&request).unwrap();
 
     assert_eq!(token.get_id(), id);
 
@@ -136,7 +136,7 @@ fn should_panic_encode_without_secret_in_envs() {
     env::remove_var("JWT_SECRET");
 
     assert!(
-        JwtToken::new(Uuid::new_v4(), 12312123, TokenHolderType::User)
+        AuthToken::new(Uuid::new_v4(), 12312123, TokenHolderType::User)
             .encode()
             .is_err()
     );
@@ -144,7 +144,7 @@ fn should_panic_encode_without_secret_in_envs() {
 
 #[test]
 fn should_not_decode_without_secret_in_envs() {
-    assert!(JwtToken::from_str("asf.asdfasdfasdfasdfsadfasdfasdf.asdfasfasdf").is_err());
+    assert!(AuthToken::from_str("asf.asdfasdfasdfasdfsadfasdfasdf.asdfasfasdf").is_err());
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn should_not_decode_without_secret_in_envs() {
 fn should_panic_on_encode_with_empty_secret_in_envs() {
     env::set_var("JWT_SECRET", "");
 
-    let token = JwtToken::new(Uuid::new_v4(), 12312123, TokenHolderType::User);
+    let token = AuthToken::new(Uuid::new_v4(), 12312123, TokenHolderType::User);
 
     assert!(token.encode().is_err());
 }
@@ -162,5 +162,5 @@ fn should_panic_on_encode_with_empty_secret_in_envs() {
 fn should_panic_on_decode_with_empty_secret_in_envs() {
     env::set_var("JWT_SECRET", "");
 
-    assert!(JwtToken::from_str("asf.asdfasdfasdfasdfsadfasdfasdf.asdfasfasdf").is_err());
+    assert!(AuthToken::from_str("asf.asdfasdfasdfasdfsadfasdfasdf.asdfasfasdf").is_err());
 }

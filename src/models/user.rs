@@ -1,12 +1,15 @@
 //! TODO: @tstaetter For now I've removed all JWT token related stuff, that needs to be reimplemented
 //!         using the new token respecting possible new workflows (eg magic link) TBD
 
-use crate::auth::{FindableById, TokenHolderType, TokenIdentifyable};
+use crate::auth::{FindableById, TokenHolderType, TokenIdentifyable, TokenType};
 use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy_ui::LoginUserRequest;
+use crate::mail::MailClient;
 use crate::models::{
-    org::Org, token::Token, token::TokenRole, validator::StakeStatus, FEE_BPS_DEFAULT,
-    STAKE_QUOTA_DEFAULT,
+    org::Org,
+    token::{Token, TokenRole, UserToken},
+    validator::StakeStatus,
+    FEE_BPS_DEFAULT, STAKE_QUOTA_DEFAULT,
 };
 use anyhow::anyhow;
 use argon2::{
@@ -19,13 +22,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 use validator::Validate;
-
-#[derive(Debug, Serialize, Deserialize, Validate)]
-pub struct PwdResetInfo {
-    #[validate(length(min = 8), must_match = "password_confirm")]
-    pub password: String,
-    pub password_confirm: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct User {
@@ -47,7 +43,6 @@ pub struct UserSelectiveUpdate {
     pub email: Option<String>,
     pub fee_bps: Option<i64>,
     pub staking_quota: Option<i64>,
-    pub token_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -75,14 +70,14 @@ impl User {
         )))
     }
 
-    pub async fn reset_password(_db: &PgPool, _req: &PwdResetInfo) -> Result<User> {
-        // TODO: use new auth
-        unimplemented!()
-    }
+    // pub async fn reset_password(_db: &PgPool, _req: &PwdResetInfo) -> Result<User> {
+    //     // TODO: use new auth
+    //     unimplemented!()
+    // }
 
-    pub async fn email_reset_password(_db: &PgPool, _req: PasswordResetRequest) -> Result<()> {
-        // TODO: use new auth
-        unimplemented!()
+    pub async fn email_reset_password(&self, db: &PgPool) -> Result<()> {
+        let client = MailClient::new();
+        client.reset_password(self, db).await
     }
 
     pub async fn can_stake(&self, db: &PgPool, count: i64) -> Result<bool> {
@@ -263,21 +258,13 @@ impl User {
 
             tx.commit().await?;
 
-            return match result {
-                Ok(user) => {
-                    if let Some(role) = role {
-                        Token::create_for::<User>(&user, role, db).await?;
-                    } else {
-                        Token::create_for::<User>(&user, TokenRole::User, db).await?;
-                    }
-
-                    Ok(user)
-                }
-                Err(e) => Err(e),
-            };
+            let user = result?;
+            let role = role.unwrap_or(TokenRole::User);
+            Token::create_for::<User>(&user, role, TokenType::Login, db).await?;
+            Ok(user)
+        } else {
+            Err(ApiError::ValidationError("Invalid password.".to_string()))
         }
-
-        Err(ApiError::ValidationError("Invalid password.".to_string()))
     }
 
     pub async fn login(login: LoginUserRequest, db: &PgPool) -> Result<Self> {
@@ -323,13 +310,11 @@ impl User {
                     email = COALESCE($1, email),
                     fee_bps = COALESCE($2, fee_bps),
                     staking_quota = COALESCE($3, staking_quota),
-                    token_id = COALESCE($4, token_id)
                 WHERE id = $5 RETURNING *"#,
         )
         .bind(fields.email)
         .bind(fields.fee_bps)
         .bind(fields.staking_quota)
-        .bind(fields.token_id)
         .bind(id)
         .fetch_one(&mut tx)
         .await?;
@@ -359,16 +344,10 @@ impl FindableById for User {
 
 #[axum::async_trait]
 impl TokenIdentifyable for User {
-    async fn set_token(token_id: Uuid, user_id: Uuid, db: &PgPool) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        let fields = UserSelectiveUpdate {
-            token_id: Some(token_id),
-            ..Default::default()
-        };
-
-        User::update_all(user_id, fields, db).await
+    async fn set_token(token_id: Uuid, user_id: Uuid, db: &PgPool) -> Result<()> {
+        let user_token = UserToken::new(user_id, token_id, TokenType::Login);
+        user_token.create_or_update(db).await?;
+        Ok(())
     }
 
     fn get_holder_type() -> TokenHolderType {
@@ -379,23 +358,13 @@ impl TokenIdentifyable for User {
         self.id
     }
 
-    async fn delete_token(user_id: Uuid, db: &PgPool) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        let fields = UserSelectiveUpdate {
-            token_id: None,
-            ..Default::default()
-        };
-
-        User::update_all(user_id, fields, db).await
+    async fn delete_token(user_id: Uuid, db: &PgPool) -> Result<()> {
+        UserToken::delete_by_user(user_id, TokenType::Login, db).await?;
+        Ok(())
     }
 
-    async fn get_token(&self, db: &PgPool) -> Result<Token>
-    where
-        Self: Sized,
-    {
-        Token::get::<User>(self.id, db).await
+    async fn get_token(&self, db: &PgPool) -> Result<Token> {
+        Token::get::<User>(self.id, TokenType::Login, db).await
     }
 }
 
@@ -428,11 +397,11 @@ pub struct UserRequest {
     pub password_confirm: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-pub struct PasswordResetRequest {
-    #[validate(email)]
-    pub email: String,
-}
+// #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+// pub struct PasswordResetRequest {
+//     #[validate(email)]
+//     pub email: String,
+// }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserRefreshRequest {

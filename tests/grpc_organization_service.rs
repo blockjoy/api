@@ -26,7 +26,6 @@ async fn responds_ok_for_create() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
     };
     let org = Organization {
         name: Some("new-org".to_string()),

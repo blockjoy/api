@@ -2,7 +2,7 @@ use super::{
     validator::Validator, validator::ValidatorRequest, Node, NodeChainStatus, NodeCreateRequest,
     NodeProvision, NodeSyncStatus, Token, TokenRole,
 };
-use crate::auth::{FindableById, Owned, TokenHolderType, TokenIdentifyable};
+use crate::auth::{FindableById, Owned, TokenHolderType, TokenIdentifyable, TokenType};
 use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy::HostInfo;
 use crate::models::{ContainerStatus, UpdateInfo};
@@ -159,7 +159,7 @@ impl Host {
 
         tx.commit().await?;
 
-        Token::create_for::<Host>(&host, TokenRole::Service, db).await?;
+        Token::create_for::<Host>(&host, TokenRole::Service, TokenType::Login, db).await?;
 
         Ok(host)
     }
@@ -292,17 +292,15 @@ impl FindableById for Host {
 
 #[axum::async_trait]
 impl TokenIdentifyable for Host {
-    async fn set_token(token_id: Uuid, host_id: Uuid, db: &PgPool) -> Result<Self>
-    where
-        Self: Sized,
-    {
+    async fn set_token(token_id: Uuid, host_id: Uuid, db: &PgPool) -> Result<()> {
         let fields = HostSelectiveUpdate {
             token_id: Some(token_id),
             status: Some(ConnectionStatus::Online),
             ..Default::default()
         };
 
-        Host::update_all(host_id, fields, db).await
+        Host::update_all(host_id, fields, db).await?;
+        Ok(())
     }
 
     fn get_holder_type() -> TokenHolderType {
@@ -313,23 +311,21 @@ impl TokenIdentifyable for Host {
         self.id
     }
 
-    async fn delete_token(host_id: Uuid, db: &PgPool) -> Result<Self>
-    where
-        Self: Sized,
-    {
+    async fn delete_token(host_id: Uuid, db: &PgPool) -> Result<()> {
         let fields = HostSelectiveUpdate {
             token_id: None,
             ..Default::default()
         };
 
-        Host::update_all(host_id, fields, db).await
+        Host::update_all(host_id, fields, db).await?;
+        Ok(())
     }
 
     async fn get_token(&self, db: &PgPool) -> Result<Token>
     where
         Self: Sized,
     {
-        Token::get::<Host>(self.id, db).await
+        Token::get::<Host>(self.id, TokenType::Login, db).await
     }
 }
 

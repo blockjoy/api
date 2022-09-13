@@ -1,7 +1,7 @@
 use anyhow::anyhow;
+use sqlx::PgPool;
 
-use crate::errors;
-use crate::models;
+use crate::{auth, errors, models};
 use std::collections::HashMap;
 
 pub struct MailClient {
@@ -18,13 +18,18 @@ impl MailClient {
 
     /// Sends a password reset email to the specified user, containing a JWT that they can use to
     /// authenticate themselves to reset their password.
-    pub async fn reset_password(&self, user: &models::User) -> errors::Result<()> {
+    pub async fn reset_password(&self, user: &models::User, db: &PgPool) -> errors::Result<()> {
+        use auth::TokenType::*;
         const TEMPLATES: &str = include_str!("../mails/reset_password.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES).unwrap();
+        let login_token = models::Token::get::<models::User>(user.id, Login, db).await?;
+        let token = models::Token::create_for(user, login_token.role, PwdReset, db).await?;
+        models::UserToken::new(user.id, token.id, PwdReset)
+            .create_or_update(db)
+            .await?;
         let mut context = HashMap::new();
-        // Todo: actually generate a JWT and insert it here.
-        context.insert("token".to_owned(), "todo".to_owned());
+        context.insert("token".to_owned(), token.token);
         self.send_mail(&templates, user, context).await
     }
 

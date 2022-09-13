@@ -1,3 +1,4 @@
+use crate::auth::TokenType;
 use crate::errors::{ApiError, Result as ApiResult};
 use crate::grpc::blockjoy::{
     command_flow_server::CommandFlow, info_update::Info as GrpcInfo, Command as GrpcCommand,
@@ -157,10 +158,11 @@ impl CommandFlow for CommandFlowServerImpl {
     ) -> Result<Response<Self::CommandsStream>, Status> {
         // DB token must be added by middleware beforehand
         let db_token = request.extensions().get::<Token>().unwrap();
-        let host_id = match Token::get_host_for_token(db_token.token.clone(), &self.db).await {
-            Ok(host) => host.id,
-            Err(e) => return Err(Status::from(e)),
-        };
+        let host_id =
+            match Token::get_host_for_token(&db_token.token, TokenType::Login, &self.db).await {
+                Ok(host) => host.id,
+                Err(e) => return Err(Status::from(e)),
+            };
 
         // Host::toggle_online(host_id, true, &self.db).await?;
 

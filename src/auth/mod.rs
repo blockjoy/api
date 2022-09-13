@@ -1,8 +1,8 @@
-pub mod jwt_token;
 pub mod middleware;
+pub mod token;
 pub mod unauthenticated_paths;
 
-pub use jwt_token::*;
+pub use token::*;
 
 use crate::errors::Result as ApiResult;
 use crate::models::Token;
@@ -49,21 +49,15 @@ pub trait FindableById: Send + Sync + 'static {
 
 #[axum::async_trait]
 pub trait TokenIdentifyable: Send + Sync + 'static {
-    async fn set_token(token_id: Uuid, resource_id: Uuid, db: &PgPool) -> ApiResult<Self>
-    where
-        Self: Sized;
+    async fn set_token(token_id: Uuid, resource_id: Uuid, db: &PgPool) -> ApiResult<()>;
 
     fn get_holder_type() -> TokenHolderType;
 
     fn get_id(&self) -> Uuid;
 
-    async fn delete_token(resource_id: Uuid, db: &PgPool) -> ApiResult<Self>
-    where
-        Self: Sized;
+    async fn delete_token(resource_id: Uuid, db: &PgPool) -> ApiResult<()>;
 
-    async fn get_token(&self, db: &PgPool) -> ApiResult<Token>
-    where
-        Self: Sized;
+    async fn get_token(&self, db: &PgPool) -> ApiResult<Token>;
 }
 
 pub type AuthorizationResult = std::result::Result<AuthorizationState, AuthorizationError>;

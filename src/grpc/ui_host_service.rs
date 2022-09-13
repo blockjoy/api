@@ -1,4 +1,4 @@
-use crate::auth::FindableById;
+use crate::auth::{FindableById, TokenType};
 use crate::grpc::blockjoy_ui::host_service_server::HostService;
 use crate::grpc::blockjoy_ui::{
     get_hosts_request, response_meta, CreateHostRequest, CreateHostResponse, DeleteHostRequest,
@@ -48,8 +48,8 @@ impl HostService for HostServiceImpl {
                     .map(GrpcHost::from)
                     .collect()
             }
-            get_hosts_request::Param::Token(token) => vec![GrpcHost::from(
-                Token::get_host_for_token(token, &self.db).await?,
+            get_hosts_request::Param::Token(ref token) => vec![GrpcHost::from(
+                Token::get_host_for_token(token, TokenType::Login, &self.db).await?,
             )],
         };
 

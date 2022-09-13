@@ -2,3 +2,4 @@
 /casbin_authorization/target
 .env
 /.idea
+.vscode

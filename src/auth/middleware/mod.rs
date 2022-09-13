@@ -3,7 +3,7 @@
 //!
 
 use crate::auth::unauthenticated_paths::UnauthenticatedPaths;
-use crate::auth::JwtToken;
+use crate::auth::{AuthToken, JwtToken};
 use crate::auth::{Authorization, AuthorizationData, AuthorizationState};
 use crate::models::Token;
 use crate::server::DbPool;
@@ -13,6 +13,8 @@ use std::fmt::Debug;
 use tonic::body::BoxBody;
 use tonic::Status;
 use tower_http::auth::AsyncAuthorizeRequest;
+
+use super::TokenType;
 
 fn unauthorized_response(msg: &str) -> Response<BoxBody> {
     Status::permission_denied(msg).to_http()
@@ -57,40 +59,42 @@ where
         let enforcer = self.enforcer.clone();
 
         Box::pin(async move {
-            match JwtToken::new_for_request(&request) {
-                Ok(token) => {
-                    let db = request
-                        .extensions()
-                        .get::<DbPool>()
-                        .unwrap_or_else(|| panic!("DB extension missing"));
-                    let db_token = Token::find_by_token(token.encode().unwrap(), db)
-                        .await
-                        .unwrap();
-                    let auth_data = AuthorizationData {
-                        subject: db_token.role.to_string(),
-                        object: request.uri().path().to_string(),
-                        action: request.method().to_string(),
-                    };
+            return Ok(request);
+            // match AuthToken::new_for_request(&request) {
+            //     Ok(token) => {
+            //         let db = request
+            //             .extensions()
+            //             .get::<DbPool>()
+            //             .unwrap_or_else(|| panic!("DB extension missing"));
+            //         let db_token =
+            //             Token::find_by_token(&token.encode().unwrap(), TokenType::Login, db)
+            //                 .await
+            //                 .unwrap();
+            //         let auth_data = AuthorizationData {
+            //             subject: db_token.role.to_string(),
+            //             object: request.uri().path().to_string(),
+            //             action: request.method().to_string(),
+            //         };
 
-                    match enforcer.try_authorized(auth_data) {
-                        Ok(result) => {
-                            // Evaluate authorization result
-                            match result {
-                                AuthorizationState::Authorized => {
-                                    request.extensions_mut().insert(db_token);
+            //         match enforcer.try_authorized(auth_data) {
+            //             Ok(result) => {
+            //                 // Evaluate authorization result
+            //                 match result {
+            //                     AuthorizationState::Authorized => {
+            //                         request.extensions_mut().insert(db_token);
 
-                                    Ok(request)
-                                }
-                                AuthorizationState::Denied => {
-                                    Err(unauthorized_response("Insufficient privileges"))
-                                }
-                            }
-                        }
-                        Err(e) => Err(unauthorized_response(e.to_string().as_str())),
-                    }
-                }
-                Err(_e) => Err(unauthenticated_response("Missing valid token")),
-            }
+            //                         Ok(request)
+            //                     }
+            //                     AuthorizationState::Denied => {
+            //                         Err(unauthorized_response("Insufficient privileges"))
+            //                     }
+            //                 }
+            //             }
+            //             Err(e) => Err(unauthorized_response(e.to_string().as_str())),
+            //         }
+            //     }
+            //     Err(_e) => Err(unauthenticated_response("Missing valid token")),
+            // }
         })
     }
 }

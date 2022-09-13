@@ -1,7 +1,7 @@
 mod setup;
 
 use crate::setup::get_admin_user;
-use api::auth::{JwtToken, TokenHolderType, TokenIdentifyable};
+use api::auth::{AuthToken, JwtToken, TokenHolderType, TokenIdentifyable};
 use api::models::Token;
 use setup::{get_test_host, setup};
 use std::thread::sleep;
@@ -14,7 +14,7 @@ async fn can_create_host_token() {
     let db = _before_values.await;
     let host = get_test_host(&db).await;
     let token = host.get_token(&db).await.unwrap();
-    let token_str = JwtToken::new(host.id, token.expires_at.timestamp(), TokenHolderType::Host)
+    let token_str = AuthToken::new(host.id, token.expires_at.timestamp(), TokenHolderType::Host)
         .encode()
         .unwrap();
 
@@ -43,7 +43,7 @@ async fn can_create_user_token() {
     let db = _before_values.await;
     let user = get_admin_user(&db).await;
     let token = user.get_token(&db).await.unwrap();
-    let token_str = JwtToken::new(user.id, token.expires_at.timestamp(), TokenHolderType::User)
+    let token_str = AuthToken::new(user.id, token.expires_at.timestamp(), TokenHolderType::User)
         .encode()
         .unwrap();
 
