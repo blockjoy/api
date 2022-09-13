@@ -27,8 +27,9 @@ message ApiToken {
  * Pagination information, used in the response type
  */
 message Pagination {
-  int32 total_items = 1;
-  int32 offset = 2;
+  /* Optional total number of items, may not be bigger than PAGINATION_MAX_COUNT */
+  optional int32 total_items = 1;
+  int32 current_page = 2;
   int32 items_per_page = 3;
 }
 
@@ -40,8 +41,8 @@ message RequestMeta {
   optional ApiToken token = 2;
   /* Optionally pass in an array of field names expected to be returned. */
   repeated string fields = 3;
-  /* Optionally pass in a number of entities to be returned. May not be bigger than MAX_COUNT */
-  optional int32 limit = 4;
+  /* Optionally pass in pagination */
+  optional Pagination pagination = 5;
 }
 
 /* General response meta data */
@@ -65,9 +66,6 @@ message ResponseMeta {
   optional Pagination pagination = 4;
 }
 
-/*
- * TODO: Single host representation.
- */
 message Host {
   /* Possible states the container is described with */
   enum HostStatus {
