@@ -273,6 +273,21 @@ async fn responds_ok_for_delete() {
 
 #[before(call = "setup")]
 #[tokio::test]
+async fn responds_unauthenticated_without_valid_token_for_delete() {
+    let db = Arc::new(_before_values.await);
+    let hosts = Host::find_all(&db).await.unwrap();
+    let host = hosts.first().unwrap();
+    let b_uuid = blockjoy::Uuid::from(host.id);
+    let inner = DeleteHostRequest {
+        request_id: Some(blockjoy::Uuid::from(Uuid::new_v4())),
+        host_id: Some(b_uuid),
+    };
+
+    assert_grpc_request! { delete, Request::new(inner), tonic::Code::Unauthenticated, db, HostsClient<Channel> };
+}
+
+#[before(call = "setup")]
+#[tokio::test]
 async fn responds_permission_denied_for_delete() {
     let db = Arc::new(_before_values.await);
     let hosts = Host::find_all(&db).await.unwrap();

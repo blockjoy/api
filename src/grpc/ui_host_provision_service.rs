@@ -2,6 +2,7 @@ use crate::grpc::blockjoy_ui::host_provision_service_server::HostProvisionServic
 use crate::grpc::blockjoy_ui::{
     response_meta, CreateHostProvisionRequest, CreateHostProvisionResponse,
     GetHostProvisionRequest, GetHostProvisionResponse, HostProvision as GrpcHostProvision,
+    ResponseMeta,
 };
 use crate::grpc::helpers::success_response_meta;
 use crate::models::{HostProvision, HostProvisionRequest};
@@ -56,11 +57,13 @@ impl HostProvisionService for HostProvisionServiceImpl {
         };
 
         match HostProvision::create(req, &self.db).await {
-            Ok(_) => {
-                let response_meta = success_response_meta(
-                    response_meta::Status::Success as i32,
-                    inner.meta.unwrap().id,
-                );
+            Ok(provision) => {
+                let response_meta = ResponseMeta {
+                    status: response_meta::Status::Success.into(),
+                    origin_request_id: inner.meta.unwrap().id,
+                    messages: vec![provision.id],
+                    pagination: None,
+                };
                 let response = CreateHostProvisionResponse {
                     meta: Some(response_meta),
                 };
