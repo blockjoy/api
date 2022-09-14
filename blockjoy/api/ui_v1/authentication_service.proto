@@ -37,7 +37,7 @@ message UpdatePasswordRequest {
   string password = 2;
 }
 
-message UpdatePasswordRequest {
+message UpdatePasswordResponse {
   ResponseMeta meta = 1;
 }
 
@@ -53,5 +53,5 @@ service AuthenticationService {
   the user was registered or not */
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
   /* Update the user's password to a new value */
-  rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordRequest);
+  rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordResponse);
 }
