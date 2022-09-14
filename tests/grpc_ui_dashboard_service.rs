@@ -19,7 +19,7 @@ async fn responds_unauthenticated_with_invalid_token_for_metrics() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let inner = DashboardMetricsRequest {
         meta: Some(request_meta),
@@ -42,7 +42,7 @@ async fn responds_ok_with_valid_token_for_metrics() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let user = get_admin_user(&db).await;
     let token = user.get_token(&db).await.unwrap();
@@ -67,7 +67,7 @@ async fn responds_valid_values_for_metrics() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let user = get_admin_user(&db).await;
     let token = user.get_token(&db).await.unwrap();

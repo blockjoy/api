@@ -36,7 +36,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         let token = ApiToken {
             value: db_token.token,
         };
-        let meta = success_response_meta(i32::from(Success), inner.meta.unwrap().id);
+        let meta = success_response_meta(inner.meta.unwrap().id);
         let response = LoginUserResponse {
             meta: Some(meta),
             token: Some(token),
@@ -59,7 +59,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
                 value: Token::refresh(db_token, &self.db).await?.token,
             };
 
-            let meta = success_response_meta(i32::from(Success), request_id);
+            let meta = success_response_meta(request_id);
             let response = RefreshTokenResponse {
                 meta: Some(meta),
                 token: Some(new_token),

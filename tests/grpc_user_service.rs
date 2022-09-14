@@ -21,7 +21,7 @@ async fn responds_ok_with_valid_token_for_get() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let user = get_admin_user(&db.clone()).await;
     let token = user.get_token(&db).await.unwrap();
@@ -46,7 +46,7 @@ async fn responds_unauthenticated_without_valid_token_for_get() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let token = encode("some-invalid-token");
     let inner = GetUserRequest {
@@ -70,7 +70,7 @@ async fn responds_ok_without_token_for_create() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let grpc_user = GrpcUser {
         id: None,
@@ -99,7 +99,7 @@ async fn responds_error_with_existing_email_for_create() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let user = get_admin_user(&db.clone()).await;
     let token = user.get_token(&db).await.unwrap();
@@ -135,7 +135,7 @@ async fn responds_error_with_different_pwds_for_create() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let user = get_admin_user(&db.clone()).await;
     let token = user.get_token(&db).await.unwrap();

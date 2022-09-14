@@ -101,6 +101,30 @@ impl Org {
         .map_err(ApiError::from)
     }
 
+    /// Returns the users of an organization
+    pub async fn find_all_member_users_paginated(
+        org_id: &Uuid,
+        limit: i32,
+        offset: i32,
+        db: &PgPool,
+    ) -> Result<Vec<User>> {
+        sqlx::query_as::<_, User>(
+            r#"SELECT users.*
+                        FROM users
+                            RIGHT JOIN orgs_users ou
+                                ON users.id = ou.user_id
+                        WHERE ou.org_id = $1
+                        ORDER BY users.email
+                        LIMIT $2 OFFSET $3"#,
+        )
+        .bind(&org_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(db)
+        .await
+        .map_err(ApiError::from)
+    }
+
     /// Checks if the user is a member
     pub async fn is_member(user_id: &Uuid, org_id: &Uuid, db: &PgPool) -> Result<bool> {
         let _ = Self::find_org_user(user_id, org_id, db).await?;

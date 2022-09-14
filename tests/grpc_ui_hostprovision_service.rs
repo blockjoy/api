@@ -26,7 +26,7 @@ async fn responds_not_found_without_valid_id_for_get() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let user = get_admin_user(&db).await;
     let token = user.get_token(&db).await.unwrap();
@@ -52,7 +52,7 @@ async fn responds_ok_with_valid_id_for_get() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let user = get_admin_user(&db).await;
     let mut tx = db.begin().await.unwrap();
@@ -93,7 +93,7 @@ async fn responds_error_with_invalid_provision_for_create() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let user = get_admin_user(&db).await;
     let token = user.get_token(&db).await.unwrap();
@@ -119,7 +119,7 @@ async fn responds_ok_with_valid_provision_for_create() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let user = get_admin_user(&db).await;
     let mut tx = db.begin().await.unwrap();

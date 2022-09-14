@@ -33,10 +33,7 @@ impl NodeService for NodeServiceImpl {
 
                 match Node::find_by_id(&node_id, &self.db).await {
                     Ok(node) => {
-                        let response_meta = success_response_meta(
-                            response_meta::Status::Success.into(),
-                            inner.meta.unwrap().id,
-                        );
+                        let response_meta = success_response_meta(inner.meta.unwrap().id);
                         let response = GetNodeResponse {
                             meta: Some(response_meta),
                             node: Some(GrpcNode::from(node)),
@@ -87,10 +84,7 @@ impl NodeService for NodeServiceImpl {
 
         match Node::update_info(&node_id, &fields, &self.db).await {
             Ok(_) => {
-                let response_meta = success_response_meta(
-                    response_meta::Status::Success.into(),
-                    inner.meta.unwrap().id,
-                );
+                let response_meta = success_response_meta(inner.meta.unwrap().id);
                 let response = UpdateNodeResponse {
                     meta: Some(response_meta),
                 };

@@ -18,7 +18,7 @@ macro_rules! test_response_ok {
             id: Some(GrpcUuid::from(Uuid::new_v4())),
             token: None,
             fields: vec![],
-            limit: None,
+            pagination: None,
         };
         let host = get_test_host(&$db).await;
         let user = get_admin_user(&$db).await;
@@ -45,7 +45,7 @@ macro_rules! test_response_internal {
             id: Some(GrpcUuid::from(Uuid::new_v4())),
             token: None,
             fields: vec![],
-            limit: None,
+            pagination: None,
         };
         let host = get_test_host(&$db).await;
         let user = get_admin_user(&$db).await;
@@ -72,7 +72,7 @@ macro_rules! test_response_not_found {
             id: Some(GrpcUuid::from(Uuid::new_v4())),
             token: None,
             fields: vec![],
-            limit: None,
+            pagination: None,
         };
         let user = get_admin_user(&$db).await;
         let token = user.get_token(&$db).await.unwrap();

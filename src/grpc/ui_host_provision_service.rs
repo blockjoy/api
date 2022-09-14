@@ -30,10 +30,7 @@ impl HostProvisionService for HostProvisionServiceImpl {
 
         match HostProvision::find_by_id(inner.id.as_str(), &self.db).await {
             Ok(host_provision) => {
-                let response_meta = success_response_meta(
-                    response_meta::Status::Success as i32,
-                    inner.meta.unwrap().id,
-                );
+                let response_meta = success_response_meta(inner.meta.unwrap().id);
                 let response = GetHostProvisionResponse {
                     meta: Some(response_meta),
                     host_provision: Some(GrpcHostProvision::from(host_provision)),

@@ -5,6 +5,7 @@ use crate::grpc::blockjoy_ui::{
     GetOrganizationsResponse, Organization, OrganizationMemberRequest, OrganizationMemberResponse,
     ResponseMeta, UpdateOrganizationRequest, UpdateOrganizationResponse, User as GrpcUiUser,
 };
+use crate::grpc::helpers::{pagination_parameters, success_response_with_pagination};
 use crate::models::{Org, OrgRequest, Token};
 use crate::server::DbPool;
 use tonic::{Request, Response, Status};
@@ -145,23 +146,25 @@ impl OrganizationService for OrganizationServiceImpl {
         request: Request<OrganizationMemberRequest>,
     ) -> Result<Response<OrganizationMemberResponse>, Status> {
         let inner = request.into_inner();
+        let meta = inner.meta.unwrap();
+        let request_id = meta.id;
         let org_id = Uuid::from(inner.id.unwrap());
-        let users = Org::find_all_member_users(&org_id, &self.db)
-            .await?
-            .iter()
-            .map(GrpcUiUser::from)
-            .collect();
-        let response_meta = ResponseMeta {
-            status: i32::from(response_meta::Status::Success),
-            origin_request_id: inner.meta.unwrap().id,
-            messages: vec![],
-            pagination: None,
-        };
-        let inner = OrganizationMemberResponse {
-            meta: Some(response_meta),
-            users,
-        };
 
-        Ok(Response::new(inner))
+        match pagination_parameters(meta.pagination) {
+            Ok((limit, offset)) => {
+                let users = Org::find_all_member_users_paginated(&org_id, limit, offset, &self.db)
+                    .await?
+                    .iter()
+                    .map(GrpcUiUser::from)
+                    .collect();
+                let inner = OrganizationMemberResponse {
+                    meta: Some(success_response_with_pagination(request_id)),
+                    users,
+                };
+
+                Ok(Response::new(inner))
+            }
+            Err(e) => return Err(e),
+        }
     }
 }

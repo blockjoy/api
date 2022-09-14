@@ -17,7 +17,7 @@ async fn responds_unauthenticated_with_invalid_token_for_update() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let inner = GetUpdatesRequest {
         meta: Some(request_meta),

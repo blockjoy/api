@@ -23,7 +23,7 @@ async fn responds_ok_with_valid_credentials_for_login() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let inner = LoginUserRequest {
         meta: Some(request_meta),
@@ -42,7 +42,7 @@ async fn responds_error_with_invalid_credentials_for_login() {
         id: Some(GrpcUuid::from(Uuid::new_v4())),
         token: None,
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let inner = LoginUserRequest {
         meta: Some(request_meta),
@@ -65,7 +65,7 @@ async fn responds_ok_with_valid_credentials_for_refresh() {
             value: token.token.clone(),
         }),
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let inner = RefreshTokenRequest {
         meta: Some(request_meta),
@@ -93,7 +93,7 @@ async fn responds_unauthenticated_with_invalid_credentials_for_refresh() {
             value: token.token.clone(),
         }),
         fields: vec![],
-        limit: None,
+        pagination: None,
     };
     let inner = RefreshTokenRequest {
         meta: Some(request_meta),

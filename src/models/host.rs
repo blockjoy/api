@@ -123,6 +123,22 @@ impl Host {
             .map_err(ApiError::from)
     }
 
+    pub async fn find_by_org_paginated(
+        org_id: Uuid,
+        limit: i32,
+        offset: i32,
+        db: &PgPool,
+    ) -> Result<Vec<Self>> {
+        sqlx::query("SELECT * FROM hosts where org_id = $1 order by lower(name) LIMIT $2 OFFSET $3")
+            .bind(org_id)
+            .bind(limit)
+            .bind(offset)
+            .map(Self::from)
+            .fetch_all(db)
+            .await
+            .map_err(ApiError::from)
+    }
+
     pub async fn create(req: HostRequest, db: &PgPool) -> Result<Self> {
         let mut tx = db.begin().await?;
         let mut host = sqlx::query("INSERT INTO hosts (name, version, location, ip_addr, val_ip_addrs, status, org_id, cpu_count, mem_size, disk_size, os, os_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *")

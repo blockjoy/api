@@ -1,7 +1,7 @@
 mod helper_traits;
 
 use api::models::validator::{StakeStatus, Validator, ValidatorStatus, ValidatorStatusRequest};
-use api::models::{Blockchain, TokenRole};
+use api::models::{Blockchain, Org, TokenRole};
 use api::models::{ConnectionStatus, Host, HostRequest};
 use api::models::{User, UserRequest};
 use helper_traits::GrpcClient;
@@ -191,12 +191,15 @@ pub async fn reset_db(pool: &PgPool) {
         password_confirm: "abc12345".into(),
     };
 
-    User::create(user, pool, Some(TokenRole::Admin))
+    let admin = User::create(user, pool, Some(TokenRole::Admin))
         .await
         .expect("Could not create test user in db.");
 
+    let orgs = Org::find_all_by_user(admin.id, pool).await.unwrap();
+    let org = orgs.first().unwrap();
+
     let host = HostRequest {
-        org_id: None,
+        org_id: Some(org.id),
         name: "Host-1".into(),
         version: Some("0.1.0".into()),
         location: Some("Virgina".into()),

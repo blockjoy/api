@@ -2,8 +2,11 @@ use crate::auth::TokenType;
 use crate::grpc::blockjoy_ui::user_service_server::UserService;
 use crate::grpc::blockjoy_ui::{
     response_meta, CreateUserRequest, CreateUserResponse, GetConfigurationRequest,
-    GetConfigurationResponse, GetUserRequest, GetUserResponse, ResponseMeta, UpdateUserRequest,
-    UpdateUserResponse, UpsertConfigurationRequest, UpsertConfigurationResponse, User as GrpcUser,
+    GetConfigurationResponse, GetConfigurationResponse, GetUserRequest, GetUserRequest,
+    GetUserResponse, GetUserResponse, ResetPasswordRequest, ResetPasswordResponse, ResponseMeta,
+    ResponseMeta, UpdateUserRequest, UpdateUserRequest, UpdateUserResponse, UpdateUserResponse,
+    UpsertConfigurationRequest, UpsertConfigurationRequest, UpsertConfigurationResponse,
+    UpsertConfigurationResponse, User as GrpcUser, User as GrpcUser,
 };
 use crate::grpc::helpers::success_response_meta;
 use crate::models::{Token, TokenRole, User, UserRequest};
@@ -29,10 +32,7 @@ impl UserService for UserServiceImpl {
         let token = request.extensions().get::<Token>().unwrap().token.clone();
         let inner = request.into_inner();
         let user = Token::get_user_for_token(token, TokenType::Login, &self.db).await?;
-        let meta = success_response_meta(
-            i32::from(response_meta::Status::Success),
-            inner.meta.unwrap().id,
-        );
+        let meta = success_response_meta(inner.meta.unwrap().id);
         let response = GetUserResponse {
             meta: Some(meta),
             user: Some(GrpcUser::from(user)),
@@ -71,24 +71,9 @@ impl UserService for UserServiceImpl {
 
     async fn update(
         &self,
-        _: Request<UpdateUserRequest>,
+        _request: Request<UpdateUserRequest>,
     ) -> Result<Response<UpdateUserResponse>, Status> {
-        // let inner = request.into_inner();
-        // if let Some(update_user) = inner.user {
-        //     let mut user = models::User::find_by_email(&request.email, &self.db).await?;
-        //     update_user.email.map(|e| user.email = e);
-        //     update_user.email.map(|e| user.email = e);
-        //     update_user.email.map(|e| user.email = e);
-        //     update_user.email.map(|e| user.email = e);
-        // }
-
-        // let meta = ResponseMeta {
-        //     status: response_meta::Status::Success.into(),
-        //     origin_request_id: inner.meta.unwrap().id,
-        //     messages: vec![],
-        //     pagination: None,
-        // };
-        todo!()
+        Err(Status::unimplemented(""))
     }
 
     async fn upsert_configuration(
@@ -102,6 +87,13 @@ impl UserService for UserServiceImpl {
         &self,
         _request: Request<GetConfigurationRequest>,
     ) -> Result<Response<GetConfigurationResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+
+    async fn reset_password(
+        &self,
+        _request: Request<ResetPasswordRequest>,
+    ) -> Result<Response<ResetPasswordResponse>, Status> {
         Err(Status::unimplemented(""))
     }
 }
