@@ -72,8 +72,23 @@ impl UserService for UserServiceImpl {
 
     async fn update(
         &self,
-        request: Request<UpdateUserRequest>,
+        _: Request<UpdateUserRequest>,
     ) -> Result<Response<UpdateUserResponse>, Status> {
+        // let inner = request.into_inner();
+        // if let Some(update_user) = inner.user {
+        //     let mut user = models::User::find_by_email(&request.email, &self.db).await?;
+        //     update_user.email.map(|e| user.email = e);
+        //     update_user.email.map(|e| user.email = e);
+        //     update_user.email.map(|e| user.email = e);
+        //     update_user.email.map(|e| user.email = e);
+        // }
+
+        // let meta = ResponseMeta {
+        //     status: response_meta::Status::Success.into(),
+        //     origin_request_id: inner.meta.unwrap().id,
+        //     messages: vec![],
+        //     pagination: None,
+        // };
         todo!()
     }
 
