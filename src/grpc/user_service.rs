@@ -2,12 +2,11 @@ use crate::auth::TokenType;
 use crate::grpc::blockjoy_ui::user_service_server::UserService;
 use crate::grpc::blockjoy_ui::{
     response_meta, CreateUserRequest, CreateUserResponse, GetConfigurationRequest,
-    GetConfigurationResponse, GetUserRequest, GetUserResponse, ResetPasswordRequest,
-    ResetPasswordResponse, ResponseMeta, UpdateUserRequest, UpdateUserResponse,
-    UpsertConfigurationRequest, UpsertConfigurationResponse, User as GrpcUser,
+    GetConfigurationResponse, GetUserRequest, GetUserResponse, ResponseMeta, UpdateUserRequest,
+    UpdateUserResponse, UpsertConfigurationRequest, UpsertConfigurationResponse, User as GrpcUser,
 };
 use crate::grpc::helpers::success_response_meta;
-use crate::models::{self, Token, TokenRole, User, UserRequest};
+use crate::models::{Token, TokenRole, User, UserRequest};
 use crate::server::DbPool;
 use tonic::{Request, Response, Status};
 
@@ -104,31 +103,5 @@ impl UserService for UserServiceImpl {
         _request: Request<GetConfigurationRequest>,
     ) -> Result<Response<GetConfigurationResponse>, Status> {
         Err(Status::unimplemented(""))
-    }
-
-    /// This endpoint triggers the sending of the reset-password email. The actual resetting is
-    /// then done through the `update` function.
-    async fn reset_password(
-        &self,
-        request: Request<ResetPasswordRequest>,
-    ) -> Result<Response<ResetPasswordResponse>, Status> {
-        let request = request.into_inner();
-        // We are going to query the user and send them an email, but when something goes wrong we
-        // are not going to return an error. This hides whether or not a user is registered with
-        // us to the caller of the api, because this info may be sensitive and this endpoint is not
-        // protected by any authentication.
-        let user = models::User::find_by_email(&request.email, &self.db).await;
-        if let Ok(user) = user {
-            let _ = user.email_reset_password(&self.db).await;
-        }
-
-        let meta = ResponseMeta {
-            status: response_meta::Status::Success.into(),
-            origin_request_id: None,
-            messages: vec![],
-            pagination: None,
-        };
-        let response = ResetPasswordResponse { meta: Some(meta) };
-        Ok(Response::new(response))
     }
 }

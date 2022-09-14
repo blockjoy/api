@@ -29,6 +29,7 @@ impl ToString for TokenRole {
             TokenRole::Guest => "guest".into(),
             TokenRole::Service => "service".into(),
             TokenRole::User => "user".into(),
+            TokenRole::PwdReset => "pwd_reset".into(),
         }
     }
 }
