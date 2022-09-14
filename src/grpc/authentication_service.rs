@@ -108,7 +108,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         let _cur_user = cur_user
             .update_password(&request.password, &self.db)
             .await?;
-        let meta = success_response_meta(Success.into(), request.meta.unwrap().id);
+        let meta = success_response_meta(request.meta.unwrap().id);
         let response = UpdatePasswordResponse { meta: Some(meta) };
         Ok(Response::new(response))
     }
