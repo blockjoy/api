@@ -23,6 +23,8 @@ pub trait Identifier {
 pub enum TokenError {
     #[error("Token is empty")]
     Empty,
+    #[error("Token is incorrectly formatted")]
+    Invalid,
     #[error("Token has expired")]
     Expired,
     #[error("Token couldn't be decoded: {0:?}")]
@@ -83,23 +85,54 @@ pub trait JwtToken: Sized + serde::Serialize {
         jwt::encode(&header, self, &key).map_err(super::TokenError::EnDeCoding)
     }
 
-    /// Create new JWT token from given request
-    fn new_for_request<B>(request: &HttpRequest<B>) -> TokenResult<Self>
+    /// Extract the JWT from given request
+    fn from_request<B>(request: &HttpRequest<B>) -> TokenResult<Self>
     where
         Self: FromStr<Err = TokenError>,
     {
-        let token = request
-            .headers()
-            .get(AUTHORIZATION)
-            .and_then(|hv| hv.to_str().ok())
-            .and_then(|hv| hv.strip_prefix("Bearer"))
-            .map(|tkn| tkn.trim())
-            .unwrap_or("");
-        let clear_token = base64::decode(token)?;
-        let token = std::str::from_utf8(&clear_token)?;
-
-        Self::from_str(token)
+        extract_token(request).and_then(|s| Self::from_str(&s))
     }
 
     fn get_secret() -> super::TokenResult<String>;
+}
+
+#[derive(serde::Deserialize)]
+struct UnknownToken {
+    token_type: TokenType,
+}
+
+pub enum AnyToken {
+    Auth(AuthToken),
+    PwdReset(PwdResetToken),
+}
+
+impl AnyToken {
+    /// Deduces the correct of the token and then decodes the token according to that type.
+    pub fn from_request<B>(req: &HttpRequest<B>) -> TokenResult<AnyToken> {
+        use AnyToken::*;
+
+        let token = extract_token(req)?;
+        let payload = token.split('.').nth(1).ok_or(TokenError::Invalid)?;
+        let decoded = base64::decode(payload).or(Err(TokenError::Invalid))?;
+        let json: UnknownToken = serde_json::from_slice(&decoded).or(Err(TokenError::Invalid))?;
+        let token = match json.token_type {
+            TokenType::Login => Auth(AuthToken::from_str(&token)?),
+            TokenType::Refresh => PwdReset(PwdResetToken::from_str(&token)?),
+            TokenType::PwdReset => todo!(),
+        };
+        Ok(token)
+    }
+}
+
+fn extract_token<B>(req: &HttpRequest<B>) -> TokenResult<String> {
+    let token = req
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|hv| hv.to_str().ok())
+        .and_then(|hv| hv.strip_prefix("Bearer"))
+        .map(|tkn| tkn.trim())
+        .unwrap_or("");
+    let clear_token = base64::decode(token)?;
+    let token = std::str::from_utf8(&clear_token)?;
+    Ok(token.to_owned())
 }

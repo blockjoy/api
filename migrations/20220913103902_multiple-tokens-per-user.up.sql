@@ -34,3 +34,5 @@ CREATE TABLE host_tokens (
 );
 INSERT INTO host_tokens (SELECT id, token_id, 'login' FROM hosts WHERE token_id IS NOT NULL);
 ALTER TABLE hosts DROP COLUMN token_id;
+
+ALTER TYPE enum_token_role ADD VALUE IF NOT EXISTS 'pwd_reset';

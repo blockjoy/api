@@ -96,7 +96,7 @@ fn should_panic_with_invalid_token() {
         .header(AUTHORIZATION, "some-token")
         .body(())
         .unwrap();
-    let _ = AuthToken::new_for_request(&request).unwrap();
+    let _ = AuthToken::from_request(&request).unwrap();
 }
 
 #[before(call = "setup")]
@@ -109,7 +109,7 @@ fn should_not_work_with_empty_token() {
         .body(())
         .unwrap();
 
-    assert!(AuthToken::new_for_request(&request).is_err());
+    assert!(AuthToken::from_request(&request).is_err());
 }
 
 #[before(call = "setup")]
@@ -124,7 +124,7 @@ fn should_get_valid_token() -> anyhow::Result<()> {
         .uri("/")
         .method("GET")
         .body(())?;
-    let token = AuthToken::new_for_request(&request).unwrap();
+    let token = AuthToken::from_request(&request).unwrap();
 
     assert_eq!(token.get_id(), id);
 

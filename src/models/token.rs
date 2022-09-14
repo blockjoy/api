@@ -19,6 +19,7 @@ pub enum TokenRole {
     Guest,
     Service,
     User,
+    PwdReset,
 }
 
 impl ToString for TokenRole {
@@ -206,14 +207,9 @@ impl Token {
         Ok(token)
     }
 
-    pub async fn find_by_token(
-        token_str: &str,
-        token_type: TokenType,
-        db: &PgPool,
-    ) -> Result<Self> {
-        sqlx::query_as::<_, Self>("SELECT * FROM tokens where token = $1 and type = $2")
+    pub async fn find_by_token(token_str: &str, db: &PgPool) -> Result<Self> {
+        sqlx::query_as::<_, Self>("SELECT * FROM tokens where token = $1;")
             .bind(token_str)
-            .bind(token_type)
             .fetch_one(db)
             .await
             .map_err(ApiError::from)

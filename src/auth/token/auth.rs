@@ -9,6 +9,7 @@ pub struct AuthToken {
     id: uuid::Uuid,
     exp: i64,
     holder_type: super::TokenHolderType,
+    token_type: super::TokenType,
 }
 
 impl JwtToken for AuthToken {
@@ -17,6 +18,7 @@ impl JwtToken for AuthToken {
             id,
             exp,
             holder_type,
+            token_type: super::TokenType::Login,
         }
     }
 
