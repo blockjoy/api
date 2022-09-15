@@ -34,7 +34,7 @@ jobs:
         run: docker push registry.digitalocean.com/stakejoy/blockvisor-api-migrations:$(echo $GITHUB_SHA | head -c7)
 
       - name: Update deployment file
-        run: TAG=$(echo $GITHUB_SHA | head -c7) && sed -i 's|<IMAGE>|registry.digitalocean.com/<registry-name>/<repository_name>:'${TAG}'|' $GITHUB_WORKSPACE/deploy/deployment.yml
+        run: TAG=$(echo $GITHUB_SHA | head -c7) && sed -i 's|<IMAGE>|registry.digitalocean.com/stakejoy/blockvisor-api:'${TAG}'|' $GITHUB_WORKSPACE/deploy/deployment.yml
       
       - name: Install Kubectl 
         uses: azure/setup-kubectl@v3
