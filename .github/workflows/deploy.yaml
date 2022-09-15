@@ -35,6 +35,10 @@ jobs:
 
       - name: Update deployment file
         run: TAG=$(echo $GITHUB_SHA | head -c7) && sed -i 's|<IMAGE>|registry.digitalocean.com/<registry-name>/<repository_name>:'${TAG}'|' $GITHUB_WORKSPACE/deploy/deployment.yml
+      
+      - name: Install Kubectl 
+        uses: azure/setup-kubectl@v3
+        id: install
 
       - name: Save DigitalOcean kubeconfig with short-lived credentials
         run: doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ethos
