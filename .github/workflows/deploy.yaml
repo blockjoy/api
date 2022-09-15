@@ -50,7 +50,7 @@ jobs:
         run: kubectl -n blockvisor create secret generic bv --from-literal=DATABASE_URL='${{ secrets.DATABASE_URL }}' --from-literal=API_SERVICE_SECRET='${{ secrets.API_SERVICE_SECRET }}' --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy to DigitalOcean Kubernetes
-        run: kubectl apply -f $GITHUB_WORKSPACE/config/deployment.yml
+        run: kubectl apply -f $GITHUB_WORKSPACE/deploy/deployment.yml
 
       - name: Verify deployment
         run: kubectl rollout status deployment/<deployment_name>
