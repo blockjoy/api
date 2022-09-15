@@ -167,13 +167,13 @@ spec:
         - configMapRef:
             name: spec
         env:
-        - name: SECRET_USERNAME
+        - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
               name: bv
               key: DATABASE_URL
               optional: false 
-        - name: SECRET_PASSWORD
+        - name: API_SERVICE_SECRET
           valueFrom:
             secretKeyRef:
               name: bv
