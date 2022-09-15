@@ -2,7 +2,7 @@ name: Deploy DEV DO
 
 on:
   push:
-    branches: [main,cd/k8s]
+    branches: [main]
 
 jobs:
   build:
