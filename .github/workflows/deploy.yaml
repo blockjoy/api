@@ -2,7 +2,7 @@ name: Deploy DEV DO
 
 on:
   push:
-    branches: [main]
+    branches: [main,cd/k8s]
 
 jobs:
   build:
@@ -13,10 +13,10 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Build container image
-        run: docker build -t registry.digitalocean.com/stakejoy/blockvisor-api:latest .
+        run: docker build -t registry.digitalocean.com/stakejoy/blockvisor-api:$(echo $GITHUB_SHA | head -c7) .
 
       - name: Build migrations container image
-        run: docker build -t registry.digitalocean.com/stakejoy/blockvisor-api-migrations:latest .
+        run: docker build -t registry.digitalocean.com/stakejoy/blockvisor-api-migrations:$(echo $GITHUB_SHA | head -c7) .
         working-directory: ./migrations
 
       - name: Install doctl
@@ -28,10 +28,27 @@ jobs:
         run: doctl registry login --expiry-seconds 1200
 
       - name: Push image to DigitalOcean Container Registry
-        run: docker push registry.digitalocean.com/stakejoy/blockvisor-api:latest
+        run: docker push registry.digitalocean.com/stakejoy/blockvisor-api:$(echo $GITHUB_SHA | head -c7)
 
       - name: Push migrations image to DigitalOcean Container Registry
-        run: docker push registry.digitalocean.com/stakejoy/blockvisor-api-migrations:latest
+        run: docker push registry.digitalocean.com/stakejoy/blockvisor-api-migrations:$(echo $GITHUB_SHA | head -c7)
 
-      - name: Deploy
-        run: doctl apps create-deployment ${{ secrets.APP_ID_DEV }} --wait
+      - name: Update deployment file
+        run: TAG=$(echo $GITHUB_SHA | head -c7) && sed -i 's|<IMAGE>|registry.digitalocean.com/<registry-name>/<repository_name>:'${TAG}'|' $GITHUB_WORKSPACE/deploy/deployment.yml
+
+      - name: Save DigitalOcean kubeconfig with short-lived credentials
+        run: doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ethos
+
+      - name: Create Namespace
+        run: kubectl create namespace blockvisor --dry-run=true -o yaml | kubectl apply -f -
+      
+      - name: Create Secrets
+        run: kubectl -n blockvisor create secret generic bv \
+  --from-literal=DATABASE_URL='${{ secrets.DATABASE_URL }}' \
+  --from-literal=API_SERVICE_SECRET='${{ secrets.API_SERVICE_SECRET }}' --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy to DigitalOcean Kubernetes
+        run: kubectl apply -f $GITHUB_WORKSPACE/config/deployment.yml
+
+      - name: Verify deployment
+        run: kubectl rollout status deployment/<deployment_name>
