@@ -43,9 +43,7 @@ jobs:
         run: kubectl create namespace blockvisor --dry-run=true -o yaml | kubectl apply -f -
       
       - name: Create Secrets
-        run: kubectl -n blockvisor create secret generic bv \
-  --from-literal=DATABASE_URL='${{ secrets.DATABASE_URL }}' \
-  --from-literal=API_SERVICE_SECRET='${{ secrets.API_SERVICE_SECRET }}' --dry-run=client -o yaml | kubectl apply -f -
+        run: kubectl -n blockvisor create secret generic bv --from-literal=DATABASE_URL='${{ secrets.DATABASE_URL }}' --from-literal=API_SERVICE_SECRET='${{ secrets.API_SERVICE_SECRET }}' --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy to DigitalOcean Kubernetes
         run: kubectl apply -f $GITHUB_WORKSPACE/config/deployment.yml
