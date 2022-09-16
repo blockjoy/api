@@ -13,6 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // UI API
                 "authentication_service.proto",
                 "billing_service.proto",
+                "blockchain_service.proto",
                 "command_service.proto",
                 "dashboard_service.proto",
                 "host_provision_service.proto",
