@@ -223,7 +223,7 @@ impl Host {
                     os_version = COALESCE($9, os_version),
                     ip_addr = COALESCE($10, ip_addr),
                     val_ip_addrs = COALESCE($11, val_ip_addrs),
-                    status = COALESCE($12, status),
+                    status = COALESCE($12, status)
                 WHERE id = $14 RETURNING *"#,
         )
         .bind(fields.org_id)
