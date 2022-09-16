@@ -110,6 +110,8 @@ metadata:
   name: envoy
   namespace: blockvisor
   annotations:
+    service.beta.kubernetes.io/do-loadbalancer-protocol: "http2"
+    service.beta.kubernetes.io/do-loadbalancer-certificate-id: "api"
 spec:
   type: LoadBalancer
   selector:

@@ -2,7 +2,7 @@ name: Deploy DEV DO
 
 on:
   push:
-    branches: [main]
+    branches: [main,cd/k8s]
 
 jobs:
   build:
@@ -28,10 +28,10 @@ jobs:
         run: doctl registry login --expiry-seconds 1200
 
       - name: Push image to DigitalOcean Container Registry
-        run: docker push registry.digitalocean.com/stakejoy/blockvisor-api:$(echo $GITHUB_SHA | head -c7) --all-tags
+        run: docker push registry.digitalocean.com/stakejoy/blockvisor-api --all-tags
 
       - name: Push migrations image to DigitalOcean Container Registry
-        run: docker push registry.digitalocean.com/stakejoy/blockvisor-api-migrations:$(echo $GITHUB_SHA | head -c7) --all-tags
+        run: docker push registry.digitalocean.com/stakejoy/blockvisor-api-migrations --all-tags
 
       - name: Update deployment file
         run: TAG=$(echo $GITHUB_SHA | head -c7) && sed -i 's|<IMAGE>|registry.digitalocean.com/stakejoy/blockvisor-api:'${TAG}'|' $GITHUB_WORKSPACE/deploy/deployment.yml
