@@ -26,7 +26,7 @@ message ListBlockchainsResponse {
 /* Blockchain related service */
 service BlockchainService {
   /* Returns a single blockchain as identified by its id */
-  rpc Get(GetBlockchainRequest) returns (GetBlockchainRequest);
+  rpc Get(GetBlockchainRequest) returns (GetBlockchainResponse);
   /* Returns a list of all blockchains */
   rpc List(ListBlockchainsRequest) returns (ListBlockchainsResponse);
 }
