@@ -6,12 +6,12 @@ import "common.proto";
 
 message GetHostProvisionRequest {
   RequestMeta meta = 1;
-  string id = 2;
+  optional string id = 2;
 }
 
 message GetHostProvisionResponse {
   ResponseMeta meta = 1;
-  HostProvision host_provision = 2;
+  repeated HostProvision host_provisions = 2;
 }
 
 message CreateHostProvisionRequest {
@@ -25,7 +25,7 @@ message CreateHostProvisionResponse {
 
 /* Host provisioning */
 service HostProvisionService {
-  /* Get a single host provision */
+  /* Get a single host provision identified by ID or a list of all available host provisions */
   rpc Get(GetHostProvisionRequest) returns (GetHostProvisionResponse) {}
   /* Create a single host provision */
   rpc Create(CreateHostProvisionRequest) returns (CreateHostProvisionResponse) {}
