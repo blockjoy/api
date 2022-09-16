@@ -224,7 +224,7 @@ impl Host {
                     ip_addr = COALESCE($10, ip_addr),
                     val_ip_addrs = COALESCE($11, val_ip_addrs),
                     status = COALESCE($12, status)
-                WHERE id = $14 RETURNING *"#,
+                WHERE id = $13 RETURNING *"#,
         )
         .bind(fields.org_id)
         .bind(fields.name)
