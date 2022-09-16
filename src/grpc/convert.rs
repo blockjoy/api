@@ -68,7 +68,6 @@ pub mod from {
                 ip_addr: host.ip.map(String::from),
                 val_ip_addrs: None,
                 status: None,
-                token_id: None,
             }
         }
     }

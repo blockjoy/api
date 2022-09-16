@@ -224,7 +224,6 @@ impl Host {
                     ip_addr = COALESCE($10, ip_addr),
                     val_ip_addrs = COALESCE($11, val_ip_addrs),
                     status = COALESCE($12, status),
-                    token_id = COALESCE($13, token_id)
                 WHERE id = $14 RETURNING *"#,
         )
         .bind(fields.org_id)
@@ -239,7 +238,6 @@ impl Host {
         .bind(fields.ip_addr)
         .bind(fields.val_ip_addrs)
         .bind(fields.status)
-        .bind(fields.token_id)
         .bind(id)
         .map(Self::from)
         .fetch_one(&mut tx)
@@ -309,13 +307,8 @@ impl FindableById for Host {
 #[axum::async_trait]
 impl TokenIdentifyable for Host {
     async fn set_token(token_id: Uuid, host_id: Uuid, db: &PgPool) -> Result<()> {
-        let fields = HostSelectiveUpdate {
-            token_id: Some(token_id),
-            status: Some(ConnectionStatus::Online),
-            ..Default::default()
-        };
-
-        Host::update_all(host_id, fields, db).await?;
+        let host_token = super::HostToken::new(host_id, token_id, TokenType::Login);
+        host_token.create_or_update(db).await?;
         Ok(())
     }
 
@@ -328,19 +321,11 @@ impl TokenIdentifyable for Host {
     }
 
     async fn delete_token(host_id: Uuid, db: &PgPool) -> Result<()> {
-        let fields = HostSelectiveUpdate {
-            token_id: None,
-            ..Default::default()
-        };
-
-        Host::update_all(host_id, fields, db).await?;
+        super::HostToken::delete_by_host(host_id, TokenType::Login, db).await?;
         Ok(())
     }
 
-    async fn get_token(&self, db: &PgPool) -> Result<Token>
-    where
-        Self: Sized,
-    {
+    async fn get_token(&self, db: &PgPool) -> Result<Token> {
         Token::get::<Host>(self.id, TokenType::Login, db).await
     }
 }
@@ -422,7 +407,6 @@ pub struct HostSelectiveUpdate {
     pub ip_addr: Option<String>,
     pub val_ip_addrs: Option<String>,
     pub status: Option<ConnectionStatus>,
-    pub token_id: Option<Uuid>,
 }
 
 impl From<HostCreateRequest> for HostRequest {
@@ -459,7 +443,6 @@ impl From<HostInfo> for HostSelectiveUpdate {
             ip_addr: info.ip,
             val_ip_addrs: None,
             status: None,
-            token_id: None,
         }
     }
 }

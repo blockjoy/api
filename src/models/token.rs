@@ -341,3 +341,68 @@ impl UserToken {
         Ok(())
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct HostToken {
+    host_id: uuid::Uuid,
+    token_id: uuid::Uuid,
+    token_type: TokenType,
+}
+
+impl HostToken {
+    /// Creates a new `HostToken` in-memory, but does _not_ insert it into the database.
+    pub fn new(host_id: uuid::Uuid, token_id: uuid::Uuid, token_type: TokenType) -> Self {
+        Self {
+            host_id,
+            token_id,
+            token_type,
+        }
+    }
+
+    /// Tries to create a new HostToken in the database, and if that fails, updates the conflicting
+    /// row.
+    pub async fn create_or_update(self, db: &PgPool) -> Result<Self> {
+        sqlx::query_as(
+            "
+            INSERT INTO
+                host_tokens (host_id, token_id, token_type)
+            VALUES
+                ($1, $2, $3)
+            ON CONFLICT (host_id, token_type)
+                DO UPDATE
+            SET
+                token_id = $2
+            RETURNING
+                host_id, token_id, token_type;",
+        )
+        .bind(self.host_id)
+        .bind(self.token_id)
+        .bind(self.token_type)
+        .fetch_one(db)
+        .await
+        .map_err(Into::into)
+    }
+
+    pub async fn delete(self, db: &PgPool) -> Result<()> {
+        sqlx::query("DELETE FROM host_tokens WHERE host_id = $1 AND token_id = $2 AND type = $3;")
+            .bind(self.host_id)
+            .bind(self.token_id)
+            .bind(self.token_type)
+            .execute(db)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_by_host(
+        host_id: uuid::Uuid,
+        token_type: TokenType,
+        db: &PgPool,
+    ) -> Result<()> {
+        sqlx::query("DELETE FROM host_tokens WHERE host_id = $1 AND type = $2;")
+            .bind(host_id)
+            .bind(token_type)
+            .execute(db)
+            .await?;
+        Ok(())
+    }
+}
