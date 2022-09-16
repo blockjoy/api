@@ -32,7 +32,7 @@ async fn responds_not_found_without_valid_id_for_get() {
     let token = user.get_token(&db).await.unwrap();
     let inner = GetHostProvisionRequest {
         meta: Some(request_meta),
-        id: "foo-bar1".to_string(),
+        id: Some("foo-bar1".to_string()),
     };
     let mut request = Request::new(inner);
 
@@ -73,7 +73,7 @@ async fn responds_ok_with_valid_id_for_get() {
 
     let inner = GetHostProvisionRequest {
         meta: Some(request_meta),
-        id: provision.id,
+        id: Some(provision.id),
     };
     let mut request = Request::new(inner);
 
