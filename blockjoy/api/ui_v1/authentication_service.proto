@@ -24,6 +24,23 @@ message RefreshTokenResponse {
   ApiToken token = 2;
 }
 
+message ResetPasswordRequest {
+  string email = 1;
+}
+
+message ResetPasswordResponse {
+  ResponseMeta meta = 1;
+}
+
+message UpdatePasswordRequest {
+  RequestMeta meta = 1;
+  string password = 2;
+}
+
+message UpdatePasswordResponse {
+  ResponseMeta meta = 1;
+}
+
 /* Retrieve and refresh API token */
 service AuthenticationService {
   /* Login user, i.e. retrieve token */
@@ -32,4 +49,9 @@ service AuthenticationService {
    * Refresh API token. TODO: Do we really need that?
   */
   rpc Refresh(RefreshTokenRequest) returns (RefreshTokenResponse) {}
+  /* Send the reset password email out to this user. Intentionally returns nothing to hide whether
+  the user was registered or not */
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  /* Update the user's password to a new value */
+  rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordResponse);
 }
