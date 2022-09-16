@@ -319,7 +319,8 @@ impl UserToken {
     }
 
     pub async fn delete(self, db: &PgPool) -> Result<()> {
-        sqlx::query("DELETE FROM user_tokens WHERE user_id = $1 AND token_id = $2 AND type = $3;")
+        let q = "DELETE FROM user_tokens WHERE user_id = $1 AND token_id = $2 AND token_type = $3";
+        sqlx::query(q)
             .bind(self.user_id)
             .bind(self.token_id)
             .bind(self.token_type)
@@ -333,7 +334,7 @@ impl UserToken {
         token_type: TokenType,
         db: &PgPool,
     ) -> Result<()> {
-        sqlx::query("DELETE FROM user_tokens WHERE user_id = $1 AND type = $2;")
+        sqlx::query("DELETE FROM user_tokens WHERE user_id = $1 AND token_type = $2;")
             .bind(user_id)
             .bind(token_type)
             .execute(db)
@@ -384,7 +385,8 @@ impl HostToken {
     }
 
     pub async fn delete(self, db: &PgPool) -> Result<()> {
-        sqlx::query("DELETE FROM host_tokens WHERE host_id = $1 AND token_id = $2 AND type = $3;")
+        let q = "DELETE FROM host_tokens WHERE host_id = $1 AND token_id = $2 AND token_type = $3";
+        sqlx::query(q)
             .bind(self.host_id)
             .bind(self.token_id)
             .bind(self.token_type)
@@ -398,7 +400,7 @@ impl HostToken {
         token_type: TokenType,
         db: &PgPool,
     ) -> Result<()> {
-        sqlx::query("DELETE FROM host_tokens WHERE host_id = $1 AND type = $2;")
+        sqlx::query("DELETE FROM host_tokens WHERE host_id = $1 AND token_type = $2;")
             .bind(host_id)
             .bind(token_type)
             .execute(db)
