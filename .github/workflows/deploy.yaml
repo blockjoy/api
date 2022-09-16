@@ -52,8 +52,8 @@ jobs:
       - name: Deploy to DigitalOcean Kubernetes
         run: kubectl apply -f $GITHUB_WORKSPACE/deploy/deployment.yml
 
-      - name: Verify Envoy eployment
-        run: kubectl -n blockvisor rollout status deployment/envoy
-      
+      - name: Restart Envoy deployment
+        run: kubectl -n blockvisor rollout restart deployment/envoy
+     
       - name: Verify bv-api deployment
         run: kubectl -n blockvisor rollout status deployment/bv-api

@@ -110,15 +110,17 @@ metadata:
   name: envoy
   namespace: blockvisor
   annotations:
-    service.beta.kubernetes.io/do-loadbalancer-protocol: "http2"
-    service.beta.kubernetes.io/do-loadbalancer-certificate-id: "api"
+    service.beta.kubernetes.io/do-loadbalancer-protocol: http2
+    service.beta.kubernetes.io/do-loadbalancer-certificate-id: "23b42f2d-9d0b-418a-b3e0-f9ab24752439"
+    service.beta.kubernetes.io/do-loadbalancer-http2-ports: 443
+    service.beta.kubernetes.io/do-loadbalancer-name: bv-api
 spec:
   type: LoadBalancer
   selector:
     app: envoy
   ports:
     - protocol: TCP
-      port: 8080
+      port: 443
       targetPort: 8080
 ---
 apiVersion: v1
