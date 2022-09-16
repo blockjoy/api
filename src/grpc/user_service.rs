@@ -2,11 +2,8 @@ use crate::auth::TokenType;
 use crate::grpc::blockjoy_ui::user_service_server::UserService;
 use crate::grpc::blockjoy_ui::{
     response_meta, CreateUserRequest, CreateUserResponse, GetConfigurationRequest,
-    GetConfigurationResponse, GetConfigurationResponse, GetUserRequest, GetUserRequest,
-    GetUserResponse, GetUserResponse, ResetPasswordRequest, ResetPasswordResponse, ResponseMeta,
-    ResponseMeta, UpdateUserRequest, UpdateUserRequest, UpdateUserResponse, UpdateUserResponse,
-    UpsertConfigurationRequest, UpsertConfigurationRequest, UpsertConfigurationResponse,
-    UpsertConfigurationResponse, User as GrpcUser, User as GrpcUser,
+    GetConfigurationResponse, GetUserRequest, GetUserResponse, ResponseMeta, UpdateUserRequest,
+    UpdateUserResponse, UpsertConfigurationRequest, UpsertConfigurationResponse, User as GrpcUser,
 };
 use crate::grpc::helpers::success_response_meta;
 use crate::models::{Token, TokenRole, User, UserRequest};
@@ -87,13 +84,6 @@ impl UserService for UserServiceImpl {
         &self,
         _request: Request<GetConfigurationRequest>,
     ) -> Result<Response<GetConfigurationResponse>, Status> {
-        Err(Status::unimplemented(""))
-    }
-
-    async fn reset_password(
-        &self,
-        _request: Request<ResetPasswordRequest>,
-    ) -> Result<Response<ResetPasswordResponse>, Status> {
         Err(Status::unimplemented(""))
     }
 }

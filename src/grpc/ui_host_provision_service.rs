@@ -28,12 +28,13 @@ impl HostProvisionService for HostProvisionServiceImpl {
     ) -> Result<Response<GetHostProvisionResponse>, Status> {
         let inner = request.into_inner();
 
-        match HostProvision::find_by_id(inner.id.as_str(), &self.db).await {
+        // The protos were changed so I had to make changes here to keep stuff compiling.
+        match HostProvision::find_by_id(inner.id.as_deref().unwrap_or(""), &self.db).await {
             Ok(host_provision) => {
                 let response_meta = success_response_meta(inner.meta.unwrap().id);
                 let response = GetHostProvisionResponse {
                     meta: Some(response_meta),
-                    host_provision: Some(GrpcHostProvision::from(host_provision)),
+                    host_provisions: vec![GrpcHostProvision::from(host_provision)],
                 };
 
                 Ok(Response::new(response))
