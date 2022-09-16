@@ -4,7 +4,7 @@ use crate::models::{command::HostCmd, validator::Validator, UpdateInfo};
 use crate::server::DbPool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgRow;
+use sqlx::postgres::{PgHasArrayType, PgRow};
 use sqlx::{FromRow, PgPool, Row};
 use uuid::Uuid;
 
@@ -36,6 +36,12 @@ impl From<i32> for NodeType {
             7 => Self::Validator,
             _ => Self::Undefined,
         }
+    }
+}
+
+impl PgHasArrayType for NodeType {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_enum_node_type")
     }
 }
 

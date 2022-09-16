@@ -32,6 +32,7 @@ pub struct Blockchain {
     pub supports_staking: bool,
     pub supports_broadcast: bool,
     pub version: Option<String>,
+    pub supported_node_types: Vec<super::NodeType>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -71,6 +72,11 @@ impl From<Blockchain> for blockjoy_ui::Blockchain {
             supports_staking: model.supports_staking,
             supports_broadcast: model.supports_broadcast,
             version: model.version,
+            supported_nodes_types: model
+                .supported_node_types
+                .into_iter()
+                .map(|node_type| node_type as i32)
+                .collect(),
             created_at: Some(convert_dt(model.created_at)),
             updated_at: Some(convert_dt(model.updated_at)),
         }
