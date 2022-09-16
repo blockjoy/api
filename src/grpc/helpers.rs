@@ -53,7 +53,7 @@ pub fn pagination_parameters(pagination: Option<Pagination>) -> Result<(i32, i32
         let max_items = env::var("PAGINATION_MAX_ITEMS")
             .unwrap()
             .parse::<i32>()
-            .unwrap();
+            .unwrap_or(10);
 
         if pagination.items_per_page > max_items {
             return Err(Status::cancelled("Max items exceeded"));

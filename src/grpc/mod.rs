@@ -131,5 +131,5 @@ fn rate_limiting_settings() -> usize {
     env::var("REQUEST_CONCURRENCY_LIMIT")
         .unwrap()
         .parse::<usize>()
-        .unwrap()
+        .unwrap_or(32)
 }
