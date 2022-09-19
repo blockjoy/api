@@ -52,8 +52,7 @@ async fn responds_not_found_for_get_nonexisting() {
         fields: vec![],
         pagination: None,
     };
-    let _uuid: uuid::Uuid = "6a9efd38-0c5a-4ab0-bda2-5f308f850565".parse().unwrap();
-    let uuid: uuid::Uuid = "1fdbf4c3-ff16-489a-8d3d-87c8620b963c".parse().unwrap();
+    let uuid: uuid::Uuid = "6a9efd38-0c5a-4ab0-bda2-5f308f850565".parse().unwrap();
 
     let inner = GetBlockchainRequest {
         meta: Some(request_meta),

@@ -29,7 +29,9 @@ impl BlockchainService for BlockchainServiceImpl {
             .id
             .ok_or_else(|| tonic::Status::invalid_argument("The `id` field is required"))?
             .into();
-        let blockchain = models::Blockchain::find_by_id(id, &self.db).await?;
+        let blockchain = models::Blockchain::find_by_id(id, &self.db)
+            .await
+            .map_err(|_| tonic::Status::not_found("No such blockchain"))?;
         let response = blockjoy_ui::GetBlockchainResponse {
             meta: Some(meta),
             blockchain: Some(blockchain.into()),
