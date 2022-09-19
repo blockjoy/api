@@ -75,8 +75,8 @@ async fn responds_ok_without_token_for_create() {
     let grpc_user = GrpcUser {
         id: None,
         email: Some("hugo@boss.com".to_string()),
-        first_name: None,
-        last_name: None,
+        first_name: Some("Hugo".to_string()),
+        last_name: Some("The Bossman".to_string()),
         created_at: None,
         updated_at: None,
     };
@@ -106,8 +106,8 @@ async fn responds_error_with_existing_email_for_create() {
     let grpc_user = GrpcUser {
         id: None,
         email: Some(user.email),
-        first_name: None,
-        last_name: None,
+        first_name: Some(user.first_name),
+        last_name: Some(user.last_name),
         created_at: None,
         updated_at: None,
     };
@@ -142,8 +142,8 @@ async fn responds_error_with_different_pwds_for_create() {
     let grpc_user = GrpcUser {
         id: None,
         email: Some("hugo@boss.com".to_string()),
-        first_name: None,
-        last_name: None,
+        first_name: Some("Hugo".to_string()),
+        last_name: Some("Boss".to_string()),
         created_at: None,
         updated_at: None,
     };
