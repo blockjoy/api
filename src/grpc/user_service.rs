@@ -43,15 +43,13 @@ impl UserService for UserServiceImpl {
         request: Request<CreateUserRequest>,
     ) -> Result<Response<CreateUserResponse>, Status> {
         let inner = request.into_inner();
-        let user = inner.user.unwrap();
+        let required =
+            |name| move || tonic::Status::invalid_argument(format!("`{name}` is required"));
+        let user = inner.user.ok_or_else(required("user"))?;
         let user_request = UserRequest {
-            email: user.email.unwrap(),
-            first_name: user
-                .first_name
-                .ok_or_else(|| tonic::Status::invalid_argument("`first_name` is required"))?,
-            last_name: user
-                .last_name
-                .ok_or_else(|| tonic::Status::invalid_argument("`last_name` is required"))?,
+            email: user.email.ok_or_else(required("email"))?,
+            first_name: user.first_name.ok_or_else(required("first_name"))?,
+            last_name: user.last_name.ok_or_else(required("last_name"))?,
             password: inner.password,
             password_confirm: inner.password_confirmation,
         };
@@ -60,7 +58,7 @@ impl UserService for UserServiceImpl {
             Ok(new_user) => {
                 let meta = ResponseMeta {
                     status: i32::from(response_meta::Status::Success),
-                    origin_request_id: inner.meta.unwrap().id,
+                    origin_request_id: inner.meta.ok_or_else(required("meta"))?.id,
                     messages: vec![new_user.id.to_string()],
                     pagination: None,
                 };
