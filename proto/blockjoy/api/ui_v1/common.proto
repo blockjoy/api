@@ -249,18 +249,18 @@ message Blockchain {
     Deleted = 5;
   }
 
-  Uuid id = 0;
-  string name = 1;
-  optional string description = 2;
-  BlockchainStatus status = 3;
-  optional string project_url = 4;
-  optional string repo_url = 5;
-  optional string version = 6;
-  optional google.protobuf.Timestamp created_at = 7;
-  optional google.protobuf.Timestamp updated_at = 8;
-  bool supports_etl = 9;
-  bool supports_node = 10;
-  bool supports_staking = 11;
-  bool supports_broadcast = 12;
-  repeated Node.NodeType supported_nodes_types = 13;
+  Uuid id = 1;
+  string name = 2;
+  optional string description = 3;
+  BlockchainStatus status = 4;
+  optional string project_url = 5;
+  optional string repo_url = 6;
+  optional string version = 7;
+  optional google.protobuf.Timestamp created_at = 8;
+  optional google.protobuf.Timestamp updated_at = 9;
+  bool supports_etl = 10;
+  bool supports_node = 11;
+  bool supports_staking = 12;
+  bool supports_broadcast = 13;
+  repeated Node.NodeType supported_nodes_types = 14;
 }
