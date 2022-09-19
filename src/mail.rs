@@ -46,7 +46,7 @@ impl MailClient {
 
         let to = sendgrid::Destination {
             address: &to.email,
-            name: "BlockJoy User",
+            name: &format!("{} {}", to.first_name, to.last_name),
         };
         let mail = sendgrid::Mail {
             to: vec![to],

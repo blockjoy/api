@@ -27,6 +27,8 @@ use validator::Validate;
 pub struct User {
     pub id: Uuid,
     pub email: String,
+    pub first_name: String,
+    pub last_name: String,
     #[serde(skip_serializing)]
     pub hashword: String,
     #[serde(skip_serializing)]
@@ -222,9 +224,11 @@ impl User {
         {
             let mut tx = db.begin().await?;
             let result = match sqlx::query_as::<_, Self>(
-                "INSERT INTO users (email, hashword, salt, staking_quota, fee_bps) values (LOWER($1),$2,$3,$4,$5) RETURNING *",
+                "INSERT INTO users (email, first_name, last_name, hashword, salt, staking_quota, fee_bps) values (LOWER($1),$2,$3,$4,$5,$6,$7) RETURNING *",
             )
             .bind(user.email)
+            .bind(user.first_name)
+            .bind(user.last_name)
             .bind(hashword.to_string())
             .bind(salt.as_str())
             .bind(STAKE_QUOTA_DEFAULT)
@@ -392,6 +396,8 @@ impl UserSummary {
 pub struct UserRequest {
     #[validate(email)]
     pub email: String,
+    pub first_name: String,
+    pub last_name: String,
     #[validate(length(min = 8), must_match = "password_confirm")]
     pub password: String,
     pub password_confirm: String,

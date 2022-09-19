@@ -46,6 +46,12 @@ impl UserService for UserServiceImpl {
         let user = inner.user.unwrap();
         let user_request = UserRequest {
             email: user.email.unwrap(),
+            first_name: user
+                .first_name
+                .ok_or_else(|| tonic::Status::invalid_argument("`first_name` is required"))?,
+            last_name: user
+                .last_name
+                .ok_or_else(|| tonic::Status::invalid_argument("`last_name` is required"))?,
             password: inner.password,
             password_confirm: inner.password_confirmation,
         };

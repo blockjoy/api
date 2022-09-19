@@ -222,8 +222,8 @@ pub mod from {
             Self {
                 id: Some(GrpcUiUuid::from(user.id)),
                 email: Some(user.email.clone()),
-                first_name: None,
-                last_name: None,
+                first_name: Some(user.first_name.clone()),
+                last_name: Some(user.last_name.clone()),
                 created_at: Some(Timestamp {
                     seconds: user.created_at.timestamp(),
                     nanos: user.created_at.timestamp_nanos() as i32,

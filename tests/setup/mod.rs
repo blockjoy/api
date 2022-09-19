@@ -164,6 +164,8 @@ pub async fn reset_db(pool: &PgPool) {
 
     let user = UserRequest {
         email: "test@here.com".into(),
+        first_name: "Luuk".into(),
+        last_name: "Tester".into(),
         password: "abc12345".into(),
         password_confirm: "abc12345".into(),
     };
@@ -187,6 +189,8 @@ pub async fn reset_db(pool: &PgPool) {
 
     let user = UserRequest {
         email: "admin@here.com".into(),
+        first_name: "Mister".into(),
+        last_name: "Sister".into(),
         password: "abc12345".into(),
         password_confirm: "abc12345".into(),
     };
