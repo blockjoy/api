@@ -154,9 +154,13 @@ pub async fn reset_db(pool: &PgPool) {
         .await
         .expect("could not update info in test setup");
     sqlx::query("INSERT INTO blockchains (id,name,status) values ('1fdbf4c3-ff16-489a-8d3d-87c8620b963c','Helium', 'production')")
-        .execute(pool)
-        .await
-        .expect("Error inserting blockchains");
+            .execute(pool)
+            .await
+            .expect("Error inserting blockchains");
+    sqlx::query("INSERT INTO blockchains (id,name,status) values ('13f25489-bf9b-4667-9f18-f8caa32fa4a9','GonerChain', 'deleted')")
+                .execute(pool)
+                .await
+                .expect("Error inserting blockchains");
     sqlx::query("DELETE FROM broadcast_filters")
         .execute(pool)
         .await

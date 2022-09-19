@@ -52,7 +52,28 @@ async fn responds_not_found_for_get_nonexisting() {
         fields: vec![],
         pagination: None,
     };
-    let uuid: uuid::Uuid = "6a9efd38-0c5a-4ab0-bda2-5f308f850565".parse().unwrap();
+    let _uuid: uuid::Uuid = "6a9efd38-0c5a-4ab0-bda2-5f308f850565".parse().unwrap();
+    let uuid: uuid::Uuid = "1fdbf4c3-ff16-489a-8d3d-87c8620b963c".parse().unwrap();
+
+    let inner = GetBlockchainRequest {
+        meta: Some(request_meta),
+        id: Some(uuid.into()),
+    };
+    let req = with_auth(inner, &db).await;
+    assert_grpc_request! { get, req, tonic::Code::NotFound, db, BlockchainServiceClient<Channel> };
+}
+
+#[before(call = "setup")]
+#[tokio::test]
+async fn responds_not_found_for_get_deleted() {
+    let db = Arc::new(_before_values.await);
+    let request_meta = RequestMeta {
+        id: Some(Uuid::new_v4().into()),
+        token: None,
+        fields: vec![],
+        pagination: None,
+    };
+    let uuid: uuid::Uuid = "13f25489-bf9b-4667-9f18-f8caa32fa4a9".parse().unwrap();
     let inner = GetBlockchainRequest {
         meta: Some(request_meta),
         id: Some(uuid.into()),
