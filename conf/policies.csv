@@ -32,6 +32,8 @@ p, master_admin, /blockjoy.api.ui_v1.CommandService/RestartHost, POST
 p, master_admin, /blockjoy.api.ui_v1.CommandService/ExecuteGeneric, POST
 p, master_admin, /blockjoy.api.ui_v1.UpdateService/Updates, POST
 p, master_admin, /blockjoy.api.ui_v1.DashboardService/Metrics, POST
+p, master_admin, /blockjoy.api.ui_v1.BlockchainService/List, POST
+p, master_admin, /blockjoy.api.ui_v1.BlockchainService/Get, POST
 
 
 g, admin, master_admin

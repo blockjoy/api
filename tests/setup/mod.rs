@@ -153,7 +153,7 @@ pub async fn reset_db(pool: &PgPool) {
         .execute(pool)
         .await
         .expect("could not update info in test setup");
-    sqlx::query("INSERT INTO blockchains (name,status) values ('Helium', 'production')")
+    sqlx::query("INSERT INTO blockchains (id,name,status) values ('1fdbf4c3-ff16-489a-8d3d-87c8620b963c','Helium', 'production')")
         .execute(pool)
         .await
         .expect("Error inserting blockchains");
