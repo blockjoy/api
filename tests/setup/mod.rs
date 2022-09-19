@@ -27,6 +27,7 @@ macro_rules! assert_grpc_request {
                 Ok(response) => {
                     let inner = response.into_inner();
                     println!("response OK: {:?}", inner);
+                    assert_eq!($s, tonic::Code::Ok);
                 }
                 Err(e) => {
                     let s = Status::from(e);
