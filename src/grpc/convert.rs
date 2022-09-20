@@ -5,18 +5,19 @@ pub mod from {
         NodeDelete, NodeInfoGet, NodeRestart, NodeStop, Uuid as GrpcUuid,
     };
     use crate::grpc::blockjoy_ui::{
-        node::NodeStatus as GrpcNodeStatus, node::NodeType as GrpcNodeType, Host as GrpcHost,
+        self, node::NodeStatus as GrpcNodeStatus, node::NodeType as GrpcNodeType, Host as GrpcHost,
         HostProvision as GrpcHostProvision, Node as GrpcNode, Organization, User as GrpcUiUser,
         Uuid as GrpcUiUuid,
     };
     use crate::grpc::helpers::pb_current_timestamp;
     use crate::models::{
-        Command as DbCommand, ConnectionStatus, ContainerStatus, HostCmd, HostProvision,
+        self, Command as DbCommand, ConnectionStatus, ContainerStatus, HostCmd, HostProvision,
         HostRequest, Node, NodeChainStatus, NodeCreateRequest, NodeInfo, NodeStakingStatus,
         NodeSyncStatus, NodeType, Org, User,
     };
     use crate::models::{Host, HostSelectiveUpdate};
     use anyhow::anyhow;
+    use chrono::{DateTime, Utc};
     use prost_types::Timestamp;
     use serde_json::Value;
     use std::i64;
@@ -488,6 +489,35 @@ pub mod from {
                 NodeChainStatus::Staking => GrpcNodeStatus::UndefinedApplicationStatus,
                 // TODO
                 NodeChainStatus::Validating => GrpcNodeStatus::UndefinedApplicationStatus,
+            }
+        }
+    }
+
+    impl From<models::Blockchain> for blockjoy_ui::Blockchain {
+        fn from(model: models::Blockchain) -> Self {
+            let convert_dt = |dt: DateTime<Utc>| prost_types::Timestamp {
+                seconds: dt.timestamp(),
+                nanos: dt.timestamp_nanos() as i32,
+            };
+            Self {
+                id: Some(model.id.into()),
+                name: model.name,
+                description: model.description,
+                status: model.status as i32,
+                project_url: model.project_url,
+                repo_url: model.repo_url,
+                supports_etl: model.supports_etl,
+                supports_node: model.supports_node,
+                supports_staking: model.supports_staking,
+                supports_broadcast: model.supports_broadcast,
+                version: model.version,
+                supported_nodes_types: model
+                    .supported_node_types
+                    .into_iter()
+                    .map(|node_type| node_type as i32)
+                    .collect(),
+                created_at: Some(convert_dt(model.created_at)),
+                updated_at: Some(convert_dt(model.updated_at)),
             }
         }
     }

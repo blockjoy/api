@@ -53,32 +53,3 @@ impl Blockchain {
             .map_err(ApiError::from)
     }
 }
-
-impl From<Blockchain> for blockjoy_ui::Blockchain {
-    fn from(model: Blockchain) -> Self {
-        let convert_dt = |dt: DateTime<Utc>| prost_types::Timestamp {
-            seconds: dt.timestamp(),
-            nanos: dt.timestamp_nanos() as i32,
-        };
-        Self {
-            id: Some(model.id.into()),
-            name: model.name,
-            description: model.description,
-            status: model.status as i32,
-            project_url: model.project_url,
-            repo_url: model.repo_url,
-            supports_etl: model.supports_etl,
-            supports_node: model.supports_node,
-            supports_staking: model.supports_staking,
-            supports_broadcast: model.supports_broadcast,
-            version: model.version,
-            supported_nodes_types: model
-                .supported_node_types
-                .into_iter()
-                .map(|node_type| node_type as i32)
-                .collect(),
-            created_at: Some(convert_dt(model.created_at)),
-            updated_at: Some(convert_dt(model.updated_at)),
-        }
-    }
-}
