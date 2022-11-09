@@ -182,6 +182,12 @@ spec:
             name: jwt
         - secretRef:
             name: api
+        - secretRef:
+            name: pwdreset
+        - secretRef:
+            name: pwdrefresh
+        - secretRef:
+            name: pwdconfirm
 ---
 apiVersion: v1
 kind: Service
