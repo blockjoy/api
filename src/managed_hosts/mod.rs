@@ -1,6 +1,8 @@
 use crate::errors::{ApiError, Result as ApiResult};
 use crate::models::Host;
+use anyhow::anyhow;
 use sqlx::PgPool;
+use std::str::FromStr;
 
 pub struct ManagedHosts {}
 
@@ -26,9 +28,10 @@ impl ManagedHosts {
         }
     }
 
+    /// Get the ID of the organization used to hold all managed hosts
     async fn get_managed_org(_db: &PgPool) -> ApiResult<uuid::Uuid> {
-        Ok(uuid::Uuid::parse_str(
-            "ed0fa3a5-bac8-4d71-aca4-63d0afd1189c",
-        )?)
+        let id =
+            std::env::var("MANAGED_ORG_ID").map_err(|e| ApiError::UnexpectedError(anyhow!(e)))?;
+        Ok(uuid::Uuid::from_str(id.as_str())?)
     }
 }
