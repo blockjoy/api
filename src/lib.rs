@@ -4,6 +4,7 @@ pub mod grpc;
 pub mod http;
 pub mod hybrid_server;
 pub mod mail;
+pub mod managed_hosts;
 pub mod models;
 pub mod server;
 

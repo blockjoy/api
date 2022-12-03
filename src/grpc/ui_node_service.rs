@@ -8,6 +8,7 @@ use crate::grpc::blockjoy_ui::{
 };
 use crate::grpc::notification::{ChannelNotification, ChannelNotifier, NotificationPayload};
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
+use crate::managed_hosts::ManagedHosts;
 use crate::models::{
     Command, CommandRequest, Host, HostCmd, IpAddress, Node, NodeCreateRequest, NodeInfo,
 };
@@ -94,6 +95,7 @@ impl NodeService for NodeServiceImpl {
         let refresh_token = get_refresh_token(&request);
         let inner = request.into_inner();
         let mut fields: NodeCreateRequest = inner.node.ok_or_else(required("node"))?.try_into()?;
+        // let host = ManagedHosts::next_available_host(&self.db).await?;
         let host = Host::find_by_id(fields.host_id, &self.db).await?;
         // Set IPs retrieved from system
         fields.ip_gateway = host.ip_gateway.map(|ip| ip.to_string());
