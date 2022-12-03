@@ -6,3 +6,6 @@ DROP TYPE IF EXISTS enum_node_property_field_type;
 
 ALTER TABLE blockchains
     ADD column supported_node_types jsonb default '[]'::jsonb;
+
+ALTER TABLE nodes
+    ADD column node_data jsonb default '{}'::jsonb;

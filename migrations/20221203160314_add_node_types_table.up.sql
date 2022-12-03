@@ -33,3 +33,6 @@ CREATE TABLE IF NOT EXISTS node_type_settings (
 
 ALTER TABLE blockchains
     drop column supported_node_types;
+
+ALTER TABLE nodes
+    drop column node_data;
