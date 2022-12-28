@@ -82,4 +82,8 @@ impl NodeProperties {
     pub fn get_properties(&self) -> Option<&[NodePropertyValue]> {
         self.properties.as_deref()
     }
+
+    pub fn iter_props(&self) -> impl Iterator<Item = &NodePropertyValue> {
+        self.properties.iter().flat_map(|p| p.iter())
+    }
 }

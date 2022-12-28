@@ -1,12 +1,14 @@
 use crate::errors::Result as ApiResult;
 use crate::grpc::blockjoy::container_image::StatusName;
 use crate::grpc::blockjoy::{
-    command, node_command, Command as GrpcCommand, ContainerImage, NodeCommand, NodeCreate,
+    self, command, node_command, Command as GrpcCommand, ContainerImage, NodeCommand, NodeCreate,
     NodeDelete, NodeInfoGet, NodeRestart, NodeStop,
 };
 use crate::grpc::helpers::required;
 use crate::models::{Blockchain, Command, HostCmd, Node, NodeTypeKey};
 use crate::server::DbPool;
+
+use super::blockjoy::Parameter;
 
 pub async fn db_command_to_grpc_command(cmd: Command, db: &DbPool) -> ApiResult<GrpcCommand> {
     let mut node_cmd = NodeCommand {
@@ -25,13 +27,28 @@ pub async fn db_command_to_grpc_command(cmd: Command, db: &DbPool) -> ApiResult<
         HostCmd::ShutdownNode => Some(node_command::Command::Stop(NodeStop::default())),
         HostCmd::UpdateNode => {
             tracing::debug!("Using NodeUpgrade for UpdateNode");
-            unimplemented!();
-            /*
+
             // TODO: add image
-            Self {
-                r#type: Some(command::Type::Node(NodeUpgrade {})),
-            }
-             */
+            // Self {
+            //     r#type: Some(command::Type::Node(NodeUpgrade {})),
+            // }
+
+            let node = Node::find_by_id(cmd.resource_id, db).await?;
+            let cmd = blockjoy::NodeInfoUpdate {
+                name: node.name,
+                self_update: Some(node.self_update),
+                properties: node
+                    .node_type
+                    .iter_props()
+                    .flat_map(|p| p.value().as_ref().map(|v| (p.name(), v)))
+                    .map(|(name, value)| Parameter {
+                        name: name.clone(),
+                        value: value.clone(),
+                    })
+                    .collect(),
+            };
+
+            Some(node_command::Command::Update(cmd))
         }
         HostCmd::MigrateNode => {
             tracing::debug!("Using NodeGenericCommand for MigrateNode");
@@ -66,6 +83,15 @@ pub async fn db_command_to_grpc_command(cmd: Command, db: &DbPool) -> ApiResult<
                 ip: node.ip_addr.ok_or_else(required("node.ip_addr"))?,
                 gateway: node.ip_gateway.ok_or_else(required("node.ip_gateway"))?,
                 self_update: node.self_update,
+                properties: node
+                    .node_type
+                    .iter_props()
+                    .flat_map(|p| p.value().as_ref().map(|v| (p.name(), v)))
+                    .map(|(name, value)| Parameter {
+                        name: name.clone(),
+                        value: value.clone(),
+                    })
+                    .collect(),
             };
 
             Some(node_command::Command::Create(create_cmd))
