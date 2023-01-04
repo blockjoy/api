@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: blockvisor-api-prod
+resources:
+  - ../base
+  - secrets.yaml
+configMapGenerator:
+  - name: blockvisor-api-env
+    behavior: merge
+    envs:
+    - config/blockvisor-api.env
+patches:
+  - patch: |-
+      apiVersion: networking.gke.io/v1
+      kind: ManagedCertificate
+      metadata:
+        name: blockvisor-api
+      spec:
+        domains:
+          - api.prod.blockjoy.com
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: blockvisor-api
+        annotations:
+          kubernetes.io/ingress.global-static-ip-name: blockvisor-api-prod

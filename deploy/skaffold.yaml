@@ -1,0 +1,30 @@
+apiVersion: skaffold/v2beta7
+kind: Config
+metadata:
+  name: blockvisor
+build:
+  tagPolicy:
+    gitCommit: {}
+  artifacts:
+  - image: us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api
+    context: ./
+  # - image: us-docker.pkg.dev/blockjoy-deployer/blockvisor-api-migrations/blockvisor-api-migrations
+  #   context: ./migrations
+  local: 
+    push: true
+profiles:
+- name: dev
+  deploy:
+    kustomize:
+      paths:
+        - ./kubernetes/dev
+- name: staging
+  deploy:
+    kustomize:
+      paths:
+        - ./kubernetes/staging
+- name: production
+  deploy:
+    kustomize:
+      paths:
+        - ./kubernetes/production

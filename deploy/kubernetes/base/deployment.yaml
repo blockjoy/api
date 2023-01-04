@@ -1,0 +1,58 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blockvisor-api
+  labels:
+    app: blockvisor-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blockvisor-api
+  template:
+    metadata:
+      name: blockvisor-api
+      labels:
+        app: blockvisor-api
+    spec:
+      serviceAccountName: blockvisor-api-sa
+      containers:
+        - name: blockvisor-api
+          image: us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          volumeMounts:
+            - mountPath: "/var/secrets"
+              name: secret-volume
+          ports:
+            - name: listener-port
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: blockvisor-api-env
+      volumes:
+      - name: secret-volume
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: blockvisor-api-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blockvisor-api
+spec:
+  selector:
+    app: blockvisor-api
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+---

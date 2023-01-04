@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: blockvisor
+resources:
+  - deployment.yaml
+  - envoy.yaml
+  - namespace.yaml
+  - ingress.yaml
+configMapGenerator:
+  - name: envoy-config
+    files:
+      - config/envoy.yaml
+    options:
+      disableNameSuffixHash: true
+  - name: blockvisor-api-env
+    envs:
+      - config/blockvisor-api.env
+    options:
+      disableNameSuffixHash: true

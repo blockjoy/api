@@ -1,0 +1,24 @@
+---
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: blockvisor-api
+spec:
+  domains:
+    - api.blockjoy.com
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: blockvisor-api
+  annotations:
+    kubernetes.io/ingress.global-static-ip-name: blockvisor-api
+    networking.gke.io/managed-certificates: blockvisor-api
+    kubernetes.io/ingress.class: gce
+spec:
+  defaultBackend:
+    service:
+      name: envoy
+      port:
+        number: 8080
+---
