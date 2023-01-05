@@ -1,5 +1,4 @@
 use crate::auth::TokenType;
-use anyhow::anyhow;
 use derive_getters::Getters;
 use std::fmt::{Display, Formatter};
 use std::fs;
@@ -11,7 +10,9 @@ pub type KeyProviderResult = Result<KeyValue, KeyProviderError>;
 pub enum KeyProviderError {
     #[error("Key is empty")]
     Empty,
-    #[error("Env var couldn't be loaded: {0}")]
+    #[error("Loading environment parameter `{0}` failed with: {1}")]
+    EnvError(String, std::env::VarError),
+    #[error("Dot env couldn't be loaded: {0}")]
     DotenvError(#[from] dotenv::Error),
     #[error("Key couldn't be loaded from disk: {0}")]
     Disk(#[from] std::io::Error),
@@ -19,7 +20,7 @@ pub enum KeyProviderError {
     UnexpectedError(#[from] anyhow::Error),
 }
 
-#[derive(Getters)]
+#[derive(Debug, Getters)]
 pub struct KeyValue {
     value: String,
 }
@@ -40,17 +41,17 @@ pub struct KeyProvider;
 
 impl KeyProvider {
     pub fn get_secret(token_type: TokenType) -> KeyProviderResult {
-        let key = match token_type {
-            TokenType::UserAuth => Self::get_retriever()("JWT_SECRET"),
-            TokenType::UserRefresh => Self::get_retriever()("REFRESH_SECRET"),
-            TokenType::HostAuth => Self::get_retriever()("JWT_SECRET"),
-            TokenType::HostRefresh => Self::get_retriever()("REFRESH_SECRET"),
-            TokenType::RegistrationConfirmation => Self::get_retriever()("CONFIRMATION_SECRET"),
-            TokenType::PwdReset => Self::get_retriever()("PWD_RESET_SECRET"),
-            TokenType::Invitation => Self::get_retriever()("INVITATION_SECRET"),
+        let paramname = match token_type {
+            TokenType::UserAuth => "JWT_SECRET",
+            TokenType::UserRefresh => "REFRESH_SECRET",
+            TokenType::HostAuth => "JWT_SECRET",
+            TokenType::HostRefresh => "REFRESH_SECRET",
+            TokenType::RegistrationConfirmation => "CONFIRMATION_SECRET",
+            TokenType::PwdReset => "PWD_RESET_SECRET",
+            TokenType::Invitation => "INVITATION_SECRET",
         };
 
-        let key = key?;
+        let key = Self::get_retriever()(paramname)?;
 
         if key.value.is_empty() {
             Err(KeyProviderError::Empty)
@@ -79,7 +80,7 @@ impl KeyProvider {
     fn get_env_value(name: &str) -> KeyProviderResult {
         std::env::var(name)
             .map(KeyValue::new)
-            .map_err(|e| KeyProviderError::UnexpectedError(anyhow!(e)))
+            .map_err(|e| KeyProviderError::EnvError(name.to_string(), e))
     }
 
     fn get_key_value(name: &str) -> KeyProviderResult {

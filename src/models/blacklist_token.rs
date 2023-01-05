@@ -33,8 +33,7 @@ impl BlacklistToken {
             sqlx::query_scalar("SELECT count(token)::int from token_blacklist WHERE token = $1")
                 .bind(token)
                 .fetch_one(db)
-                .await
-                .map_err(ApiError::from)?;
+                .await?;
 
         Ok(res > 0)
     }

@@ -48,7 +48,7 @@ pub enum ApiError {
     #[error("Missing or invalid env param value: {0}")]
     EnvError(dotenv::Error),
 
-    #[error("Error handling token")]
+    #[error("Error handling token: {0}")]
     TokenError(TokenError),
 
     #[error("Given user is not yet confirmed")]

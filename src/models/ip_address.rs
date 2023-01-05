@@ -153,8 +153,7 @@ impl IpAddress {
         )
         .bind(ip)
         .fetch_one(db)
-        .await
-        .map_err(ApiError::from)?;
+        .await?;
 
         Ok(ip_count > 0)
     }

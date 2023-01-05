@@ -306,8 +306,7 @@ impl Node {
         .bind(org_id)
         .bind(user_id)
         .fetch_one(db)
-        .await
-        .map_err(ApiError::from)?;
+        .await?;
 
         Ok(cnt > 0)
     }
@@ -332,8 +331,7 @@ impl Node {
         .bind(offset)
         .bind(limit)
         .fetch_all(db)
-        .await
-        .map_err(ApiError::from)?;
+        .await?;
 
         // Apply filters if present
         if !filter.blockchains.is_empty() {
@@ -584,6 +582,12 @@ impl NodeSelectiveUpdate {
     /// Performs a selective update of only the columns related to metrics of the provided nodes.
     pub async fn update_metrics(updates: Vec<Self>, db: &PgPool) -> Result<()> {
         type PgBuilder = sqlx::QueryBuilder<'static, sqlx::Postgres>;
+
+        // Lets not perform a malformed query on empty input, but lets instead be fast and
+        // short-circuit here.
+        if updates.is_empty() {
+            return Ok(());
+        }
 
         // We first start the query out by declaring which fields to update.
         let mut query_builder = PgBuilder::new(

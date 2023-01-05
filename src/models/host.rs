@@ -44,12 +44,23 @@ pub struct Host {
     pub ip_range_from: Option<IpAddr>,
     pub ip_range_to: Option<IpAddr>,
     pub ip_gateway: Option<IpAddr>,
+
+    /* metrics */
+    pub used_cpu: Option<i32>,
+    pub used_memory: Option<i64>,
+    pub used_disk_space: Option<i64>,
+    pub load_one: Option<f64>,
+    pub load_five: Option<f64>,
+    pub load_fifteen: Option<f64>,
+    pub network_received: Option<i64>,
+    pub network_sent: Option<i64>,
+    pub uptime: Option<i64>,
 }
 
 impl TryFrom<PgRow> for Host {
-    type Error = ApiError;
+    type Error = sqlx::Error;
 
-    fn try_from(row: PgRow) -> Result<Self, ApiError> {
+    fn try_from(row: PgRow) -> Result<Self, sqlx::Error> {
         let host = Self {
             id: row.try_get("id")?,
             org_id: row.try_get("org_id")?,
@@ -70,6 +81,15 @@ impl TryFrom<PgRow> for Host {
             ip_range_from: row.try_get("ip_range_from")?,
             ip_range_to: row.try_get("ip_range_to")?,
             ip_gateway: row.try_get("ip_gateway")?,
+            used_cpu: row.try_get("used_cpu")?,
+            used_memory: row.try_get("used_memory")?,
+            used_disk_space: row.try_get("used_disk_space")?,
+            load_one: row.try_get("load_one")?,
+            load_five: row.try_get("load_five")?,
+            load_fifteen: row.try_get("load_fifteen")?,
+            network_received: row.try_get("network_received")?,
+            network_sent: row.try_get("network_sent")?,
+            uptime: row.try_get("uptime")?,
         };
 
         Ok(host)
@@ -106,7 +126,7 @@ impl Host {
 
     pub async fn find_all(db: &PgPool) -> Result<Vec<Self>> {
         sqlx::query("SELECT * FROM hosts order by lower(name)")
-            .map(|row| Self::try_from(row).unwrap_or_default())
+            .try_map(Self::try_from)
             .fetch_all(db)
             .await
             .map_err(ApiError::from)
@@ -115,19 +135,18 @@ impl Host {
     pub async fn find_by_node(node_id: Uuid, db: &PgPool) -> Result<Self> {
         sqlx::query("SELECT hosts.* FROM nodes INNER JOIN hosts ON nodes.host_id = hosts.id WHERE nodes.id = $1")
             .bind(node_id)
+            .try_map(Self::try_from)
             .fetch_one(db)
             .await
-            .map(|row| Self::try_from(row).unwrap_or_default())
             .map_err(Into::into)
     }
 
     pub async fn find_by_org(org_id: Uuid, db: &PgPool) -> Result<Vec<Self>> {
         let hosts = sqlx::query("SELECT * FROM hosts where org_id = $1 order by lower(name)")
             .bind(org_id)
-            .map(|row| Self::try_from(row).unwrap_or_default())
+            .try_map(Self::try_from)
             .fetch_all(db)
-            .await
-            .map_err(ApiError::from)?;
+            .await?;
         let mut hosts_with_nodes: Vec<Host> = Vec::with_capacity(hosts.len());
 
         for mut host in hosts {
@@ -152,10 +171,9 @@ impl Host {
         .bind(org_id)
         .bind(limit)
         .bind(offset)
-        .map(|row| Self::try_from(row).unwrap_or_default())
+        .try_map(Self::try_from)
         .fetch_all(db)
-        .await
-        .map_err(ApiError::from)?;
+        .await?;
         let mut hosts_with_nodes: Vec<Host> = Vec::with_capacity(hosts.len());
 
         for mut host in hosts {
@@ -224,7 +242,7 @@ impl Host {
         .bind(req.ip_gateway)
         .bind(req.ip_range_from)
         .bind(req.ip_range_to)
-        .map(|row| Self::try_from(row).unwrap_or_default())
+        .try_map(Self::try_from)
         .fetch_one(&mut tx)
         .await?;
 
@@ -272,7 +290,7 @@ impl Host {
         .bind(host.os)
         .bind(host.os_version)
         .bind(id)
-        .map(|row| Self::try_from(row).unwrap_or_default())
+        .try_map(Self::try_from)
         .fetch_one(&mut tx)
         .await?;
 
@@ -311,7 +329,7 @@ impl Host {
         .bind(fields.val_ip_addrs)
         .bind(fields.status)
         .bind(fields.id)
-        .map(|row| Self::try_from(row).unwrap_or_default())
+        .try_map(Self::try_from)
         .fetch_one(&mut tx)
         .await?;
 
@@ -327,7 +345,7 @@ impl Host {
                 .bind(host.version)
                 .bind(host.status)
                 .bind(id)
-                .map(|row| Self::try_from(row).unwrap_or_default())
+                .try_map(Self::try_from)
                 .fetch_one(&mut tx)
                 .await?;
 
@@ -359,7 +377,7 @@ impl FindableById for Host {
     async fn find_by_id(id: Uuid, db: &PgPool) -> Result<Self> {
         let mut host = sqlx::query("SELECT * FROM hosts WHERE id = $1")
             .bind(id)
-            .map(|row| Self::try_from(row).unwrap_or_default())
+            .try_map(Self::try_from)
             .fetch_one(db)
             .await?;
 
@@ -420,7 +438,7 @@ impl UpdateInfo<HostInfo, Host> for Host {
 
         tx.commit().await?;
 
-        host.try_into()
+        Ok(host.try_into()?)
     }
 }
 
@@ -478,6 +496,12 @@ impl HostSelectiveUpdate {
     /// Performs a selective update of only the columns related to metrics of the provided nodes.
     pub async fn update_metrics(updates: Vec<Self>, db: &PgPool) -> Result<()> {
         type PgBuilder = sqlx::QueryBuilder<'static, sqlx::Postgres>;
+
+        // Lets not perform a malformed query on empty input, but lets instead be fast and
+        // short-circuit here.
+        if updates.is_empty() {
+            return Ok(());
+        }
 
         // We first start the query out by declaring which fields to update.
         let mut query_builder = PgBuilder::new(
@@ -737,8 +761,7 @@ impl HostProvision {
         .bind(req.ip_range_to)
         .bind(req.ip_gateway)
         .fetch_one(db)
-        .await
-        .map_err(ApiError::from)?;
+        .await?;
 
         host_provision.set_install_cmd();
 
@@ -750,8 +773,7 @@ impl HostProvision {
             sqlx::query_as::<_, HostProvision>("SELECT * FROM host_provisions where id = $1")
                 .bind(host_provision_id)
                 .fetch_one(db)
-                .await
-                .map_err(ApiError::from)?;
+                .await?;
         host_provision.set_install_cmd();
 
         Ok(host_provision)

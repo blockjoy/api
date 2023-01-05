@@ -286,8 +286,7 @@ impl User {
                     )
                     .bind(&user.email)
                     .fetch_one(&mut tx)
-                    .await
-                    .map_err(ApiError::from)?;
+                    .await?;
 
                     sqlx::query(
                         "INSERT INTO orgs_users (org_id, user_id, role) values($1, $2, 'owner')",
@@ -295,8 +294,7 @@ impl User {
                     .bind(org.id)
                     .bind(user.id)
                     .execute(&mut tx)
-                    .await
-                    .map_err(ApiError::from)?;
+                    .await?;
 
                     Ok(user)
                 }
@@ -403,8 +401,7 @@ impl User {
         )
         .bind(id)
         .fetch_one(db)
-        .await
-        .map_err(ApiError::from)?;
+        .await?;
 
         Ok(result == 1)
     }

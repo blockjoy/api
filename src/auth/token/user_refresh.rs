@@ -78,48 +78,52 @@ mod tests {
 
     #[test]
     fn can_create_token() -> anyhow::Result<()> {
-        let mut role = HashMap::<String, String>::new();
-        role.insert("role".to_string(), TokenRole::User.to_string());
+        temp_env::with_var_unset("SECRETS_ROOT", || {
+            let mut role = HashMap::<String, String>::new();
+            role.insert("role".to_string(), TokenRole::User.to_string());
 
-        let claim = TokenClaim::new(
-            Uuid::new_v4(),
-            ExpirationProvider::expiration(TokenType::UserRefresh),
-            TokenType::UserRefresh,
-            TokenRole::User,
-            None,
-        );
-        let encoded = UserRefreshToken::try_new(claim)?.encode()?;
+            let claim = TokenClaim::new(
+                Uuid::new_v4(),
+                ExpirationProvider::expiration(TokenType::UserRefresh),
+                TokenType::UserRefresh,
+                TokenRole::User,
+                None,
+            );
+            let encoded = UserRefreshToken::try_new(claim)?.encode()?;
 
-        println!("Encoded token: {encoded:?}");
-        assert!(encoded.starts_with("ey"));
+            println!("Encoded token: {encoded:?}");
+            assert!(encoded.starts_with("ey"));
 
-        Ok(())
+            Ok(())
+        })
     }
 
     #[test]
     fn can_decode_token() -> anyhow::Result<()> {
-        let user_id = Uuid::new_v4();
-        let claim = TokenClaim::new(
-            user_id,
-            ExpirationProvider::expiration(TokenType::UserRefresh),
-            TokenType::UserRefresh,
-            TokenRole::User,
-            None,
-        );
-        let encoded = UserRefreshToken::try_new(claim)?.encode()?;
+        temp_env::with_var_unset("SECRETS_ROOT", || {
+            let user_id = Uuid::new_v4();
+            let claim = TokenClaim::new(
+                user_id,
+                ExpirationProvider::expiration(TokenType::UserRefresh),
+                TokenType::UserRefresh,
+                TokenRole::User,
+                None,
+            );
+            let encoded = UserRefreshToken::try_new(claim)?.encode()?;
 
-        println!("Encoded token: {encoded:?}");
-        assert!(encoded.starts_with("ey"));
+            println!("Encoded token: {encoded:?}");
+            assert!(encoded.starts_with("ey"));
 
-        let token = UserRefreshToken::from_encoded::<UserRefreshToken>(
-            encoded.as_str(),
-            TokenType::UserRefresh,
-            true,
-        );
+            let token = UserRefreshToken::from_encoded::<UserRefreshToken>(
+                encoded.as_str(),
+                TokenType::UserRefresh,
+                true,
+            )
+            .unwrap();
 
-        assert!(token.is_ok());
-        assert_eq!(token.unwrap().id, user_id);
+            assert_eq!(token.id, user_id);
 
-        Ok(())
+            Ok(())
+        })
     }
 }

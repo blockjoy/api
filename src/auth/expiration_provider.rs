@@ -62,22 +62,23 @@ mod tests {
 
     #[test]
     fn can_calculate_expiration_time() -> anyhow::Result<()> {
-        std::env::set_var("TOKEN_EXPIRATION_MINS_USER", "10");
-        let now = Utc::now();
-        let duration = Duration::minutes(
-            dotenv::var("TOKEN_EXPIRATION_MINS_USER")
-                .map_err(ApiError::EnvError)?
-                .parse::<i64>()
-                .map_err(|e| {
-                    ApiError::UnexpectedError(anyhow!("Couldn't parse env var value: {e:?}"))
-                })?,
-        );
-        let expiration = (now + duration).timestamp();
+        temp_env::with_vars(vec![("TOKEN_EXPIRATION_MINS_USER", Some("10"))], || {
+            let now = Utc::now();
+            let duration = Duration::minutes(
+                dotenv::var("TOKEN_EXPIRATION_MINS_USER")
+                    .map_err(ApiError::EnvError)?
+                    .parse::<i64>()
+                    .map_err(|e| {
+                        ApiError::UnexpectedError(anyhow!("Couldn't parse env var value: {e:?}"))
+                    })?,
+            );
+            let expiration = (now + duration).timestamp();
 
-        println!("Now: {}, expires: {}", now.timestamp(), expiration);
-        assert_eq!(duration.num_minutes(), 10);
-        assert!(expiration > now.timestamp());
+            println!("Now: {}, expires: {}", now.timestamp(), expiration);
+            assert_eq!(duration.num_minutes(), 10);
+            assert!(expiration > now.timestamp());
 
-        Ok(())
+            Ok(())
+        })
     }
 }

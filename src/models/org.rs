@@ -216,8 +216,7 @@ impl Org {
         .bind(org_id)
         .bind(&req.name)
         .fetch_one(&mut tx)
-        .await
-        .map_err(ApiError::from)?;
+        .await?;
 
         let _org_user = sqlx::query(
             "INSERT INTO orgs_users (org_id, user_id, role) values($1, $2, 'owner') RETURNING *",
