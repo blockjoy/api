@@ -1,4 +1,4 @@
-# StakeJoy Api Server
+# BlockJoy Api Server
 
 ## Database
 
