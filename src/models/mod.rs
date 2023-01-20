@@ -81,7 +81,12 @@ pub trait UpdateInfo<T, R> {
 /// `conn`, but altered such that they return a `Result<_, errors::Error>`. With this Err-variant
 /// we _can_ use the `?`-operator in our controllers.
 #[derive(Debug, Clone)]
-pub struct DbPool(std::sync::Arc<sqlx::PgPool>);
+pub struct DbPool {
+    /// We do not do any refcounting like wrapping `pool` in an `Arc`, because `sqlx::PgPool`
+    /// internally already does refcounting:
+    /// https://docs.rs/sqlx-core/0.6.2/src/sqlx_core/pool/mod.rs.html#244
+    pool: sqlx::PgPool,
+}
 
 /// This is a wrapper type for a database connection that is in a transaction-state, i.e. `BEGIN;`
 /// has been ran. The same justification as above applies to why we use a wrapper type here.
@@ -90,29 +95,33 @@ pub struct DbTrx<'a>(sqlx::Transaction<'a, Postgres>);
 
 impl DbPool {
     pub fn new(pool: sqlx::PgPool) -> Self {
-        Self(std::sync::Arc::new(pool))
+        Self { pool }
     }
 
     /// Begins a new new database connnection. This means that the queries performed using this as
     /// a connection will not be flushed unless `commit` is called on the transaction. This
     /// function should be used in controllers that perform writes or deletes on the database.
     pub async fn begin(&self) -> Result<DbTrx<'_>> {
-        Ok(DbTrx(self.0.begin().await?))
+        Ok(DbTrx(self.pool.begin().await?))
     }
 
     /// Returns a database connection that is not in a transition state. Use this for read-only
     /// endpoints.
     pub async fn conn(&self) -> Result<sqlx::pool::PoolConnection<Postgres>> {
-        Ok(self.0.acquire().await?)
+        Ok(self.pool.acquire().await?)
     }
 
     pub fn is_closed(&self) -> bool {
-        self.0.is_closed()
+        self.pool.is_closed()
+    }
+
+    pub fn inner(&self) -> &sqlx::PgPool {
+        &self.pool
     }
 
     #[cfg(test)]
     pub async fn close(&self) {
-        self.0.close().await
+        self.pool.close().await
     }
 }
 

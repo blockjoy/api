@@ -187,15 +187,18 @@ pub struct NodeFilter {
     pub blockchains: Vec<Uuid>,
 }
 
-impl Node {
-    pub async fn find_by_id(id: Uuid, db: &mut sqlx::PgConnection) -> Result<Node> {
+#[axum::async_trait]
+impl FindableById for Node {
+    async fn find_by_id(id: Uuid, db: &mut sqlx::PgConnection) -> Result<Self> {
         sqlx::query_as("SELECT * FROM nodes where id = $1")
             .bind(id)
             .fetch_one(db)
             .await
             .map_err(ApiError::from)
     }
+}
 
+impl Node {
     pub async fn create(req: &mut NodeCreateRequest, tx: &mut super::DbTrx<'_>) -> Result<Node> {
         let chain = Blockchain::find_by_id(req.blockchain_id, tx).await?;
         let node_type = NodeTypeKey::str_from_value(req.node_type.get_id());

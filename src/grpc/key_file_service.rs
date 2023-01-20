@@ -1,3 +1,4 @@
+use crate::auth::FindableById;
 use crate::errors::ApiError;
 use crate::grpc::blockjoy::key_files_server::KeyFiles;
 use crate::grpc::blockjoy::{

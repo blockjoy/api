@@ -21,16 +21,15 @@ pub async fn start() -> anyhow::Result<()> {
     let bind_ip = std::env::var("BIND_IP").unwrap_or_else(|_| "0.0.0.0".to_string());
     let addr = format!("{}:{}", bind_ip, port);
 
-    let db = models::DbPool::new(
-        PgPoolOptions::new()
-            .max_connections(db_max_conn)
-            .min_connections(db_min_conn)
-            .max_lifetime(Duration::from_secs(60 * 60 * 24))
-            .idle_timeout(Duration::from_secs(60 * 2))
-            .connect(&db_url)
-            .await
-            .expect("Could not create db connection pool."),
-    );
+    let db = PgPoolOptions::new()
+        .max_connections(db_max_conn)
+        .min_connections(db_min_conn)
+        .max_lifetime(Duration::from_secs(60 * 60 * 24))
+        .idle_timeout(Duration::from_secs(60 * 2))
+        .connect(&db_url)
+        .await
+        .expect("Could not create db connection pool.");
+    let db = models::DbPool::new(db);
 
     let rest = http_server(db.clone()).await.into_make_service();
     let grpc = grpc_server(db).await.into_service();

@@ -51,7 +51,6 @@ use crate::grpc::blockjoy_ui::user_service_server::UserServiceServer;
 use crate::grpc::command_flow::CommandFlowServerImpl;
 use crate::grpc::key_file_service::KeyFileServiceImpl;
 use crate::grpc::metrics_service::MetricsServiceImpl;
-use crate::grpc::notification::ChannelNotifier;
 use crate::grpc::organization_service::OrganizationServiceImpl;
 use crate::grpc::ui_blockchain_service::BlockchainServiceImpl;
 use crate::grpc::ui_command_service::CommandServiceImpl;
@@ -69,7 +68,6 @@ use blockjoy::hosts_server::HostsServer;
 use chrono::NaiveDateTime;
 use host_service::HostsServiceImpl;
 use std::env;
-use std::sync::Arc;
 use tonic::metadata::errors::InvalidMetadataValue;
 use tonic::transport::server::Router;
 use tonic::transport::Server;
@@ -99,9 +97,6 @@ pub async fn server(
         Identity,
     >,
 > {
-    // Create channel notifier to send messages from one task to another
-    let notifier = Arc::new(ChannelNotifier::create());
-
     // Add unauthenticated paths. TODO: Should this reside in some config file?
     let unauthenticated = UnauthenticatedPaths::new(vec![
         "/blockjoy.api.v1.Hosts/Provision",
@@ -114,8 +109,7 @@ pub async fn server(
         .expect("Could not create Authorization!");
     let auth_service = AuthorizationService::new(enforcer);
     let h_service = HostsServer::new(HostsServiceImpl::new(db.clone()));
-    let c_service =
-        CommandFlowServer::new(CommandFlowServerImpl::new(db.clone(), notifier.clone()));
+    let c_service = CommandFlowServer::new(CommandFlowServerImpl::new(db.clone()));
     let k_service = KeyFilesServer::new(KeyFileServiceImpl::new(db.clone()));
     let m_service = MetricsServiceServer::new(MetricsServiceImpl::new(db.clone()));
     let ui_auth_service =
@@ -125,11 +119,9 @@ pub async fn server(
     let ui_host_service = HostServiceServer::new(HostServiceImpl::new(db.clone()));
     let ui_hostprovision_service =
         HostProvisionServiceServer::new(HostProvisionServiceImpl::new(db.clone()));
-    let ui_command_service =
-        CommandServiceServer::new(CommandServiceImpl::new(db.clone(), notifier.clone()));
-    let ui_node_service =
-        NodeServiceServer::new(NodeServiceImpl::new(db.clone(), notifier.clone()));
-    let ui_update_service = UpdateServiceServer::new(UpdateServiceImpl::new(db.clone(), notifier));
+    let ui_command_service = CommandServiceServer::new(CommandServiceImpl::new(db.clone()));
+    let ui_node_service = NodeServiceServer::new(NodeServiceImpl::new(db.clone()));
+    let ui_update_service = UpdateServiceServer::new(UpdateServiceImpl::new(db.clone()));
     let ui_dashboard_service = DashboardServiceServer::new(DashboardServiceImpl::new(db.clone()));
     let ui_blockchain_service =
         BlockchainServiceServer::new(BlockchainServiceImpl::new(db.clone()));

@@ -1,6 +1,6 @@
 use super::blockjoy_ui::ResponseMeta;
 use super::convert;
-use crate::auth::{FindableById, HostAuthToken, JwtToken, TokenType};
+use crate::auth::{HostAuthToken, JwtToken, TokenType};
 use crate::errors::{self, ApiError};
 use crate::grpc::blockjoy_ui::host_service_server::HostService;
 use crate::grpc::blockjoy_ui::{

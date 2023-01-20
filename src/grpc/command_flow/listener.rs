@@ -4,8 +4,8 @@ use crate::grpc::{blockjoy, convert, notification};
 use crate::models;
 use anyhow::anyhow;
 use futures_util::StreamExt;
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::{broadcast, mpsc};
 
 type Message = Result<blockjoy::Command, tonic::Status>;
 
@@ -19,28 +19,28 @@ type Message = Result<blockjoy::Command, tonic::Status>;
 /// 3. Since we are listening to updates sent by the host, our host-listening-task will never
 ///    finish. Therefore we need to give a shutdown message to make our host listener stop whenever
 ///    our user listener stops listening.
-pub fn channels(
+pub async fn channels(
     host_id: uuid::Uuid,
-    host_messages: broadcast::Receiver<notification::ChannelNotification>,
+    notifier: notification::Notifier,
     db: models::DbPool,
-) -> (mpsc::Receiver<Message>, HostListener, UserListener) {
+) -> Result<(mpsc::Receiver<Message>, DbListener, BvListener)> {
     let (stop_tx, stop_rx) = mpsc::channel(1);
     let (tx, rx) = mpsc::channel(buffer_size());
 
-    let host_listener = HostListener {
+    let db_listener = DbListener {
         host_id,
         sender: tx.clone(),
         stop: stop_rx,
-        messages: host_messages,
+        messages: notifier.commands_receiver(host_id).await?,
         db: db.clone(),
     };
-    let user_listener = UserListener {
+    let bv_listener = BvListener {
         host_id,
         sender: tx,
         stop: stop_tx,
         db,
     };
-    (rx, host_listener, user_listener)
+    Ok((rx, db_listener, bv_listener))
 }
 
 fn buffer_size() -> usize {
@@ -50,36 +50,32 @@ fn buffer_size() -> usize {
         .unwrap_or(128)
 }
 
-/// This struct listens to the messages being sent by the hosts channel.
-pub struct HostListener {
+/// This struct listens to the messages being sent by .
+pub struct DbListener {
     /// The id of the currently considered host.
     host_id: uuid::Uuid,
     /// This is the channel we can use to send messages to the user.
     sender: mpsc::Sender<Message>,
-    /// The messages that are being broadcast by the system. Note that we need to filter them for
-    /// relevance using the current `host_id`.
-    messages: broadcast::Receiver<notification::ChannelNotification>,
+    /// The messages that are being broadcast by the system.
+    messages: notification::Receiver<models::Command>,
     /// When this channel yields a message we can stop listening.
     stop: mpsc::Receiver<()>,
     /// A reference to a database pool.
     db: models::DbPool,
 }
 
-impl HostListener {
-    /// Starts the HostListener by listening for messages from the host channel, and from the stop
+impl DbListener {
+    /// Starts the DbListener by listening for messages from the host channel, and from the stop
     /// channel. When we receive a message from the host channel, we offload to the
     /// `process_notification` function.
     pub async fn recv(mut self) -> Result<(), tonic::Status> {
-        use notification::ChannelNotification::*;
-
         tracing::info!("Starting handling channel notifications");
         loop {
             tokio::select! {
                 message = self.messages.recv() => {
                     tracing::info!("Received notification");
                     match message {
-                        Ok(Command(cmd)) => self.process_notification(cmd).await?,
-                        Ok(_) => tracing::error!("received non Command notification"),
+                        Ok(cmd) => self.process_notification(cmd).await?,
                         Err(e) => {
                             tracing::error!("Channel returned error: {e:?}");
                             break;
@@ -100,60 +96,24 @@ impl HostListener {
     /// In this function we decide what to do with the provided notification and then do it. This
     /// means that we get the relevant command from the database, then filter it to decide if it
     /// should be sent to the user, and if so, we perform the action
-    async fn process_notification(
-        &self,
-        notification: notification::NotificationPayload,
-    ) -> Result<()> {
-        tracing::info!("Notification is a command notification: {notification:?}");
+    async fn process_notification(&self, command: models::Command) -> Result<()> {
+        tracing::info!("Testing for command with ID {}", command.id);
 
-        let cmd_id = notification.get_id();
-        let mut conn = self.db.conn().await?;
-        let command = models::Command::find_by_id(cmd_id, &mut conn).await;
-
-        tracing::info!("Testing for command with ID {cmd_id}");
-
-        match command {
-            Ok(command) => {
-                tracing::info!("Command found");
-                if !self.relevant(&command) {
-                    // If the field was not relevant we are done and can just return Ok(())
-                    return Ok(());
-                }
-                let msg = convert::db_command_to_grpc_command(command, &self.db).await?;
-                match self.sender.send(Ok(msg)).await {
-                    Err(e) => Err(ApiError::UnexpectedError(anyhow!("Sender error: {e}"))),
-                    _ => {
-                        tracing::info!("Sent channel notification");
-                        Ok(())
-                    } // just return unit type if all went well
-                }
-            }
-            Err(e) => {
-                tracing::info!("Command with ID {} NOT found", cmd_id);
-
-                match self.sender.send(Err(e.into())).await {
-                    Err(e) => Err(ApiError::UnexpectedError(anyhow!("Sender error: {e}"))),
-                    _ => {
-                        tracing::info!("Sent channel error notification");
-                        Ok(())
-                    } // just return unit type if all went well
-                }
-            }
+        let msg = convert::db_command_to_grpc_command(command, &self.db).await?;
+        match self.sender.send(Ok(msg)).await {
+            Err(e) => Err(ApiError::UnexpectedError(anyhow!("Sender error: {e}"))),
+            _ => {
+                tracing::info!("Sent channel notification");
+                Ok(())
+            } // just return unit type if all went well
         }
-    }
-
-    /// Checks whether a command is relevant for the currently specified host. We use this for
-    /// filtering messages before we send them to the user. If the command is relevant for the
-    /// current channel, we return `true` from this function.
-    fn relevant(&self, command: &models::Command) -> bool {
-        command.host_id == self.host_id
     }
 }
 
-/// This struct listens to the messages coming from the user. For each message that comes in we
+/// This struct listens to the messages coming from blockvisor. For each message that comes in we
 /// write the result to the database, and when the messages are done, we have to signal the
-/// `UserListener` to also finish by using the `stop` channel.
-pub struct UserListener {
+/// `BvListener` to also finish by using the `stop` channel.
+pub struct BvListener {
     /// The host we are sending messages about.
     host_id: uuid::Uuid,
     /// This is the channel we can use to send messages to the user.
@@ -165,9 +125,9 @@ pub struct UserListener {
     db: models::DbPool,
 }
 
-impl UserListener {
+impl BvListener {
     /// Start receiving messages from the `messsages` channel. It is specified as an argument to
-    /// the recv function rather than as a field of the `UserListener` struct because the
+    /// the recv function rather than as a field of the `BvListener` struct because the
     /// `tonic::Streaming` type is not `Sync`, meaning we cannot hold a reference to it across
     /// await points, meaning we would not be able to use `&self` anywhere.
     pub async fn recv(self, mut messages: tonic::Streaming<blockjoy::InfoUpdate>) -> Result<()> {

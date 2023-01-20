@@ -1,3 +1,4 @@
+use crate::auth::FindableById;
 use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy::CommandInfo;
 use crate::models::UpdateInfo;
@@ -41,14 +42,6 @@ pub struct Command {
 }
 
 impl Command {
-    pub async fn find_by_id(id: Uuid, db: &mut sqlx::PgConnection) -> Result<Self> {
-        sqlx::query_as("SELECT * FROM commands where id = $1")
-            .bind(id)
-            .fetch_one(db)
-            .await
-            .map_err(ApiError::from)
-    }
-
     pub async fn find_all_by_host(
         host_id: Uuid,
         db: &mut sqlx::PgConnection,
@@ -75,16 +68,21 @@ impl Command {
         command: CommandRequest,
         db: &mut sqlx::PgConnection,
     ) -> Result<Command> {
-        sqlx::query_as(
+        let cmd: Self = sqlx::query_as(
             "INSERT INTO commands (host_id, cmd, sub_cmd, resource_id) VALUES ($1, $2, $3, $4) RETURNING *",
         )
         .bind(host_id)
         .bind(command.cmd)
         .bind(command.sub_cmd)
         .bind(command.resource_id)
-        .fetch_one(db)
-        .await
-        .map_err(ApiError::from)
+        .fetch_one(&mut *db)
+        .await?;
+        // let cmd_id = cmd.id;
+        // sqlx::query(&format!("NOTIFY commands_for_host_{host_id}, {cmd_id};"))
+        //     .execute(db)
+        //     .await?;
+        // Notifier::command(host_id, cmd.id, db).await?;
+        Ok(cmd)
     }
 
     pub async fn update_response(
@@ -129,6 +127,17 @@ impl UpdateInfo<CommandInfo, Command> for Command {
         .await?;
 
         Ok(cmd)
+    }
+}
+
+#[axum::async_trait]
+impl FindableById for Command {
+    async fn find_by_id(id: Uuid, db: &mut sqlx::PgConnection) -> Result<Self> {
+        sqlx::query_as("SELECT * FROM commands WHERE id = $1")
+            .bind(id)
+            .fetch_one(db)
+            .await
+            .map_err(ApiError::from)
     }
 }
 
