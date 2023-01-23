@@ -36,7 +36,7 @@ pub async fn start() -> anyhow::Result<()> {
     let grpc = grpc_server(db).await.into_service();
     let hybrid = hybrid_server(rest, grpc);
 
-    tracing::debug!("u see that coming?");
+    tracing::debug!("hobo was here");
 
     Ok(axum::Server::bind(&addr.parse()?).serve(hybrid).await?)
 }
