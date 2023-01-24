@@ -142,6 +142,7 @@ pub mod from {
     use super::try_dt_to_ts;
     use crate::cookbook::cookbook_grpc::NetworkConfiguration;
     use crate::errors::ApiError;
+    use crate::grpc;
     use crate::grpc::blockjoy::HostInfo;
     use crate::grpc::blockjoy::Keyfile;
     use crate::grpc::blockjoy_ui::blockchain_network::NetworkType;
@@ -403,8 +404,19 @@ pub mod from {
                 member_count: org.member_count,
                 created_at: Some(try_dt_to_ts(org.created_at)?),
                 updated_at: Some(try_dt_to_ts(org.updated_at)?),
+                current_user: None,
             };
             Ok(org)
+        }
+    }
+
+    impl From<models::OrgUser> for grpc::blockjoy_ui::OrgUser {
+        fn from(value: models::OrgUser) -> Self {
+            Self {
+                user_id: value.user_id.to_string(),
+                org_id: value.org_id.to_string(),
+                role: value.role as i32,
+            }
         }
     }
 

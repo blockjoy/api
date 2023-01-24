@@ -239,13 +239,14 @@ pub trait JwtToken: Sized + serde::Serialize {
         resource: &T,
         token_type: TokenType,
         role: TokenRole,
+        data: Option<HashMap<String, String>>,
     ) -> TokenResult<Self> {
         let claim = TokenClaim::new(
             resource.get_id(),
             ExpirationProvider::expiration(token_type),
             token_type,
             role,
-            None,
+            data,
         );
 
         Self::try_new(claim)

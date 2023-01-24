@@ -45,6 +45,7 @@ impl MailClient {
             user,
             TokenType::RegistrationConfirmation,
             TokenRole::User,
+            None,
         )?
         .encode()?;
         let base_url =
@@ -121,8 +122,12 @@ impl MailClient {
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
-        let token: PwdResetToken =
-            JwtToken::create_token_for::<models::User>(user, TokenType::PwdReset, TokenRole::User)?;
+        let token: PwdResetToken = JwtToken::create_token_for::<models::User>(
+            user,
+            TokenType::PwdReset,
+            TokenRole::User,
+            None,
+        )?;
         let base_url =
             dotenv::var("UI_BASE_URL").map_err(|e| anyhow!("UI_BASE_URL can't be read: {e}"))?;
         let link = format!("{}/password_reset?token={}", base_url, token.encode()?);

@@ -2,18 +2,20 @@ use crate::auth::{
     FindableById, JwtToken, PwdResetToken, RegistrationConfirmationToken, TokenRole, TokenType,
     UserAuthToken, UserRefreshToken,
 };
+use crate::errors::ApiError;
 use crate::grpc::blockjoy_ui::authentication_service_server::AuthenticationService;
 use crate::grpc::blockjoy_ui::{
     ApiToken, ConfirmRegistrationRequest, ConfirmRegistrationResponse, LoginUserRequest,
-    LoginUserResponse, RefreshTokenRequest, RefreshTokenResponse, UpdateUiPasswordRequest,
-    UpdateUiPasswordResponse,
+    LoginUserResponse, RefreshTokenRequest, RefreshTokenResponse, SwitchOrgRequest,
+    UpdateUiPasswordRequest, UpdateUiPasswordResponse,
 };
 use crate::grpc::helpers::required;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::mail::MailClient;
 use crate::models;
-use crate::models::User;
+use crate::models::{Org, User};
 use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use super::blockjoy_ui::{
     ResetPasswordRequest, ResetPasswordResponse, ResponseMeta, UpdatePasswordRequest,
@@ -49,10 +51,20 @@ impl AuthenticationService for AuthenticationServiceImpl {
         tracing::debug!("Renewing user refresh token");
         let refresh_token = UserRefreshToken::create(user.id).encode()?;
         User::refresh(user.id, refresh_token.clone(), &mut tx).await?;
+
+        // User personal org by default
+        let org = Org::find_personal_org(user.id, &mut tx).await?;
+        let org_user = Org::find_org_user(user.id, org.id, &mut tx).await?;
+
         tx.commit().await?;
 
-        let auth_token =
-            UserAuthToken::create_token_for::<User>(&user, TokenType::UserAuth, TokenRole::User)?;
+        let auth_token = UserAuthToken::create_token_for::<User>(
+            &user,
+            TokenType::UserAuth,
+            TokenRole::User,
+            None,
+        )?;
+        let auth_token = auth_token.set_org_user(&org_user);
 
         let response = LoginUserResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta)),
@@ -75,13 +87,18 @@ impl AuthenticationService for AuthenticationServiceImpl {
         let user_id = token.get_id();
         let mut tx = self.db.begin().await?;
         let user = User::confirm(user_id, &mut tx).await?;
-        let auth_token =
-            UserAuthToken::create_token_for::<User>(&user, TokenType::UserAuth, TokenRole::User)?
-                .encode()?;
+        let auth_token = UserAuthToken::create_token_for::<User>(
+            &user,
+            TokenType::UserAuth,
+            TokenRole::User,
+            None,
+        )?
+        .encode()?;
         let refresh_token = UserRefreshToken::create_token_for::<User>(
             &user,
             TokenType::UserAuth,
             TokenRole::User,
+            None,
         )?
         .encode()?;
 
@@ -147,7 +164,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         tx.commit().await?;
         let meta = ResponseMeta::from_meta(request.meta);
         let auth_token =
-            UserAuthToken::create_token_for(&cur_user, TokenType::UserAuth, TokenRole::User)?;
+            UserAuthToken::create_token_for(&cur_user, TokenType::UserAuth, TokenRole::User, None)?;
         let response = UpdatePasswordResponse {
             meta: Some(meta),
             token: Some(ApiToken {
@@ -198,5 +215,34 @@ impl AuthenticationService for AuthenticationServiceImpl {
         };
         tx.commit().await?;
         resp
+    }
+
+    async fn switch_organization(
+        &self,
+        request: Request<SwitchOrgRequest>,
+    ) -> Result<Response<LoginUserResponse>, Status> {
+        let refresh_token = get_refresh_token(&request);
+        let token = try_get_token::<_, UserAuthToken>(&request)?;
+        let user_id = token.get_id();
+        let inner = request.into_inner();
+        let mut conn = self.db.conn().await?;
+        let org_user = Org::find_org_user(
+            user_id,
+            Uuid::parse_str(inner.org_id.as_str()).map_err(ApiError::from)?,
+            &mut conn,
+        )
+        .await?;
+        let auth_token =
+            UserAuthToken::create_token_for(&org_user, TokenType::UserAuth, TokenRole::User, None)?;
+        let auth_token = auth_token.set_org_user(&org_user);
+
+        let response = LoginUserResponse {
+            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            token: Some(ApiToken {
+                value: auth_token.to_base64()?,
+            }),
+        };
+
+        Ok(response_with_refresh_token(refresh_token, response)?)
     }
 }

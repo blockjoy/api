@@ -36,7 +36,7 @@ impl OrganizationService for OrganizationServiceImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let user_id = *token.id();
         let inner = request.into_inner();
-        let org_id = inner.org_id;
+        let org_id = inner.org_id.clone();
 
         let mut conn = self.db.conn().await?;
         let organizations: Vec<Org> = match org_id {
@@ -46,14 +46,31 @@ impl OrganizationService for OrganizationServiceImpl {
             ],
             None => Org::find_all_by_user(user_id, &mut conn).await?,
         };
-        let organizations: Result<_, ApiError> =
+        let organizations: Result<Vec<Organization>, ApiError> =
             organizations.iter().map(Organization::try_from).collect();
-        let inner = GetOrganizationsResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
-            organizations: organizations?,
-        };
 
-        Ok(response_with_refresh_token(refresh_token, inner)?)
+        match organizations {
+            Ok(mut organizations) => {
+                for mut org in &mut organizations {
+                    let org_id: Uuid = org
+                        .id
+                        .as_ref()
+                        .unwrap_or(&"".to_string())
+                        .parse()
+                        .map_err(ApiError::UuidParseError)?;
+                    org.current_user =
+                        Some(Org::find_org_user(user_id, org_id, &mut conn).await?.into());
+                }
+
+                let inner = GetOrganizationsResponse {
+                    meta: Some(ResponseMeta::from_meta(inner.meta)),
+                    organizations,
+                };
+
+                Ok(response_with_refresh_token(refresh_token, inner)?)
+            }
+            Err(e) => Err(Status::from(e)),
+        }
     }
 
     async fn create(
@@ -108,7 +125,7 @@ impl OrganizationService for OrganizationServiceImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let user_id = *token.id();
         let inner = request.into_inner();
-        let org_id = inner.id.parse().map_err(ApiError::from)?;
+        let org_id = Uuid::parse_str(inner.id.as_str()).map_err(ApiError::from)?;
         let mut tx = self.db.begin().await?;
         let member = Org::find_org_user(user_id, org_id, &mut tx).await?;
 
@@ -119,6 +136,7 @@ impl OrganizationService for OrganizationServiceImpl {
                 user_id, org_id
             ))),
             OrgRole::Owner | OrgRole::Admin => {
+                tracing::debug!("Deleting org: {}", org_id);
                 Org::delete(org_id, &mut tx).await?;
                 tx.commit().await?;
 

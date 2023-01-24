@@ -57,6 +57,7 @@ async fn responds_ok_with_valid_credentials_for_confirm() {
         &user,
         auth::TokenType::RegistrationConfirmation,
         auth::TokenRole::User,
+        None,
     )
     .unwrap();
     let req = blockjoy_ui::ConfirmRegistrationRequest {

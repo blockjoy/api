@@ -187,6 +187,19 @@ message Node {
   optional string blockchain_name = 23;
 }
 
+message OrgUser {
+  enum OrgRole {
+    UndefinedOrgRole = 0;
+    Member = 1;
+    Owner = 2;
+    Admin = 3;
+  }
+
+  string user_id = 1;
+  string org_id = 2;
+  OrgRole role = 3;
+}
+
 /* Organization representation */
 message Organization {
   optional string id = 1;
@@ -195,6 +208,7 @@ message Organization {
   optional int64 member_count = 4;
   optional google.protobuf.Timestamp created_at = 13;
   optional google.protobuf.Timestamp updated_at = 14;
+  optional OrgUser current_user = 15;
 }
 
 /* Info update as received by UpdateService */

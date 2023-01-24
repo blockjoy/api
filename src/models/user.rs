@@ -71,9 +71,10 @@ impl User {
                 ExpirationProvider::expiration(TokenType::UserAuth),
                 TokenType::UserAuth,
                 TokenRole::User,
-                None,
+                Some(token.data().clone()),
             );
             let token = UserAuthToken::try_new(claim)?;
+
             let claim = TokenClaim::new(
                 token.get_id(),
                 ExpirationProvider::expiration(TokenType::UserRefresh),
@@ -218,7 +219,7 @@ impl User {
                     let org = sqlx::query_as::<_, Org>(
                         "INSERT INTO orgs (name, is_personal) values (LOWER($1), true) RETURNING *",
                     )
-                    .bind(&user.email)
+                    .bind("Personal")
                     .fetch_one(&mut *tx)
                     .await?;
 

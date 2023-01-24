@@ -15,6 +15,7 @@ async fn responds_ok_for_create() {
         updated_at: None,
         member_count: None,
         personal: None,
+        current_user: None,
     };
     let req = blockjoy_ui::CreateOrganizationRequest {
         meta: Some(tester.meta()),
@@ -57,6 +58,7 @@ async fn responds_ok_for_update() {
         updated_at: None,
         member_count: None,
         personal: None,
+        current_user: None,
     };
     let req = blockjoy_ui::UpdateOrganizationRequest {
         meta: Some(tester.meta()),

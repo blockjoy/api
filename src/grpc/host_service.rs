@@ -41,8 +41,12 @@ impl Hosts for HostsServiceImpl {
                 _ => Status::internal(format!("Host provision not claimed: {e}")),
             })?;
         tx.commit().await?;
-        let token: HostAuthToken =
-            JwtToken::create_token_for::<Host>(&host, TokenType::HostAuth, TokenRole::Service)?;
+        let token: HostAuthToken = JwtToken::create_token_for::<Host>(
+            &host,
+            TokenType::HostAuth,
+            TokenRole::Service,
+            None,
+        )?;
         let token = token.encode()?;
         let result = ProvisionHostResponse {
             host_id: host.id.to_string(),

@@ -1,9 +1,10 @@
-use crate::auth::FindableById;
+use crate::auth::{FindableById, Identifiable};
 use crate::errors::{ApiError, Result};
 use crate::models::User;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
@@ -15,6 +16,21 @@ pub enum OrgRole {
     Member,
 }
 
+impl Display for OrgRole {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OrgRole::Admin => write!(f, "admin"),
+            OrgRole::Owner => write!(f, "owner"),
+            OrgRole::Member => write!(f, "member"),
+        }
+    }
+}
+
+impl Identifiable for OrgUser {
+    fn get_id(&self) -> Uuid {
+        self.user_id
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, PartialEq, Eq)]
 pub struct Org {
     pub id: Uuid,
@@ -31,7 +47,7 @@ pub struct Org {
 #[tonic::async_trait]
 impl FindableById for Org {
     async fn find_by_id(id: Uuid, db: &mut sqlx::PgConnection) -> Result<Self> {
-        sqlx::query_as("SELECT * FROM orgs where id = $1 and deleted_at IS NULL")
+        sqlx::query_as("SELECT *, (SELECT count(*) from orgs_users where orgs_users.org_id = orgs.id) as member_count FROM orgs where id = $1 and deleted_at IS NULL")
             .bind(id)
             .fetch_one(db)
             .await
@@ -145,9 +161,8 @@ impl Org {
             ON
                 orgs.id = orgs_users.org_id
             WHERE
-                orgs_users.user_id = $1 and is_personal = true
-            ORDER BY
-                lower(orgs.name)
+                orgs_users.user_id = $1 and is_personal and orgs_users.role = 'owner'
+            LIMIT 1
             "##,
         )
         .bind(user_id)
@@ -279,6 +294,7 @@ impl Org {
             r#"
             UPDATE orgs SET deleted_at = now() 
             WHERE id = $1 AND is_personal = false
+            returning *
             "#,
         )
         .bind(id)
@@ -292,7 +308,8 @@ impl Org {
         sqlx::query_as::<_, Org>(
             r#"
             UPDATE orgs SET deleted_at = NULL 
-            WHERE id = $1 AND is_personal = false"#,
+            WHERE id = $1 AND is_personal = false
+            returning *"#,
         )
         .bind(id)
         .fetch_one(tx)

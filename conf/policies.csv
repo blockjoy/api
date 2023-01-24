@@ -9,6 +9,7 @@ p, master_admin, /blockjoy.api.ui_v1.AuthenticationService/Confirm, POST
 p, master_admin, /blockjoy.api.ui_v1.AuthenticationService/Refresh, POST
 p, master_admin, /blockjoy.api.ui_v1.AuthenticationService/UpdatePassword, POST
 p, master_admin, /blockjoy.api.ui_v1.AuthenticationService/UpdateUIPassword, POST
+p, http_user, /blockjoy.api.ui_v1.AuthenticationService/SwitchOrganization, POST
 p, master_admin, /blockjoy.api.ui_v1.UserService/Get, POST
 p, master_admin, /blockjoy.api.ui_v1.UserService/Update, POST
 p, master_admin, /blockjoy.api.ui_v1.UserService/Delete, POST

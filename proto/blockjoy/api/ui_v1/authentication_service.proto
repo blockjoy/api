@@ -64,6 +64,11 @@ message ConfirmRegistrationResponse {
   ApiToken token = 2;
 }
 
+message SwitchOrgRequest {
+  RequestMeta meta = 1;
+  string org_id = 2;
+}
+
 /* Retrieve and refresh API token */
 service AuthenticationService {
   /* Login user, i.e. retrieve token */
@@ -79,4 +84,6 @@ service AuthenticationService {
   rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordResponse);
   /* Update the user's password via profile UI */
   rpc UpdateUIPassword(UpdateUIPasswordRequest) returns (UpdateUIPasswordResponse);
+  /* Switch active organization */
+  rpc SwitchOrganization(SwitchOrgRequest) returns (LoginUserResponse);
 }

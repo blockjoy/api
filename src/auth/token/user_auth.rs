@@ -1,6 +1,7 @@
 use crate::auth::{JwtToken, TokenClaim, TokenResult, TokenRole, TokenType};
 use crate::errors::Result;
 use derive_getters::Getters;
+use std::collections::HashMap;
 use std::str;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -12,6 +13,7 @@ pub struct UserAuthToken {
     exp: i64,
     token_type: TokenType,
     role: TokenRole,
+    data: HashMap<String, String>,
 }
 
 #[tonic::async_trait]
@@ -30,11 +32,25 @@ impl JwtToken for UserAuthToken {
             exp: claim.exp,
             token_type: TokenType::UserAuth,
             role: claim.role,
+            data: HashMap::<String, String>::default(),
         })
     }
 
     fn token_type(&self) -> TokenType {
         self.token_type
+    }
+}
+
+impl UserAuthToken {
+    pub fn set_org_user(mut self, user: &crate::models::OrgUser) -> Self {
+        let mut token_data = HashMap::<String, String>::new();
+
+        token_data.insert("org_id".into(), user.org_id.to_string());
+        token_data.insert("org_role".into(), user.role.to_string());
+
+        self.data = token_data;
+
+        self
     }
 }
 

@@ -1,12 +1,12 @@
 #![allow(dead_code)]
-
 mod dummy_token;
-pub use dummy_token::*;
+
 mod helper_traits;
 
 use api::auth::{self, JwtToken, TokenRole, TokenType};
 use api::models;
 use api::{grpc::blockjoy_ui, TestDb};
+pub use dummy_token::*;
 use futures_util::{Stream, StreamExt};
 use helper_traits::GrpcClient;
 use std::convert::TryFrom;
@@ -138,11 +138,13 @@ impl Tester {
     }
 
     pub fn user_token(&self, user: &models::User) -> impl JwtToken + Clone {
-        auth::UserAuthToken::create_token_for(user, TokenType::UserAuth, TokenRole::User).unwrap()
+        auth::UserAuthToken::create_token_for(user, TokenType::UserAuth, TokenRole::User, None)
+            .unwrap()
     }
 
     pub fn host_token(&self, host: &models::Host) -> impl JwtToken + Clone {
-        auth::HostAuthToken::create_token_for(host, TokenType::HostAuth, TokenRole::User).unwrap()
+        auth::HostAuthToken::create_token_for(host, TokenType::HostAuth, TokenRole::User, None)
+            .unwrap()
     }
 
     pub fn refresh_for(&self, token: &impl JwtToken) -> impl JwtToken + Clone {
