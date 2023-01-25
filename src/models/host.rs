@@ -142,6 +142,15 @@ impl Host {
             .map_err(Into::into)
     }
 
+    pub async fn find_by_id(host_id: Uuid, db: &mut sqlx::PgConnection) -> Result<Self> {
+        sqlx::query("SELECT * FROM hosts WHERE id = $1")
+            .bind(host_id)
+            .try_map(Self::try_from)
+            .fetch_one(db)
+            .await
+            .map_err(Into::into)
+    }
+
     /// Creates a new `Host` in the db, including the necessary related rows.
     pub async fn create(req: HostRequest, tx: &mut super::DbTrx<'_>) -> Result<Self> {
         // Ensure gateway IP is not amongst the ones created in the IP range

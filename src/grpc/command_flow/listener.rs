@@ -4,8 +4,8 @@ use crate::grpc::{blockjoy, convert, notification};
 use crate::models;
 use anyhow::anyhow;
 use futures_util::StreamExt;
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::{broadcast, mpsc};
 
 type Message = Result<blockjoy::Command, tonic::Status>;
 
@@ -19,28 +19,28 @@ type Message = Result<blockjoy::Command, tonic::Status>;
 /// 3. Since we are listening to updates sent by the host, our host-listening-task will never
 ///    finish. Therefore we need to give a shutdown message to make our host listener stop whenever
 ///    our user listener stops listening.
-pub fn channels(
+pub async fn channels(
     host_id: uuid::Uuid,
-    host_messages: broadcast::Receiver<notification::ChannelNotification>,
+    notifier: notification::Notifier,
     db: models::DbPool,
-) -> (mpsc::Receiver<Message>, HostListener, UserListener) {
+) -> Result<(mpsc::Receiver<Message>, DbListener, BvListener)> {
     let (stop_tx, stop_rx) = mpsc::channel(1);
     let (tx, rx) = mpsc::channel(buffer_size());
 
-    let host_listener = HostListener {
+    let db_listener = DbListener {
         host_id,
         sender: tx.clone(),
         stop: stop_rx,
-        messages: host_messages,
+        messages: notifier.commands_receiver(host_id).await?,
         db: db.clone(),
     };
-    let user_listener = UserListener {
+    let bv_listener = BvListener {
         host_id,
         sender: tx,
         stop: stop_tx,
         db,
     };
-    (rx, host_listener, user_listener)
+    Ok((rx, db_listener, bv_listener))
 }
 
 fn buffer_size() -> usize {
@@ -50,32 +50,38 @@ fn buffer_size() -> usize {
         .unwrap_or(128)
 }
 
-/// This struct listens to the messages being sent by the hosts channel.
-pub struct HostListener {
+/// This struct listens to the messages being sent by .
+pub struct DbListener {
     /// The id of the currently considered host.
     host_id: uuid::Uuid,
     /// This is the channel we can use to send messages to the user.
     sender: mpsc::Sender<Message>,
-    /// The messages that are being broadcast by the system. Note that we need to filter them for
-    /// relevance using the current `host_id`.
-    messages: broadcast::Receiver<notification::ChannelNotification>,
+    /// The messages that are being broadcast by the system.
+    messages: notification::Receiver<models::Command>,
     /// When this channel yields a message we can stop listening.
     stop: mpsc::Receiver<()>,
     /// A reference to a database pool.
     db: models::DbPool,
 }
 
-impl HostListener {
-    /// Starts the HostListener by listening for messages from the host channel, and from the stop
+impl DbListener {
+    /// Starts the DbListener by listening for messages from the host channel, and from the stop
     /// channel. When we receive a message from the host channel, we offload to the
     /// `process_notification` function.
     pub async fn recv(mut self) -> Result<(), tonic::Status> {
-        use notification::ChannelNotification::*;
-
         tracing::info!("Starting handling channel notifications");
         loop {
             tokio::select! {
-                message = self.messages.recv() => self.process_message(message).await,
+                message = self.messages.recv() => {
+                    tracing::info!("Received notification");
+                    match message {
+                        Ok(cmd) => self.process_notification(cmd).await?,
+                        Err(e) => {
+                            tracing::error!("Channel returned error: {e:?}");
+                            break;
+                        }
+                    }
+                },
                 // When we receive a stop message, we break the loop
                 _ = self.stop.recv() => break,
             };
@@ -87,37 +93,27 @@ impl HostListener {
         Ok(())
     }
 
-    async fn process_message(&self, message: Result<models::Command>) {
-        tracing::info!("Received notification");
-        match message {
-            Ok(cmd) => self.process_notification(cmd).await,
-            Err(e) => tracing::error!("Channel returned error: {e:?}"),
-        }
-    }
-
-    /// In this function we are going to convert the command form the database to the
-    /// representation we use over GRPC, and
-    async fn process_notification(&self, command: models::Command) {
+    /// In this function we decide what to do with the provided notification and then do it. This
+    /// means that we get the relevant command from the database, then filter it to decide if it
+    /// should be sent to the user, and if so, we perform the action
+    async fn process_notification(&self, command: models::Command) -> Result<()> {
         tracing::info!("Testing for command with ID {}", command.id);
 
-        let msg = match convert::db_command_to_grpc_command(command, &self.db).await {
-            Ok(msg) => msg,
-            Err(e) => {
-                tracing::error!("Failed to convert queued command to grpc representation: `{e}`");
-                return;
-            }
-        };
+        let msg = convert::db_command_to_grpc_command(command, &self.db).await?;
         match self.sender.send(Ok(msg)).await {
-            Ok(_) => tracing::info!("Sent channel notification"),
-            Err(e) => tracing::error!("Failed to send channel notification: `{e}`"),
+            Err(e) => Err(ApiError::UnexpectedError(anyhow!("Sender error: {e}"))),
+            _ => {
+                tracing::info!("Sent channel notification");
+                Ok(())
+            } // just return unit type if all went well
         }
     }
 }
 
-/// This struct listens to the messages coming from the user. For each message that comes in we
+/// This struct listens to the messages coming from blockvisor. For each message that comes in we
 /// write the result to the database, and when the messages are done, we have to signal the
-/// `UserListener` to also finish by using the `stop` channel.
-pub struct UserListener {
+/// `BvListener` to also finish by using the `stop` channel.
+pub struct BvListener {
     /// The host we are sending messages about.
     host_id: uuid::Uuid,
     /// This is the channel we can use to send messages to the user.
@@ -129,9 +125,9 @@ pub struct UserListener {
     db: models::DbPool,
 }
 
-impl UserListener {
+impl BvListener {
     /// Start receiving messages from the `messsages` channel. It is specified as an argument to
-    /// the recv function rather than as a field of the `UserListener` struct because the
+    /// the recv function rather than as a field of the `BvListener` struct because the
     /// `tonic::Streaming` type is not `Sync`, meaning we cannot hold a reference to it across
     /// await points, meaning we would not be able to use `&self` anywhere.
     pub async fn recv(self, mut messages: tonic::Streaming<blockjoy::InfoUpdate>) -> Result<()> {

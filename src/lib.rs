@@ -40,9 +40,13 @@ mod test {
 
     impl TestDb {
         /// Sets up a new test database. That means creating a new db with a random name,
+        /// connecting to that new database and then migrating it and filling it with our seed
+        /// data.
         pub async fn setup() -> TestDb {
             dotenv::dotenv().ok();
 
+            // First we open up a connection to the main db. This is for running the
+            // `CREATE DATABASE` query.
             let main_db_url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
             let db_name = Self::db_name();
             let mut conn = sqlx::PgConnection::connect(&main_db_url).await.unwrap();
@@ -51,23 +55,22 @@ mod test {
                 .await
                 .unwrap();
 
+            // Now we construct the url to our newly clreated database and connect to it.
             let db_url_prefix =
                 std::env::var("DATABASE_URL_NAKED").expect("Missing DATABASE_URL_NAKED");
             let db_url = format!("{db_url_prefix}/{db_name}");
-            /*if db_url.contains("digitalocean") {
-                panic!("Attempting to use production db?");
-            }*/
             let db_max_conn = std::env::var("DB_MAX_CONN")
                 .unwrap_or_else(|_| "10".to_string())
                 .parse()
                 .unwrap();
-
             let pool = sqlx::postgres::PgPoolOptions::new()
                 .max_connections(db_max_conn)
                 .connect(&db_url)
                 .await
                 .expect("Could not create db connection pool.");
 
+            // With our constructed pool, we can create a tester, migrate the database and seed it
+            // with some data for our tests.
             let db = TestDb {
                 pool: models::DbPool::new(pool),
                 test_db_name: db_name,
@@ -100,7 +103,7 @@ mod test {
         }
 
         /// Seeds the database with some initial data that we need for running tests.
-        pub async fn seed(&self) {
+        async fn seed(&self) {
             let mut tx = self.pool.begin().await.unwrap();
             sqlx::query("INSERT INTO info (block_height) VALUES (99)")
                 .execute(&mut tx)
@@ -137,12 +140,12 @@ mod test {
                 .execute(&mut tx)
                 .await
                 .expect("Error inserting blockchain");
-            sqlx::query("INSERT INTO blockchains (name,status,supported_node_types) values ('Ethereum PoS', 'production', '[{\"id\":3,\"version\": \"3.3.0\", \"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]},{\"id\":1, \"version\": \"3.3.0\",\"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]}]');")
+            sqlx::query("INSERT INTO blockchains (name,status,supported_node_types) values ('Ethereum', 'production', '[{\"id\":3,\"version\": \"3.3.0\", \"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]},{\"id\":1, \"version\": \"3.3.0\",\"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]}]');")
                 .execute(&mut tx)
                 .await
                 .expect("Error inserting blockchain");
-            sqlx::query("INSERT INTO blockchains (name,status,supported_node_types) values ('Helium', 'production', '[{\"id\":3, \"version\": \"0.0.3\",\"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]},{\"id\":1, \"version\": \"0.0.3\",\"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]}]');")
-                .execute(&mut tx)
+            let blockchain: models::Blockchain = sqlx::query_as("INSERT INTO blockchains (name,status,supported_node_types) values ('Helium', 'production', '[{\"id\":3, \"version\": \"0.0.3\",\"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]},{\"id\":1, \"version\": \"0.0.3\",\"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]}]') RETURNING *;")
+                .fetch_one(&mut tx)
                 .await
                 .expect("Error inserting blockchain");
 
@@ -183,7 +186,7 @@ mod test {
             .await
             .expect("could insert test invoice into db");
 
-            let host = models::HostRequest {
+            let host1 = models::HostRequest {
                 name: "Host-1".into(),
                 version: Some("0.1.0".into()),
                 location: Some("Virginia".into()),
@@ -199,11 +202,11 @@ mod test {
                 ip_gateway: Some(IpAddr::from_str("192.168.0.1").expect("invalid ip")),
             };
 
-            let _ = models::Host::create(host, &mut tx)
+            let host1 = models::Host::create(host1, &mut tx)
                 .await
                 .expect("Could not create test host in db.");
 
-            let host = models::HostRequest {
+            let host2 = models::HostRequest {
                 name: "Host-2".into(),
                 version: Some("0.1.0".into()),
                 location: Some("Ohio".into()),
@@ -219,15 +222,49 @@ mod test {
                 ip_gateway: Some(IpAddr::from_str("192.12.0.1").expect("invalid ip")),
             };
 
-            let _ = models::Host::create(host, &mut tx)
+            let _host2 = models::Host::create(host2, &mut tx)
                 .await
                 .expect("Could not create test host in db.");
+
+            let org: models::Org =
+                sqlx::query_as("INSERT INTO orgs (name) VALUES ('the blockboys') RETURNING *")
+                    .fetch_one(&mut tx)
+                    .await
+                    .unwrap();
+            sqlx::query(
+                "INSERT INTO nodes
+                    (org_id, host_id, blockchain_id, node_type, block_age, consensus)
+                VALUES
+                    ($1, $2, $3, $4::jsonb, 0, true)",
+            )
+            .bind(org.id)
+            .bind(host1.id)
+            .bind(blockchain.id)
+            .bind("{\"id\": 1}")
+            .execute(&mut tx)
+            .await
+            .unwrap();
+
             tx.commit().await.unwrap();
         }
 
-        pub async fn test_host(&self) -> models::Host {
-            sqlx::query("select h.* from hosts h where name = 'Host-1'")
+        pub async fn host(&self) -> models::Host {
+            sqlx::query("SELECT * FROM hosts WHERE name = 'Host-1'")
                 .try_map(models::Host::try_from)
+                .fetch_one(&mut self.pool.conn().await.unwrap())
+                .await
+                .unwrap()
+        }
+
+        pub async fn node(&self) -> models::Node {
+            sqlx::query_as("SELECT * FROM nodes LIMIT 1")
+                .fetch_one(&mut self.pool.conn().await.unwrap())
+                .await
+                .unwrap()
+        }
+
+        pub async fn org(&self) -> models::Org {
+            sqlx::query_as("SELECT * FROM orgs LIMIT 1")
                 .fetch_one(&mut self.pool.conn().await.unwrap())
                 .await
                 .unwrap()
@@ -240,13 +277,10 @@ mod test {
         }
 
         pub async fn blockchain(&self) -> models::Blockchain {
-            let chains = models::Blockchain::find_all(&mut self.pool.conn().await.unwrap())
+            sqlx::query_as("SELECT * FROM blockchains WHERE name = 'Ethereum'")
+                .fetch_one(&mut self.pool.conn().await.unwrap())
                 .await
-                .expect("To have at least one blockchain");
-            chains
-                .first()
-                .expect("To have a test blockchain")
-                .to_owned()
+                .unwrap()
         }
 
         pub fn user_refresh_token(&self, id: Uuid) -> UserRefreshToken {

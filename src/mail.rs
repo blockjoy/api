@@ -238,8 +238,12 @@ mod test {
     #[test]
     fn test_parse_emails() -> io::Result<()> {
         for entry in fs::read_dir("mails")? {
-            let content = fs::read_to_string(entry?.path())?;
-            let _: Templates = toml::from_str(&content).unwrap();
+            let path = entry?.path();
+            let content = fs::read_to_string(&path)?;
+            let res: Result<Templates, _> = toml::from_str(&content);
+            if let Err(e) = res {
+                panic!("Template at {path:?} failed to parse with error `{e}`");
+            }
         }
         Ok(())
     }

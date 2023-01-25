@@ -51,7 +51,7 @@ async fn responds_ok_with_valid_token_for_delete() {
         ip_addr: None,
         ip_gateway: Some("192.168.0.1".into()),
         name: None,
-        version: Some("0.0.1".into()),
+        version: Some("3.3.0".into()),
         staking_status: None,
         self_update: false,
         vcpu_count: 0,

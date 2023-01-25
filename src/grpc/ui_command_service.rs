@@ -1,23 +1,19 @@
-use super::helpers::internal;
-use crate::errors::ApiError;
+use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy_ui::command_service_server::CommandService;
 use crate::grpc::blockjoy_ui::{CommandRequest, CommandResponse, Parameter, ResponseMeta};
-use crate::grpc::notification::{ChannelNotification, ChannelNotifier, NotificationPayload};
+use crate::grpc::notification;
 use crate::models;
 use crate::models::{Command, CommandRequest as DbCommandRequest, HostCmd};
-use std::sync::Arc;
-use tokio::sync::broadcast;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 pub struct CommandServiceImpl {
     db: models::DbPool,
-    notifier: Arc<ChannelNotifier>,
 }
 
 impl CommandServiceImpl {
-    pub fn new(db: models::DbPool, notifier: Arc<ChannelNotifier>) -> Self {
-        Self { db, notifier }
+    pub fn new(db: models::DbPool) -> Self {
+        Self { db }
     }
 
     async fn create_command(
@@ -40,15 +36,13 @@ impl CommandServiceImpl {
         Ok(cmd)
     }
 
-    fn send_notification(
-        &self,
-        notification: ChannelNotification,
-    ) -> Result<(), broadcast::error::SendError<ChannelNotification>> {
-        tracing::debug!("Sending notification: {:?}", notification);
-        self.notifier
-            .commands_sender()
-            .send(notification)
-            .map(|_| ())
+    async fn send_notification(&self, command: models::Command) -> Result<()> {
+        tracing::debug!("Sending notification: {:?}", command);
+        let notifier = notification::Notifier::new(self.db.clone());
+        notifier
+            .commands_sender(command.host_id)
+            .send(command.id)
+            .await
     }
 
     fn get_resource_id_from_params(params: Vec<Parameter>) -> Result<Uuid, Status> {
@@ -75,12 +69,10 @@ macro_rules! create_command {
             )
             .await?;
 
-        let notification = ChannelNotification::Command(NotificationPayload::new(cmd.id));
-
-        $obj.send_notification(notification).map_err(internal)?;
         let response = CommandResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta).with_message(cmd.id)),
         };
+        $obj.send_notification(cmd).await?;
 
         Ok(Response::new(response))
     }};

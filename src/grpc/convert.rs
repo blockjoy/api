@@ -1,4 +1,5 @@
 use super::blockjoy::Parameter;
+use crate::auth::FindableById;
 use crate::errors::Result as ApiResult;
 use crate::grpc::blockjoy::container_image::StatusName;
 use crate::grpc::blockjoy::{

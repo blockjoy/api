@@ -1,6 +1,6 @@
-use super::convert;
-use super::helpers::{internal, required};
-use crate::auth::UserAuthToken;
+use super::helpers::required;
+use super::{convert, notification};
+use crate::auth::{FindableById, UserAuthToken};
 use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy_ui::node_service_server::NodeService;
 use crate::grpc::blockjoy_ui::{
@@ -8,24 +8,21 @@ use crate::grpc::blockjoy_ui::{
     GetNodeResponse, ListNodesRequest, ListNodesResponse, ResponseMeta, UpdateNodeRequest,
     UpdateNodeResponse,
 };
-use crate::grpc::notification::{ChannelNotification, ChannelNotifier, NotificationPayload};
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;
 use crate::models::{
     Command, CommandRequest, HostCmd, IpAddress, Node, NodeCreateRequest, NodeInfo,
 };
 use std::collections::HashMap;
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 pub struct NodeServiceImpl {
     db: models::DbPool,
-    notifier: Arc<ChannelNotifier>,
 }
 
 impl NodeServiceImpl {
-    pub fn new(db: models::DbPool, notifier: Arc<ChannelNotifier>) -> Self {
-        Self { db, notifier }
+    pub fn new(db: models::DbPool) -> Self {
+        Self { db }
     }
 }
 
@@ -174,22 +171,11 @@ impl NodeService for NodeServiceImpl {
 
         let cmd = Command::create(node.host_id, req, &mut tx).await?;
         tx.commit().await?;
-        let payload = NotificationPayload::new(cmd.id);
-        let notification = ChannelNotification::Command(payload);
 
-        // Sending commands receiver (in command_flow.rs)
-        self.notifier
-            .commands_sender()
-            .send(notification)
-            .map_err(internal)?;
-        let payload = NotificationPayload::new(node.id);
-        let notification = ChannelNotification::Node(payload);
+        let notifier = notification::Notifier::new(self.db.clone());
+        notifier.commands_sender(node.host_id).send(cmd.id).await?;
+        notifier.nodes_sender(node.host_id).send(cmd.id).await?;
 
-        // Sending notification to nodes receiver (in ui_update_service.rs)
-        self.notifier
-            .nodes_sender()
-            .send(notification)
-            .map_err(internal)?;
         let response_meta = ResponseMeta::from_meta(inner.meta).with_message(node.id);
         let response = CreateNodeResponse {
             meta: Some(response_meta),
@@ -249,24 +235,12 @@ impl NodeService for NodeServiceImpl {
                 sub_cmd: None,
                 resource_id: node_id,
             };
-            let del_cmd = Command::create(node.host_id, req, &mut tx).await?;
+            let cmd = Command::create(node.host_id, req, &mut tx).await?;
             tx.commit().await?;
-            let payload = NotificationPayload::new(del_cmd.id);
-            let notification = ChannelNotification::Command(payload);
 
-            // Sending commands receiver (in command_flow.rs)
-            self.notifier
-                .commands_sender()
-                .send(notification)
-                .map_err(internal)?;
-            let payload = NotificationPayload::new(node.id);
-            let notification = ChannelNotification::Node(payload);
-
-            // Sending notification to nodes receiver (in ui_update_service.rs)
-            self.notifier
-                .nodes_sender()
-                .send(notification)
-                .map_err(internal)?;
+            let notifier = notification::Notifier::new(self.db.clone());
+            notifier.commands_sender(node.host_id).send(cmd.id).await?;
+            notifier.nodes_sender(node.host_id).send(cmd.id).await?;
 
             Ok(response_with_refresh_token::<()>(refresh_token, ())?)
         } else {

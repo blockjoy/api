@@ -1,11 +1,10 @@
+use super::notification::Notifier;
 use crate::auth::{HostAuthToken, JwtToken};
 use crate::errors::Result;
 use crate::grpc::blockjoy::{command_flow_server::CommandFlow, Command as GrpcCommand, InfoUpdate};
 use crate::grpc::helpers::try_get_token;
-use crate::grpc::notification::ChannelNotifier;
 use crate::models;
 use std::pin::Pin;
-use std::sync::Arc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::codegen::futures_core::Stream;
 use tonic::{Request, Response, Status, Streaming};
@@ -14,12 +13,11 @@ mod listener;
 
 pub struct CommandFlowServerImpl {
     db: models::DbPool,
-    notifier: Arc<ChannelNotifier>,
 }
 
 impl CommandFlowServerImpl {
-    pub fn new(db: models::DbPool, notifier: Arc<ChannelNotifier>) -> Self {
-        Self { db, notifier }
+    pub fn new(db: models::DbPool) -> Self {
+        Self { db }
     }
 }
 
@@ -47,10 +45,10 @@ impl CommandFlow for CommandFlowServerImpl {
         models::Host::toggle_online(host_id, true, &mut tx).await?;
         tx.commit().await?;
         let update_stream = request.into_inner();
-        let (rx, host_listener, user_listener) =
-            listener::channels(host_id, self.notifier.commands_receiver(), self.db.clone());
-        tokio::spawn(user_listener.recv(update_stream));
-        tokio::spawn(host_listener.recv());
+        let (rx, db_listener, bv_listener) =
+            listener::channels(host_id, Notifier::new(self.db.clone()), self.db.clone()).await?;
+        tokio::spawn(bv_listener.recv(update_stream));
+        tokio::spawn(db_listener.recv());
         let commands_stream = ReceiverStream::new(rx);
         Ok(Response::new(Box::pin(commands_stream)))
     }
@@ -144,7 +142,7 @@ mod tests {
     async fn responds_ok_with_valid_token_for_node_command() {
         let db = _before_values.await;
         let (serve_future, mut client) = server_and_client_stub(db.pool.clone()).await;
-        let host = db.test_host().await;
+        let host = db.host().await;
         let token =
             UserAuthToken::create_token_for(&host, TokenType::HostAuth, TokenRole::Service, None)
                 .unwrap();
