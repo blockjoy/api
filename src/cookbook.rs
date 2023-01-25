@@ -31,12 +31,12 @@ pub async fn get_hw_requirements(
     node_type: String,
     node_version: Option<String>,
 ) -> ApiResult<HardwareRequirements> {
-    let id = dbg!(cookbook_grpc::ConfigIdentifier {
+    let id = cookbook_grpc::ConfigIdentifier {
         protocol,
         node_type,
         node_version: node_version.unwrap_or_else(|| "latest".to_string()),
         status: 1,
-    });
+    };
     let cb_url = KeyProvider::get_var("COOKBOOK_URL")
         .map_err(ApiError::Key)?
         .to_string();
@@ -45,7 +45,7 @@ pub async fn get_hw_requirements(
             .map_err(ApiError::Key)?
             .to_string(),
     );
-    let mut client = cook_book_service_client::CookBookServiceClient::connect(dbg!(cb_url))
+    let mut client = cook_book_service_client::CookBookServiceClient::connect(cb_url)
         .await
         .map_err(|e| ApiError::UnexpectedError(anyhow!("Can't connect to cookbook: {e}")))?;
     let mut request = Request::new(id);
