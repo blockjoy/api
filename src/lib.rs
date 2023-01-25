@@ -140,7 +140,7 @@ mod test {
                 .execute(&mut tx)
                 .await
                 .expect("Error inserting blockchain");
-            sqlx::query("INSERT INTO blockchains (name,status,supported_node_types) values ('Ethereum PoS', 'production', '[{\"id\":3,\"version\": \"3.3.0\", \"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]},{\"id\":1, \"version\": \"3.3.0\",\"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]}]');")
+            sqlx::query("INSERT INTO blockchains (name,status,supported_node_types) values ('Ethereum', 'production', '[{\"id\":3,\"version\": \"3.3.0\", \"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]},{\"id\":1, \"version\": \"3.3.0\",\"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]}]');")
                 .execute(&mut tx)
                 .await
                 .expect("Error inserting blockchain");
@@ -277,12 +277,10 @@ mod test {
         }
 
         pub async fn blockchain(&self) -> models::Blockchain {
-            sqlx::query_as(
-                "SELECT * FROM blockchains WHERE id = '1fdbf4c3-ff16-489a-8d3d-87c8620b963c'",
-            )
-            .fetch_one(&mut self.pool.conn().await.unwrap())
-            .await
-            .unwrap()
+            sqlx::query_as("SELECT * FROM blockchains WHERE name = 'Ethereum'")
+                .fetch_one(&mut self.pool.conn().await.unwrap())
+                .await
+                .unwrap()
         }
 
         pub fn user_refresh_token(&self, id: Uuid) -> UserRefreshToken {
