@@ -108,7 +108,7 @@ pub async fn db_command_to_grpc_command(
 
             Some(node_command::Command::Create(create_cmd))
         }
-        HostCmd::DeleteNode => Some(node_command::Command::Delete(NodeDelete::default())),
+        HostCmd::DeleteNode => Some(node_command::Command::Delete(NodeDelete {})),
         HostCmd::GetBVSVersion => unimplemented!(),
         HostCmd::UpdateBVS => unimplemented!(),
         HostCmd::RestartBVS => unimplemented!(),

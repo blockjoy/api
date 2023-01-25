@@ -75,20 +75,10 @@ impl HostListener {
         tracing::info!("Starting handling channel notifications");
         loop {
             tokio::select! {
-                message = self.messages.recv() => {
-                    tracing::info!("Received notification");
-                    match message {
-                        Ok(Command(cmd)) => self.process_notification(cmd).await?,
-                        Ok(_) => tracing::error!("received non Command notification"),
-                        Err(e) => {
-                            tracing::error!("Channel returned error: {e:?}");
-                            break;
-                        }
-                    }
-                },
+                message = self.messages.recv() => self.process_message(message).await,
                 // When we receive a stop message, we break the loop
                 _ = self.stop.recv() => break,
-            }
+            };
         }
         // Connection broke
         let mut tx = self.db.begin().await?;
@@ -97,56 +87,30 @@ impl HostListener {
         Ok(())
     }
 
-    /// In this function we decide what to do with the provided notification and then do it. This
-    /// means that we get the relevant command from the database, then filter it to decide if it
-    /// should be sent to the user, and if so, we perform the action
-    async fn process_notification(
-        &self,
-        notification: notification::NotificationPayload,
-    ) -> Result<()> {
-        tracing::info!("Notification is a command notification: {notification:?}");
-
-        let cmd_id = notification.get_id();
-        let mut conn = self.db.conn().await?;
-        let command = models::Command::find_by_id(cmd_id, &mut conn).await;
-
-        tracing::info!("Testing for command with ID {cmd_id}");
-
-        match command {
-            Ok(command) => {
-                tracing::info!("Command found");
-                if !self.relevant(&command) {
-                    // If the field was not relevant we are done and can just return Ok(())
-                    return Ok(());
-                }
-                let msg = convert::db_command_to_grpc_command(command, &self.db).await?;
-                match self.sender.send(Ok(msg)).await {
-                    Err(e) => Err(ApiError::UnexpectedError(anyhow!("Sender error: {e}"))),
-                    _ => {
-                        tracing::info!("Sent channel notification");
-                        Ok(())
-                    } // just return unit type if all went well
-                }
-            }
-            Err(e) => {
-                tracing::info!("Command with ID {} NOT found", cmd_id);
-
-                match self.sender.send(Err(e.into())).await {
-                    Err(e) => Err(ApiError::UnexpectedError(anyhow!("Sender error: {e}"))),
-                    _ => {
-                        tracing::info!("Sent channel error notification");
-                        Ok(())
-                    } // just return unit type if all went well
-                }
-            }
+    async fn process_message(&self, message: Result<models::Command>) {
+        tracing::info!("Received notification");
+        match message {
+            Ok(cmd) => self.process_notification(cmd).await,
+            Err(e) => tracing::error!("Channel returned error: {e:?}"),
         }
     }
 
-    /// Checks whether a command is relevant for the currently specified host. We use this for
-    /// filtering messages before we send them to the user. If the command is relevant for the
-    /// current channel, we return `true` from this function.
-    fn relevant(&self, command: &models::Command) -> bool {
-        command.host_id == self.host_id
+    /// In this function we are going to convert the command form the database to the
+    /// representation we use over GRPC, and
+    async fn process_notification(&self, command: models::Command) {
+        tracing::info!("Testing for command with ID {}", command.id);
+
+        let msg = match convert::db_command_to_grpc_command(command, &self.db).await {
+            Ok(msg) => msg,
+            Err(e) => {
+                tracing::error!("Failed to convert queued command to grpc representation: `{e}`");
+                return;
+            }
+        };
+        match self.sender.send(Ok(msg)).await {
+            Ok(_) => tracing::info!("Sent channel notification"),
+            Err(e) => tracing::error!("Failed to send channel notification: `{e}`"),
+        }
     }
 }
 
