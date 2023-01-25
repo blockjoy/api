@@ -93,14 +93,10 @@ impl TryFrom<String> for NodeType {
 
 impl NodeTypeProperty {
     pub fn to_json(&self) -> Result<String, ApiError> {
-        let json_str = format!(
-            "{{ \"name\": \"{}\", \"ui_type\": \"{}\", \"default\": \"{}\", \"disabled:\": \"{}\", \"required\": \"{}\" }}",
-            self.name,
-            self.ui_type,
-            self.default.as_ref().ok_or_else(required("default"))?,
-            self.disabled,
-            self.required,
-        );
+        if self.default.is_none() {
+            return Err(required("default")().into());
+        }
+        let json_str = serde_json::to_string(self)?;
         Ok(json_str)
     }
 
@@ -123,17 +119,9 @@ impl NodeTypeProperty {
 
 impl NodeType {
     pub fn to_json(&self) -> Result<String, ApiError> {
-        let empty = Vec::new();
-        let props: Result<String, ApiError> = self
-            .properties
-            .as_ref()
-            .unwrap_or(&empty)
-            .iter()
-            .map(|p| p.to_json())
-            .collect();
-        // TODO: Replace this hack
-        let props = props?.replace("}{", "},{");
-        let json_str = format!("{{ \"id\": {}, \"properties\": [{}] }}", self.id, props);
+        // TO DECIDE: Thomas in the earlier version we didn't include the `version` field here,
+        // was that by design?
+        let json_str = serde_json::to_string(self)?;
         Ok(json_str)
     }
 

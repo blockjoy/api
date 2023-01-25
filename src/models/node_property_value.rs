@@ -32,39 +32,21 @@ impl TryFrom<String> for NodeProperties {
     type Error = ApiError;
 
     fn try_from(json: String) -> Result<Self, Self::Error> {
-        serde_json::from_str(&json).map_err(Into::into)
+        let json = serde_json::from_str(&json)?;
+        Ok(json)
     }
 }
 
 impl NodePropertyValue {
     pub fn to_json(&self) -> Result<String, ApiError> {
-        let json_str = format!(
-            "{{ \"name\": \"{}\", \"ui_type\": \"{}\", \"label\": \"{}\", \"description\": \"{}\", \"disabled:\": \"{}\", \"required\": \"{}\", \"value\": \"{}\" }}",
-            self.name,
-            self.ui_type,
-            self.label,
-            self.description,
-            self.disabled,
-            self.required,
-            self.value.as_ref().unwrap_or(&String::new()),
-        );
+        let json_str = serde_json::to_string(self)?;
         Ok(json_str)
     }
 }
 
 impl NodeProperties {
     pub fn to_json(&self) -> Result<String, ApiError> {
-        let empty = Vec::new();
-        let props: Result<String, ApiError> = self
-            .properties
-            .as_ref()
-            .unwrap_or(&empty)
-            .iter()
-            .map(|p| p.to_json())
-            .collect();
-        // TODO: Replace this hack
-        let props = props?.replace("}{", "},{");
-        let json_str = format!("{{ \"id\": {}, \"properties\": [{}] }}", self.id, props);
+        let json_str = serde_json::to_string(self)?;
         Ok(json_str)
     }
 
