@@ -30,10 +30,10 @@ impl MetricsService for MetricsServiceImpl {
         let updates = request
             .metrics
             .into_iter()
-            .map(|(k, v)| models::NodeSelectiveUpdate::from_metrics(k, v))
+            .map(|(k, v)| models::NodeMetricsUpdate::from_metrics(k, v))
             .collect::<Result<_, _>>()?;
         let mut tx = self.db.begin().await?;
-        models::NodeSelectiveUpdate::update_metrics(updates, &mut tx).await?;
+        models::NodeMetricsUpdate::update_metrics(updates, &mut tx).await?;
         tx.commit().await?;
         Ok(tonic::Response::new(()))
     }

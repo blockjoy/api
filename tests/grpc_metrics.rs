@@ -19,6 +19,8 @@ async fn responds_ok_for_write_node() {
         block_age: Some(5),
         staking_status: Some(4),
         consensus: Some(false),
+        application_status: Some(8),
+        sync_status: Some(2),
     };
     metrics.insert(node.id.to_string(), metric);
     let req = blockjoy::NodeMetricsRequest { metrics };
@@ -31,6 +33,8 @@ async fn responds_ok_for_write_node() {
     assert_eq!(node.block_age, Some(5));
     assert_eq!(node.staking_status, models::NodeStakingStatus::Validating);
     assert_eq!(node.consensus, Some(false));
+    assert_eq!(node.chain_status, models::NodeChainStatus::Electing);
+    assert_eq!(node.sync_status, models::NodeSyncStatus::Synced);
 }
 
 #[tokio::test]

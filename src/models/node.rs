@@ -553,16 +553,19 @@ pub struct NodeInfo {
     pub self_update: bool,
 }
 
+/// This struct is used for updating the metrics of a node.
 #[derive(Debug)]
-pub struct NodeSelectiveUpdate {
+pub struct NodeMetricsUpdate {
     id: Uuid,
     height: Option<i64>,
     block_age: Option<i64>,
     staking_status: Option<NodeStakingStatus>,
     consensus: Option<bool>,
+    chain_status: Option<NodeChainStatus>,
+    sync_status: Option<NodeSyncStatus>,
 }
 
-impl NodeSelectiveUpdate {
+impl NodeMetricsUpdate {
     /// Performs a selective update of only the columns related to metrics of the provided nodes.
     pub async fn update_metrics(updates: Vec<Self>, tx: &mut super::DbTrx<'_>) -> Result<()> {
         type PgBuilder = sqlx::QueryBuilder<'static, sqlx::Postgres>;
@@ -579,7 +582,9 @@ impl NodeSelectiveUpdate {
                 block_height = row.height::BIGINT,
                 block_age = row.block_age::BIGINT,
                 staking_status = row.staking_status::enum_node_staking_status,
-                consensus = row.consensus::BOOLEAN
+                consensus = row.consensus::BOOLEAN,
+                chain_status = row.chain_status::enum_node_chain_status,
+                sync_status = row.sync_status::enum_node_sync_status
             FROM (
                 ",
         );
@@ -591,14 +596,16 @@ impl NodeSelectiveUpdate {
                 .push_bind(update.height)
                 .push_bind(update.block_age)
                 .push_bind(update.staking_status)
-                .push_bind(update.consensus);
+                .push_bind(update.consensus)
+                .push_bind(update.chain_status)
+                .push_bind(update.sync_status);
         });
         // We finish the query by specifying which bind parameters mean what. NOTE: When adding
         // bind parameters they MUST be bound in the same order as they are specified below. Not
         // doing so results in incorrectly interpreted queries.
         query_builder.push(
             "
-            ) AS row(id, height, block_age, staking_status, consensus)
+            ) AS row(id, height, block_age, staking_status, consensus, chain_status, sync_status)
             WHERE
                 nodes.id = row.id::uuid;",
         );
@@ -619,6 +626,11 @@ impl NodeSelectiveUpdate {
                 .map(NodeStakingStatus::try_from)
                 .transpose()?,
             consensus: metric.consensus,
+            chain_status: metric
+                .application_status
+                .map(TryInto::try_into)
+                .transpose()?,
+            sync_status: metric.sync_status.map(TryInto::try_into).transpose()?,
         })
     }
 
@@ -631,5 +643,7 @@ impl NodeSelectiveUpdate {
             .bind(params.block_age)
             .bind(params.staking_status)
             .bind(params.consensus)
+            .bind(params.chain_status)
+            .bind(params.sync_status)
     }
 }
