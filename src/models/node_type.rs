@@ -2,7 +2,7 @@ use derive_getters::Getters;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgHasArrayType;
 
-use crate::{errors::ApiError, grpc::helpers::required};
+use crate::errors::ApiError;
 
 pub enum NodeTypeKey {
     Unknown = 0,
@@ -65,7 +65,7 @@ impl From<NodeTypeKey> for i32 {
 pub struct NodeTypeProperty {
     name: String,
     ui_type: String,
-    default: Option<String>,
+    default: String,
     disabled: bool,
     required: bool,
 }
@@ -92,14 +92,6 @@ impl TryFrom<String> for NodeType {
 }
 
 impl NodeTypeProperty {
-    pub fn to_json(&self) -> Result<String, ApiError> {
-        if self.default.is_none() {
-            return Err(required("default")().into());
-        }
-        let json_str = serde_json::to_string(self)?;
-        Ok(json_str)
-    }
-
     pub fn get_name(&self) -> &str {
         &self.name
     }
@@ -108,8 +100,8 @@ impl NodeTypeProperty {
         &self.name
     }
 
-    pub fn get_default(&self) -> Option<&str> {
-        self.default.as_deref()
+    pub fn get_default(&self) -> &str {
+        &self.default
     }
 
     pub fn get_property_type(&self) -> &str {
@@ -119,9 +111,16 @@ impl NodeTypeProperty {
 
 impl NodeType {
     pub fn to_json(&self) -> Result<String, ApiError> {
-        // TO DECIDE: Thomas in the earlier version we didn't include the `version` field here,
-        // was that by design?
-        let json_str = serde_json::to_string(self)?;
+        #[derive(serde::Serialize)]
+        struct NodeTypeWithoutVersion<'a> {
+            id: i32,
+            properties: &'a Option<Vec<NodeTypeProperty>>,
+        }
+        let without_version = NodeTypeWithoutVersion {
+            id: self.id,
+            properties: &self.properties,
+        };
+        let json_str = serde_json::to_string(&without_version)?;
         Ok(json_str)
     }
 
