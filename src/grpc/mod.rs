@@ -107,9 +107,13 @@ pub async fn server(
     let enforcer = Authorization::new()
         .await
         .expect("Could not create Authorization!");
+    let notifier = notification::Notifier::new(db.clone())
+        .await
+        .expect("Could not create notifier");
     let auth_service = AuthorizationService::new(enforcer);
     let h_service = HostsServer::new(HostsServiceImpl::new(db.clone()));
-    let c_service = CommandFlowServer::new(CommandFlowServerImpl::new(db.clone()));
+    let c_service =
+        CommandFlowServer::new(CommandFlowServerImpl::new(db.clone(), notifier.clone()));
     let k_service = KeyFilesServer::new(KeyFileServiceImpl::new(db.clone()));
     let m_service = MetricsServiceServer::new(MetricsServiceImpl::new(db.clone()));
     let ui_auth_service =
@@ -119,8 +123,10 @@ pub async fn server(
     let ui_host_service = HostServiceServer::new(HostServiceImpl::new(db.clone()));
     let ui_hostprovision_service =
         HostProvisionServiceServer::new(HostProvisionServiceImpl::new(db.clone()));
-    let ui_command_service = CommandServiceServer::new(CommandServiceImpl::new(db.clone()));
-    let ui_node_service = NodeServiceServer::new(NodeServiceImpl::new(db.clone()));
+    let ui_command_service =
+        CommandServiceServer::new(CommandServiceImpl::new(db.clone(), notifier.clone()));
+    let ui_node_service =
+        NodeServiceServer::new(NodeServiceImpl::new(db.clone(), notifier.clone()));
     let ui_update_service = UpdateServiceServer::new(UpdateServiceImpl::new(db.clone()));
     let ui_dashboard_service = DashboardServiceServer::new(DashboardServiceImpl::new(db.clone()));
     let ui_blockchain_service =

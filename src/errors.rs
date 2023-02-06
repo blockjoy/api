@@ -60,6 +60,9 @@ pub enum ApiError {
 
     #[error("Error reading key: {0}")]
     Key(KeyProviderError),
+
+    #[error("Struggles with receiving through channel: {0}")]
+    ChannelError(#[from] tokio::sync::broadcast::error::RecvError),
 }
 
 impl ApiError {

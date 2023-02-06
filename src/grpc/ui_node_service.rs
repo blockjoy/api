@@ -1,5 +1,6 @@
+use super::convert;
 use super::helpers::required;
-use super::{convert, notification};
+use super::notification::Notifier;
 use crate::auth::{FindableById, UserAuthToken};
 use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy_ui::node_service_server::NodeService;
@@ -18,11 +19,12 @@ use tonic::{Request, Response, Status};
 
 pub struct NodeServiceImpl {
     db: models::DbPool,
+    notifier: Notifier,
 }
 
 impl NodeServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
+    pub fn new(db: models::DbPool, notifier: Notifier) -> Self {
+        Self { db, notifier }
     }
 }
 
@@ -172,9 +174,8 @@ impl NodeService for NodeServiceImpl {
         let cmd = Command::create(node.host_id, req, &mut tx).await?;
         tx.commit().await?;
 
-        let notifier = notification::Notifier::new(self.db.clone());
-        notifier.commands_sender(node.host_id).send(cmd.id).await?;
-        notifier.nodes_sender(node.host_id).send(cmd.id).await?;
+        self.notifier.commands_sender().send(cmd.id).await?;
+        self.notifier.nodes_sender().send(cmd.id).await?;
 
         let response_meta = ResponseMeta::from_meta(inner.meta).with_message(node.id);
         let response = CreateNodeResponse {
@@ -238,9 +239,8 @@ impl NodeService for NodeServiceImpl {
             let cmd = Command::create(node.host_id, req, &mut tx).await?;
             tx.commit().await?;
 
-            let notifier = notification::Notifier::new(self.db.clone());
-            notifier.commands_sender(node.host_id).send(cmd.id).await?;
-            notifier.nodes_sender(node.host_id).send(cmd.id).await?;
+            self.notifier.commands_sender().send(cmd.id).await?;
+            self.notifier.nodes_sender().send(cmd.id).await?;
 
             Ok(response_with_refresh_token::<()>(refresh_token, ())?)
         } else {

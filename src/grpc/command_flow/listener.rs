@@ -21,7 +21,7 @@ type Message = Result<blockjoy::Command, tonic::Status>;
 ///    our user listener stops listening.
 pub async fn channels(
     host_id: uuid::Uuid,
-    notifier: notification::Notifier,
+    notifier: &notification::Notifier,
     db: models::DbPool,
 ) -> Result<(mpsc::Receiver<Message>, DbListener, BvListener)> {
     let (stop_tx, stop_rx) = mpsc::channel(1);
@@ -31,7 +31,7 @@ pub async fn channels(
         host_id,
         sender: tx.clone(),
         stop: stop_rx,
-        messages: notifier.commands_receiver(host_id).await?,
+        messages: notifier.commands_receiver(host_id),
         db: db.clone(),
     };
     let bv_listener = BvListener {

@@ -14,11 +14,12 @@ mod listener;
 
 pub struct CommandFlowServerImpl {
     db: models::DbPool,
+    notifier: Notifier,
 }
 
 impl CommandFlowServerImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
+    pub fn new(db: models::DbPool, notifier: Notifier) -> Self {
+        Self { db, notifier }
     }
 }
 
@@ -48,11 +49,10 @@ impl CommandFlow for CommandFlowServerImpl {
         tx.commit().await?;
         let update_stream = request.into_inner();
         let (rx, db_listener, bv_listener) =
-            listener::channels(host_id, Notifier::new(self.db.clone()), self.db.clone()).await?;
+            listener::channels(host_id, &self.notifier, self.db.clone()).await?;
         tokio::spawn(bv_listener.recv(update_stream));
         tokio::spawn(db_listener.recv());
-        let notifier = Notifier::new(self.db.clone());
-        Command::notify_pending_by_host(host_id, &notifier, &mut conn).await?;
+        Command::notify_pending_by_host(host_id, &self.notifier, &mut conn).await?;
         let commands_stream = ReceiverStream::new(rx);
         Ok(Response::new(Box::pin(commands_stream)))
     }

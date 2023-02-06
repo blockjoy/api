@@ -73,7 +73,7 @@ impl Command {
 
         // Send one notification per pending command
         for command in &commands {
-            notifier.commands_sender(host_id).send(command.id).await?;
+            notifier.commands_sender().send(command.id).await?;
         }
 
         Ok(commands)
