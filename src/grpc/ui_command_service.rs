@@ -32,9 +32,17 @@ impl CommandServiceImpl {
         };
 
         let mut tx = self.db.begin().await?;
-        let cmd = Command::create(host_id, req, &mut tx).await?;
+        let db_cmd = Command::create(host_id, req, &mut tx).await?;
+
+        match cmd {
+            HostCmd::RestartNode | HostCmd::KillNode => {
+                self.notifier.nodes_sender().send(resource_id).await?;
+            }
+            _ => {}
+        }
+
         tx.commit().await?;
-        Ok(cmd)
+        Ok(db_cmd)
     }
 
     async fn send_notification(&self, command: models::Command) -> Result<()> {

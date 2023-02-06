@@ -132,6 +132,7 @@ mod tests {
                 sync_status: None,
                 staking_status: None,
                 self_update: Some(false),
+                address: Some("0xasdfasdf".to_string()),
             })),
         })
     }

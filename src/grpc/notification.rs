@@ -61,8 +61,8 @@ impl Notifier {
         Sender::new(self.db.clone())
     }
 
-    pub fn nodes_receiver(&self, org_id: Uuid) -> Receiver<models::Node> {
-        Receiver::new(org_id, self.inner.nodes.resubscribe())
+    pub fn nodes_receiver(&self, host_id: Uuid) -> Receiver<models::Node> {
+        Receiver::new(host_id, self.inner.nodes.resubscribe())
     }
 
     pub fn hosts_sender(&self) -> Sender<models::Host> {
@@ -167,11 +167,20 @@ impl<T: Clone + Notify> Receiver<T> {
             }
         }
     }
+
+    pub async fn recv_where(&mut self, f: impl Fn(&T) -> bool) -> Result<T> {
+        loop {
+            let msg = self.receiver.recv().await?;
+            if f(&msg) {
+                return Ok(msg);
+            }
+        }
+    }
 }
 
 impl Notify for models::Command {
     fn channel() -> String {
-        format!("commands_channel")
+        "commands_channel".to_string()
     }
 
     /// Commands are channeled by host.
@@ -182,7 +191,7 @@ impl Notify for models::Command {
 
 impl Notify for models::Node {
     fn channel() -> String {
-        format!("nodes_channel")
+        "nodes_channel".to_string()
     }
 
     /// Commands are channeled by host.
@@ -193,23 +202,23 @@ impl Notify for models::Node {
 
 impl Notify for models::Host {
     fn channel() -> String {
-        format!("hosts_channel")
+        "hosts_channel".to_string()
     }
 
     /// TODO: think about how we will use this and how we will channel it.
     fn in_channel(&self, _something_id: uuid::Uuid) -> bool {
-        todo!()
+        true
     }
 }
 
 impl Notify for models::Org {
     fn channel() -> String {
-        format!("orgs_channel")
+        "orgs_channel".to_string()
     }
 
     /// TODO: think about how we will use this and how we will channel it.
     fn in_channel(&self, _something_id: uuid::Uuid) -> bool {
-        todo!()
+        true
     }
 }
 

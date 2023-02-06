@@ -492,12 +492,48 @@ pub mod from {
                 block_height: node.block_height,
                 node_data: node.node_data.map(Value::from),
                 chain_status: node.status.map(|n| n.try_into()).transpose()?,
-                sync_status: None,
-                staking_status: None,
+                sync_status: Some(NodeSyncStatus::try_from(node.sync_status.unwrap_or(-1))?),
+                staking_status: Some(NodeStakingStatus::try_from(
+                    node.staking_status.unwrap_or(-1),
+                )?),
+                // No container status in node available
                 container_status: None,
                 self_update: node.self_update.unwrap_or(false),
             };
             Ok(node_info)
+        }
+    }
+
+    impl TryFrom<models::Node> for GrpcNode {
+        type Error = ApiError;
+
+        fn try_from(node: models::Node) -> Result<Self, Self::Error> {
+            let res = Self {
+                id: Some(node.id.to_string()),
+                org_id: Some(node.org_id.to_string()),
+                host_id: Some(node.host_id.to_string()),
+                host_name: Some(node.host_name),
+                blockchain_id: Some(node.blockchain_id.to_string()),
+                name: node.name,
+                groups: vec![],
+                version: node.version,
+                ip: node.ip_addr,
+                r#type: Some(node.node_type.0.to_json()?),
+                address: node.address,
+                wallet_address: node.wallet_address,
+                block_height: node.block_height,
+                node_data: None,
+                created_at: Some(try_dt_to_ts(node.created_at)?),
+                updated_at: Some(try_dt_to_ts(node.updated_at)?),
+                status: Some(node.chain_status as i32),
+                sync_status: Some(node.sync_status as i32),
+                staking_status: Some(node.staking_status as i32),
+                ip_gateway: node.ip_gateway,
+                self_update: Some(node.self_update),
+                network: Some(node.network.clone()),
+                blockchain_name: Some(node.network),
+            };
+            Ok(res)
         }
     }
 

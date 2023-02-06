@@ -217,9 +217,8 @@ impl User {
             {
                 Ok(user) => {
                     let org = sqlx::query_as::<_, Org>(
-                        "INSERT INTO orgs (name, is_personal) values (LOWER($1), true) RETURNING *",
+                        "INSERT INTO orgs (name, is_personal) values ('Personal', true) RETURNING *",
                     )
-                    .bind("Personal")
                     .fetch_one(&mut *tx)
                     .await?;
 

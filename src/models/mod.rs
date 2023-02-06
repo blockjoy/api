@@ -63,7 +63,7 @@ use sqlx::{
 };
 pub use user::*;
 
-pub const STAKE_QUOTA_DEFAULT: i64 = 5;
+pub const STAKE_QUOTA_DEFAULT: i64 = 3;
 pub const FEE_BPS_DEFAULT: i64 = 300;
 
 pub type PgQuery<'a> = sqlx::query::Query<'a, Postgres, sqlx::postgres::PgArguments>;

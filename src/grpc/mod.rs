@@ -127,7 +127,7 @@ pub async fn server(
         CommandServiceServer::new(CommandServiceImpl::new(db.clone(), notifier.clone()));
     let ui_node_service =
         NodeServiceServer::new(NodeServiceImpl::new(db.clone(), notifier.clone()));
-    let ui_update_service = UpdateServiceServer::new(UpdateServiceImpl::new(db.clone()));
+    let ui_update_service = UpdateServiceServer::new(UpdateServiceImpl::new(db.clone(), notifier));
     let ui_dashboard_service = DashboardServiceServer::new(DashboardServiceImpl::new(db.clone()));
     let ui_blockchain_service =
         BlockchainServiceServer::new(BlockchainServiceImpl::new(db.clone()));

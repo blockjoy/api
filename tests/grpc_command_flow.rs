@@ -26,6 +26,7 @@ async fn command_flow_works() {
             sync_status: Some(1),
             staking_status: Some(1),
             self_update: Some(false),
+            address: Some("0xasdfasdf".to_string()),
         })),
     };
 
@@ -54,6 +55,7 @@ async fn non_existent_node() {
             sync_status: Some(1),
             staking_status: Some(1),
             self_update: Some(true),
+            address: Some("0xasdfasdf".to_string()),
         })),
     };
 

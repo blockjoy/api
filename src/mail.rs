@@ -33,7 +33,13 @@ impl MailClient {
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
 
-        self.send_mail(&templates, user, None).await
+        self.send_mail(
+            &templates,
+            user,
+            "[BlockJoy] Password Updated".to_string(),
+            None,
+        )
+        .await
     }
 
     pub async fn registration_confirmation(&self, user: &models::User) -> errors::Result<()> {
@@ -58,7 +64,13 @@ impl MailClient {
         let mut context = HashMap::new();
         context.insert("link".to_owned(), link);
 
-        self.send_mail(&templates, user, Some(context)).await
+        self.send_mail(
+            &templates,
+            user,
+            "[BlockJoy] Verify Your Account".to_string(),
+            Some(context),
+        )
+        .await
     }
 
     pub async fn invitation_for_registered(
@@ -83,7 +95,13 @@ impl MailClient {
         context.insert("link".to_owned(), link);
         context.insert("expiration".to_owned(), expiration);
 
-        self.send_mail(&templates, invitee, Some(context)).await
+        self.send_mail(
+            &templates,
+            invitee,
+            "[BlockJoy] Organization Invite".to_string(),
+            Some(context),
+        )
+        .await
     }
 
     pub async fn invitation(
@@ -112,7 +130,13 @@ impl MailClient {
         context.insert("decline_link".to_owned(), decline_link);
         context.insert("expiration".to_owned(), expiration);
 
-        self.send_mail(&templates, invitee, Some(context)).await
+        self.send_mail(
+            &templates,
+            invitee,
+            "[BlockJoy] Organization Invite".to_string(),
+            Some(context),
+        )
+        .await
     }
 
     /// Sends a password reset email to the specified user, containing a JWT that they can use to
@@ -138,13 +162,20 @@ impl MailClient {
         let mut context = HashMap::new();
         context.insert("link".to_owned(), link);
 
-        self.send_mail(&templates, user, Some(context)).await
+        self.send_mail(
+            &templates,
+            user,
+            "[BlockJoy] Reset Password".to_string(),
+            Some(context),
+        )
+        .await
     }
 
     async fn send_mail(
         &self,
         templates: &Templates,
         to: &models::User,
+        subject: String,
         // Can't use 'static str for the keys or the values here, see:
         // https://stackoverflow.com/questions/68591843
         context: Option<HashMap<String, String>>,
@@ -160,7 +191,7 @@ impl MailClient {
         let mail = sendgrid::Mail {
             to: vec![to],
             from: "no-reply@blockjoy.com",
-            subject: "A message from BlockJoy",
+            subject: subject.as_str(),
             html: &html,
             text: &text,
             from_name: "BlockJoy",
