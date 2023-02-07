@@ -294,8 +294,9 @@ impl Node {
         info: &NodeInfo,
         tx: &mut super::DbTrx<'_>,
     ) -> Result<Node> {
-        sqlx::query_as(
-            r#"UPDATE nodes SET 
+        dbg!(
+            sqlx::query_as(
+                r#"UPDATE nodes SET 
                     version = COALESCE($1, version),
                     ip_addr = COALESCE($2, ip_addr),
                     block_height = COALESCE($3, block_height),
@@ -304,17 +305,18 @@ impl Node {
                     sync_status = COALESCE($6, sync_status),
                     self_update = COALESCE($7, self_update)
                 WHERE id = $8 RETURNING *"#,
+            )
+            .bind(&info.version)
+            .bind(&info.ip_addr)
+            .bind(info.block_height)
+            .bind(&info.node_data)
+            .bind(info.chain_status)
+            .bind(info.sync_status)
+            .bind(info.self_update)
+            .bind(id)
+            .fetch_one(tx)
+            .await
         )
-        .bind(&info.version)
-        .bind(&info.ip_addr)
-        .bind(info.block_height)
-        .bind(&info.node_data)
-        .bind(info.chain_status)
-        .bind(info.sync_status)
-        .bind(info.self_update)
-        .bind(id)
-        .fetch_one(tx)
-        .await
         .map_err(ApiError::from)
     }
 
@@ -473,9 +475,10 @@ impl Node {
 #[tonic::async_trait]
 impl UpdateInfo<GrpcNodeInfo, Node> for Node {
     async fn update_info(info: GrpcNodeInfo, tx: &mut super::DbTrx<'_>) -> Result<Node> {
-        let req: NodeUpdateRequest = info.try_into()?;
-        let node: Node = sqlx::query_as(
-            r##"UPDATE nodes SET
+        let req: NodeUpdateRequest = dbg!(dbg!(info).try_into())?;
+        let node: Node = dbg!(
+            sqlx::query_as(
+                r##"UPDATE nodes SET
                          name = COALESCE($1, name),
                          ip_addr = COALESCE($2, ip_addr),
                          chain_status = COALESCE($3, chain_status),
@@ -487,18 +490,19 @@ impl UpdateInfo<GrpcNodeInfo, Node> for Node {
                 WHERE id = $9
                 RETURNING *
             "##,
-        )
-        .bind(req.name)
-        .bind(req.ip_addr)
-        .bind(req.chain_status)
-        .bind(req.sync_status)
-        .bind(req.staking_status)
-        .bind(req.block_height)
-        .bind(req.self_update)
-        .bind(req.address)
-        .bind(req.id)
-        .fetch_one(tx)
-        .await?;
+            )
+            .bind(req.name)
+            .bind(req.ip_addr)
+            .bind(req.chain_status)
+            .bind(req.sync_status)
+            .bind(req.staking_status)
+            .bind(req.block_height)
+            .bind(req.self_update)
+            .bind(req.address)
+            .bind(req.id)
+            .fetch_one(tx)
+            .await
+        )?;
 
         Ok(node)
     }
@@ -536,6 +540,7 @@ pub struct NodeCreateRequest {
     pub network: String,
 }
 
+#[derive(Debug)]
 pub struct NodeUpdateRequest {
     pub id: Uuid,
     pub name: Option<String>,

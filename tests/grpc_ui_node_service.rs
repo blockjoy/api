@@ -22,7 +22,7 @@ async fn responds_ok_with_id_for_get() {
     let tester = setup::Tester::new().await;
     let blockchain = tester.blockchain().await;
     let user = tester.admin_user().await;
-    let org = tester.org_for(&user).await;
+    let org = dbg!(tester.org_for(&user).await);
     let mut req = models::NodeCreateRequest {
         org_id: org.id,
         blockchain_id: blockchain.id,
