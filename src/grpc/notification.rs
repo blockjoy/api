@@ -84,6 +84,7 @@ impl<T: Notify> Sender<T> {
     pub async fn send(&mut self, resource_id: uuid::Uuid) -> Result<()> {
         let channel = T::channel(self.channel_id);
         let mut conn = self.db.conn().await?;
+        println!("Sending notification about {resource_id}");
         sqlx::query("SELECT pg_notify($1, $2::text)")
             .bind(&channel)
             .bind(resource_id)
@@ -95,6 +96,7 @@ impl<T: Notify> Sender<T> {
     pub async fn broadcast(&mut self, resource_id: uuid::Uuid) -> Result<()> {
         let channel = T::broadcast_channel(self.channel_id);
         let mut conn = self.db.conn().await?;
+        println!("Broadcasting notification about {resource_id}");
         sqlx::query("SELECT pg_notify($1, $2::text)")
             .bind(&channel)
             .bind(resource_id)
@@ -127,6 +129,7 @@ impl<T: Notify> Receiver<T> {
         let msg = self.listener.recv().await?;
         let resource_id = msg.payload().parse()?;
         let mut conn = self.db.conn().await?;
+        println!("Received notication about: {resource_id}");
         T::find_by_id(resource_id, &mut conn).await
     }
 }

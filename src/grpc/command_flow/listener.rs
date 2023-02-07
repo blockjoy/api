@@ -72,9 +72,15 @@ impl DbListener {
         tracing::info!("Starting handling channel notifications");
         loop {
             tokio::select! {
-                message = self.messages.recv() => self.process_message(message).await,
+                message = self.messages.recv() => {
+                    println!("Processing: {message:?}");
+                    self.process_message(message).await
+                },
                 // When we receive a stop message, we break the loop
-                _ = self.stop.recv() => break,
+                _ = self.stop.recv() => {
+                    println!("Received stopperoni!");
+                    break
+                },
             };
         }
         // Connection broke
@@ -134,6 +140,7 @@ impl BvListener {
     pub async fn recv(self, mut messages: tonic::Streaming<blockjoy::InfoUpdate>) -> Result<()> {
         tracing::debug!("Started waiting for InfoUpdates");
         while let Some(Ok(update)) = messages.next().await {
+            dbg!(&update);
             self.process_info_update(update).await?;
         }
 
