@@ -55,15 +55,12 @@ impl BlockchainService for BlockchainServiceImpl {
             let mut g_chain: Blockchain = blockchain.try_into()?;
 
             for node_type in node_types {
-                dbg!(&node_type);
-                let nets = dbg!(
-                    get_networks(
-                        blockchain.name.clone(),
-                        NodeTypeKey::str_from_value(node_type.get_id()),
-                        Some(node_type.version().to_string()),
-                    )
-                    .await
-                )?;
+                let nets = get_networks(
+                    blockchain.name.clone(),
+                    NodeTypeKey::str_from_value(node_type.get_id()),
+                    Some(node_type.version().to_string()),
+                )
+                .await?;
 
                 g_chain.networks.extend(nets.iter().map(|c| c.into()));
             }

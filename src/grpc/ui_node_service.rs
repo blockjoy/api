@@ -100,7 +100,8 @@ impl NodeService for NodeServiceImpl {
     ) -> Result<Response<GetNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let org_id = dbg!(dbg!(token).data())
+        let org_id = token
+            .data()
             .get("org_id")
             .unwrap_or(&"".to_string())
             .to_owned();
@@ -109,7 +110,7 @@ impl NodeService for NodeServiceImpl {
         let mut conn = self.db.conn().await?;
         let node = Node::find_by_id(node_id, &mut conn).await?;
 
-        if dbg!(node.org_id.to_string()) == dbg!(org_id) {
+        if node.org_id.to_string() == org_id {
             let response = GetNodeResponse {
                 meta: Some(ResponseMeta::from_meta(inner.meta)),
                 node: Some(blockjoy_ui::Node::from_model(node, &mut conn).await?),

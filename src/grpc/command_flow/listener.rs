@@ -72,15 +72,9 @@ impl DbListener {
         tracing::info!("Starting handling channel notifications");
         loop {
             tokio::select! {
-                message = self.messages.recv() => {
-                    println!("Processing: {message:?}");
-                    self.process_message(message).await
-                },
+                message = self.messages.recv() => self.process_message(message).await,
                 // When we receive a stop message, we break the loop
-                _ = self.stop.recv() => {
-                    println!("Received stopperoni!");
-                    break
-                },
+                _ = self.stop.recv() => break,
             };
         }
         // Connection broke
@@ -110,8 +104,6 @@ impl DbListener {
                 return;
             }
         };
-        println!("Sending command to blockvisor:");
-        dbg!(&msg);
         match self.sender.send(Ok(msg)).await {
             Ok(_) => tracing::info!("Sent channel notification"),
             Err(e) => tracing::error!("Failed to send channel notification: `{e}`"),
