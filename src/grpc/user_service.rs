@@ -112,9 +112,6 @@ impl UserService for UserServiceImpl {
             .ok_or_else(required("auth token"))?;
         let mut tx = self.db.begin().await?;
         let user_id = token.try_get_user(*token.id(), &mut tx).await?.id;
-        tx.commit().await?;
-
-        let mut tx = self.db.begin().await?;
         User::delete(user_id, &mut tx).await?;
         tx.commit().await?;
 

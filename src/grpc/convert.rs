@@ -492,10 +492,11 @@ pub mod from {
                 block_height: node.block_height,
                 node_data: node.node_data.map(Value::from),
                 chain_status: node.status.map(|n| n.try_into()).transpose()?,
-                sync_status: Some(NodeSyncStatus::try_from(node.sync_status.unwrap_or(-1))?),
-                staking_status: Some(NodeStakingStatus::try_from(
-                    node.staking_status.unwrap_or(-1),
-                )?),
+                sync_status: node.sync_status.map(NodeSyncStatus::try_from).transpose()?,
+                staking_status: node
+                    .staking_status
+                    .map(NodeStakingStatus::try_from)
+                    .transpose()?,
                 // No container status in node available
                 container_status: None,
                 self_update: node.self_update.unwrap_or(false),

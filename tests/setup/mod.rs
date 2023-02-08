@@ -9,6 +9,7 @@ use api::{grpc::blockjoy_ui, TestDb};
 pub use dummy_token::*;
 use futures_util::{Stream, StreamExt};
 use helper_traits::GrpcClient;
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::future::Future;
@@ -101,7 +102,7 @@ impl Tester {
 
     /// Returns a (auth, refresh) token pair.
     pub async fn admin_token(&self) -> (impl JwtToken, impl JwtToken) {
-        let auth = self.user_token(&self.admin_user().await);
+        let auth = self.user_token(&self.admin_user().await).await;
         let refresh = self.db.user_refresh_token(auth.get_id());
         (auth, refresh)
     }
@@ -137,9 +138,17 @@ impl Tester {
             .clone()
     }
 
-    pub fn user_token(&self, user: &models::User) -> impl JwtToken + Clone {
-        auth::UserAuthToken::create_token_for(user, TokenType::UserAuth, TokenRole::User, None)
-            .unwrap()
+    pub async fn user_token(&self, user: &models::User) -> impl JwtToken + Clone {
+        let org = self.org_for(user).await;
+        let mut data = HashMap::new();
+        data.insert("org_id".to_string(), org.id.to_string());
+        auth::UserAuthToken::create_token_for(
+            user,
+            TokenType::UserAuth,
+            TokenRole::User,
+            Some(data),
+        )
+        .unwrap()
     }
 
     pub fn host_token(&self, host: &models::Host) -> impl JwtToken + Clone {

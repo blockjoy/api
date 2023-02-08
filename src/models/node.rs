@@ -536,7 +536,6 @@ pub struct NodeCreateRequest {
     pub network: String,
 }
 
-#[derive(Debug)]
 pub struct NodeUpdateRequest {
     pub id: Uuid,
     pub name: Option<String>,

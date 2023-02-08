@@ -206,9 +206,6 @@ impl NodeService for NodeServiceImpl {
                 // commit the tx for stuff happened so far
                 tx.commit().await?;
 
-                // ScIEncE
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
                 // Create a new tx, so we ensure START happens after CREATE
                 let mut tx = self.db.begin().await?;
                 // Create the NodeStart COMMAND

@@ -98,7 +98,7 @@ mod tests {
                 .serve_with_incoming(stream)
                 .await;
 
-            assert!(result.is_ok());
+            result.unwrap();
             println!("Server is running");
         };
 

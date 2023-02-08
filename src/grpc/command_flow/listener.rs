@@ -134,7 +134,6 @@ impl BvListener {
     pub async fn recv(self, mut messages: tonic::Streaming<blockjoy::InfoUpdate>) -> Result<()> {
         tracing::debug!("Started waiting for InfoUpdates");
         while let Some(update) = messages.next().await {
-            dbg!(&update);
             match update {
                 Ok(update) => match self.process_info_update(update.clone()).await {
                     Ok(_) => {}
