@@ -144,7 +144,14 @@ impl BvListener {
         while let Some(update) = messages.next().await {
             dbg!(&update);
             match update {
-                Ok(update) => self.process_info_update(update).await?,
+                Ok(update) => match self.process_info_update(update.clone()).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to process command `{update:?} from bv with error `{e}`"
+                        )
+                    }
+                },
                 Err(err) => tracing::error!("Received error from bv: `{err}`"),
             }
         }
