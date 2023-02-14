@@ -19,25 +19,24 @@
 //! functions _must_ happen from within a transaction, and functions that not mutate may either be\
 //! called from a transaction or from a 'bare' connection.
 
+mod blacklist_token;
 mod blockchain;
 mod broadcast;
 mod command;
 mod host;
 mod info;
-mod invoice;
-mod node;
-mod org;
-mod payment;
-mod reward;
-mod user;
-// needs to be brought into namespace like this because of
-// name ambiguities with another crate
-mod blacklist_token;
 mod invitation;
+mod invoice;
 mod ip_address;
+mod node;
 mod node_key_file;
 mod node_property_value;
 mod node_type;
+mod org;
+mod payment;
+mod reward;
+mod schema;
+mod user;
 
 use crate::errors::Result;
 pub use blacklist_token::*;

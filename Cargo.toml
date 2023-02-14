@@ -19,6 +19,10 @@ base64 = "0.13.0"
 casbin = { version = "2.0.9", default-features = false, features = ["runtime-tokio", "logging", "incremental", "explain"] }
 chrono = {version = "0.4.19", features = ["serde"]}
 derive-getters = "0.2.0"
+diesel = { version = "2.0.3", default-features = false, features = ["postgres", "without-deprecated", "uuid", "chrono", "32-column-tables", "serde_json"] }
+diesel-async = { version = "0.2.0", features = ["bb8", "postgres"] }
+diesel-enum = { git = "https://github.com/ThouCheese/diesel-enum", branch = "feat/diesel-2.0" }
+diesel_migrations = { version = "2.0.0", features = ["postgres"] }
 dotenv = "0.15.0"
 futures-util = "0.3.21"
 h2 = "0.3.13"

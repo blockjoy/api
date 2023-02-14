@@ -72,6 +72,10 @@ impl ApiError {
     pub fn validation(msg: impl std::fmt::Display) -> Self {
         Self::ValidationError(msg.to_string())
     }
+
+    pub fn db_enum(msg: impl std::fmt::Display) -> Self {
+        Self::UnexpectedError(anyhow::anyhow!("Database enum struggle: `{msg}`"))
+    }
 }
 
 impl std::fmt::Debug for ApiError {
