@@ -66,6 +66,9 @@ pub enum ApiError {
 
     #[error("User node quota exceeded")]
     NodeQuota,
+
+    #[error("{0}")]
+    InvalidArgument(tonic::Status),
 }
 
 impl ApiError {

@@ -35,6 +35,7 @@ prost = "0.11.6"
 prost-types = "0.11.6"
 rand = "0.8.5"
 random-string = "1.0.0"
+rumqttc = "0.20.0"
 sendgrid = {version = "0.17.4", default-features = false, features = ["rustls", "async"]}
 serde = {version = "1.0.125", features = ["derive"]}
 serde_json = { version = "1.0.81", features = ["raw_value"] }

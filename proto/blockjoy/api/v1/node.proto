@@ -94,6 +94,7 @@ message NodeInfo {
     optional SyncStatus sync_status = 10;
     optional StakingStatus staking_status = 11;
     optional string address = 12;
+    optional string host_id = 13;
 }
 
 message NodeStart {}
@@ -132,9 +133,10 @@ message NodeCreate {
 message NodeDelete {}
 
 message NodeCommand {
-    string id = 1;
+    string node_id = 1;
     string api_command_id = 2;
     google.protobuf.Timestamp created_at = 3;
+    string host_id = 13;
 
     oneof command {
         NodeGenericCommand generic = 4;

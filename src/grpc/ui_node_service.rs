@@ -24,8 +24,11 @@ pub struct NodeServiceImpl {
 }
 
 impl NodeServiceImpl {
-    pub fn new(db: models::DbPool, notifier: Notifier) -> Self {
-        Self { db, notifier }
+    pub fn new(db: models::DbPool) -> Self {
+        Self {
+            db,
+            notifier: Notifier::new(),
+        }
     }
 }
 
@@ -187,6 +190,16 @@ impl NodeService for NodeServiceImpl {
         let mut fields: NodeCreateRequest = inner.node.ok_or_else(required("node"))?.try_into()?;
         let mut tx = self.db.begin().await?;
         let node = Node::create(&mut fields, &mut tx).await?;
+
+        self.notifier
+            .bv_nodes_sender()
+            .send(&node.clone().into())
+            .await;
+        self.notifier
+            .ui_nodes_sender()
+            .send(&node.clone().try_into()?)
+            .await;
+
         let mut cmd_queue: Vec<CommandRequest> = vec![];
         // Create the NodeCreate COMMAND
         let req = CommandRequest {
@@ -222,16 +235,9 @@ impl NodeService for NodeServiceImpl {
         let mut tx = self.db.begin().await?;
 
         for req in cmd_queue {
-            let cmd_type = req.cmd;
             let cmd = Command::create(node.host_id, req, &mut tx).await?;
-
-            match cmd_type {
-                HostCmd::CreateNode => {
-                    self.notifier.commands_sender().send(cmd.id).await?;
-                    self.notifier.nodes_sender().send(cmd.id).await?;
-                }
-                _ => self.notifier.commands_sender().send(cmd.id).await?,
-            }
+            let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
+            self.notifier.bv_commands_sender().send(&grpc_cmd).await;
         }
 
         tx.commit().await?;
@@ -251,15 +257,10 @@ impl NodeService for NodeServiceImpl {
         let refresh_token = get_refresh_token(&request);
         let inner = request.into_inner();
         let node = inner.node.ok_or_else(required("node"))?;
-        let node_id = node.id.as_deref();
-        let node_id = node_id
-            .ok_or_else(required("node.id"))?
-            .parse()
-            .map_err(ApiError::from)?;
-        let fields: NodeInfo = node.try_into()?;
+        let fields: NodeInfo = dbg!(node.try_into())?;
 
         let mut tx = self.db.begin().await?;
-        Node::update_info(&node_id, &fields, &mut tx).await?;
+        Node::update_info(&fields, &mut tx).await?;
         tx.commit().await?;
         let response = UpdateNodeResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta)),
@@ -310,10 +311,13 @@ impl NodeService for NodeServiceImpl {
 
             User::update_all(user_id, update_user, &mut tx).await?;
 
+            let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
+
             tx.commit().await?;
 
-            self.notifier.commands_sender().send(cmd.id).await?;
-            self.notifier.nodes_sender().send(cmd.id).await?;
+            self.notifier.bv_commands_sender().send(&grpc_cmd).await;
+            // let grpc_cmd = cmd.clone().try_into()?;
+            // self.notifier.ui_commands_sender().send(&grpc_cmd).await;
 
             Ok(response_with_refresh_token::<()>(refresh_token, ())?)
         } else {

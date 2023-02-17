@@ -1,4 +1,3 @@
-use crate::errors::ApiError;
 use crate::grpc::blockjoy::nodes_server::Nodes;
 use crate::grpc::blockjoy::NodeInfoUpdateRequest;
 use crate::grpc::helpers::required;
@@ -23,11 +22,10 @@ impl Nodes for UpdateNodeServiceImpl {
     ) -> Result<Response<()>, Status> {
         let node_info: grpc::blockjoy::NodeInfo =
             request.into_inner().info.ok_or_else(required("NodeInfo"))?;
-        let node_id = uuid::Uuid::parse_str(node_info.id.as_str()).map_err(ApiError::from)?;
         let node_info: models::NodeInfo = node_info.try_into()?;
         let mut tx = self.db.begin().await?;
 
-        models::Node::update_info(&node_id, &node_info, &mut tx).await?;
+        models::Node::update_info(&node_info, &mut tx).await?;
         tx.commit().await?;
 
         Ok(Response::new(()))

@@ -177,7 +177,7 @@ async fn responds_internal_with_invalid_data_for_update() {
         node: Some(node),
     };
     let status = tester.send_admin(Service::update, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert_eq!(dbg!(status).code(), tonic::Code::InvalidArgument);
 }
 
 #[tokio::test]

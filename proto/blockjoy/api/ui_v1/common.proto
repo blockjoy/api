@@ -93,6 +93,7 @@ message Host {
   optional string ip_range_from = 14;
   optional string ip_range_to = 15;
   optional string ip_gateway = 16;
+  optional string org_id = 17;
 }
 
 /* HostProvision entity */
@@ -105,6 +106,7 @@ message HostProvision {
   string ip_range_from = 6;
   string ip_range_to = 7;
   string ip_gateway = 8;
+  optional string org_id = 9;
 }
 
 /* Blockchain node representation */
