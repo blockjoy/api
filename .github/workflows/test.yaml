@@ -54,7 +54,6 @@ jobs:
       # Cookbook secret token
       COOKBOOK_TOKEN: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpZCI6ImE2MDdkOTM2LTYyMjgtNGYxMC04MGM1LTk0M2M0MjFiZWQxOSIsImV4cCI6MTcwNDgwNzY3NywidG9rZW5fdHlwZSI6Imhvc3RfYXV0aCIsInJvbGUiOiJzZXJ2aWNlIn0.5sJB8qilPQ4-F44mCS2WsXElBGfBZFrMJ491Sxmmu1BTj--0N6rlIEnTUwoiJdUXOP08CiBTkStFRtUTFyEpGg
       COOKBOOK_URL: https://babel.dev.blockjoy.com/
-      MANAGED_ORG_ID: 0f28623b-d24c-4391-9ef3-98c0049a4dbf
 
     steps:
       - uses: actions/checkout@v2

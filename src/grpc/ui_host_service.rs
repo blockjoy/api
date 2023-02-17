@@ -10,7 +10,6 @@ use crate::grpc::blockjoy_ui::{
 use crate::grpc::helpers::{required, try_get_token};
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models::{self, Host, HostRequest, HostSelectiveUpdate};
-use anyhow::anyhow;
 use tonic::{Request, Response, Status};
 
 pub struct HostServiceImpl {
@@ -32,7 +31,7 @@ impl blockjoy_ui::Host {
         let nodes = blockjoy_ui::Node::from_models(nodes, &mut *db).await?;
         let dto = Self {
             id: Some(model.id.to_string()),
-            org_id: Some(std::env::var("MANAGED_ORG_ID").map_err(|_| anyhow!("Need org id"))?),
+            org_id: None,
             name: Some(model.name),
             version: model.version,
             location: model.location,

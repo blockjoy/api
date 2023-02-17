@@ -30,7 +30,7 @@ impl GrpcHostProvision {
         let hp = Self {
             id: Some(hp.id),
             host_id: hp.host_id.map(|id| id.to_string()),
-            org_id: Some(std::env::var("MANAGED_ORG_ID").map_err(|_| anyhow!("Need org id"))?),
+            org_id: None,
             created_at: Some(convert::try_dt_to_ts(hp.created_at)?),
             claimed_at: hp.claimed_at.map(convert::try_dt_to_ts).transpose()?,
             install_cmd: hp.install_cmd.map(String::from),
