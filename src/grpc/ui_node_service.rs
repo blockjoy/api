@@ -103,7 +103,7 @@ impl NodeService for NodeServiceImpl {
         request: Request<GetNodeRequest>,
     ) -> Result<Response<GetNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let org_id = token
             .data()
             .get("org_id")
@@ -116,7 +116,7 @@ impl NodeService for NodeServiceImpl {
 
         if node.org_id.to_string() == org_id {
             let response = GetNodeResponse {
-                meta: Some(ResponseMeta::from_meta(inner.meta)),
+                meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
                 node: Some(blockjoy_ui::Node::from_model(node, &mut conn).await?),
             };
             Ok(response_with_refresh_token(refresh_token, response)?)
@@ -130,6 +130,7 @@ impl NodeService for NodeServiceImpl {
         request: Request<ListNodesRequest>,
     ) -> Result<Response<ListNodesResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let filters = inner.filter.clone();
         let org_id = inner.org_id.parse().map_err(ApiError::from)?;
@@ -165,7 +166,7 @@ impl NodeService for NodeServiceImpl {
 
         let nodes = blockjoy_ui::Node::from_models(nodes, &mut conn).await?;
         let response = ListNodesResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
             nodes,
         };
         Ok(response_with_refresh_token(refresh_token, response)?)
@@ -176,7 +177,7 @@ impl NodeService for NodeServiceImpl {
         request: Request<CreateNodeRequest>,
     ) -> Result<Response<CreateNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         // Check quota
         let mut conn = self.db.conn().await?;
         let user_id = token.id().to_owned();
@@ -228,7 +229,8 @@ impl NodeService for NodeServiceImpl {
 
         tx.commit().await?;
 
-        let response_meta = ResponseMeta::from_meta(inner.meta).with_message(node.id);
+        let response_meta =
+            ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(node.id);
         let response = CreateNodeResponse {
             meta: Some(response_meta),
         };
@@ -241,6 +243,7 @@ impl NodeService for NodeServiceImpl {
         request: Request<UpdateNodeRequest>,
     ) -> Result<Response<UpdateNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let node = inner.node.ok_or_else(required("node"))?;
         let fields: NodeInfo = node.try_into()?;
@@ -249,7 +252,7 @@ impl NodeService for NodeServiceImpl {
         Node::update_info(&fields, &mut tx).await?;
         tx.commit().await?;
         let response = UpdateNodeResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
         Ok(response_with_refresh_token(refresh_token, response)?)
     }

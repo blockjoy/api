@@ -57,6 +57,7 @@ impl InvitationService for InvitationServiceImpl {
         &self,
         request: Request<CreateInvitationRequest>,
     ) -> Result<Response<CreateInvitationResponse>, Status> {
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let refresh_token = get_refresh_token(&request);
         let creator_id = try_get_token::<_, UserAuthToken>(&request)?.get_id();
         let mut tx = self.db.begin().await?;
@@ -76,7 +77,7 @@ impl InvitationService for InvitationServiceImpl {
 
         let db_invitation = Invitation::create(&invitation, &mut tx).await?;
 
-        let response_meta = ResponseMeta::from_meta(inner.meta);
+        let response_meta = ResponseMeta::from_meta(inner.meta, Some(token));
         let response = CreateInvitationResponse {
             meta: Some(response_meta),
         };
@@ -120,6 +121,7 @@ impl InvitationService for InvitationServiceImpl {
         &self,
         request: Request<ListPendingInvitationRequest>,
     ) -> Result<Response<InvitationsResponse>, Status> {
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let refresh_token = get_refresh_token(&request);
         let user_id = try_get_token::<_, UserAuthToken>(&request)?.get_id();
         let inner = request.into_inner();
@@ -138,7 +140,7 @@ impl InvitationService for InvitationServiceImpl {
                     .map(|i| i.try_into())
                     .collect::<Result<_>>()?;
 
-                let response_meta = ResponseMeta::from_meta(inner.meta);
+                let response_meta = ResponseMeta::from_meta(inner.meta, Some(token));
                 let response = InvitationsResponse {
                     meta: Some(response_meta),
                     invitations,
@@ -154,7 +156,7 @@ impl InvitationService for InvitationServiceImpl {
         request: Request<ListReceivedInvitationRequest>,
     ) -> Result<Response<InvitationsResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let mut conn = self.db.conn().await?;
         let user = User::find_by_id(token.get_id(), &mut conn).await?;
         let inner = request.into_inner();
@@ -163,7 +165,7 @@ impl InvitationService for InvitationServiceImpl {
             .into_iter()
             .map(|i| i.try_into())
             .collect::<Result<_>>()?;
-        let response_meta = ResponseMeta::from_meta(inner.meta);
+        let response_meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
         let response = InvitationsResponse {
             meta: Some(response_meta),
             invitations,

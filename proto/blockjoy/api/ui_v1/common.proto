@@ -54,6 +54,8 @@ message ResponseMeta {
   repeated string messages = 3;
   /* Optional pagination information */
   optional Pagination pagination = 4;
+  /* Updated user token, if needed */
+  optional ApiToken token = 5;
 }
 
 message Host {

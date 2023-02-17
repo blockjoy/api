@@ -1,11 +1,13 @@
 use super::convert;
 use super::helpers::required;
+use crate::auth::UserAuthToken;
 use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy_ui::host_provision_service_server::HostProvisionService;
 use crate::grpc::blockjoy_ui::{
     CreateHostProvisionRequest, CreateHostProvisionResponse, GetHostProvisionRequest,
     GetHostProvisionResponse, HostProvision as GrpcHostProvision, ResponseMeta,
 };
+use crate::grpc::helpers::try_get_token;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;
 use crate::models::{HostProvision, HostProvisionRequest};
@@ -60,7 +62,7 @@ impl HostProvisionService for HostProvisionServiceImpl {
         let mut conn = self.db.conn().await?;
         let host_provision = HostProvision::find_by_id(&host_provision_id, &mut conn).await?;
         let response = GetHostProvisionResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, None)),
             host_provisions: vec![GrpcHostProvision::from_model(host_provision, &mut conn)?],
         };
         Ok(Response::new(response))
@@ -70,6 +72,7 @@ impl HostProvisionService for HostProvisionServiceImpl {
         &self,
         request: Request<CreateHostProvisionRequest>,
     ) -> Result<Response<CreateHostProvisionResponse>, Status> {
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let refresh_token = get_refresh_token(&request);
         let inner = request.into_inner();
         let provision = inner
@@ -94,7 +97,7 @@ impl HostProvisionService for HostProvisionServiceImpl {
         let mut tx = self.db.begin().await?;
         let provision = HostProvision::create(req, &mut tx).await?;
         tx.commit().await?;
-        let meta = ResponseMeta::from_meta(inner.meta).with_message(provision.id);
+        let meta = ResponseMeta::from_meta(inner.meta, Some(token)).with_message(provision.id);
         let response = CreateHostProvisionResponse { meta: Some(meta) };
 
         Ok(response_with_refresh_token(refresh_token, response)?)

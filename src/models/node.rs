@@ -534,6 +534,7 @@ pub struct NodeCreateRequest {
 
 pub struct NodeUpdateRequest {
     pub id: Uuid,
+    pub host_id: Option<String>,
     pub name: Option<String>,
     pub ip_addr: Option<String>,
     pub chain_status: Option<NodeChainStatus>,
@@ -551,7 +552,7 @@ impl TryFrom<GrpcNodeInfo> for NodeUpdateRequest {
     fn try_from(info: GrpcNodeInfo) -> Result<Self> {
         let GrpcNodeInfo {
             id,
-            host_id: _, // The host_id of a node cannot be modified.
+            host_id,
             name,
             ip,
             app_status,
@@ -574,6 +575,7 @@ impl TryFrom<GrpcNodeInfo> for NodeUpdateRequest {
             self_update: self_update.unwrap_or(false),
             container_status: container_status.map(|n| n.try_into()).transpose()?,
             address,
+            host_id,
         };
         Ok(req)
     }

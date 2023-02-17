@@ -142,6 +142,7 @@ pub fn try_dt_to_ts(datetime: chrono::DateTime<chrono::Utc>) -> ApiResult<Timest
 
 pub mod from {
     use super::try_dt_to_ts;
+    use crate::auth::{JwtToken, UserAuthToken};
     use crate::cookbook::cookbook_grpc::NetworkConfiguration;
     use crate::errors::ApiError;
     use crate::grpc;
@@ -180,6 +181,24 @@ pub mod from {
                 staking_quota: None,
                 refresh_token: None,
             }
+        }
+    }
+
+    impl TryFrom<&UserAuthToken> for grpc::blockjoy_ui::ApiToken {
+        type Error = ApiError;
+
+        fn try_from(value: &UserAuthToken) -> Result<Self, Self::Error> {
+            Ok(Self {
+                value: value.encode()?,
+            })
+        }
+    }
+
+    impl TryFrom<UserAuthToken> for grpc::blockjoy_ui::ApiToken {
+        type Error = ApiError;
+
+        fn try_from(value: UserAuthToken) -> Result<Self, Self::Error> {
+            Self::try_from(&value)
         }
     }
 
@@ -331,6 +350,34 @@ pub mod from {
                 ..Default::default()
             };
             Ok(updater)
+        }
+    }
+
+    impl TryFrom<models::HostProvision> for blockjoy_ui::HostProvision {
+        type Error = ApiError;
+
+        fn try_from(hp: models::HostProvision) -> Result<Self, Self::Error> {
+            let hp = Self {
+                id: Some(hp.id),
+                host_id: hp.host_id.map(|id| id.to_string()),
+                created_at: Some(try_dt_to_ts(hp.created_at)?),
+                claimed_at: hp.claimed_at.map(try_dt_to_ts).transpose()?,
+                install_cmd: hp.install_cmd.map(String::from),
+                ip_range_from: hp
+                    .ip_range_from
+                    .map(|ip| ip.to_string())
+                    .ok_or_else(required("host_provision.ip_range_from"))?,
+                ip_range_to: hp
+                    .ip_range_to
+                    .map(|ip| ip.to_string())
+                    .ok_or_else(required("host_provision.ip_range_to"))?,
+                ip_gateway: hp
+                    .ip_gateway
+                    .map(|ip| ip.to_string())
+                    .ok_or_else(required("host_provision.ip_gateway"))?,
+                org_id: None,
+            };
+            Ok(hp)
         }
     }
 

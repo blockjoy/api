@@ -1,8 +1,10 @@
 use super::blockjoy_ui::{self, ResponseMeta};
+use crate::auth::UserAuthToken;
 use crate::cookbook::get_networks;
 use crate::errors::ApiError;
 use crate::grpc::blockjoy_ui::blockchain_service_server::BlockchainService;
 use crate::grpc::blockjoy_ui::Blockchain;
+use crate::grpc::helpers::try_get_token;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;
 use crate::models::NodeTypeKey;
@@ -26,6 +28,7 @@ impl BlockchainService for BlockchainServiceImpl {
         request: tonic::Request<blockjoy_ui::GetBlockchainRequest>,
     ) -> Result<tonic::Response<blockjoy_ui::GetBlockchainResponse>> {
         let refresh_token = get_refresh_token(&request);
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let id = inner.id.parse().map_err(ApiError::from)?;
         let mut tx = self.db.begin().await?;
@@ -34,7 +37,7 @@ impl BlockchainService for BlockchainServiceImpl {
             .map_err(|_| tonic::Status::not_found("No such blockchain"))?;
         tx.commit().await?;
         let response = blockjoy_ui::GetBlockchainResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
             blockchain: Some(blockchain.try_into()?),
         };
         Ok(response_with_refresh_token(refresh_token, response)?)
@@ -45,6 +48,7 @@ impl BlockchainService for BlockchainServiceImpl {
         request: tonic::Request<blockjoy_ui::ListBlockchainsRequest>,
     ) -> Result<tonic::Response<blockjoy_ui::ListBlockchainsResponse>> {
         let refresh_token = get_refresh_token(&request);
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let mut conn = self.db.begin().await?;
         let blockchains = models::Blockchain::find_all(&mut conn).await?;
@@ -69,7 +73,7 @@ impl BlockchainService for BlockchainServiceImpl {
         }
 
         let response = blockjoy_ui::ListBlockchainsResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
             blockchains: grpc_blockchains,
         };
 

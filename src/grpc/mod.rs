@@ -17,12 +17,11 @@ pub mod ui_invitation_service;
 pub mod ui_node_service;
 pub mod user_service;
 
-#[allow(clippy::derive_partial_eq_without_eq)]
+#[allow(clippy::large_enum_variant)]
 pub mod blockjoy {
     tonic::include_proto!("blockjoy.api.v1");
 }
 
-#[allow(clippy::derive_partial_eq_without_eq)]
 pub mod blockjoy_ui {
     tonic::include_proto!("blockjoy.api.ui_v1");
 }

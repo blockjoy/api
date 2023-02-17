@@ -35,7 +35,7 @@ use crate::errors::Result;
 /// |               | /nodes/<node_id>/commands                               |
 /// |               | /commands                                               |
 /// |---------------|---------------------------------------------------------|
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Notifier {}
 
 impl Notifier {

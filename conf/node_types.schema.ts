@@ -69,6 +69,8 @@ export type Property = {
 export type NodeType = {
     // The ID of the node-type matching the enum in the DB
     id: NodeTypeKey,
+    // The node version
+    version: string,
     // An optional array of node-type properties
     properties: Array<Property> | null,
 };
@@ -119,6 +121,7 @@ const disabled_self_hosted: Property = {
 
 const hnt_miner: NodeType = {
     id: NodeTypeKey.Miner,
+    version: '1.17.2-build.5',
     properties: [
         {
             name: 'keystore-file',
@@ -133,6 +136,7 @@ const hnt_miner: NodeType = {
 
 const hnt_validator: NodeType = {
     id: NodeTypeKey.Validator,
+    version: '1.17.2-build.5',
     properties: [
         {
             name: 'keystore-file',
@@ -146,11 +150,44 @@ const hnt_validator: NodeType = {
 };
 
 ////////////////////////////////////////////////////
+///             ALGO sample                       ///
+////////////////////////////////////////////////////
+
+const algo_node: NodeType = {
+    id: NodeTypeKey.Node,
+    version: '3.14.2',
+    properties: [
+        disabled_self_hosted
+    ],
+};
+
+////////////////////////////////////////////////////
+///             ADA sample                       ///
+////////////////////////////////////////////////////
+
+const ada_full: NodeType = {
+    id: NodeTypeKey.Node,
+    version: '1.35.5-build.1',
+    properties: [
+        disabled_self_hosted
+    ],
+};
+
+const ada_validator: NodeType = {
+    id: NodeTypeKey.Validator,
+    version: '0.0.3',
+    properties: [
+        disabled_self_hosted
+    ],
+};
+
+////////////////////////////////////////////////////
 ///             ETH sample                       ///
 ////////////////////////////////////////////////////
 
 const eth_validator: NodeType = {
     id: NodeTypeKey.Validator,
+    version: '3.30.2-build.5',
     properties: [
         {
             name: 'keystore-file-1',
@@ -210,7 +247,13 @@ function write_json(chain: string, node_types: SupportedNodeTypes) {
 }
 
 // Write HNT node types
-write_json("HNT", [hnt_validator, hnt_miner]);
+// write_json("HNT", [hnt_validator, hnt_miner]);
 
 // Write ETH node types
-write_json("ETH", [eth_validator]);
+// write_json("ETH", [eth_validator]);
+
+// Write ADA node types
+// write_json("ADA", [ada_full, ada_validator]);
+
+// Write ALGO node types
+write_json("ALGO", [algo_node]);

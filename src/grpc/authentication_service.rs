@@ -71,7 +71,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         let auth_token = auth_token.set_org_user(&org_user);
 
         let response = LoginUserResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, None)),
             token: Some(ApiToken {
                 value: auth_token.to_base64()?,
             }),
@@ -110,7 +110,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         tx.commit().await?;
 
         let response = ConfirmRegistrationResponse {
-            meta: Some(ResponseMeta::from_meta(request.into_inner().meta)),
+            meta: Some(ResponseMeta::from_meta(request.into_inner().meta, None)),
             token: Some(ApiToken { value: auth_token }),
         };
 
@@ -143,7 +143,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         }
         tx.commit().await?;
 
-        let meta = ResponseMeta::new(String::from(""));
+        let meta = ResponseMeta::new(String::from(""), None);
         let response = ResetPasswordResponse { meta: Some(meta) };
 
         Ok(response_with_refresh_token(refresh_token, response)?)
@@ -166,7 +166,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
             .update_password(&request.password, &mut tx)
             .await?;
         tx.commit().await?;
-        let meta = ResponseMeta::from_meta(request.meta);
+        let meta = ResponseMeta::from_meta(request.meta, None);
         let auth_token =
             UserAuthToken::create_token_for(&cur_user, TokenType::UserAuth, TokenRole::User, None)?;
         let response = UpdatePasswordResponse {
@@ -226,7 +226,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         request: Request<SwitchOrgRequest>,
     ) -> Result<Response<LoginUserResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let user_id = token.get_id();
         let inner = request.into_inner();
         let mut conn = self.db.conn().await?;
@@ -241,7 +241,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         let auth_token = auth_token.set_org_user(&org_user);
 
         let response = LoginUserResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
             token: Some(ApiToken {
                 value: auth_token.to_base64()?,
             }),

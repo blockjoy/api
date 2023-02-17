@@ -1,7 +1,9 @@
 use crate::auth::FindableById;
+use crate::auth::UserAuthToken;
 use crate::errors::Result;
 use crate::grpc::blockjoy_ui::command_service_server::CommandService;
 use crate::grpc::blockjoy_ui::{CommandRequest, CommandResponse, Parameter, ResponseMeta};
+use crate::grpc::helpers::try_get_token;
 use crate::grpc::notification::Notifier;
 use crate::models;
 use crate::models::{Command, CommandRequest as DbCommandRequest, HostCmd};
@@ -28,6 +30,7 @@ impl CommandServiceImpl {
         req: Request<CommandRequest>,
         cmd_type: HostCmd,
     ) -> Result<CommandResponse> {
+        let token = try_get_token::<_, UserAuthToken>(&req)?.try_into()?;
         let inner = req.into_inner();
 
         let mut tx = self.db.begin().await?;
@@ -36,7 +39,7 @@ impl CommandServiceImpl {
             .await?;
 
         let response = CommandResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta).with_message(cmd.id)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token)).with_message(cmd.id)),
         };
         let cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
         self.send_notification(cmd).await?;
