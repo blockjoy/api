@@ -200,14 +200,15 @@ impl NodeService for NodeServiceImpl {
             .send(&node.clone().try_into()?)
             .await?;
 
-        let mut cmd_queue: Vec<CommandRequest> = vec![];
-        // Create the NodeCreate COMMAND
         let req = CommandRequest {
             cmd: HostCmd::CreateNode,
             sub_cmd: None,
             resource_id: node.id,
         };
-        cmd_queue.push(req);
+        let cmd = Command::create(node.host_id, req, &mut tx).await?;
+        let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
+        self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+
         let update_user = UserSelectiveUpdate {
             first_name: None,
             last_name: None,
@@ -215,30 +216,15 @@ impl NodeService for NodeServiceImpl {
             staking_quota: Some(user.staking_quota - 1),
             refresh_token: None,
         };
-        match User::update_all(user.id, update_user, &mut tx).await {
-            Ok(_) => {
-                // commit the tx for stuff happened so far
-                tx.commit().await?;
-
-                // Create the NodeStart COMMAND
-                let req = CommandRequest {
-                    cmd: HostCmd::RestartNode,
-                    sub_cmd: None,
-                    resource_id: node.id,
-                };
-                cmd_queue.push(req);
-            }
-            Err(e) => return Err(Status::from(e)),
-        }
-
-        // Create a new tx, so we ensure START happens after CREATE
-        let mut tx = self.db.begin().await?;
-
-        for req in cmd_queue {
-            let cmd = Command::create(node.host_id, req, &mut tx).await?;
-            let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
-            self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
-        }
+        User::update_all(user.id, update_user, &mut tx).await?;
+        let req = CommandRequest {
+            cmd: HostCmd::RestartNode,
+            sub_cmd: None,
+            resource_id: node.id,
+        };
+        let cmd = Command::create(node.host_id, req, &mut tx).await?;
+        let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
+        self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
 
         tx.commit().await?;
 
@@ -257,7 +243,7 @@ impl NodeService for NodeServiceImpl {
         let refresh_token = get_refresh_token(&request);
         let inner = request.into_inner();
         let node = inner.node.ok_or_else(required("node"))?;
-        let fields: NodeInfo = dbg!(node.try_into())?;
+        let fields: NodeInfo = node.try_into()?;
 
         let mut tx = self.db.begin().await?;
         Node::update_info(&fields, &mut tx).await?;
