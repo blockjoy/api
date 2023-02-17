@@ -69,6 +69,9 @@ pub enum ApiError {
 
     #[error("{0}")]
     InvalidArgument(tonic::Status),
+
+    #[error("Mqtt error: {0}")]
+    MqttError(#[from] rumqttc::ClientError),
 }
 
 impl ApiError {

@@ -194,11 +194,11 @@ impl NodeService for NodeServiceImpl {
         self.notifier
             .bv_nodes_sender()
             .send(&node.clone().into())
-            .await;
+            .await?;
         self.notifier
             .ui_nodes_sender()
             .send(&node.clone().try_into()?)
-            .await;
+            .await?;
 
         let mut cmd_queue: Vec<CommandRequest> = vec![];
         // Create the NodeCreate COMMAND
@@ -237,7 +237,7 @@ impl NodeService for NodeServiceImpl {
         for req in cmd_queue {
             let cmd = Command::create(node.host_id, req, &mut tx).await?;
             let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
-            self.notifier.bv_commands_sender().send(&grpc_cmd).await;
+            self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
         }
 
         tx.commit().await?;
@@ -315,7 +315,7 @@ impl NodeService for NodeServiceImpl {
 
             tx.commit().await?;
 
-            self.notifier.bv_commands_sender().send(&grpc_cmd).await;
+            self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
             // let grpc_cmd = cmd.clone().try_into()?;
             // self.notifier.ui_commands_sender().send(&grpc_cmd).await;
 

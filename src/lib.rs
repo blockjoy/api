@@ -270,6 +270,22 @@ mod test {
                 .unwrap()
         }
 
+        pub async fn command(&self) -> models::Command {
+            let host = self.host().await;
+            sqlx::query_as(
+                "INSERT INTO
+                    commands (id, host_id, cmd)
+                VALUES (
+                    'eab8a84b-8e3d-4b02-bf14-4160e76c177b', $1, $2
+                ) RETURNING *;",
+            )
+            .bind(host.id)
+            .bind(models::HostCmd::RestartNode)
+            .fetch_one(&mut self.pool.conn().await.unwrap())
+            .await
+            .unwrap()
+        }
+
         pub async fn admin_user(&self) -> models::User {
             models::User::find_by_email("admin@here.com", &mut self.pool.conn().await.unwrap())
                 .await

@@ -1,4 +1,5 @@
 use super::{blockjoy, blockjoy_ui};
+use crate::errors::Result;
 
 /// Presents the following senders:
 ///
@@ -93,26 +94,26 @@ impl<T: Notify + prost::Message> MqttClient<T> {
         }
     }
 
-    pub async fn send(&mut self, msg: &T) {
+    pub async fn send(&mut self, msg: &T) -> Result<()> {
         const RETAIN: bool = false;
         const QOS: rumqttc::QoS = rumqttc::QoS::ExactlyOnce;
         let payload = msg.encode_to_vec();
 
         for channel in msg.channels() {
-            if let Err(e) = self
-                .client
+            self.client
                 .publish(&channel, QOS, RETAIN, payload.clone())
-                .await
-            {
-                tracing::error!("Could not send MQTT message {msg:?}, error: `{e}`");
-            }
+                .await?;
         }
+        Ok(())
     }
 }
 
 pub trait Notify {
     fn channels(&self) -> Vec<String>;
 }
+
+// There is a couple of unwrap here below. This is because our messages have fields that are of the
+// type Option which are always Some.
 
 impl Notify for blockjoy::HostInfo {
     fn channels(&self) -> Vec<String> {
@@ -187,14 +188,55 @@ impl Notify for blockjoy_ui::Node {
 
 #[cfg(test)]
 mod tests {
+    use crate::grpc::convert;
+
     use super::*;
 
     #[tokio::test]
-    async fn test_notify_host() {
+    async fn test_bv_hosts_sender() {
         let db = crate::TestDb::setup().await;
         let host = db.host().await;
         let host = host.try_into().unwrap();
         let notifier = Notifier::new();
-        notifier.bv_hosts_sender().send(&host).await;
+        notifier.bv_hosts_sender().send(&host).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_bv_nodes_sender() {
+        let db = crate::TestDb::setup().await;
+        let node = db.node().await;
+        let node = node.try_into().unwrap();
+        let notifier = Notifier::new();
+        notifier.bv_nodes_sender().send(&node).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_bv_commands_sender() {
+        let db = crate::TestDb::setup().await;
+        let command = db.command().await;
+        let mut conn = db.pool.conn().await.unwrap();
+        let command = convert::db_command_to_grpc_command(&command, &mut conn)
+            .await
+            .unwrap();
+        let notifier = Notifier::new();
+        notifier.bv_commands_sender().send(&command).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_ui_hosts_sender() {
+        let db = crate::TestDb::setup().await;
+        let host = db.host().await;
+        let host = host.try_into().unwrap();
+        let notifier = Notifier::new();
+        notifier.ui_hosts_sender().send(&host).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_ui_nodes_sender() {
+        let db = crate::TestDb::setup().await;
+        let node = db.node().await;
+        let node = node.try_into().unwrap();
+        let notifier = Notifier::new();
+        notifier.ui_nodes_sender().send(&node).await.unwrap();
     }
 }

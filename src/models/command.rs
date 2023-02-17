@@ -77,7 +77,7 @@ impl Command {
             notifier
                 .bv_commands_sender()
                 .send(&convert::db_command_to_grpc_command(command, db).await?)
-                .await;
+                .await?;
             // notifier.ui_commands_sender().send(command).await?;
         }
 

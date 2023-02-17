@@ -372,6 +372,33 @@ pub mod from {
         }
     }
 
+    impl TryFrom<models::Host> for blockjoy_ui::Host {
+        type Error = ApiError;
+
+        fn try_from(value: models::Host) -> Result<Self, Self::Error> {
+            let host = Self {
+                id: Some(value.id.to_string()),
+                name: Some(value.name),
+                version: value.version,
+                location: value.location,
+                cpu_count: value.cpu_count,
+                mem_size: value.mem_size,
+                disk_size: value.disk_size,
+                os: value.os,
+                os_version: value.os_version,
+                ip: Some(value.ip_addr),
+                status: Some(value.status as i32),
+                nodes: vec![],
+                created_at: Some(try_dt_to_ts(value.created_at)?),
+                ip_range_from: value.ip_range_from.map(|ip| ip.to_string()),
+                ip_range_to: value.ip_range_to.map(|ip| ip.to_string()),
+                ip_gateway: value.ip_gateway.map(|ip| ip.to_string()),
+                org_id: None, // TODO
+            };
+            Ok(host)
+        }
+    }
+
     impl TryFrom<&User> for GrpcUiUser {
         type Error = ApiError;
 
@@ -536,7 +563,7 @@ pub mod from {
 
         fn try_from(node: GrpcNode) -> Result<Self, Self::Error> {
             let node_info = Self {
-                id: dbg!(dbg!(node.id.ok_or_else(required("id")))?.parse())?,
+                id: node.id.ok_or_else(required("id"))?.parse()?,
                 version: node.version,
                 ip_addr: node.ip,
                 block_height: node.block_height,

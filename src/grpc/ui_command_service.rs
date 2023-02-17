@@ -1,5 +1,5 @@
 use crate::auth::FindableById;
-use crate::errors::{ApiError, Result};
+use crate::errors::Result;
 use crate::grpc::blockjoy_ui::command_service_server::CommandService;
 use crate::grpc::blockjoy_ui::{CommandRequest, CommandResponse, Parameter, ResponseMeta};
 use crate::grpc::notification::Notifier;
@@ -23,22 +23,45 @@ impl CommandServiceImpl {
         }
     }
 
+    async fn handle_request(
+        &self,
+        req: Request<CommandRequest>,
+        cmd_type: HostCmd,
+    ) -> Result<CommandResponse> {
+        let inner = req.into_inner();
+
+        let mut tx = self.db.begin().await?;
+        let cmd = self
+            .create_command(inner.id.parse()?, cmd_type, inner.params, &mut tx)
+            .await?;
+
+        let response = CommandResponse {
+            meta: Some(ResponseMeta::from_meta(inner.meta).with_message(cmd.id)),
+        };
+        let cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
+        self.send_notification(cmd).await?;
+        tx.commit().await?;
+
+        Ok(response)
+    }
+
     async fn create_command(
         &self,
         host_id: Uuid,
         cmd: HostCmd,
-        sub_cmd: Option<String>,
         params: Vec<Parameter>,
         tx: &mut models::DbTrx<'_>,
     ) -> Result<models::Command, Status> {
         let resource_id = Self::get_resource_id_from_params(params)?;
         let req = DbCommandRequest {
             cmd,
-            sub_cmd,
+            sub_cmd: None,
             resource_id,
         };
 
         let db_cmd = Command::create(host_id, req, tx).await?;
+        let grpc_cmd = convert::db_command_to_grpc_command(&db_cmd, tx).await?;
+        self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
 
         match cmd {
             HostCmd::RestartNode | HostCmd::KillNode => {
@@ -46,12 +69,11 @@ impl CommandServiceImpl {
                 self.notifier
                     .bv_nodes_sender()
                     .send(&node.clone().into())
-                    .await;
+                    .await?;
                 self.notifier
                     .ui_nodes_sender()
                     .send(&node.try_into()?)
-                    .await;
-                // self.notifier.ui_commands_sender().send(&cmd).await;
+                    .await?;
             }
             _ => {}
         }
@@ -61,7 +83,7 @@ impl CommandServiceImpl {
 
     async fn send_notification(&self, command: blockjoy::Command) -> Result<()> {
         tracing::debug!("Sending notification: {:?}", command);
-        self.notifier.bv_commands_sender().send(&command).await;
+        self.notifier.bv_commands_sender().send(&command).await?;
         Ok(())
     }
 
@@ -75,105 +97,86 @@ impl CommandServiceImpl {
     }
 }
 
-async fn create_command(
-    impler: &CommandServiceImpl,
-    req: Request<CommandRequest>,
-    cmd_type: HostCmd,
-) -> Result<Response<CommandResponse>, Status> {
-    let inner = req.into_inner();
-
-    let host_id = inner.id;
-    let mut tx = impler.db.begin().await?;
-    let cmd = impler
-        .create_command(
-            Uuid::parse_str(host_id.as_str()).map_err(ApiError::from)?,
-            cmd_type,
-            None,
-            inner.params,
-            &mut tx,
-        )
-        .await?;
-
-    let response = CommandResponse {
-        meta: Some(ResponseMeta::from_meta(inner.meta).with_message(cmd.id)),
-    };
-    let cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
-    impler.send_notification(cmd).await?;
-    tx.commit().await?;
-
-    Ok(Response::new(response))
-}
-
 #[tonic::async_trait]
 impl CommandService for CommandServiceImpl {
     async fn create_node(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        create_command(self, request, HostCmd::CreateNode).await
+        let cmd = self.handle_request(request, HostCmd::CreateNode).await?;
+        Ok(Response::new(cmd))
     }
 
     async fn delete_node(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        create_command(self, request, HostCmd::DeleteNode).await
+        let cmd = self.handle_request(request, HostCmd::DeleteNode).await?;
+        Ok(Response::new(cmd))
     }
 
     async fn start_node(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        create_command(self, request, HostCmd::RestartNode).await
+        let cmd = self.handle_request(request, HostCmd::RestartNode).await?;
+        Ok(Response::new(cmd))
     }
 
     async fn stop_node(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        create_command(self, request, HostCmd::ShutdownNode).await
+        let cmd = self.handle_request(request, HostCmd::ShutdownNode).await?;
+        Ok(Response::new(cmd))
     }
 
     async fn restart_node(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        create_command(self, request, HostCmd::RestartNode).await
+        let cmd = self.handle_request(request, HostCmd::RestartNode).await?;
+        Ok(Response::new(cmd))
     }
 
     async fn create_host(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        create_command(self, request, HostCmd::CreateBVS).await
+        let cmd = self.handle_request(request, HostCmd::CreateBVS).await?;
+        Ok(Response::new(cmd))
     }
 
     async fn delete_host(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        create_command(self, request, HostCmd::RemoveBVS).await
+        let cmd = self.handle_request(request, HostCmd::RemoveBVS).await?;
+        Ok(Response::new(cmd))
     }
 
     async fn start_host(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        create_command(self, request, HostCmd::RestartBVS).await
+        let cmd = self.handle_request(request, HostCmd::RestartBVS).await?;
+        Ok(Response::new(cmd))
     }
 
     async fn stop_host(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        create_command(self, request, HostCmd::StopBVS).await
+        let cmd = self.handle_request(request, HostCmd::StopBVS).await?;
+        Ok(Response::new(cmd))
     }
 
     async fn restart_host(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        create_command(self, request, HostCmd::RestartBVS).await
+        let cmd = self.handle_request(request, HostCmd::RestartBVS).await?;
+        Ok(Response::new(cmd))
     }
 
     async fn execute_generic(
