@@ -20,6 +20,7 @@ async fn responds_ok_for_info_update() {
     let block_height = 12123;
     let node_info = blockjoy::NodeInfo {
         id: node_id.clone(),
+        host_id: Some(node.host_id.to_string()),
         name: None,
         ip: None,
         self_update: None,
@@ -30,7 +31,6 @@ async fn responds_ok_for_info_update() {
         sync_status: None,
         staking_status: None,
         address: None,
-        host_id: None,
     };
     let req = blockjoy::NodeInfoUpdateRequest {
         request_id: Some(uuid::Uuid::new_v4().to_string()),

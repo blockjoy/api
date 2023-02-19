@@ -31,6 +31,7 @@ impl blockjoy_ui::Host {
         let nodes = blockjoy_ui::Node::from_models(nodes, &mut *db).await?;
         let dto = Self {
             id: Some(model.id.to_string()),
+            org_id: None,
             name: Some(model.name),
             version: model.version,
             location: model.location,
@@ -46,7 +47,6 @@ impl blockjoy_ui::Host {
             ip_range_from: model.ip_range_from.map(|ip| ip.to_string()),
             ip_range_to: model.ip_range_to.map(|ip| ip.to_string()),
             ip_gateway: model.ip_gateway.map(|ip| ip.to_string()),
-            org_id: None,
         };
         Ok(dto)
     }

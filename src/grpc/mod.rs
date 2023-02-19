@@ -103,9 +103,6 @@ pub async fn server(
     let enforcer = Authorization::new()
         .await
         .expect("Could not create Authorization!");
-    let notifier = notification::Notifier::new(db.clone())
-        .await
-        .expect("Could not create notifier");
     let auth_service = AuthorizationService::new(enforcer);
     let command_service =
         grpc::blockjoy::commands_server::CommandsServer::new(CommandsServiceImpl::new(db.clone()));
@@ -122,9 +119,8 @@ pub async fn server(
     let ui_host_service = HostServiceServer::new(HostServiceImpl::new(db.clone()));
     let ui_hostprovision_service =
         HostProvisionServiceServer::new(HostProvisionServiceImpl::new(db.clone()));
-    let ui_command_service =
-        CommandServiceServer::new(CommandServiceImpl::new(db.clone(), notifier.clone()));
-    let ui_node_service = NodeServiceServer::new(NodeServiceImpl::new(db.clone(), notifier));
+    let ui_command_service = CommandServiceServer::new(CommandServiceImpl::new(db.clone()));
+    let ui_node_service = NodeServiceServer::new(NodeServiceImpl::new(db.clone()));
     let ui_dashboard_service = DashboardServiceServer::new(DashboardServiceImpl::new(db.clone()));
     let ui_blockchain_service =
         BlockchainServiceServer::new(BlockchainServiceImpl::new(db.clone()));

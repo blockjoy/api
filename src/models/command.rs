@@ -1,6 +1,7 @@
 use crate::auth::FindableById;
 use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy::CommandInfo;
+use crate::grpc::convert;
 use crate::grpc::notification::Notifier;
 use crate::models::UpdateInfo;
 use chrono::{DateTime, Utc};
@@ -73,7 +74,11 @@ impl Command {
 
         // Send one notification per pending command
         for command in &commands {
-            notifier.commands_sender().send(command.id).await?;
+            notifier
+                .bv_commands_sender()
+                .send(&convert::db_command_to_grpc_command(command, db).await?)
+                .await?;
+            // notifier.ui_commands_sender().send(command).await?;
         }
 
         Ok(commands)
@@ -93,11 +98,6 @@ impl Command {
         .bind(command.resource_id)
         .fetch_one(&mut *db)
         .await?;
-        // let cmd_id = cmd.id;
-        // sqlx::query(&format!("NOTIFY commands_for_host_{host_id}, {cmd_id};"))
-        //     .execute(db)
-        //     .await?;
-        // Notifier::command(host_id, cmd.id, db).await?;
         Ok(cmd)
     }
 

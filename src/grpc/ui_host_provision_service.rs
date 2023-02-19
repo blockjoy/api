@@ -1,6 +1,7 @@
+use super::convert;
 use super::helpers::required;
 use crate::auth::UserAuthToken;
-use crate::errors::ApiError;
+use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy_ui::host_provision_service_server::HostProvisionService;
 use crate::grpc::blockjoy_ui::{
     CreateHostProvisionRequest, CreateHostProvisionResponse, GetHostProvisionRequest,
@@ -24,6 +25,32 @@ impl HostProvisionServiceImpl {
     }
 }
 
+impl GrpcHostProvision {
+    fn from_model(hp: HostProvision, _conn: &mut sqlx::PgConnection) -> Result<Self> {
+        let hp = Self {
+            id: Some(hp.id),
+            host_id: hp.host_id.map(|id| id.to_string()),
+            org_id: None,
+            created_at: Some(convert::try_dt_to_ts(hp.created_at)?),
+            claimed_at: hp.claimed_at.map(convert::try_dt_to_ts).transpose()?,
+            install_cmd: hp.install_cmd.map(String::from),
+            ip_range_from: hp
+                .ip_range_from
+                .map(|ip| ip.to_string())
+                .ok_or_else(required("host_provision.ip_range_from"))?,
+            ip_range_to: hp
+                .ip_range_to
+                .map(|ip| ip.to_string())
+                .ok_or_else(required("host_provision.ip_range_to"))?,
+            ip_gateway: hp
+                .ip_gateway
+                .map(|ip| ip.to_string())
+                .ok_or_else(required("host_provision.ip_gateway"))?,
+        };
+        Ok(hp)
+    }
+}
+
 #[tonic::async_trait]
 impl HostProvisionService for HostProvisionServiceImpl {
     async fn get(
@@ -36,7 +63,7 @@ impl HostProvisionService for HostProvisionServiceImpl {
         let host_provision = HostProvision::find_by_id(&host_provision_id, &mut conn).await?;
         let response = GetHostProvisionResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, None)),
-            host_provisions: vec![GrpcHostProvision::try_from(host_provision)?],
+            host_provisions: vec![GrpcHostProvision::from_model(host_provision, &mut conn)?],
         };
         Ok(Response::new(response))
     }

@@ -30,6 +30,7 @@ async fn responds_ok_with_single_get() {
     let node = tester.node().await;
     let mut tx = tester.pool.begin().await.unwrap();
     let update = NodeInfo {
+        id: node.id,
         version: None,
         ip_addr: Some("123.123.123.123".to_string()),
         block_height: None,
@@ -40,7 +41,7 @@ async fn responds_ok_with_single_get() {
         container_status: None,
         self_update: false,
     };
-    let _ = Node::update_info(&node.id, &update, &mut tx).await.unwrap();
+    Node::update_info(&update, &mut tx).await.unwrap();
     tx.commit().await.unwrap();
 
     let cmd = create_command(&tester, node.id, HostCmd::CreateNode).await;
@@ -92,6 +93,7 @@ async fn responds_ok_for_pending() {
     let node = tester.node().await;
     let mut tx = tester.pool.begin().await.unwrap();
     let update = NodeInfo {
+        id: node.id,
         version: None,
         ip_addr: Some("123.123.123.123".to_string()),
         block_height: None,
@@ -102,7 +104,7 @@ async fn responds_ok_for_pending() {
         container_status: None,
         self_update: false,
     };
-    let _ = Node::update_info(&node.id, &update, &mut tx).await.unwrap();
+    Node::update_info(&update, &mut tx).await.unwrap();
     tx.commit().await.unwrap();
     let cmd = create_command(&tester, node.id, HostCmd::CreateNode).await;
     let host = Host::find_by_id(cmd.host_id, &mut conn).await.unwrap();

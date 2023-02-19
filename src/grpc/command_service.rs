@@ -25,7 +25,7 @@ impl Commands for CommandsServiceImpl {
         let cmd_id = uuid::Uuid::from_str(inner.id.as_str()).map_err(ApiError::from)?;
         let mut db_conn = self.db.conn().await?;
         let cmd = models::Command::find_by_id(cmd_id, &mut db_conn).await?;
-        let grpc_cmd = db_command_to_grpc_command(cmd, &self.db).await?;
+        let grpc_cmd = db_command_to_grpc_command(&cmd, &mut db_conn).await?;
         let response = Response::new(grpc_cmd);
 
         Ok(response)
@@ -57,7 +57,7 @@ impl Commands for CommandsServiceImpl {
         let mut response = CommandResponse { commands: vec![] };
 
         for cmd in cmds {
-            let grpc_cmd = db_command_to_grpc_command(cmd, &self.db).await?;
+            let grpc_cmd = db_command_to_grpc_command(&cmd, &mut db_conn).await?;
             response.commands.push(grpc_cmd);
         }
 

@@ -289,11 +289,7 @@ impl Node {
         Ok(node)
     }
 
-    pub async fn update_info(
-        id: &Uuid,
-        info: &NodeInfo,
-        tx: &mut super::DbTrx<'_>,
-    ) -> Result<Node> {
+    pub async fn update_info(info: &NodeInfo, tx: &mut super::DbTrx<'_>) -> Result<Node> {
         sqlx::query_as(
             r#"UPDATE nodes SET 
                     version = COALESCE($1, version),
@@ -312,7 +308,7 @@ impl Node {
         .bind(info.chain_status)
         .bind(info.sync_status)
         .bind(info.self_update)
-        .bind(id)
+        .bind(info.id)
         .fetch_one(tx)
         .await
         .map_err(ApiError::from)
@@ -538,6 +534,7 @@ pub struct NodeCreateRequest {
 
 pub struct NodeUpdateRequest {
     pub id: Uuid,
+    pub host_id: Option<String>,
     pub name: Option<String>,
     pub ip_addr: Option<String>,
     pub chain_status: Option<NodeChainStatus>,
@@ -547,7 +544,6 @@ pub struct NodeUpdateRequest {
     pub self_update: bool,
     pub container_status: Option<ContainerStatus>,
     pub address: Option<String>,
-    pub host_id: Option<String>,
 }
 
 impl TryFrom<GrpcNodeInfo> for NodeUpdateRequest {
@@ -556,6 +552,7 @@ impl TryFrom<GrpcNodeInfo> for NodeUpdateRequest {
     fn try_from(info: GrpcNodeInfo) -> Result<Self> {
         let GrpcNodeInfo {
             id,
+            host_id,
             name,
             ip,
             app_status,
@@ -564,9 +561,8 @@ impl TryFrom<GrpcNodeInfo> for NodeUpdateRequest {
             block_height,
             self_update,
             container_status,
-            onchain_name: _, // We explicitly do not use this field,
+            onchain_name: _, // We explicitly do not use this field
             address,
-            host_id,
         } = info;
         let req = Self {
             id: id.as_str().parse()?,
@@ -587,6 +583,7 @@ impl TryFrom<GrpcNodeInfo> for NodeUpdateRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NodeInfo {
+    pub id: uuid::Uuid,
     pub version: Option<String>,
     pub ip_addr: Option<String>,
     pub block_height: Option<i64>,
