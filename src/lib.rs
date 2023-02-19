@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod cookbook;
+pub mod emqx_api;
 pub mod errors;
 pub mod grpc;
 pub mod http;

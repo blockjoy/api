@@ -1,5 +1,4 @@
 use crate::auth::TokenType;
-use derive_getters::Getters;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use thiserror::Error;
@@ -20,7 +19,7 @@ pub enum KeyProviderError {
     UnexpectedError(#[from] anyhow::Error),
 }
 
-#[derive(Debug, Getters)]
+#[derive(Debug, Default)]
 pub struct KeyValue {
     value: String,
 }
@@ -28,6 +27,10 @@ pub struct KeyValue {
 impl KeyValue {
     pub fn new(value: String) -> Self {
         Self { value }
+    }
+
+    pub fn value(&self) -> String {
+        self.value.clone()
     }
 }
 
