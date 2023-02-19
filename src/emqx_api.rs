@@ -319,6 +319,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn can_call_api() -> anyhow::Result<()> {
         dotenv::dotenv().ok();
 
