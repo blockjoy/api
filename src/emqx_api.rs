@@ -107,7 +107,7 @@ impl std::fmt::Display for EmqxApi {
 
 impl EmqxApi {
     pub fn new() -> EmqxResult<Self> {
-        let base_url = std::env::var("EMQX_BASE_URL")?;
+        let base_url = KeyProvider::get_var("EMQX_BASE_URL")?.value();
         let app_id = KeyProvider::get_var("EMQX_APP_ID")?.value();
         let app_secret = KeyProvider::get_var("EMQX_SECRET")?.value();
         let client = reqwest::Client::new();
