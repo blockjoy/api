@@ -75,18 +75,18 @@ pub struct EmqxPayload {
 
 #[derive(Deserialize)]
 pub struct EmqxRuleObject {
-    topic: String,
-    result: String,
-    client_id: Option<String>,
-    username: Option<String>,
-    action: String,
-    access: String,
+    pub topic: String,
+    pub result: String,
+    pub client_id: Option<String>,
+    pub username: Option<String>,
+    pub action: String,
+    pub access: String,
 }
 
 #[derive(Deserialize)]
 pub struct EmqxResponse {
-    code: i32,
-    data: EmqxRuleObject,
+    pub code: i32,
+    pub data: EmqxRuleObject,
 }
 
 pub type EmqxResult<T> = Result<T, EmqxError>;
@@ -142,12 +142,95 @@ impl EmqxApi {
         self.add_acl(payload).await
     }
 
+    pub async fn remove_user_acl(
+        &self,
+        user_id: String,
+        topic: String,
+        action: EmqxAction,
+        access: EmqxAccessRole,
+    ) -> EmqxResult<EmqxResponse> {
+        let payload = EmqxPayload {
+            client_id: None,
+            user_id: Some(user_id),
+            topic,
+            action,
+            access,
+        };
+
+        self.remove_acl(payload).await
+    }
+
+    pub async fn add_client_acl(
+        &self,
+        client_id: String,
+        topic: String,
+        action: EmqxAction,
+        access: EmqxAccessRole,
+    ) -> EmqxResult<EmqxResponse> {
+        let payload = EmqxPayload {
+            client_id: Some(client_id),
+            user_id: None,
+            topic,
+            action,
+            access,
+        };
+
+        self.add_acl(payload).await
+    }
+
+    pub async fn remove_client_acl(
+        &self,
+        client_id: String,
+        topic: String,
+        action: EmqxAction,
+        access: EmqxAccessRole,
+    ) -> EmqxResult<EmqxResponse> {
+        let payload = EmqxPayload {
+            client_id: Some(client_id),
+            user_id: None,
+            topic,
+            action,
+            access,
+        };
+
+        self.remove_acl(payload).await
+    }
+
     async fn add_acl(&self, payload: EmqxPayload) -> EmqxResult<EmqxResponse> {
         let payload =
             serde_json::to_string::<EmqxPayload>(&payload).map_err(EmqxError::Serialize)?;
         let response = self
             .client
             .post(&self.build_url("acl"))
+            .basic_auth(&self.app_id, Some(&self.app_secret))
+            .json(&payload)
+            .send()
+            .await?;
+        let response = response.json::<EmqxResponse>().await?;
+
+        Ok(response)
+    }
+
+    async fn remove_acl(&self, payload: EmqxPayload) -> EmqxResult<EmqxResponse> {
+        let (resource, value, topic) = if payload.client_id.clone().is_some() {
+            (
+                "clientid",
+                payload.client_id.clone().unwrap(),
+                payload.topic.clone(),
+            )
+        } else {
+            (
+                "username",
+                payload.user_id.clone().unwrap(),
+                payload.topic.clone(),
+            )
+        };
+        let payload =
+            serde_json::to_string::<EmqxPayload>(&payload).map_err(EmqxError::Serialize)?;
+        let response = self
+            .client
+            .delete(&self.build_url(format!("acl/{}/{}/topic/{}", resource, value, topic).as_str()))
+            .basic_auth(&self.app_id, Some(&self.app_secret))
             .json(&payload)
             .send()
             .await?;
