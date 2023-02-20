@@ -153,7 +153,7 @@ pub struct TokenClaim {
     id: Uuid,
     exp: i64,
     token_type: TokenType,
-    role: TokenRole,
+    pub role: TokenRole,
     data: Option<HashMap<String, String>>,
 }
 
@@ -188,7 +188,7 @@ pub trait JwtToken: Sized + serde::Serialize {
     /// Encode this instance to a JWT token string
     fn encode(&self) -> TokenResult<String> {
         let key = KeyProvider::get_secret(self.token_type())?;
-        let secret = key.value();
+        let secret = &key.value;
         let header = jwt::Header::new(jwt::Algorithm::HS512);
         let key = jwt::EncodingKey::from_secret(secret.as_ref());
         jwt::encode(&header, self, &key).map_err(TokenError::EnDeCoding)
@@ -266,7 +266,7 @@ pub trait JwtToken: Sized + serde::Serialize {
         validate_exp: bool,
     ) -> Result<T, TokenError> {
         let key = KeyProvider::get_secret(token_type)?;
-        let secret = key.value();
+        let secret = &key.value;
         let mut validation = jwt::Validation::new(jwt::Algorithm::HS512);
 
         validation.validate_exp = validate_exp;

@@ -1,13 +1,13 @@
 use super::blockjoy_ui::ResponseMeta;
 use super::convert;
-use crate::auth::{HostAuthToken, JwtToken, TokenType};
+use crate::auth::{HostAuthToken, JwtToken, TokenType, UserAuthToken};
 use crate::errors::{self, ApiError};
 use crate::grpc::blockjoy_ui::host_service_server::HostService;
 use crate::grpc::blockjoy_ui::{
     self, get_hosts_request, CreateHostRequest, CreateHostResponse, DeleteHostRequest,
     DeleteHostResponse, GetHostsRequest, GetHostsResponse, UpdateHostRequest, UpdateHostResponse,
 };
-use crate::grpc::helpers::required;
+use crate::grpc::helpers::{required, try_get_token};
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models::{self, Host, HostRequest, HostSelectiveUpdate};
 use tonic::{Request, Response, Status};
@@ -31,6 +31,7 @@ impl blockjoy_ui::Host {
         let nodes = blockjoy_ui::Node::from_models(nodes, &mut *db).await?;
         let dto = Self {
             id: Some(model.id.to_string()),
+            org_id: None,
             name: Some(model.name),
             version: model.version,
             location: model.location,
@@ -65,12 +66,14 @@ impl HostService for HostServiceImpl {
         use get_hosts_request::Param;
 
         let refresh_token = get_refresh_token(&request);
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let inner = request.into_inner();
         let meta = inner.meta.ok_or_else(required("meta"))?;
         let request_id = meta.id;
         let param = inner.param.ok_or_else(required("param"))?;
         let mut conn = self.db.conn().await?;
-        let response_meta = ResponseMeta::new(request_id.unwrap_or_default());
+        let response_meta =
+            ResponseMeta::new(request_id.unwrap_or_default(), Some(token.try_into()?));
         let hosts = match param {
             Param::Id(id) => {
                 let host_id = id.parse().map_err(ApiError::from)?;
@@ -102,6 +105,7 @@ impl HostService for HostServiceImpl {
         &self,
         request: Request<CreateHostRequest>,
     ) -> Result<Response<CreateHostResponse>, Status> {
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let host = inner.host.ok_or_else(required("host"))?;
         let fields: HostRequest = host.try_into()?;
@@ -109,7 +113,7 @@ impl HostService for HostServiceImpl {
         Host::create(fields, &mut tx).await?;
         tx.commit().await?;
         let response = CreateHostResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
 
         Ok(Response::new(response))
@@ -119,6 +123,7 @@ impl HostService for HostServiceImpl {
         &self,
         request: Request<UpdateHostRequest>,
     ) -> Result<Response<UpdateHostResponse>, Status> {
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let host = inner.host.ok_or_else(required("host"))?;
         let fields: HostSelectiveUpdate = host.try_into()?;
@@ -127,7 +132,7 @@ impl HostService for HostServiceImpl {
         Host::update_all(fields, &mut tx).await?;
         tx.commit().await?;
         let response = UpdateHostResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
         Ok(Response::new(response))
     }
@@ -136,13 +141,14 @@ impl HostService for HostServiceImpl {
         &self,
         request: Request<DeleteHostRequest>,
     ) -> Result<Response<DeleteHostResponse>, Status> {
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let host_id = inner.id.parse().map_err(ApiError::from)?;
         let mut tx = self.db.begin().await?;
         Host::delete(host_id, &mut tx).await?;
         tx.commit().await?;
         let response = DeleteHostResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
 
         Ok(Response::new(response))

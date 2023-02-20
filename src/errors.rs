@@ -66,6 +66,12 @@ pub enum ApiError {
 
     #[error("User node quota exceeded")]
     NodeQuota,
+
+    #[error("{0}")]
+    InvalidArgument(tonic::Status),
+
+    #[error("Mqtt error: {0}")]
+    MqttError(#[from] rumqttc::ClientError),
 }
 
 impl ApiError {

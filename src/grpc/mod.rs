@@ -1,10 +1,11 @@
 pub mod authentication_service;
-pub mod command_flow;
+pub mod command_service;
 pub mod convert;
 pub mod helpers;
 pub mod host_service;
 pub mod key_file_service;
 pub mod metrics_service;
+pub mod node_service;
 pub mod notification;
 pub mod organization_service;
 pub mod ui_blockchain_service;
@@ -14,15 +15,13 @@ pub mod ui_host_provision_service;
 pub mod ui_host_service;
 pub mod ui_invitation_service;
 pub mod ui_node_service;
-pub mod ui_update_service;
 pub mod user_service;
 
-#[allow(clippy::derive_partial_eq_without_eq)]
+#[allow(clippy::large_enum_variant)]
 pub mod blockjoy {
     tonic::include_proto!("blockjoy.api.v1");
 }
 
-#[allow(clippy::derive_partial_eq_without_eq)]
 pub mod blockjoy_ui {
     tonic::include_proto!("blockjoy.api.ui_v1");
 }
@@ -35,7 +34,6 @@ use crate::auth::{
 };
 use crate::errors::{ApiError, Result as ApiResult};
 use crate::grpc::authentication_service::AuthenticationServiceImpl;
-use crate::grpc::blockjoy::command_flow_server::CommandFlowServer;
 use crate::grpc::blockjoy::key_files_server::KeyFilesServer;
 use crate::grpc::blockjoy_ui::authentication_service_server::AuthenticationServiceServer;
 use crate::grpc::blockjoy_ui::blockchain_service_server::BlockchainServiceServer;
@@ -46,9 +44,8 @@ use crate::grpc::blockjoy_ui::host_service_server::HostServiceServer;
 use crate::grpc::blockjoy_ui::invitation_service_server::InvitationServiceServer;
 use crate::grpc::blockjoy_ui::node_service_server::NodeServiceServer;
 use crate::grpc::blockjoy_ui::organization_service_server::OrganizationServiceServer;
-use crate::grpc::blockjoy_ui::update_service_server::UpdateServiceServer;
 use crate::grpc::blockjoy_ui::user_service_server::UserServiceServer;
-use crate::grpc::command_flow::CommandFlowServerImpl;
+use crate::grpc::command_service::CommandsServiceImpl;
 use crate::grpc::key_file_service::KeyFileServiceImpl;
 use crate::grpc::metrics_service::MetricsServiceImpl;
 use crate::grpc::organization_service::OrganizationServiceImpl;
@@ -59,9 +56,8 @@ use crate::grpc::ui_host_provision_service::HostProvisionServiceImpl;
 use crate::grpc::ui_host_service::HostServiceImpl;
 use crate::grpc::ui_invitation_service::InvitationServiceImpl;
 use crate::grpc::ui_node_service::NodeServiceImpl;
-use crate::grpc::ui_update_service::UpdateServiceImpl;
 use crate::grpc::user_service::UserServiceImpl;
-use crate::models;
+use crate::{grpc, models};
 use anyhow::anyhow;
 use axum::Extension;
 use blockjoy::hosts_server::HostsServer;
@@ -107,13 +103,13 @@ pub async fn server(
     let enforcer = Authorization::new()
         .await
         .expect("Could not create Authorization!");
-    let notifier = notification::Notifier::new(db.clone())
-        .await
-        .expect("Could not create notifier");
     let auth_service = AuthorizationService::new(enforcer);
+    let command_service =
+        grpc::blockjoy::commands_server::CommandsServer::new(CommandsServiceImpl::new(db.clone()));
+    let node_service = grpc::blockjoy::nodes_server::NodesServer::new(
+        node_service::UpdateNodeServiceImpl::new(db.clone()),
+    );
     let h_service = HostsServer::new(HostsServiceImpl::new(db.clone()));
-    let c_service =
-        CommandFlowServer::new(CommandFlowServerImpl::new(db.clone(), notifier.clone()));
     let k_service = KeyFilesServer::new(KeyFileServiceImpl::new(db.clone()));
     let m_service = MetricsServiceServer::new(MetricsServiceImpl::new(db.clone()));
     let ui_auth_service =
@@ -123,11 +119,8 @@ pub async fn server(
     let ui_host_service = HostServiceServer::new(HostServiceImpl::new(db.clone()));
     let ui_hostprovision_service =
         HostProvisionServiceServer::new(HostProvisionServiceImpl::new(db.clone()));
-    let ui_command_service =
-        CommandServiceServer::new(CommandServiceImpl::new(db.clone(), notifier.clone()));
-    let ui_node_service =
-        NodeServiceServer::new(NodeServiceImpl::new(db.clone(), notifier.clone()));
-    let ui_update_service = UpdateServiceServer::new(UpdateServiceImpl::new(db.clone(), notifier));
+    let ui_command_service = CommandServiceServer::new(CommandServiceImpl::new(db.clone()));
+    let ui_node_service = NodeServiceServer::new(NodeServiceImpl::new(db.clone()));
     let ui_dashboard_service = DashboardServiceServer::new(DashboardServiceImpl::new(db.clone()));
     let ui_blockchain_service =
         BlockchainServiceServer::new(BlockchainServiceImpl::new(db.clone()));
@@ -136,7 +129,6 @@ pub async fn server(
 
     let middleware = tower::ServiceBuilder::new()
         .layer(TraceLayer::new_for_grpc())
-        // TODO: Check if DB extension is still needed
         .layer(Extension(db.clone()))
         .layer(Extension(unauthenticated))
         .layer(AsyncRequireAuthorizationLayer::new(auth_service))
@@ -152,7 +144,8 @@ pub async fn server(
         .layer(middleware)
         .concurrency_limit_per_connection(rate_limiting_settings())
         .add_service(h_service)
-        .add_service(c_service)
+        .add_service(command_service)
+        .add_service(node_service)
         .add_service(k_service)
         .add_service(m_service)
         .add_service(ui_auth_service)
@@ -162,7 +155,6 @@ pub async fn server(
         .add_service(ui_hostprovision_service)
         .add_service(ui_node_service)
         .add_service(ui_command_service)
-        .add_service(ui_update_service)
         .add_service(ui_dashboard_service)
         .add_service(ui_blockchain_service)
         .add_service(ui_invitation_service)

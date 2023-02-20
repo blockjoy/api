@@ -1,5 +1,4 @@
 use crate::auth::TokenType;
-use derive_getters::Getters;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use thiserror::Error;
@@ -20,9 +19,9 @@ pub enum KeyProviderError {
     UnexpectedError(#[from] anyhow::Error),
 }
 
-#[derive(Debug, Getters)]
+#[derive(Debug)]
 pub struct KeyValue {
-    value: String,
+    pub value: String,
 }
 
 impl KeyValue {

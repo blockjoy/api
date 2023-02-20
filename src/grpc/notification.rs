@@ -1,288 +1,242 @@
-use crate::{auth::FindableById, errors::Result, models};
-use sqlx::postgres::PgListener;
-use std::sync::Arc;
-use tokio::sync::broadcast;
-use uuid::Uuid;
+use super::{blockjoy, blockjoy_ui};
+use crate::errors::Result;
 
-#[derive(Debug, Clone)]
-pub struct Notifier {
-    inner: Arc<NotifierInner>,
-    db: models::DbPool,
-}
-
-#[derive(Debug)]
-struct NotifierInner {
-    commands: broadcast::Receiver<models::Command>,
-    nodes: broadcast::Receiver<models::Node>,
-    hosts: broadcast::Receiver<models::Host>,
-    orgs: broadcast::Receiver<models::Org>,
-}
+/// Presents the following senders:
+///
+/// |---------------|---------------------------------------------------------|
+/// | private api   | topics                                                  |
+/// |---------------|---------------------------------------------------------|
+/// | organizations | -                                                       |
+/// |---------------|---------------------------------------------------------|
+/// | hosts         | /bv/hosts/<host_id>                                     |
+/// |---------------|---------------------------------------------------------|
+/// | nodes         | /bv/hosts/<host_id>/nodes/<node_id>                     |
+/// |               | /bv/nodes/<node_id>                                     |
+/// |---------------|---------------------------------------------------------|
+/// | commands      | /bv/hosts/<host_id>/nodes/<node_id>/commands            |
+/// |               | /bv/hosts/<host_id>/commands                            |
+/// |               | /bv/commands                                            |
+/// |---------------|---------------------------------------------------------|
+///
+/// |---------------|---------------------------------------------------------|
+/// | public api    | topics                                                  |
+/// |---------------|---------------------------------------------------------|
+/// | organizations | /orgs/<org_id>                                          |
+/// |---------------|---------------------------------------------------------|
+/// | hosts         | /orgs/<org_id>/hosts/<host_id>                          |
+/// |               | /hosts/<host_id>                                        |
+/// |---------------|---------------------------------------------------------|
+/// | nodes         | /orgs/<org_id>/hosts/<host_id>/nodes/<node_id>          |
+/// |               | /hosts/<host_id>/nodes/<node_id>                        |
+/// |               | /nodes/<node_id>                                        |
+/// |---------------|---------------------------------------------------------|
+/// | commands      | /orgs/<org_id>/hosts/<host_id>/nodes/<node_id>/commands |
+/// |               | /hosts/<host_id>/nodes/<node_id>/commands               |
+/// |               | /nodes/<node_id>/commands                               |
+/// |               | /commands                                               |
+/// |---------------|---------------------------------------------------------|
+#[derive(Debug, Clone, Default)]
+pub struct Notifier {}
 
 impl Notifier {
-    pub async fn new(db: models::DbPool) -> Result<Self> {
-        let (commands_sender, commands) = broadcast::channel(16);
-        let mut commands_listener = DbListener::new(db.clone(), commands_sender).await?;
-        tokio::spawn(async move { commands_listener.listen().await });
-
-        let (nodes_sender, nodes) = broadcast::channel(16);
-        let mut nodes_listener = DbListener::new(db.clone(), nodes_sender).await?;
-        tokio::spawn(async move { nodes_listener.listen().await });
-
-        let (hosts_sender, hosts) = broadcast::channel(16);
-        let mut hosts_listener = DbListener::new(db.clone(), hosts_sender).await?;
-        tokio::spawn(async move { hosts_listener.listen().await });
-
-        let (orgs_sender, orgs) = broadcast::channel(16);
-        let mut orgs_listener = DbListener::new(db.clone(), orgs_sender).await?;
-        tokio::spawn(async move { orgs_listener.listen().await });
-
-        let inner = NotifierInner {
-            commands,
-            nodes,
-            hosts,
-            orgs,
-        };
-        Ok(Self {
-            inner: Arc::new(inner),
-            db,
-        })
+    pub fn new() -> Self {
+        Self {}
     }
 
-    /// Returns a sender that can be used to send
-    pub fn commands_sender(&self) -> Sender<models::Command> {
-        Sender::new(self.db.clone())
+    // bv_orgs_sender does not exist, blockvisor does not care about organizations.
+
+    pub fn bv_hosts_sender(&self) -> MqttClient<blockjoy::HostInfo> {
+        MqttClient::new()
     }
 
-    pub fn commands_receiver(&self, host_id: Uuid) -> Receiver<models::Command> {
-        Receiver::new(host_id, self.inner.commands.resubscribe())
+    pub fn bv_nodes_sender(&self) -> MqttClient<blockjoy::NodeInfo> {
+        MqttClient::new()
     }
 
-    pub fn nodes_sender(&self) -> Sender<models::Node> {
-        Sender::new(self.db.clone())
+    pub fn bv_commands_sender(&self) -> MqttClient<blockjoy::Command> {
+        MqttClient::new()
     }
 
-    pub fn nodes_receiver(&self, host_id: Uuid) -> Receiver<models::Node> {
-        Receiver::new(host_id, self.inner.nodes.resubscribe())
+    pub fn ui_orgs_sender(&self) -> MqttClient<blockjoy_ui::Organization> {
+        MqttClient::new()
     }
 
-    pub fn hosts_sender(&self) -> Sender<models::Host> {
-        Sender::new(self.db.clone())
+    pub fn ui_hosts_sender(&self) -> MqttClient<blockjoy_ui::Host> {
+        MqttClient::new()
     }
 
-    /// TODO: think about who will listen for updates about hosts, and what makes sense as a
-    /// channel identifier.
-    pub fn hosts_receiver(&self, something_id: uuid::Uuid) -> Receiver<models::Host> {
-        Receiver::new(something_id, self.inner.hosts.resubscribe())
+    pub fn ui_nodes_sender(&self) -> MqttClient<blockjoy_ui::Node> {
+        MqttClient::new()
     }
 
-    pub fn orgs_sender(&self) -> Sender<models::Org> {
-        Sender::new(self.db.clone())
-    }
-
-    /// TODO: think about who will listen for updates about organizations, and what makes sense as
-    /// a channel identifier.
-    pub fn orgs_receiver(&self, something_id: uuid::Uuid) -> Receiver<models::Org> {
-        Receiver::new(something_id, self.inner.orgs.resubscribe())
-    }
+    // pub fn ui_commands_sender(&self) -> MqttClient<blockjoy_ui::Command> {
+    //     MqttClient::new()
+    // }
 }
 
 /// The DbListener<T> is a singleton struct that listens for messages coming from the database.
 /// When a message comes in, the re
-struct DbListener<T: Notify> {
-    db: models::DbPool,
-    listener: PgListener,
-    sender: broadcast::Sender<T>,
-}
-
-impl<T: Notify> DbListener<T> {
-    async fn new(db: models::DbPool, sender: broadcast::Sender<T>) -> Result<Self> {
-        let mut listener = PgListener::connect_with(db.inner()).await?;
-        listener.listen(&T::channel()).await?;
-        Ok(Self {
-            db,
-            listener,
-            sender,
-        })
-    }
-
-    async fn listen(&mut self) {
-        while let Ok(msg) = self.listener.recv().await {
-            let Ok(resource_id) = msg.payload().parse() else { continue };
-            let Ok(mut conn) = self.db.conn().await else { continue };
-            let Ok(command) = T::find_by_id(resource_id, &mut conn).await else { continue };
-            let _ = self.sender.send(command);
-        }
-    }
-}
-
-pub trait Notify: FindableById {
-    fn channel() -> String;
-
-    fn in_channel(&self, channel_id: uuid::Uuid) -> bool;
-}
-
-pub struct Sender<T: Notify> {
-    db: models::DbPool,
+pub struct MqttClient<T> {
+    client: rumqttc::AsyncClient,
+    _event_loop: rumqttc::EventLoop,
     _pd: std::marker::PhantomData<T>,
 }
 
-impl<T: Notify> Sender<T> {
-    fn new(db: models::DbPool) -> Self {
-        Sender {
-            db,
+impl<T: Notify + prost::Message> MqttClient<T> {
+    fn new() -> Self {
+        let mut options = rumqttc::MqttOptions::new("1", "35.237.162.218", 1883);
+        options.set_credentials("blockvisor-api", "PH*rE:\\ZQlecB9/I?[#R$q3M;5yCb]Y+");
+        let (client, event_loop) = rumqttc::AsyncClient::new(options, 10);
+        Self {
+            client,
+            _event_loop: event_loop,
             _pd: std::marker::PhantomData,
         }
     }
 
-    pub async fn send(&mut self, resource_id: uuid::Uuid) -> Result<()> {
-        let channel = T::channel();
-        let mut conn = self.db.conn().await?;
-        sqlx::query("SELECT pg_notify($1, $2::text)")
-            .bind(&channel)
-            .bind(resource_id)
-            .execute(&mut conn)
-            .await?;
+    pub async fn send(&mut self, msg: &T) -> Result<()> {
+        const RETAIN: bool = false;
+        const QOS: rumqttc::QoS = rumqttc::QoS::ExactlyOnce;
+        let payload = msg.encode_to_vec();
+
+        for channel in msg.channels() {
+            self.client
+                .publish(&channel, QOS, RETAIN, payload.clone())
+                .await?;
+        }
         Ok(())
     }
 }
 
-pub struct Receiver<T: Notify> {
-    channel_id: uuid::Uuid,
-    receiver: broadcast::Receiver<T>,
+pub trait Notify {
+    fn channels(&self) -> Vec<String>;
 }
 
-impl<T: Clone + Notify> Receiver<T> {
-    fn new(channel_id: uuid::Uuid, receiver: broadcast::Receiver<T>) -> Self {
-        Self {
-            channel_id,
-            receiver,
+// There is a couple of unwrap here below. This is because our messages have fields that are of the
+// type Option which are always Some.
+
+impl Notify for blockjoy::HostInfo {
+    fn channels(&self) -> Vec<String> {
+        let host_id = self.id.as_ref().unwrap();
+        vec![format!("/bv/hosts/{host_id}")]
+    }
+}
+
+impl Notify for blockjoy::NodeInfo {
+    fn channels(&self) -> Vec<String> {
+        let host_id = self.host_id.as_ref().unwrap();
+        let node_id = &self.id;
+        vec![format!("/bv/hosts/{host_id}/nodes/{node_id}")]
+    }
+}
+
+impl blockjoy::Command {
+    fn host_id(&self) -> Option<&str> {
+        match self.r#type.as_ref()? {
+            blockjoy::command::Type::Node(cmd) => Some(&cmd.host_id),
+            blockjoy::command::Type::Host(cmd) => Some(&cmd.host_id),
         }
     }
 
-    pub async fn recv(&mut self) -> Result<T> {
-        loop {
-            let msg = self.receiver.recv().await?;
-            if msg.in_channel(self.channel_id) {
-                return Ok(msg);
-            }
-        }
-    }
-
-    pub async fn recv_where(&mut self, f: impl Fn(&T) -> bool) -> Result<T> {
-        loop {
-            let msg = self.receiver.recv().await?;
-            if f(&msg) {
-                return Ok(msg);
-            }
+    fn node_id(&self) -> Option<&str> {
+        match self.r#type.as_ref()? {
+            blockjoy::command::Type::Node(cmd) => Some(&cmd.node_id),
+            blockjoy::command::Type::Host(_) => None,
         }
     }
 }
 
-impl Notify for models::Command {
-    fn channel() -> String {
-        "commands_channel".to_string()
-    }
+impl Notify for blockjoy::Command {
+    fn channels(&self) -> Vec<String> {
+        let node_id = self.node_id();
+        let host_id = self.host_id();
 
-    /// Commands are channeled by host.
-    fn in_channel(&self, host_id: uuid::Uuid) -> bool {
-        self.host_id == host_id
-    }
-}
-
-impl Notify for models::Node {
-    fn channel() -> String {
-        "nodes_channel".to_string()
-    }
-
-    /// Commands are channeled by host.
-    fn in_channel(&self, host_id: uuid::Uuid) -> bool {
-        self.host_id == host_id
+        let mut res = vec![format!("/bv/commands")];
+        res.extend(node_id.map(|n| format!("/bv/nodes/{n}/commands")));
+        let both = host_id.zip(node_id);
+        res.extend(both.map(|(h, n)| format!("/bv/hosts/{h}/nodes/{n}/commands")));
+        res
     }
 }
 
-impl Notify for models::Host {
-    fn channel() -> String {
-        "hosts_channel".to_string()
-    }
+impl Notify for blockjoy_ui::Organization {
+    fn channels(&self) -> Vec<String> {
+        let org_id = self.id.as_ref().unwrap();
 
-    /// TODO: think about how we will use this and how we will channel it.
-    fn in_channel(&self, _something_id: uuid::Uuid) -> bool {
-        true
+        vec![format!("/orgs/{org_id}")]
     }
 }
 
-impl Notify for models::Org {
-    fn channel() -> String {
-        "orgs_channel".to_string()
-    }
+impl Notify for blockjoy_ui::Host {
+    fn channels(&self) -> Vec<String> {
+        let host_id = self.id.as_ref().unwrap();
+        let org_id = self.org_id.as_ref();
 
-    /// TODO: think about how we will use this and how we will channel it.
-    fn in_channel(&self, _something_id: uuid::Uuid) -> bool {
-        true
+        let mut res = vec![format!("/hosts/{host_id}")];
+        res.extend(org_id.map(|o| format!("/orgs/{o}/hosts/{host_id}")));
+        res
+    }
+}
+
+impl Notify for blockjoy_ui::Node {
+    fn channels(&self) -> Vec<String> {
+        let host_id = self.host_id.as_ref().unwrap();
+        let node_id = self.id.as_ref().unwrap();
+        vec![format!("/hosts/{host_id}/nodes/{node_id}")]
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{models, TestDb};
+    use crate::grpc::convert;
 
     use super::*;
 
     #[tokio::test]
-    async fn send_receive_commands() {
-        let db = TestDb::setup().await;
-        let notifier = Notifier::new(db.pool.clone()).await.unwrap();
-        let host_id = db.host().await.id;
-        let command = models::Command::create(
-            host_id,
-            models::CommandRequest {
-                cmd: models::HostCmd::CreateNode,
-                sub_cmd: None,
-                resource_id: host_id,
-            },
-            &mut db.pool.conn().await.unwrap(),
-        )
-        .await
-        .unwrap();
-        let mut receiver = notifier.commands_receiver(host_id);
-        notifier.commands_sender().send(command.id).await.unwrap();
-        receiver.recv().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn send_receive_nodes() {
-        let db = TestDb::setup().await;
-        let notifier = Notifier::new(db.pool.clone()).await.unwrap();
-        let host_id = db.host().await.id;
-        let node = db.node().await;
-        let mut receiver = notifier.nodes_receiver(host_id);
-        notifier.nodes_sender().send(node.id).await.unwrap();
-        receiver.recv().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn send_receive_hosts() {
-        // TODO: this test asserts that the notifier can correctly pass messages through the
-        // channel identifier by the `something_id`. We do not yet know what that id will be.
-        let db = TestDb::setup().await;
-        let notifier = Notifier::new(db.pool.clone()).await.unwrap();
-        let something_id = uuid::Uuid::new_v4();
+    async fn test_bv_hosts_sender() {
+        let db = crate::TestDb::setup().await;
         let host = db.host().await;
-        let mut receiver = notifier.hosts_receiver(something_id);
-        notifier.hosts_sender().send(host.id).await.unwrap();
-        receiver.recv().await.unwrap();
+        let host = host.try_into().unwrap();
+        let notifier = Notifier::new();
+        notifier.bv_hosts_sender().send(&host).await.unwrap();
     }
 
     #[tokio::test]
-    async fn send_receive_orgs() {
-        // TODO: this test asserts that the notifier can correctly pass messages through the
-        // channel identifier by the `something_id`. We do not yet know what that id will be.
-        let db = TestDb::setup().await;
-        let notifier = Notifier::new(db.pool.clone()).await.unwrap();
-        let something_id = uuid::Uuid::new_v4();
-        let org = db.org().await;
-        let mut receiver = notifier.orgs_receiver(something_id);
-        notifier.orgs_sender().send(org.id).await.unwrap();
-        receiver.recv().await.unwrap();
+    async fn test_bv_nodes_sender() {
+        let db = crate::TestDb::setup().await;
+        let node = db.node().await;
+        let node = node.try_into().unwrap();
+        let notifier = Notifier::new();
+        notifier.bv_nodes_sender().send(&node).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_bv_commands_sender() {
+        let db = crate::TestDb::setup().await;
+        let command = db.command().await;
+        let mut conn = db.pool.conn().await.unwrap();
+        let command = convert::db_command_to_grpc_command(&command, &mut conn)
+            .await
+            .unwrap();
+        let notifier = Notifier::new();
+        notifier.bv_commands_sender().send(&command).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_ui_hosts_sender() {
+        let db = crate::TestDb::setup().await;
+        let host = db.host().await;
+        let host = host.try_into().unwrap();
+        let notifier = Notifier::new();
+        notifier.ui_hosts_sender().send(&host).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_ui_nodes_sender() {
+        let db = crate::TestDb::setup().await;
+        let node = db.node().await;
+        let node = node.try_into().unwrap();
+        let notifier = Notifier::new();
+        notifier.ui_nodes_sender().send(&node).await.unwrap();
     }
 }

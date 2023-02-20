@@ -4,7 +4,14 @@ p, master_admin, /blockjoy.api.v1.KeyFiles/Get, POST
 p, master_admin, /blockjoy.api.v1.KeyFiles/Save, POST
 p, master_admin, /blockjoy.api.v1.MetricsService/Node, POST
 p, master_admin, /blockjoy.api.v1.MetricsService/Host, POST
-p, master_admin, /blockjoy.api.v1.CommandFlow/Commands, POST
+p, members, /blockjoy.api.v1.Commands/Get, POST
+p, master_admin, /blockjoy.api.v1.Commands/Get, POST
+p, members, /blockjoy.api.v1.Commands/Update, POST
+p, master_admin, /blockjoy.api.v1.Commands/Update, POST
+p, members, /blockjoy.api.v1.Commands/Pending, POST
+p, master_admin, /blockjoy.api.v1.Commands/Pending, POST
+p, members, /blockjoy.api.v1.Nodes/InfoUpdate, POST
+p, master_admin, /blockjoy.api.v1.Nodes/InfoUpdate, POST
 p, master_admin, /blockjoy.api.ui_v1.AuthenticationService/Confirm, POST
 p, master_admin, /blockjoy.api.ui_v1.AuthenticationService/Refresh, POST
 p, master_admin, /blockjoy.api.ui_v1.AuthenticationService/UpdatePassword, POST
@@ -43,7 +50,6 @@ p, master_admin, /blockjoy.api.ui_v1.CommandService/StartHost, POST
 p, master_admin, /blockjoy.api.ui_v1.CommandService/StopHost, POST
 p, master_admin, /blockjoy.api.ui_v1.CommandService/RestartHost, POST
 p, master_admin, /blockjoy.api.ui_v1.CommandService/ExecuteGeneric, POST
-p, master_admin, /blockjoy.api.ui_v1.UpdateService/Updates, POST
 p, master_admin, /blockjoy.api.ui_v1.DashboardService/Metrics, POST
 p, master_admin, /blockjoy.api.ui_v1.BlockchainService/List, POST
 p, master_admin, /blockjoy.api.ui_v1.BlockchainService/Get, POST

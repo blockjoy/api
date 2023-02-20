@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package blockjoy.api.v1;
+
+import "node.proto";
+import "google/protobuf/empty.proto";
+
+service Nodes {
+    /* Update a single node */
+    rpc InfoUpdate(NodeInfoUpdateRequest) returns (google.protobuf.Empty) {}
+}

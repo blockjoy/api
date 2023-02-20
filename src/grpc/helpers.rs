@@ -44,22 +44,26 @@ pub fn try_get_token<T, R: JwtToken + Sync + Send + 'static>(
 
 impl ResponseMeta {
     /// Creates a new `ResponseMeta` with the provided request id and the status `Success`.
-    pub fn new(request_id: String) -> Self {
+    pub fn new(request_id: String, token: Option<ApiToken>) -> Self {
         Self {
             status: response_meta::Status::Success.into(),
             origin_request_id: request_id,
             messages: vec![],
             pagination: None,
+            token,
         }
     }
 
     /// Extracts the request id from the provided `RequestMeta` and then creates a `Success`
-    /// response with extracted request id, if there was one.
-    pub fn from_meta(meta: impl Into<Option<RequestMeta>>) -> Self {
+    /// response with extracted request id, if there was one. Additionally adds the user auth
+    /// token, because it may have been renewed
+    pub fn from_meta(meta: impl Into<Option<RequestMeta>>, token: Option<ApiToken>) -> Self {
         let meta = meta.into();
+
         Self::new(
             meta.map(|m| m.id.unwrap_or_default())
                 .unwrap_or_else(|| String::from("")),
+            token,
         )
     }
 

@@ -1,4 +1,3 @@
-use super::convert;
 use super::helpers::required;
 use super::notification::Notifier;
 use crate::auth::{FindableById, UserAuthToken};
@@ -10,7 +9,7 @@ use crate::grpc::blockjoy_ui::{
     UpdateNodeResponse,
 };
 use crate::grpc::helpers::try_get_token;
-use crate::grpc::{get_refresh_token, response_with_refresh_token};
+use crate::grpc::{convert, get_refresh_token, response_with_refresh_token};
 use crate::models;
 use crate::models::{
     Command, CommandRequest, HostCmd, IpAddress, Node, NodeCreateRequest, NodeInfo, User,
@@ -25,8 +24,11 @@ pub struct NodeServiceImpl {
 }
 
 impl NodeServiceImpl {
-    pub fn new(db: models::DbPool, notifier: Notifier) -> Self {
-        Self { db, notifier }
+    pub fn new(db: models::DbPool) -> Self {
+        Self {
+            db,
+            notifier: Notifier::new(),
+        }
     }
 }
 
@@ -101,9 +103,9 @@ impl NodeService for NodeServiceImpl {
         request: Request<GetNodeRequest>,
     ) -> Result<Response<GetNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let org_id = token
-            .data()
+            .data
             .get("org_id")
             .unwrap_or(&"".to_string())
             .to_owned();
@@ -114,7 +116,7 @@ impl NodeService for NodeServiceImpl {
 
         if node.org_id.to_string() == org_id {
             let response = GetNodeResponse {
-                meta: Some(ResponseMeta::from_meta(inner.meta)),
+                meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
                 node: Some(blockjoy_ui::Node::from_model(node, &mut conn).await?),
             };
             Ok(response_with_refresh_token(refresh_token, response)?)
@@ -128,6 +130,7 @@ impl NodeService for NodeServiceImpl {
         request: Request<ListNodesRequest>,
     ) -> Result<Response<ListNodesResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let filters = inner.filter.clone();
         let org_id = inner.org_id.parse().map_err(ApiError::from)?;
@@ -163,7 +166,7 @@ impl NodeService for NodeServiceImpl {
 
         let nodes = blockjoy_ui::Node::from_models(nodes, &mut conn).await?;
         let response = ListNodesResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
             nodes,
         };
         Ok(response_with_refresh_token(refresh_token, response)?)
@@ -174,11 +177,10 @@ impl NodeService for NodeServiceImpl {
         request: Request<CreateNodeRequest>,
     ) -> Result<Response<CreateNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         // Check quota
         let mut conn = self.db.conn().await?;
-        let user_id = token.id().to_owned();
-        let user = User::find_by_id(user_id, &mut conn).await?;
+        let user = User::find_by_id(token.id, &mut conn).await?;
 
         if user.staking_quota <= 0 {
             return Err(Status::resource_exhausted("User node quota exceeded"));
@@ -188,13 +190,25 @@ impl NodeService for NodeServiceImpl {
         let mut fields: NodeCreateRequest = inner.node.ok_or_else(required("node"))?.try_into()?;
         let mut tx = self.db.begin().await?;
         let node = Node::create(&mut fields, &mut tx).await?;
-        // Create the NodeCreate COMMAND
+
+        self.notifier
+            .bv_nodes_sender()
+            .send(&node.clone().into())
+            .await?;
+        self.notifier
+            .ui_nodes_sender()
+            .send(&node.clone().try_into()?)
+            .await?;
+
         let req = CommandRequest {
             cmd: HostCmd::CreateNode,
             sub_cmd: None,
             resource_id: node.id,
         };
         let cmd = Command::create(node.host_id, req, &mut tx).await?;
+        let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
+        self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+
         let update_user = UserSelectiveUpdate {
             first_name: None,
             last_name: None,
@@ -202,31 +216,20 @@ impl NodeService for NodeServiceImpl {
             staking_quota: Some(user.staking_quota - 1),
             refresh_token: None,
         };
+        User::update_all(user.id, update_user, &mut tx).await?;
+        let req = CommandRequest {
+            cmd: HostCmd::RestartNode,
+            sub_cmd: None,
+            resource_id: node.id,
+        };
+        let cmd = Command::create(node.host_id, req, &mut tx).await?;
+        let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
+        self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
 
-        match User::update_all(user.id, update_user, &mut tx).await {
-            Ok(_) => {
-                // commit the tx for stuff happened so far
-                tx.commit().await?;
+        tx.commit().await?;
 
-                // Create a new tx, so we ensure START happens after CREATE
-                let mut tx = self.db.begin().await?;
-                // Create the NodeStart COMMAND
-                let req = CommandRequest {
-                    cmd: HostCmd::RestartNode,
-                    sub_cmd: None,
-                    resource_id: node.id,
-                };
-
-                Command::create(node.host_id, req, &mut tx).await?;
-                tx.commit().await?;
-            }
-            Err(e) => return Err(Status::from(e)),
-        }
-
-        self.notifier.commands_sender().send(cmd.id).await?;
-        self.notifier.nodes_sender().send(cmd.id).await?;
-
-        let response_meta = ResponseMeta::from_meta(inner.meta).with_message(node.id);
+        let response_meta =
+            ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(node.id);
         let response = CreateNodeResponse {
             meta: Some(response_meta),
         };
@@ -239,20 +242,16 @@ impl NodeService for NodeServiceImpl {
         request: Request<UpdateNodeRequest>,
     ) -> Result<Response<UpdateNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let node = inner.node.ok_or_else(required("node"))?;
-        let node_id = node.id.as_deref();
-        let node_id = node_id
-            .ok_or_else(required("node.id"))?
-            .parse()
-            .map_err(ApiError::from)?;
         let fields: NodeInfo = node.try_into()?;
 
         let mut tx = self.db.begin().await?;
-        Node::update_info(&node_id, &fields, &mut tx).await?;
+        Node::update_info(&fields, &mut tx).await?;
         tx.commit().await?;
         let response = UpdateNodeResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta)),
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
         Ok(response_with_refresh_token(refresh_token, response)?)
     }
@@ -270,7 +269,7 @@ impl NodeService for NodeServiceImpl {
         let mut tx = self.db.begin().await?;
         let node = Node::find_by_id(node_id, &mut tx).await?;
 
-        if Node::belongs_to_user_org(node.org_id, *token.id(), &mut tx).await? {
+        if Node::belongs_to_user_org(node.org_id, token.id, &mut tx).await? {
             // 1. Delete node, if the node belongs to the current user
             // Key files are deleted automatically because of 'on delete cascade' in tables DDL
             Node::delete(node_id, &mut tx).await?;
@@ -288,7 +287,7 @@ impl NodeService for NodeServiceImpl {
                 resource_id: node_id,
             };
             let cmd = Command::create(node.host_id, req, &mut tx).await?;
-            let user_id = token.id().to_owned();
+            let user_id = token.id;
             let user = User::find_by_id(user_id, &mut conn).await?;
             let update_user = UserSelectiveUpdate {
                 first_name: None,
@@ -300,10 +299,13 @@ impl NodeService for NodeServiceImpl {
 
             User::update_all(user_id, update_user, &mut tx).await?;
 
+            let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
+
             tx.commit().await?;
 
-            self.notifier.commands_sender().send(cmd.id).await?;
-            self.notifier.nodes_sender().send(cmd.id).await?;
+            self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+            // let grpc_cmd = cmd.clone().try_into()?;
+            // self.notifier.ui_commands_sender().send(&grpc_cmd).await;
 
             Ok(response_with_refresh_token::<()>(refresh_token, ())?)
         } else {

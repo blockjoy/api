@@ -4,17 +4,16 @@ use crate::cookbook::cookbook_grpc::cook_book_service_client;
 use crate::errors::{ApiError, Result as ApiResult};
 use crate::grpc::blockjoy_ui::blockchain_network::NetworkType;
 use anyhow::anyhow;
-use derive_getters::Getters;
 use tonic::Request;
 
-#[derive(Debug, Getters, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct HardwareRequirements {
     pub(crate) vcpu_count: i64,
     pub(crate) mem_size_mb: i64,
     pub(crate) disk_size_gb: i64,
 }
 
-#[derive(Getters, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct BlockchainNetwork {
     pub(crate) name: String,
     pub(crate) url: String,

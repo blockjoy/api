@@ -18,7 +18,6 @@ axum = "0.6.2"
 base64 = "0.13.0"
 casbin = { version = "2.0.9", default-features = false, features = ["runtime-tokio", "logging", "incremental", "explain"] }
 chrono = {version = "0.4.19", features = ["serde"]}
-derive-getters = "0.2.0"
 diesel = { version = "2.0.3", default-features = false, features = ["postgres", "without-deprecated", "uuid", "chrono", "32-column-tables", "serde_json"] }
 diesel-async = { version = "0.2.0", features = ["bb8", "postgres"] }
 diesel-enum = { git = "https://github.com/ThouCheese/diesel-enum", branch = "feat/diesel-2.0" }
@@ -39,6 +38,7 @@ prost = "0.11.6"
 prost-types = "0.11.6"
 rand = "0.8.5"
 random-string = "1.0.0"
+rumqttc = "0.20.0"
 sendgrid = {version = "0.17.4", default-features = false, features = ["rustls", "async"]}
 serde = {version = "1.0.125", features = ["derive"]}
 serde_json = { version = "1.0.81", features = ["raw_value"] }

@@ -33,8 +33,8 @@ impl OrganizationService for OrganizationServiceImpl {
         request: Request<GetOrganizationsRequest>,
     ) -> Result<Response<GetOrganizationsResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let user_id = *token.id();
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org_id = inner.org_id.clone();
 
@@ -63,7 +63,7 @@ impl OrganizationService for OrganizationServiceImpl {
                 }
 
                 let inner = GetOrganizationsResponse {
-                    meta: Some(ResponseMeta::from_meta(inner.meta)),
+                    meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
                     organizations,
                 };
 
@@ -78,8 +78,8 @@ impl OrganizationService for OrganizationServiceImpl {
         request: Request<CreateOrganizationRequest>,
     ) -> Result<Response<CreateOrganizationResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let user_id = *token.id();
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org = inner.organization.ok_or_else(required("organization"))?;
         let name = org.name.ok_or_else(required("organization.name"))?;
@@ -87,7 +87,8 @@ impl OrganizationService for OrganizationServiceImpl {
         let mut tx = self.db.begin().await?;
         let org = Org::create(&org_request, user_id, &mut tx).await?;
         tx.commit().await?;
-        let response_meta = ResponseMeta::from_meta(inner.meta).with_message(org.id);
+        let response_meta =
+            ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(org.id);
         let inner = CreateOrganizationResponse {
             meta: Some(response_meta),
         };
@@ -99,8 +100,7 @@ impl OrganizationService for OrganizationServiceImpl {
         request: Request<UpdateOrganizationRequest>,
     ) -> Result<Response<UpdateOrganizationResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        // THOMAS: this line can go right? Not necessary for auth checking?
-        try_get_token::<_, UserAuthToken>(&request)?;
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let org = inner.organization.ok_or_else(required("organization"))?;
         let org_id = Uuid::parse_str(org.id.ok_or_else(required("organization.id"))?.as_str())
@@ -112,7 +112,7 @@ impl OrganizationService for OrganizationServiceImpl {
         let mut tx = self.db.begin().await?;
         Org::update(org_id, update, &mut tx).await?;
         tx.commit().await?;
-        let meta = ResponseMeta::from_meta(inner.meta);
+        let meta = ResponseMeta::from_meta(inner.meta, Some(token));
         let inner = UpdateOrganizationResponse { meta: Some(meta) };
         Ok(response_with_refresh_token(refresh_token, inner)?)
     }
@@ -122,8 +122,8 @@ impl OrganizationService for OrganizationServiceImpl {
         request: Request<DeleteOrganizationRequest>,
     ) -> Result<Response<DeleteOrganizationResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let user_id = *token.id();
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org_id = Uuid::parse_str(inner.id.as_str()).map_err(ApiError::from)?;
         let mut tx = self.db.begin().await?;
@@ -139,7 +139,7 @@ impl OrganizationService for OrganizationServiceImpl {
                 Org::delete(org_id, &mut tx).await?;
                 tx.commit().await?;
 
-                let meta = ResponseMeta::from_meta(inner.meta);
+                let meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
                 let inner = DeleteOrganizationResponse { meta: Some(meta) };
 
                 Ok(response_with_refresh_token(refresh_token, inner)?)
@@ -151,8 +151,8 @@ impl OrganizationService for OrganizationServiceImpl {
         &self,
         request: Request<RestoreOrganizationRequest>,
     ) -> Result<Response<RestoreOrganizationResponse>, Status> {
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let user_id = *token.id();
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org_id = Uuid::parse_str(inner.id.as_str()).map_err(ApiError::from)?;
         let mut tx = self.db.begin().await?;
@@ -166,7 +166,7 @@ impl OrganizationService for OrganizationServiceImpl {
             OrgRole::Owner | OrgRole::Admin => {
                 let org = Org::restore(org_id, &mut tx).await?;
                 tx.commit().await?;
-                let meta = ResponseMeta::from_meta(inner.meta);
+                let meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
                 let inner = RestoreOrganizationResponse {
                     meta: Some(meta),
                     organization: Some(org.try_into()?),
@@ -181,6 +181,7 @@ impl OrganizationService for OrganizationServiceImpl {
         &self,
         request: Request<OrganizationMemberRequest>,
     ) -> Result<Response<OrganizationMemberResponse>, Status> {
+        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let refresh_token = get_refresh_token(&request);
         let inner = request.into_inner();
         let meta = inner.meta.ok_or_else(required("meta"))?;
@@ -191,7 +192,7 @@ impl OrganizationService for OrganizationServiceImpl {
         let users = Org::find_all_member_users_paginated(org_id, limit, offset, &mut conn).await?;
         let users: Result<_, ApiError> = users.iter().map(GrpcUiUser::try_from).collect();
         let inner = OrganizationMemberResponse {
-            meta: Some(ResponseMeta::from_meta(meta).with_pagination()),
+            meta: Some(ResponseMeta::from_meta(meta, Some(token)).with_pagination()),
             users: users?,
         };
 
@@ -204,7 +205,7 @@ impl OrganizationService for OrganizationServiceImpl {
     ) -> Result<Response<()>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let caller_id = *token.id();
+        let caller_id = token.id;
         let inner = request.into_inner();
         let user_id = Uuid::parse_str(inner.user_id.as_str()).map_err(ApiError::from)?;
         let org_id = Uuid::parse_str(inner.org_id.as_str()).map_err(ApiError::from)?;
@@ -230,7 +231,7 @@ impl OrganizationService for OrganizationServiceImpl {
     ) -> Result<Response<()>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let user_id = *token.id();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org_id = Uuid::parse_str(inner.org_id.as_str()).map_err(ApiError::from)?;
 

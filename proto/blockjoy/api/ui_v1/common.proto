@@ -54,6 +54,8 @@ message ResponseMeta {
   repeated string messages = 3;
   /* Optional pagination information */
   optional Pagination pagination = 4;
+  /* Updated user token, if needed */
+  optional ApiToken token = 5;
 }
 
 message Host {
@@ -93,6 +95,7 @@ message Host {
   optional string ip_range_from = 14;
   optional string ip_range_to = 15;
   optional string ip_gateway = 16;
+  optional string org_id = 17;
 }
 
 /* HostProvision entity */
@@ -105,6 +108,7 @@ message HostProvision {
   string ip_range_from = 6;
   string ip_range_to = 7;
   string ip_gateway = 8;
+  optional string org_id = 9;
 }
 
 /* Blockchain node representation */
@@ -209,14 +213,6 @@ message Organization {
   optional google.protobuf.Timestamp created_at = 13;
   optional google.protobuf.Timestamp updated_at = 14;
   optional OrgUser current_user = 15;
-}
-
-/* Info update as received by UpdateService */
-message UpdateNotification {
-  oneof notification {
-    Host host = 1;
-    Node node = 2;
-  }
 }
 
 /* User representation */

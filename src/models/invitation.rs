@@ -4,22 +4,21 @@ use crate::grpc::blockjoy_ui::Invitation as GrpcInvitation;
 use crate::models::{Org, User};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use derive_getters::Getters;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromRow, Getters)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromRow)]
 pub struct Invitation {
-    pub(crate) id: Uuid,
-    pub(crate) created_by_user: Uuid,
-    pub(crate) created_by_user_name: String,
-    pub(crate) created_for_org: Uuid,
-    pub(crate) created_for_org_name: String,
-    pub(crate) invitee_email: String,
-    pub(crate) created_at: DateTime<Utc>,
-    pub(crate) accepted_at: Option<DateTime<Utc>>,
-    pub(crate) declined_at: Option<DateTime<Utc>>,
+    pub id: Uuid,
+    pub created_by_user: Uuid,
+    pub created_by_user_name: String,
+    pub created_for_org: Uuid,
+    pub created_for_org_name: String,
+    pub invitee_email: String,
+    pub created_at: DateTime<Utc>,
+    pub accepted_at: Option<DateTime<Utc>>,
+    pub declined_at: Option<DateTime<Utc>>,
 }
 
 #[tonic::async_trait]
