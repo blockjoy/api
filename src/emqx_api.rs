@@ -93,6 +93,12 @@ pub struct EmqxRuleObject {
     pub access: String,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub struct EmqxUserPayload {
+    pub username: String,
+    pub password: String,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct EmqxResponse {
     pub code: i32,
@@ -207,6 +213,19 @@ impl EmqxApi {
         self.remove_acl(payload).await
     }
 
+    pub async fn create_username(&self, payload: EmqxUserPayload) -> EmqxResult<EmqxResponse> {
+        let response = self
+            .client
+            .post(&self.build_url("auth_username"))
+            .basic_auth(&self.app_id, Some(&self.app_secret))
+            .json(&payload)
+            .send()
+            .await?;
+        let response = response.json::<EmqxResponse>().await?;
+
+        Ok(response)
+    }
+
     async fn add_acl(&self, payload: EmqxPayload) -> EmqxResult<EmqxResponse> {
         let response = self
             .client
@@ -255,7 +274,7 @@ impl EmqxApi {
 mod tests {
     use crate::auth::key_provider::KeyProvider;
     use crate::emqx_api::{
-        EmqxAccessRole, EmqxAction, EmqxApi, EmqxError, EmqxPayload, EmqxResponse,
+        EmqxAccessRole, EmqxAction, EmqxApi, EmqxError, EmqxPayload, EmqxResponse, EmqxUserPayload,
     };
     use http::StatusCode;
 
@@ -433,6 +452,23 @@ mod tests {
                 EmqxAccessRole::Allow,
             )
             .await?;
+
+        assert_eq!(response.code, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn can_create_username() -> anyhow::Result<()> {
+        dotenv::dotenv().ok();
+
+        let api = EmqxApi::new()?;
+        let payload = EmqxUserPayload {
+            username: uuid::Uuid::new_v4().to_string(),
+            password: "pwd123".to_string(),
+        };
+        let response = api.create_username(payload).await?;
 
         assert_eq!(response.code, 0);
 
