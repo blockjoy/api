@@ -5,17 +5,22 @@ use std::fmt::Formatter;
 use strum_macros::Display;
 use thiserror::Error;
 
-#[derive(Error, Display, Debug)]
+#[derive(Error, Debug)]
 pub enum EmqxError {
     /// Errors resulting from reading ENV vars
+    #[error("Error reading env var: {0}")]
     EnvVar(#[from] std::env::VarError),
     /// Errors resulting from reading keys
+    #[error("Error reading key: {0}")]
     Key(#[from] KeyProviderError),
     /// Errors happening when deserializing data
+    #[error("Error deserializing JSON: {0}")]
     Deserialize(anyhow::Error),
     /// Errors happening when serializing data
+    #[error("Error serializing JSON: {0}")]
     Serialize(serde_json::Error),
     /// Errors happening when calling the API
+    #[error("Error communicating with API: {0}")]
     Communication(#[from] reqwest::Error),
 }
 
@@ -42,7 +47,7 @@ impl TryFrom<&str> for EmqxAccessRole {
 }
 
 #[derive(Serialize, Display, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
 pub enum EmqxAction {
     Pub,
     Sub,
@@ -65,28 +70,34 @@ impl TryFrom<&str> for EmqxAction {
 #[derive(Serialize, Debug)]
 pub struct EmqxPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename(serialize = "clientid"))]
     pub client_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename(serialize = "username", deserialize = "username"))]
     pub user_id: Option<String>,
     pub topic: String,
     pub action: EmqxAction,
     pub access: EmqxAccessRole,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct EmqxRuleObject {
     pub topic: String,
     pub result: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename(deserialize = "clientid"))]
     pub client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
     pub action: String,
     pub access: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct EmqxResponse {
     pub code: i32,
-    pub data: EmqxRuleObject,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<EmqxRuleObject>,
 }
 
 pub type EmqxResult<T> = Result<T, EmqxError>;
@@ -197,8 +208,6 @@ impl EmqxApi {
     }
 
     async fn add_acl(&self, payload: EmqxPayload) -> EmqxResult<EmqxResponse> {
-        let payload =
-            serde_json::to_string::<EmqxPayload>(&payload).map_err(EmqxError::Serialize)?;
         let response = self
             .client
             .post(&self.build_url("acl"))
@@ -225,8 +234,6 @@ impl EmqxApi {
                 payload.topic.clone(),
             )
         };
-        let payload =
-            serde_json::to_string::<EmqxPayload>(&payload).map_err(EmqxError::Serialize)?;
         let response = self
             .client
             .delete(&self.build_url(format!("acl/{}/{}/topic/{}", resource, value, topic).as_str()))
@@ -247,7 +254,9 @@ impl EmqxApi {
 #[cfg(test)]
 mod tests {
     use crate::auth::key_provider::KeyProvider;
-    use crate::emqx_api::{EmqxAccessRole, EmqxAction, EmqxError, EmqxPayload, EmqxResponse};
+    use crate::emqx_api::{
+        EmqxAccessRole, EmqxAction, EmqxApi, EmqxError, EmqxPayload, EmqxResponse,
+    };
     use http::StatusCode;
 
     #[test]
@@ -260,7 +269,7 @@ mod tests {
             access: EmqxAccessRole::Allow,
         };
         let json = serde_json::to_string::<EmqxPayload>(&payload).map_err(EmqxError::Serialize)?;
-        let expected = r#"{"user_id":"user-2","topic":"foo-bar","action":"pub","access":"allow"}"#;
+        let expected = r#"{"username":"user-2","topic":"foo-bar","action":"pub","access":"allow"}"#;
 
         assert_eq!(json, expected);
 
@@ -278,7 +287,7 @@ mod tests {
         };
         let json = serde_json::to_string::<EmqxPayload>(&payload).map_err(EmqxError::Serialize)?;
         let expected =
-            r#"{"client_id":"client-2","topic":"foo-bar","action":"pub","access":"allow"}"#;
+            r#"{"clientid":"client-2","topic":"foo-bar","action":"pub","access":"allow"}"#;
 
         assert_eq!(json, expected);
 
@@ -301,16 +310,17 @@ mod tests {
         "#;
 
         let response = serde_json::from_str::<EmqxResponse>(json)?;
+        let data = response.data.unwrap();
 
-        assert_eq!(response.data.username.unwrap(), "user1");
-        assert_eq!(response.data.topic, "foo-bar");
-        assert_eq!(response.data.result, "ok");
+        assert_eq!(data.username.unwrap(), "user1");
+        assert_eq!(data.topic, "foo-bar");
+        assert_eq!(data.result, "ok");
         assert_eq!(
-            EmqxAction::try_from(response.data.action.as_str())?,
+            EmqxAction::try_from(data.action.as_str())?,
             EmqxAction::PubSub
         );
         assert_eq!(
-            EmqxAccessRole::try_from(response.data.access.as_str())?,
+            EmqxAccessRole::try_from(data.access.as_str())?,
             EmqxAccessRole::Allow
         );
         assert_eq!(response.code, 123);
@@ -337,6 +347,94 @@ mod tests {
             .await?;
 
         assert_eq!(response.status(), StatusCode::OK);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn can_create_client_acl() -> anyhow::Result<()> {
+        dotenv::dotenv().ok();
+
+        let api = EmqxApi::new()?;
+        let response = api
+            .add_client_acl(
+                "stribu".to_string(),
+                "feed-me".to_string(),
+                EmqxAction::Pub,
+                EmqxAccessRole::Allow,
+            )
+            .await?;
+
+        assert_eq!(response.code, 0);
+        assert_eq!(
+            response.data.unwrap().client_id.unwrap(),
+            "stribu".to_string()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn can_create_user_acl() -> anyhow::Result<()> {
+        dotenv::dotenv().ok();
+
+        let api = EmqxApi::new()?;
+        let response = api
+            .add_user_acl(
+                "Strizzi".to_string(),
+                "feed-me-more".to_string(),
+                EmqxAction::PubSub,
+                EmqxAccessRole::Allow,
+            )
+            .await?;
+
+        assert_eq!(response.code, 0);
+        assert_eq!(
+            response.data.unwrap().username.unwrap(),
+            "Strizzi".to_string()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn can_remove_client_acl() -> anyhow::Result<()> {
+        dotenv::dotenv().ok();
+
+        let api = EmqxApi::new()?;
+        let response = api
+            .remove_client_acl(
+                "stribu".to_string(),
+                "feed-me".to_string(),
+                EmqxAction::Pub,
+                EmqxAccessRole::Allow,
+            )
+            .await?;
+
+        assert_eq!(response.code, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn can_remove_user_acl() -> anyhow::Result<()> {
+        dotenv::dotenv().ok();
+
+        let api = EmqxApi::new()?;
+        let response = api
+            .remove_user_acl(
+                "Strizzi".to_string(),
+                "feed-me-more".to_string(),
+                EmqxAction::PubSub,
+                EmqxAccessRole::Allow,
+            )
+            .await?;
+
+        assert_eq!(response.code, 0);
 
         Ok(())
     }
