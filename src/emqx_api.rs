@@ -2,6 +2,7 @@ use crate::auth::key_provider::{KeyProvider, KeyProviderError};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;
+use std::str::FromStr;
 use strum_macros::Display;
 use thiserror::Error;
 
@@ -31,16 +32,16 @@ pub enum EmqxAccessRole {
     Deny,
 }
 
-impl TryFrom<&str> for EmqxAccessRole {
-    type Error = EmqxError;
+impl FromStr for EmqxAccessRole {
+    type Err = EmqxError;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
             "allow" => Ok(Self::Allow),
             "deny" => Ok(Self::Deny),
             _ => Err(EmqxError::Deserialize(anyhow!(
                 "Unknown access role: {}",
-                value
+                s
             ))),
         }
     }
@@ -54,15 +55,15 @@ pub enum EmqxAction {
     PubSub,
 }
 
-impl TryFrom<&str> for EmqxAction {
-    type Error = EmqxError;
+impl FromStr for EmqxAction {
+    type Err = EmqxError;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
             "pub" => Ok(Self::Pub),
             "sub" => Ok(Self::Sub),
             "pubsub" => Ok(Self::PubSub),
-            _ => Err(EmqxError::Deserialize(anyhow!("Unknown action: {}", value))),
+            _ => Err(EmqxError::Deserialize(anyhow!("Unknown action: {}", s))),
         }
     }
 }
@@ -73,7 +74,8 @@ pub struct EmqxPayload {
     #[serde(rename(serialize = "clientid"))]
     pub client_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename(serialize = "username", deserialize = "username"))]
+    // #[serde(rename(serialize = "username", deserialize = "username"))]
+    #[serde(rename = "username")]
     pub user_id: Option<String>,
     pub topic: String,
     pub action: EmqxAction,
@@ -118,15 +120,15 @@ pub struct EmqxApi {
 
 impl std::fmt::Display for EmqxApi {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.base_url)
+        write!(f, "{}", self.base_url)
     }
 }
 
 impl EmqxApi {
     pub fn new() -> EmqxResult<Self> {
-        let base_url = KeyProvider::get_var("EMQX_BASE_URL")?.value();
-        let app_id = KeyProvider::get_var("EMQX_APP_ID")?.value();
-        let app_secret = KeyProvider::get_var("EMQX_SECRET")?.value();
+        let base_url = KeyProvider::get_var("EMQX_BASE_URL")?.value;
+        let app_id = KeyProvider::get_var("EMQX_APP_ID")?.value;
+        let app_secret = KeyProvider::get_var("EMQX_SECRET")?.value;
         let client = reqwest::Client::new();
 
         Ok(Self {
@@ -221,7 +223,7 @@ impl EmqxApi {
             .json(&payload)
             .send()
             .await?;
-        let response = response.json::<EmqxResponse>().await?;
+        let response = response.json().await?;
 
         Ok(response)
     }
@@ -240,7 +242,7 @@ impl EmqxApi {
     }
 
     async fn remove_acl(&self, payload: EmqxPayload) -> EmqxResult<EmqxResponse> {
-        let (resource, value, topic) = if payload.client_id.clone().is_some() {
+        let (resource, value, topic) = if payload.client_id.is_some() {
             (
                 "clientid",
                 payload.client_id.clone().unwrap(),
@@ -277,6 +279,7 @@ mod tests {
         EmqxAccessRole, EmqxAction, EmqxApi, EmqxError, EmqxPayload, EmqxResponse, EmqxUserPayload,
     };
     use http::StatusCode;
+    use std::str::FromStr;
 
     #[test]
     fn can_serialize_user_payload() -> anyhow::Result<()> {
@@ -335,11 +338,11 @@ mod tests {
         assert_eq!(data.topic, "foo-bar");
         assert_eq!(data.result, "ok");
         assert_eq!(
-            EmqxAction::try_from(data.action.as_str())?,
+            EmqxAction::from_str(data.action.as_str())?,
             EmqxAction::PubSub
         );
         assert_eq!(
-            EmqxAccessRole::try_from(data.access.as_str())?,
+            EmqxAccessRole::from_str(data.access.as_str())?,
             EmqxAccessRole::Allow
         );
         assert_eq!(response.code, 123);
@@ -354,10 +357,10 @@ mod tests {
 
         let url = format!(
             "{}/acl/clientid",
-            KeyProvider::get_var("EMQX_BASE_URL")?.value()
+            KeyProvider::get_var("EMQX_BASE_URL")?.value
         );
-        let app_id = KeyProvider::get_var("EMQX_APP_ID")?.value();
-        let app_secret = KeyProvider::get_var("EMQX_SECRET")?.value();
+        let app_id = KeyProvider::get_var("EMQX_APP_ID")?.value;
+        let app_secret = KeyProvider::get_var("EMQX_SECRET")?.value;
         let client = reqwest::Client::new();
         let response = client
             .get(url)
