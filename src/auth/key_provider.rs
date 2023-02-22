@@ -21,16 +21,12 @@ pub enum KeyProviderError {
 
 #[derive(Debug, Default)]
 pub struct KeyValue {
-    value: String,
+    pub value: String,
 }
 
 impl KeyValue {
     pub fn new(value: String) -> Self {
         Self { value }
-    }
-
-    pub fn value(&self) -> String {
-        self.value.clone()
     }
 }
 

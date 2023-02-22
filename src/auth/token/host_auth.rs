@@ -1,17 +1,16 @@
 use crate::auth::{JwtToken, TokenClaim, TokenResult, TokenRole, TokenType};
 use crate::errors::Result;
-use derive_getters::Getters;
 use std::str;
 use std::str::FromStr;
 use uuid::Uuid;
 
 /// The claims of the token to be stored (encrypted) on the client side
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Getters)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct HostAuthToken {
-    id: Uuid,
+    pub id: Uuid,
     exp: i64,
     token_type: TokenType,
-    role: TokenRole,
+    pub role: TokenRole,
 }
 
 #[tonic::async_trait]

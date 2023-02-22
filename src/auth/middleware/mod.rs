@@ -80,7 +80,7 @@ where
                     token.encode().map_err(cant_parse)?;
 
                     let auth_data = AuthorizationData {
-                        subject: token.role().to_string(),
+                        subject: token.role.to_string(),
                         object: request.uri().path().to_string(),
                         action: request.method().to_string(),
                     };
@@ -104,7 +104,7 @@ where
                     token.encode().map_err(cant_parse)?;
 
                     let auth_data = AuthorizationData {
-                        subject: token.role().to_string(),
+                        subject: token.role.to_string(),
                         object: request.uri().path().to_string(),
                         action: request.method().to_string(),
                     };
@@ -127,7 +127,7 @@ where
                     token.encode().map_err(cant_parse)?;
 
                     let auth_data = AuthorizationData {
-                        subject: token.role().to_string(),
+                        subject: token.role.to_string(),
                         object: request.uri().path().to_string(),
                         action: request.method().to_string(),
                     };
@@ -184,7 +184,7 @@ where
                         Status::unauthenticated("Could not commit to db :(").to_http()
                     })?;
                     let auth_data = AuthorizationData {
-                        subject: token.role().to_string(),
+                        subject: token.role.to_string(),
                         object: request.uri().path().to_string(),
                         action: request.method().to_string(),
                     };
@@ -213,7 +213,7 @@ where
                         Host::verify_auth_token(token).map_err(|e| Status::from(e).to_http())?;
 
                     let auth_data = AuthorizationData {
-                        subject: token.role().to_string(),
+                        subject: token.role.to_string(),
                         object: request.uri().path().to_string(),
                         action: request.method().to_string(),
                     };

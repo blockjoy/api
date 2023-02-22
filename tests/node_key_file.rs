@@ -48,7 +48,7 @@ async fn can_create_key_file() -> anyhow::Result<()> {
     let file = NodeKeyFile::create(req, &mut tx).await?;
     tx.commit().await.unwrap();
 
-    assert_eq!(file.name(), "my-key.txt");
+    assert_eq!(file.name, "my-key.txt");
 
     Ok(())
 }
@@ -111,7 +111,7 @@ async fn deletes_key_file_if_node_is_deleted() -> anyhow::Result<()> {
     };
     let file = NodeKeyFile::create(req, &mut tx).await?;
 
-    assert_eq!(file.name(), "my-key.txt");
+    assert_eq!(file.name, "my-key.txt");
 
     Node::delete(node.id, &mut tx).await?;
 

@@ -34,7 +34,7 @@ impl OrganizationService for OrganizationServiceImpl {
     ) -> Result<Response<GetOrganizationsResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
-        let user_id = *token.id();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org_id = inner.org_id.clone();
 
@@ -79,7 +79,7 @@ impl OrganizationService for OrganizationServiceImpl {
     ) -> Result<Response<CreateOrganizationResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
-        let user_id = *token.id();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org = inner.organization.ok_or_else(required("organization"))?;
         let name = org.name.ok_or_else(required("organization.name"))?;
@@ -123,7 +123,7 @@ impl OrganizationService for OrganizationServiceImpl {
     ) -> Result<Response<DeleteOrganizationResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
-        let user_id = *token.id();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org_id = Uuid::parse_str(inner.id.as_str()).map_err(ApiError::from)?;
         let mut tx = self.db.begin().await?;
@@ -152,7 +152,7 @@ impl OrganizationService for OrganizationServiceImpl {
         request: Request<RestoreOrganizationRequest>,
     ) -> Result<Response<RestoreOrganizationResponse>, Status> {
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
-        let user_id = *token.id();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org_id = Uuid::parse_str(inner.id.as_str()).map_err(ApiError::from)?;
         let mut tx = self.db.begin().await?;
@@ -205,7 +205,7 @@ impl OrganizationService for OrganizationServiceImpl {
     ) -> Result<Response<()>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let caller_id = *token.id();
+        let caller_id = token.id;
         let inner = request.into_inner();
         let user_id = Uuid::parse_str(inner.user_id.as_str()).map_err(ApiError::from)?;
         let org_id = Uuid::parse_str(inner.org_id.as_str()).map_err(ApiError::from)?;
@@ -231,7 +231,7 @@ impl OrganizationService for OrganizationServiceImpl {
     ) -> Result<Response<()>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let user_id = *token.id();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org_id = Uuid::parse_str(inner.org_id.as_str()).map_err(ApiError::from)?;
 

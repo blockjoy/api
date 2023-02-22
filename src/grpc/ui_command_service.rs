@@ -64,17 +64,17 @@ impl CommandServiceImpl {
 
         let db_cmd = Command::create(host_id, req, tx).await?;
         let grpc_cmd = convert::db_command_to_grpc_command(&db_cmd, tx).await?;
-        self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+        self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
 
         match cmd {
             HostCmd::RestartNode | HostCmd::KillNode => {
                 let node = models::Node::find_by_id(resource_id, tx).await?;
                 self.notifier
-                    .bv_nodes_sender()
+                    .bv_nodes_sender()?
                     .send(&node.clone().into())
                     .await?;
                 self.notifier
-                    .ui_nodes_sender()
+                    .ui_nodes_sender()?
                     .send(&node.try_into()?)
                     .await?;
             }
@@ -86,7 +86,7 @@ impl CommandServiceImpl {
 
     async fn send_notification(&self, command: blockjoy::Command) -> Result<()> {
         tracing::debug!("Sending notification: {:?}", command);
-        self.notifier.bv_commands_sender().send(&command).await?;
+        self.notifier.bv_commands_sender()?.send(&command).await?;
         Ok(())
     }
 

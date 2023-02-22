@@ -66,7 +66,6 @@ dependencies = [
  "base64 0.13.1",
  "casbin",
  "chrono",
- "derive-getters",
  "dotenv",
  "futures-util",
  "h2",
@@ -579,17 +578,6 @@ name = "data-encoding"
 version = "2.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23d8666cb01533c39dde32bcbab8e227b4ed6679b2c925eba05feabea39508fb"
-
-[[package]]
-name = "derive-getters"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c5905670fd9c320154f3a4a01c9e609733cd7b753f3c58777ab7d5ce26686b3"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
 
 [[package]]
 name = "digest"

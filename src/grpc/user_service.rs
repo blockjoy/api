@@ -34,7 +34,7 @@ impl UserService for UserServiceImpl {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let mut conn = self.db.conn().await?;
-        let user = token.try_get_user(*token.id(), &mut conn).await?;
+        let user = token.try_get_user(token.id, &mut conn).await?;
         let inner = request.into_inner();
         let response = GetUserResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
@@ -81,7 +81,7 @@ impl UserService for UserServiceImpl {
             .ok_or_else(required("auth token"))?
             .clone();
         let mut tx = self.db.begin().await?;
-        let user_id = token.try_get_user(*token.id(), &mut tx).await?.id;
+        let user_id = token.try_get_user(token.id, &mut tx).await?.id;
         let inner = request.into_inner();
         let user = inner.user.ok_or_else(required("user"))?;
 
@@ -112,7 +112,7 @@ impl UserService for UserServiceImpl {
             .get::<UserAuthToken>()
             .ok_or_else(required("auth token"))?;
         let mut tx = self.db.begin().await?;
-        let user_id = token.try_get_user(*token.id(), &mut tx).await?.id;
+        let user_id = token.try_get_user(token.id, &mut tx).await?.id;
         User::delete(user_id, &mut tx).await?;
         tx.commit().await?;
 

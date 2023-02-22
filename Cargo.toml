@@ -18,7 +18,6 @@ axum = "0.6.2"
 base64 = "0.13.0"
 casbin = { version = "2.0.9", default-features = false, features = ["runtime-tokio", "logging", "incremental", "explain"] }
 chrono = {version = "0.4.19", features = ["serde"]}
-derive-getters = "0.2.0"
 dotenv = "0.15.0"
 futures-util = "0.3.21"
 h2 = "0.3.13"

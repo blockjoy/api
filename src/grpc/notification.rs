@@ -1,5 +1,7 @@
+use anyhow::anyhow;
+
 use super::{blockjoy, blockjoy_ui};
-use crate::errors::Result;
+use crate::{auth::key_provider::KeyProvider, errors::Result};
 
 /// Presents the following senders:
 ///
@@ -45,31 +47,31 @@ impl Notifier {
 
     // bv_orgs_sender does not exist, blockvisor does not care about organizations.
 
-    pub fn bv_hosts_sender(&self) -> MqttClient<blockjoy::HostInfo> {
+    pub fn bv_hosts_sender(&self) -> Result<MqttClient<blockjoy::HostInfo>> {
         MqttClient::new()
     }
 
-    pub fn bv_nodes_sender(&self) -> MqttClient<blockjoy::NodeInfo> {
+    pub fn bv_nodes_sender(&self) -> Result<MqttClient<blockjoy::NodeInfo>> {
         MqttClient::new()
     }
 
-    pub fn bv_commands_sender(&self) -> MqttClient<blockjoy::Command> {
+    pub fn bv_commands_sender(&self) -> Result<MqttClient<blockjoy::Command>> {
         MqttClient::new()
     }
 
-    pub fn ui_orgs_sender(&self) -> MqttClient<blockjoy_ui::Organization> {
+    pub fn ui_orgs_sender(&self) -> Result<MqttClient<blockjoy_ui::Organization>> {
         MqttClient::new()
     }
 
-    pub fn ui_hosts_sender(&self) -> MqttClient<blockjoy_ui::Host> {
+    pub fn ui_hosts_sender(&self) -> Result<MqttClient<blockjoy_ui::Host>> {
         MqttClient::new()
     }
 
-    pub fn ui_nodes_sender(&self) -> MqttClient<blockjoy_ui::Node> {
+    pub fn ui_nodes_sender(&self) -> Result<MqttClient<blockjoy_ui::Node>> {
         MqttClient::new()
     }
 
-    // pub fn ui_commands_sender(&self) -> MqttClient<blockjoy_ui::Command> {
+    // pub fn ui_commands_sender(&self) -> Result<MqttClient<blockjoy_ui::Command>> {
     //     MqttClient::new()
     // }
 }
@@ -83,15 +85,28 @@ pub struct MqttClient<T> {
 }
 
 impl<T: Notify + prost::Message> MqttClient<T> {
-    fn new() -> Self {
-        let mut options = rumqttc::MqttOptions::new("1", "35.237.162.218", 1883);
-        options.set_credentials("blockvisor-api", "PH*rE:\\ZQlecB9/I?[#R$q3M;5yCb]Y+");
+    fn new() -> Result<Self> {
+        let options = Self::get_mqtt_options()?;
         let (client, event_loop) = rumqttc::AsyncClient::new(options, 10);
-        Self {
+        Ok(Self {
             client,
             _event_loop: event_loop,
             _pd: std::marker::PhantomData,
-        }
+        })
+    }
+
+    fn get_mqtt_options() -> Result<rumqttc::MqttOptions> {
+        let client_id = KeyProvider::get_var("MQTT_CLIENT_ID")?.value;
+        let host = KeyProvider::get_var("MQTT_SERVER_ADDRESS")?.value;
+        let port = KeyProvider::get_var("MQTT_SERVER_PORT")?
+            .value
+            .parse()
+            .map_err(|_| anyhow!("Could not parse MQTT_SERVER_PORT as u16"))?;
+        let username = KeyProvider::get_var("MQTT_USERNAME")?.value;
+        let password = KeyProvider::get_var("MQTT_PASSWORD")?.value;
+        let mut options = rumqttc::MqttOptions::new(client_id, host, port);
+        options.set_credentials(username, password);
+        Ok(options)
     }
 
     pub async fn send(&mut self, msg: &T) -> Result<()> {
@@ -198,7 +213,12 @@ mod tests {
         let host = db.host().await;
         let host = host.try_into().unwrap();
         let notifier = Notifier::new();
-        notifier.bv_hosts_sender().send(&host).await.unwrap();
+        notifier
+            .bv_hosts_sender()
+            .unwrap()
+            .send(&host)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -207,7 +227,12 @@ mod tests {
         let node = db.node().await;
         let node = node.try_into().unwrap();
         let notifier = Notifier::new();
-        notifier.bv_nodes_sender().send(&node).await.unwrap();
+        notifier
+            .bv_nodes_sender()
+            .unwrap()
+            .send(&node)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -219,7 +244,12 @@ mod tests {
             .await
             .unwrap();
         let notifier = Notifier::new();
-        notifier.bv_commands_sender().send(&command).await.unwrap();
+        notifier
+            .bv_commands_sender()
+            .unwrap()
+            .send(&command)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -228,7 +258,12 @@ mod tests {
         let host = db.host().await;
         let host = host.try_into().unwrap();
         let notifier = Notifier::new();
-        notifier.ui_hosts_sender().send(&host).await.unwrap();
+        notifier
+            .ui_hosts_sender()
+            .unwrap()
+            .send(&host)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -237,6 +272,11 @@ mod tests {
         let node = db.node().await;
         let node = node.try_into().unwrap();
         let notifier = Notifier::new();
-        notifier.ui_nodes_sender().send(&node).await.unwrap();
+        notifier
+            .ui_nodes_sender()
+            .unwrap()
+            .send(&node)
+            .await
+            .unwrap();
     }
 }

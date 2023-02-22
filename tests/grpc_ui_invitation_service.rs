@@ -68,7 +68,7 @@ async fn responds_ok_for_list_pending() -> anyhow::Result<()> {
     tester.send_admin(Service::list_pending, req).await?;
 
     let mut conn = tester.begin().await;
-    let invitations = models::Invitation::received(invitation.invitee_email(), &mut conn).await?;
+    let invitations = models::Invitation::received(&invitation.invitee_email, &mut conn).await?;
 
     assert_eq!(invitations.len(), 1);
 
@@ -87,7 +87,7 @@ async fn responds_ok_for_list_received() -> anyhow::Result<()> {
 
     tester.send_admin(Service::list_received, req).await?;
     let mut conn = tester.begin().await;
-    let invitations = models::Invitation::received(invitation.invitee_email(), &mut conn).await?;
+    let invitations = models::Invitation::received(&invitation.invitee_email, &mut conn).await?;
 
     assert_eq!(invitations.len(), 1);
 
@@ -100,10 +100,10 @@ async fn responds_ok_for_accept() -> anyhow::Result<()> {
     let invitation = create_invitation(&tester).await?;
     let token = InvitationToken::create_for_invitation(&invitation)?;
     let grpc_invitation = GrpcInvitation {
-        id: Some(invitation.id().to_string()),
-        created_by_id: Some(invitation.created_by_user().to_string()),
-        created_for_org_id: Some(invitation.created_for_org().to_string()),
-        invitee_email: Some(invitation.invitee_email().to_string()),
+        id: Some(invitation.id.to_string()),
+        created_by_id: Some(invitation.created_by_user.to_string()),
+        created_for_org_id: Some(invitation.created_for_org.to_string()),
+        invitee_email: Some(invitation.invitee_email.to_string()),
         created_at: None,
         accepted_at: None,
         declined_at: None,
@@ -129,10 +129,10 @@ async fn responds_ok_for_decline() -> anyhow::Result<()> {
     let token = InvitationToken::create_for_invitation(&invitation)?;
 
     let grpc_invitation = GrpcInvitation {
-        id: Some(invitation.id().to_string()),
-        created_by_id: Some(invitation.created_by_user().to_string()),
-        created_for_org_id: Some(invitation.created_for_org().to_string()),
-        invitee_email: Some(invitation.invitee_email().to_string()),
+        id: Some(invitation.id.to_string()),
+        created_by_id: Some(invitation.created_by_user.to_string()),
+        created_for_org_id: Some(invitation.created_for_org.to_string()),
+        invitee_email: Some(invitation.invitee_email.to_string()),
         created_at: None,
         accepted_at: None,
         declined_at: None,
@@ -157,15 +157,15 @@ async fn responds_ok_for_revoke() -> anyhow::Result<()> {
     let invitation = create_invitation(&tester).await?;
     let user = tester.admin_user().await;
     let mut tx = tester.begin().await;
-    let org = Org::find_by_id(*invitation.created_for_org(), &mut tx).await?;
+    let org = Org::find_by_id(invitation.created_for_org, &mut tx).await?;
     // If the user is already added, thats okay
     let _ = Org::add_member(user.id, org.id, OrgRole::Admin, &mut tx).await;
     tx.commit().await.unwrap();
     let grpc_invitation = GrpcInvitation {
-        id: Some(invitation.id().to_string()),
-        created_by_id: Some(invitation.created_by_user().to_string()),
-        created_for_org_id: Some(invitation.created_for_org().to_string()),
-        invitee_email: Some(invitation.invitee_email().to_string()),
+        id: Some(invitation.id.to_string()),
+        created_by_id: Some(invitation.created_by_user.to_string()),
+        created_for_org_id: Some(invitation.created_for_org.to_string()),
+        invitee_email: Some(invitation.invitee_email.to_string()),
         created_at: None,
         accepted_at: None,
         declined_at: None,

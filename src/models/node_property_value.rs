@@ -1,19 +1,18 @@
-use derive_getters::Getters;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgHasArrayType;
 
 use crate::errors::ApiError;
 use crate::models::NodeTypeKey;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Getters)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodePropertyValue {
-    name: String,
+    pub name: String,
     label: String,
     description: String,
     ui_type: String,
     disabled: bool,
     required: bool,
-    value: Option<String>,
+    pub value: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

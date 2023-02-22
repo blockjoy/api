@@ -1,12 +1,11 @@
 use crate::auth::expiration_provider::ExpirationProvider;
 use crate::auth::{JwtToken, TokenClaim, TokenError, TokenResult, TokenType};
 use axum::http::Request as HttpRequest;
-use derive_getters::Getters;
 use std::str::FromStr;
 use uuid::Uuid;
 
 /// The claims of the token to be stored (encrypted) on the client side.
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Getters)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct UserRefreshToken {
     id: Uuid,
     exp: i64,

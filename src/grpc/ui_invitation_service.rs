@@ -31,7 +31,7 @@ impl InvitationServiceImpl {
             Ok(token) => {
                 tracing::debug!("Found invitation token");
 
-                *token.id()
+                token.id
             }
             Err(_) => {
                 tracing::debug!("No invitation token available, trying user auth token");
@@ -180,11 +180,11 @@ impl InvitationService for InvitationServiceImpl {
         let mut tx = self.db.begin().await?;
         let invitation = Invitation::accept(invitation_id, &mut tx).await?;
         // Only registered users can accept an invitation
-        let new_member = User::find_by_email(invitation.invitee_email(), &mut tx).await?;
+        let new_member = User::find_by_email(&invitation.invitee_email, &mut tx).await?;
 
         Org::add_member(
             new_member.id,
-            *invitation.created_for_org(),
+            invitation.created_for_org,
             OrgRole::Member,
             &mut tx,
         )
@@ -208,7 +208,7 @@ impl InvitationService for InvitationServiceImpl {
     async fn revoke(&self, request: Request<InvitationRequest>) -> Result<Response<()>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let user_id = *token.id();
+        let user_id = token.id;
         let grpc_invitation = request
             .into_inner()
             .invitation

@@ -29,10 +29,10 @@ impl Hosts for HostsServiceImpl {
         request: Request<ProvisionHostRequest>,
     ) -> Result<Response<ProvisionHostResponse>, Status> {
         let inner = request.into_inner();
-        let otp = &inner.otp.clone();
+        let otp = inner.otp.clone();
         let request_id = inner.request_id.clone();
         let mut tx = self.db.begin().await?;
-        let host = HostProvision::claim_by_grpc_provision(otp, inner, &mut tx)
+        let host = HostProvision::claim_by_grpc_provision(&otp, inner, &mut tx)
             .await
             .map_err(|e| match e {
                 ApiError::NotFoundError(e) => {
@@ -61,7 +61,7 @@ impl Hosts for HostsServiceImpl {
         &self,
         request: Request<HostInfoUpdateRequest>,
     ) -> Result<Response<HostInfoUpdateResponse>, Status> {
-        let host_token_id = *try_get_token::<_, HostAuthToken>(&request)?.id();
+        let host_token_id = try_get_token::<_, HostAuthToken>(&request)?.id;
         let (request_id, info) = request.into_data()?;
         let request_host_id = info
             .id
@@ -89,7 +89,7 @@ impl Hosts for HostsServiceImpl {
         &self,
         request: Request<DeleteHostRequest>,
     ) -> Result<Response<DeleteHostResponse>, Status> {
-        let host_token_id = *try_get_token::<_, HostAuthToken>(&request)?.id();
+        let host_token_id = try_get_token::<_, HostAuthToken>(&request)?.id;
         let inner = request.into_inner();
         let host_id = Uuid::parse_str(inner.host_id.as_str()).map_err(ApiError::from)?;
         if host_token_id != host_id {

@@ -54,6 +54,11 @@ jobs:
       # Cookbook secret token
       COOKBOOK_TOKEN: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpZCI6ImE2MDdkOTM2LTYyMjgtNGYxMC04MGM1LTk0M2M0MjFiZWQxOSIsImV4cCI6MTcwNDgwNzY3NywidG9rZW5fdHlwZSI6Imhvc3RfYXV0aCIsInJvbGUiOiJzZXJ2aWNlIn0.5sJB8qilPQ4-F44mCS2WsXElBGfBZFrMJ491Sxmmu1BTj--0N6rlIEnTUwoiJdUXOP08CiBTkStFRtUTFyEpGg
       COOKBOOK_URL: https://babel.dev.blockjoy.com/
+      MQTT_CLIENT_ID: 1
+      MQTT_SERVER_ADDRESS: 35.237.162.218
+      MQTT_SERVER_PORT: 1883
+      MQTT_USERNAME: blockvisor-api
+      MQTT_PASSWORD: PH*rE:\ZQlecB9/I?[#R$q3M;5yCb]Y+
 
     steps:
       - uses: actions/checkout@v2

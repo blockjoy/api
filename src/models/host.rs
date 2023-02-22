@@ -325,13 +325,13 @@ impl Host {
         let ip_addrs: i64 = host.try_get::<i64, _>("ip_addrs")?;
 
         // Trace warnings, if the selected host doesn't seem to have enough resources
-        if *requirements.disk_size_gb() > disk_size / 1024i64.pow(3) {
+        if requirements.disk_size_gb > disk_size / 1024i64.pow(3) {
             tracing::warn!(
                 "Host {} doesn't seem to have enough disk space available",
                 host_id
             );
         }
-        if *requirements.mem_size_mb() > mem_size / 1024i64.pow(2) {
+        if requirements.mem_size_mb > mem_size / 1024i64.pow(2) {
             tracing::warn!(
                 "Host {} doesn't seem to have enough memory available",
                 host_id

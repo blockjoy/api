@@ -105,7 +105,7 @@ impl NodeService for NodeServiceImpl {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let org_id = token
-            .data()
+            .data
             .get("org_id")
             .unwrap_or(&"".to_string())
             .to_owned();
@@ -180,8 +180,7 @@ impl NodeService for NodeServiceImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         // Check quota
         let mut conn = self.db.conn().await?;
-        let user_id = token.id().to_owned();
-        let user = User::find_by_id(user_id, &mut conn).await?;
+        let user = User::find_by_id(token.id, &mut conn).await?;
 
         if user.staking_quota <= 0 {
             return Err(Status::resource_exhausted("User node quota exceeded"));
@@ -193,11 +192,11 @@ impl NodeService for NodeServiceImpl {
         let node = Node::create(&mut fields, &mut tx).await?;
 
         self.notifier
-            .bv_nodes_sender()
+            .bv_nodes_sender()?
             .send(&node.clone().into())
             .await?;
         self.notifier
-            .ui_nodes_sender()
+            .ui_nodes_sender()?
             .send(&node.clone().try_into()?)
             .await?;
 
@@ -208,7 +207,7 @@ impl NodeService for NodeServiceImpl {
         };
         let cmd = Command::create(node.host_id, req, &mut tx).await?;
         let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
-        self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+        self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
 
         let update_user = UserSelectiveUpdate {
             first_name: None,
@@ -225,7 +224,7 @@ impl NodeService for NodeServiceImpl {
         };
         let cmd = Command::create(node.host_id, req, &mut tx).await?;
         let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
-        self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+        self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
 
         tx.commit().await?;
 
@@ -270,7 +269,7 @@ impl NodeService for NodeServiceImpl {
         let mut tx = self.db.begin().await?;
         let node = Node::find_by_id(node_id, &mut tx).await?;
 
-        if Node::belongs_to_user_org(node.org_id, *token.id(), &mut tx).await? {
+        if Node::belongs_to_user_org(node.org_id, token.id, &mut tx).await? {
             // 1. Delete node, if the node belongs to the current user
             // Key files are deleted automatically because of 'on delete cascade' in tables DDL
             Node::delete(node_id, &mut tx).await?;
@@ -288,7 +287,7 @@ impl NodeService for NodeServiceImpl {
                 resource_id: node_id,
             };
             let cmd = Command::create(node.host_id, req, &mut tx).await?;
-            let user_id = token.id().to_owned();
+            let user_id = token.id;
             let user = User::find_by_id(user_id, &mut conn).await?;
             let update_user = UserSelectiveUpdate {
                 first_name: None,
@@ -304,7 +303,7 @@ impl NodeService for NodeServiceImpl {
 
             tx.commit().await?;
 
-            self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+            self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
             // let grpc_cmd = cmd.clone().try_into()?;
             // self.notifier.ui_commands_sender().send(&grpc_cmd).await;
 

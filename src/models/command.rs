@@ -75,7 +75,7 @@ impl Command {
         // Send one notification per pending command
         for command in &commands {
             notifier
-                .bv_commands_sender()
+                .bv_commands_sender()?
                 .send(&convert::db_command_to_grpc_command(command, db).await?)
                 .await?;
             // notifier.ui_commands_sender().send(command).await?;

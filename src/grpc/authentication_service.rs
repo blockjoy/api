@@ -159,7 +159,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
             .ok_or_else(|| Status::unauthenticated("Invalid reset token"))?;
         let refresh_token = get_refresh_token(&request);
         let mut tx = self.db.begin().await?;
-        let user_id = token.try_get_user(*token.id(), &mut tx).await?.id;
+        let user_id = token.try_get_user(token.id, &mut tx).await?.id;
         let request = request.into_inner();
         let cur_user = User::find_by_id(user_id, &mut tx)
             .await?
@@ -189,7 +189,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let mut tx = self.db.begin().await?;
-        let user = token.try_get_user(*token.id(), &mut tx).await?;
+        let user = token.try_get_user(token.id, &mut tx).await?;
         let encoded = token
             .encode()
             .map_err(|e| Status::internal(format!("Token encode error {e:?}")))?;

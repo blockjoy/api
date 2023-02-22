@@ -56,7 +56,7 @@ pub async fn db_command_to_grpc_command(
                 properties: node
                     .node_type
                     .iter_props()
-                    .flat_map(|p| p.value().as_ref().map(|v| (p.name(), v)))
+                    .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
                     .map(|(name, value)| Parameter::new(name, value))
                     .chain([network])
                     .collect(),
@@ -103,7 +103,7 @@ pub async fn db_command_to_grpc_command(
                 properties: node
                     .node_type
                     .iter_props()
-                    .flat_map(|p| p.value().as_ref().map(|v| (p.name(), v)))
+                    .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
                     .map(|(name, value)| Parameter::new(name, value))
                     .chain([network])
                     .collect(),

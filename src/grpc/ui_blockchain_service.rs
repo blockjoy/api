@@ -62,7 +62,7 @@ impl BlockchainService for BlockchainServiceImpl {
                 let nets = get_networks(
                     blockchain.name.clone(),
                     NodeTypeKey::str_from_value(node_type.get_id()),
-                    Some(node_type.version().to_string()),
+                    Some(node_type.version.to_string()),
                 )
                 .await?;
 

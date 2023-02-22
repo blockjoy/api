@@ -51,7 +51,7 @@ fn should_decode_valid_token() -> anyhow::Result<()> {
             &DecodingKey::from_secret(test_secret.as_bytes()),
             &validation,
         ) {
-            Ok(decoded_data) => assert_eq!(*decoded_data.claims.id(), id),
+            Ok(decoded_data) => assert_eq!(decoded_data.claims.id, id),
             Err(e) => panic!("decoding failed: {e}"),
         }
 
@@ -127,7 +127,7 @@ fn should_get_valid_token() -> anyhow::Result<()> {
             .method("GET")
             .body(())?;
         let token = UserAuthToken::from_request(&request).unwrap();
-        assert_eq!(*token.id(), id);
+        assert_eq!(token.id, id);
         Ok(())
     })
 }

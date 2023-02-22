@@ -28,7 +28,7 @@ impl DashboardService for DashboardServiceImpl {
     ) -> Result<Response<DashboardMetricsResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
-        let user_id = *token.id();
+        let user_id = token.id;
         let inner = request.into_inner();
         let org_id = uuid::Uuid::from_str(inner.org_id.as_str()).map_err(ApiError::from)?;
 

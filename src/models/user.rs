@@ -71,7 +71,7 @@ impl User {
                 ExpirationProvider::expiration(TokenType::UserAuth),
                 TokenType::UserAuth,
                 TokenRole::User,
-                Some(token.data().clone()),
+                Some(token.data),
             );
             let token = UserAuthToken::try_new(claim)?;
 

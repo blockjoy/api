@@ -43,10 +43,8 @@ async fn can_create_invitation_with_valid_props() -> anyhow::Result<()> {
         created_for_org_name: Some("boss".to_string()),
     };
     let mut tx = tester.begin().await;
-    let invitation = Invitation::create(&grpc_invitation, &mut tx).await?;
+    Invitation::create(&grpc_invitation, &mut tx).await?;
     tx.commit().await.unwrap();
-
-    assert!(!invitation.id().to_string().is_empty());
 
     Ok(())
 }
@@ -121,10 +119,10 @@ async fn can_accept_invitation() -> anyhow::Result<()> {
     };
     let mut tx = tester.begin().await;
     let invitation = Invitation::create(&grpc_invitation, &mut tx).await?;
-    let invitation = Invitation::accept(invitation.id().to_owned(), &mut tx).await?;
+    let invitation = Invitation::accept(invitation.id, &mut tx).await?;
     tx.commit().await.unwrap();
 
-    assert!(invitation.accepted_at().is_some());
+    invitation.accepted_at.unwrap();
 
     Ok(())
 }
@@ -147,10 +145,10 @@ async fn can_decline_invitation() -> anyhow::Result<()> {
     };
     let mut tx = tester.begin().await;
     let invitation = Invitation::create(&grpc_invitation, &mut tx).await?;
-    let invitation = Invitation::decline(invitation.id().to_owned(), &mut tx).await?;
+    let invitation = Invitation::decline(invitation.id, &mut tx).await?;
     tx.commit().await.unwrap();
 
-    assert!(invitation.declined_at().is_some());
+    invitation.declined_at.unwrap();
 
     Ok(())
 }
@@ -173,7 +171,7 @@ async fn can_revoke_invitation() -> anyhow::Result<()> {
     };
     let mut tx = tester.begin().await;
     let invitation = Invitation::create(&grpc_invitation, &mut tx).await?;
-    let invitation_id = invitation.id().to_owned();
+    let invitation_id = invitation.id;
 
     Invitation::revoke(invitation_id, &mut tx).await?;
 
