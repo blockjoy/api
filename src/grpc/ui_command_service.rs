@@ -83,6 +83,7 @@ impl CommandServiceImpl {
 
     async fn send_notification(&self, command: blockjoy::Command) -> Result<()> {
         tracing::debug!("Sending notification: {:?}", command);
+        println!("Sending notification: {:?}", command);
         self.notifier.bv_commands_sender()?.send(&command).await?;
         Ok(())
     }
@@ -103,6 +104,7 @@ impl CommandService for CommandServiceImpl {
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
+        println!("Command 'Create node' called!");
         let cmd = self.handle_request(request, HostCmd::CreateNode).await?;
         Ok(Response::new(cmd))
     }

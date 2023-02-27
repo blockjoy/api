@@ -188,6 +188,8 @@ impl NodeService for NodeServiceImpl {
         let mut tx = self.db.begin().await?;
         let node = Node::create(&mut fields, &mut tx).await?;
 
+        println!("Created node: now notifying:");
+
         self.notifier
             .bv_nodes_sender()?
             .send(&node.clone().into())
