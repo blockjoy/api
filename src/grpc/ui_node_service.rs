@@ -173,31 +173,52 @@ impl NodeService for NodeServiceImpl {
         &self,
         request: Request<CreateNodeRequest>,
     ) -> Result<Response<CreateNodeResponse>, Status> {
+        tracing::info!("Endpointerino callederino");
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         // Check quota
         let mut conn = self.db.conn().await?;
         let user = User::find_by_id(token.id, &mut conn).await?;
+        tracing::info!("You are {user:?}");
 
         if user.staking_quota <= 0 {
             return Err(Status::resource_exhausted("User node quota exceeded"));
         }
+
+        tracing::info!("Wow quota not even exceeded");
 
         let inner = request.into_inner();
         let mut fields: NodeCreateRequest = inner.node.ok_or_else(required("node"))?.try_into()?;
         let mut tx = self.db.begin().await?;
         let node = Node::create(&mut fields, &mut tx).await?;
 
-        println!("Created node: now notifying:");
+        tracing::info!("Created node: now notifying:");
 
-        self.notifier
-            .bv_nodes_sender()?
-            .send(&node.clone().into())
-            .await?;
+        let sender = self.notifier.bv_nodes_sender();
+        match sender {
+            Ok(mut sender) => {
+                let msg = node.clone().into();
+                tracing::info!("We boutta send dis: {msg:?}");
+                let res = sender.send(&msg).await;
+                match res {
+                    Ok(_) => tracing::info!("Wow that went really well!"),
+                    Err(e) => {
+                        tracing::info!("Sending gave us epic sad times: {e}");
+                        return Err(e.into());
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::info!("Oh noesingtons! Look! {e}");
+                return Err(e.into());
+            }
+        }
         self.notifier
             .ui_nodes_sender()?
             .send(&node.clone().try_into()?)
             .await?;
+
+        tracing::info!("Sent out those notifications my man");
 
         let req = CommandRequest {
             cmd: HostCmd::CreateNode,

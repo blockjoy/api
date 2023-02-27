@@ -62,7 +62,7 @@ impl Notifier {
     }
 
     pub fn bv_nodes_sender(&self) -> Result<MqttClient<blockjoy::NodeInfo>> {
-        println!("Making a sender for node messages");
+        tracing::info!("Making a sender for node messages");
         MqttClient::new(self.client.clone())
     }
 
@@ -125,13 +125,12 @@ impl<T: Notify + prost::Message> MqttClient<T> {
         const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
         let payload = msg.encode_to_vec();
 
-        println!("Sending {msg:?} over channels: {:?}", msg.channels());
+        tracing::info!("Sending {msg:?} over channels: {:?}", msg.channels());
         for channel in msg.channels() {
             self.client
                 .publish(&channel, QOS, RETAIN, payload.clone())
                 .await?;
-            tracing::debug!("Sent {msg:?} over channel {channel}");
-            println!("Sent {msg:?} over channel {channel}");
+            tracing::info!("Sent {msg:?} over channel {channel}");
         }
         Ok(())
     }
