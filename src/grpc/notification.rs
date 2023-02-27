@@ -44,7 +44,13 @@ impl Notifier {
     pub fn new() -> Result<Self> {
         let options = Self::get_mqtt_options()?;
         let (client, mut event_loop) = rumqttc::AsyncClient::new(options, 10);
-        tokio::spawn(async move { while event_loop.poll().await.is_ok() {} });
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = event_loop.poll().await {
+                    tracing::warn!("MQTT failure, ignoring and continuing to poll: {e}");
+                }
+            }
+        });
 
         Ok(Self { client })
     }
