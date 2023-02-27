@@ -18,11 +18,8 @@ pub struct CommandServiceImpl {
 }
 
 impl CommandServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self {
-            db,
-            notifier: Notifier::new(),
-        }
+    pub fn new(db: models::DbPool, notifier: Notifier) -> Self {
+        Self { db, notifier }
     }
 
     async fn handle_request(

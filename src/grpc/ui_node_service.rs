@@ -24,11 +24,8 @@ pub struct NodeServiceImpl {
 }
 
 impl NodeServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self {
-            db,
-            notifier: Notifier::new(),
-        }
+    pub fn new(db: models::DbPool, notifier: Notifier) -> Self {
+        Self { db, notifier }
     }
 }
 

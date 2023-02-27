@@ -17,7 +17,6 @@ use crate::{auth::key_provider::KeyProvider, errors::Result};
 /// |---------------|---------------------------------------------------------|
 /// | commands      | /bv/hosts/<host_id>/nodes/<node_id>/commands            |
 /// |               | /bv/hosts/<host_id>/commands                            |
-/// |               | /bv/commands                                            |
 /// |---------------|---------------------------------------------------------|
 ///
 /// |---------------|---------------------------------------------------------|
@@ -35,65 +34,50 @@ use crate::{auth::key_provider::KeyProvider, errors::Result};
 /// | commands      | /orgs/<org_id>/hosts/<host_id>/nodes/<node_id>/commands |
 /// |               | /hosts/<host_id>/nodes/<node_id>/commands               |
 /// |               | /nodes/<node_id>/commands                               |
-/// |               | /commands                                               |
 /// |---------------|---------------------------------------------------------|
-#[derive(Debug, Clone, Default)]
-pub struct Notifier {}
+#[derive(Debug, Clone)]
+pub struct Notifier {
+    client: rumqttc::AsyncClient,
+}
 
 impl Notifier {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new() -> Result<Self> {
+        let options = Self::get_mqtt_options()?;
+        let (client, mut event_loop) = rumqttc::AsyncClient::new(options, 10);
+        tokio::spawn(async move { while event_loop.poll().await.is_ok() {} });
+
+        Ok(Self { client })
     }
 
     // bv_orgs_sender does not exist, blockvisor does not care about organizations.
 
     pub fn bv_hosts_sender(&self) -> Result<MqttClient<blockjoy::HostInfo>> {
-        MqttClient::new()
+        MqttClient::new(self.client.clone())
     }
 
     pub fn bv_nodes_sender(&self) -> Result<MqttClient<blockjoy::NodeInfo>> {
-        MqttClient::new()
+        MqttClient::new(self.client.clone())
     }
 
     pub fn bv_commands_sender(&self) -> Result<MqttClient<blockjoy::Command>> {
-        MqttClient::new()
+        MqttClient::new(self.client.clone())
     }
 
     pub fn ui_orgs_sender(&self) -> Result<MqttClient<blockjoy_ui::Organization>> {
-        MqttClient::new()
+        MqttClient::new(self.client.clone())
     }
 
     pub fn ui_hosts_sender(&self) -> Result<MqttClient<blockjoy_ui::Host>> {
-        MqttClient::new()
+        MqttClient::new(self.client.clone())
     }
 
     pub fn ui_nodes_sender(&self) -> Result<MqttClient<blockjoy_ui::Node>> {
-        MqttClient::new()
+        MqttClient::new(self.client.clone())
     }
 
     // pub fn ui_commands_sender(&self) -> Result<MqttClient<blockjoy_ui::Command>> {
     //     MqttClient::new()
     // }
-}
-
-/// The DbListener<T> is a singleton struct that listens for messages coming from the database.
-/// When a message comes in, the re
-pub struct MqttClient<T> {
-    client: rumqttc::AsyncClient,
-    event_loop: rumqttc::EventLoop,
-    _pd: std::marker::PhantomData<T>,
-}
-
-impl<T: Notify + prost::Message> MqttClient<T> {
-    fn new() -> Result<Self> {
-        let options = Self::get_mqtt_options()?;
-        let (client, event_loop) = rumqttc::AsyncClient::new(options, 10);
-        Ok(Self {
-            client,
-            event_loop,
-            _pd: std::marker::PhantomData,
-        })
-    }
 
     fn get_mqtt_options() -> Result<rumqttc::MqttOptions> {
         let client_id = KeyProvider::get_var("MQTT_CLIENT_ID")?.value;
@@ -108,6 +92,22 @@ impl<T: Notify + prost::Message> MqttClient<T> {
         options.set_credentials(username, password);
         Ok(options)
     }
+}
+
+/// The DbListener<T> is a singleton struct that listens for messages coming from the database.
+/// When a message comes in, the re
+pub struct MqttClient<T> {
+    client: rumqttc::AsyncClient,
+    _pd: std::marker::PhantomData<T>,
+}
+
+impl<T: Notify + prost::Message> MqttClient<T> {
+    fn new(client: rumqttc::AsyncClient) -> Result<Self> {
+        Ok(Self {
+            client,
+            _pd: std::marker::PhantomData,
+        })
+    }
 
     pub async fn send(&mut self, msg: &T) -> Result<()> {
         const RETAIN: bool = false;
@@ -119,12 +119,6 @@ impl<T: Notify + prost::Message> MqttClient<T> {
             self.client
                 .publish(&channel, QOS, RETAIN, payload.clone())
                 .await?;
-
-            match tokio::time::timeout(SEND_TIMEOUT, self.event_loop.poll()).await {
-                Ok(Ok(_)) => {}
-                Ok(Err(e)) => tracing::error!("Could not send MQTT message: {e}"),
-                Err(_) => tracing::error!("MQTT sending made no progress in {SEND_TIMEOUT:?}"),
-            };
         }
         Ok(())
     }
@@ -219,7 +213,7 @@ mod tests {
         let db = crate::TestDb::setup().await;
         let host = db.host().await;
         let host = host.try_into().unwrap();
-        let notifier = Notifier::new();
+        let notifier = Notifier::new().unwrap();
         notifier
             .bv_hosts_sender()
             .unwrap()
@@ -233,7 +227,7 @@ mod tests {
         let db = crate::TestDb::setup().await;
         let node = db.node().await;
         let node = node.try_into().unwrap();
-        let notifier = Notifier::new();
+        let notifier = Notifier::new().unwrap();
         notifier
             .bv_nodes_sender()
             .unwrap()
@@ -250,7 +244,7 @@ mod tests {
         let command = convert::db_command_to_grpc_command(&command, &mut conn)
             .await
             .unwrap();
-        let notifier = Notifier::new();
+        let notifier = Notifier::new().unwrap();
         notifier
             .bv_commands_sender()
             .unwrap()
@@ -264,7 +258,7 @@ mod tests {
         let db = crate::TestDb::setup().await;
         let host = db.host().await;
         let host = host.try_into().unwrap();
-        let notifier = Notifier::new();
+        let notifier = Notifier::new().unwrap();
         notifier
             .ui_hosts_sender()
             .unwrap()
@@ -278,7 +272,7 @@ mod tests {
         let db = crate::TestDb::setup().await;
         let node = db.node().await;
         let node = node.try_into().unwrap();
-        let notifier = Notifier::new();
+        let notifier = Notifier::new().unwrap();
         notifier
             .ui_nodes_sender()
             .unwrap()
