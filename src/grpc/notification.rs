@@ -115,13 +115,17 @@ impl<T: Notify + prost::Message> MqttClient<T> {
         })
     }
 
-    pub async fn send(&mut self, msg: &T) -> Result<()> {
+    pub async fn send(&mut self, msg: &T) -> Result<()>
+    where
+        T: std::fmt::Debug,
+    {
         const RETAIN: bool = false;
         const QOS: rumqttc::QoS = rumqttc::QoS::ExactlyOnce;
         const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
         let payload = msg.encode_to_vec();
 
         for channel in msg.channels() {
+            tracing::debug!("Sending {msg:?} over channel {channel}");
             self.client
                 .publish(&channel, QOS, RETAIN, payload.clone())
                 .await?;
