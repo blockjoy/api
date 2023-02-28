@@ -1,6 +1,6 @@
 use crate::auth::{Blacklisted, JwtToken, TokenClaim, TokenResult, TokenRole, TokenType};
 use crate::errors::Result;
-use crate::models::{self, BlacklistToken};
+use crate::models;
 use std::str;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -39,18 +39,20 @@ impl JwtToken for PwdResetToken {
 
 #[tonic::async_trait]
 impl Blacklisted for PwdResetToken {
-    async fn blacklist(&self, tx: &mut models::DbTrx<'_>) -> TokenResult<bool> {
-        Ok(BlacklistToken::create(self.encode()?, self.token_type, tx)
-            .await
-            .is_ok())
+    async fn blacklist(&self, conn: &mut diesel_async::AsyncPgConnection) -> TokenResult<bool> {
+        let tkn = models::BlacklistToken {
+            token: self.encode()?,
+            token_type: self.token_type.into(),
+        };
+        Ok(tkn.create(conn).await.is_ok())
     }
 
     async fn is_blacklisted(
         &self,
         token: String,
-        db: &mut sqlx::PgConnection,
+        conn: &mut diesel_async::AsyncPgConnection,
     ) -> TokenResult<bool> {
-        Ok(BlacklistToken::is_listed(token, db).await.is_ok())
+        Ok(models::BlacklistToken::is_listed(token, conn).await.is_ok())
     }
 }
 

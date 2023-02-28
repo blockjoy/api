@@ -1,44 +1,58 @@
-use crate::auth::TokenType;
-use crate::errors::{ApiError, Result};
-use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use super::schema::token_blacklist;
+use crate::auth;
+use crate::errors::Result;
+use diesel::{dsl, prelude::*};
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Insertable, Queryable)]
+#[diesel(table_name = token_blacklist)]
 pub struct BlacklistToken {
     pub token: String,
     pub token_type: TokenType,
 }
 
 impl BlacklistToken {
-    pub async fn create(
-        token: String,
-        token_type: TokenType,
-        tx: &mut super::DbTrx<'_>,
-    ) -> Result<Self> {
-        sqlx::query_as::<_, Self>(
-            r#"
-                INSERT INTO token_blacklist 
-                    (token, token_type)
-                values 
-                    ($1, $2)
-                RETURNING *
-                "#,
-        )
-        .bind(token)
-        .bind(token_type)
-        .fetch_one(tx)
-        .await
-        .map_err(ApiError::from)
+    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let tkn = diesel::insert_into(token_blacklist::table)
+            .values(self)
+            .get_result(conn)
+            .await?;
+        Ok(tkn)
     }
 
     /// Returns true if token is on the blacklist
-    pub async fn is_listed(token: String, db: &mut sqlx::PgConnection) -> Result<bool> {
-        let res: i32 =
-            sqlx::query_scalar("SELECT count(token)::int from token_blacklist WHERE token = $1")
-                .bind(token)
-                .fetch_one(db)
-                .await?;
+    pub async fn is_listed(token: String, conn: &mut AsyncPgConnection) -> Result<bool> {
+        let token = token_blacklist::table.filter(token_blacklist::token.eq(token));
+        let is_listed = diesel::select(dsl::exists(token)).get_result(conn).await?;
 
-        Ok(res > 0)
+        Ok(is_listed)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
+#[ExistingTypePath = "crate::models::schema::sql_types::TokenType"]
+pub enum TokenType {
+    UserAuth,
+    HostAuth,
+    UserRefresh,
+    HostRefresh,
+    PwdReset,
+    RegistrationConfirmation,
+    Invitation,
+    Cookbook,
+}
+
+impl From<auth::TokenType> for TokenType {
+    fn from(value: auth::TokenType) -> Self {
+        match value {
+            auth::TokenType::HostAuth => Self::HostAuth,
+            auth::TokenType::UserAuth => Self::UserAuth,
+            auth::TokenType::UserRefresh => Self::UserRefresh,
+            auth::TokenType::HostRefresh => Self::HostRefresh,
+            auth::TokenType::PwdReset => Self::PwdReset,
+            auth::TokenType::RegistrationConfirmation => Self::RegistrationConfirmation,
+            auth::TokenType::Invitation => Self::Invitation,
+            auth::TokenType::Cookbook => Self::Cookbook,
+        }
     }
 }

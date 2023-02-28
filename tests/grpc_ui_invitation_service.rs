@@ -12,23 +12,15 @@ type Service = invitation_service_client::InvitationServiceClient<transport::Cha
 async fn create_invitation(tester: &Tester) -> anyhow::Result<models::Invitation> {
     let user = tester.admin_user().await;
     let org = tester.org().await;
-    let grpc_invitation = GrpcInvitation {
-        id: None,
-        created_by_id: Some(user.id.to_string()),
-        created_for_org_id: Some(org.id.to_string()),
-        invitee_email: Some(user.email.clone()),
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: Some(format!(
-            "{} {} ({})",
-            user.first_name, user.last_name, user.email
-        )),
-        created_for_org_name: Some(org.name),
+    let new_invitation = models::NewInvitation {
+        created_by_user: user.id,
+        created_by_user_name: user.last_name,
+        created_for_org: org.id,
+        created_for_org_name: org.org.name,
+        invitee_email: "how_can_i@enjoy.blocks",
     };
-    let mut tx = tester.begin().await;
-    let inv = models::Invitation::create(&grpc_invitation, &mut tx).await?;
-    tx.commit().await.unwrap();
+    let mut conn = tester.conn().await;
+    let inv = new_invitation.create(&mut conn).await?;
     Ok(inv)
 }
 
@@ -44,7 +36,7 @@ async fn responds_ok_for_create() -> anyhow::Result<()> {
 
     tester.send_admin(Service::create, req).await?;
 
-    let mut conn = tester.begin().await;
+    let mut conn = tester.conn().await;
     let cnt = models::Invitation::received("hugo@boss.com", &mut conn)
         .await?
         .len();
@@ -67,7 +59,7 @@ async fn responds_ok_for_list_pending() -> anyhow::Result<()> {
 
     tester.send_admin(Service::list_pending, req).await?;
 
-    let mut conn = tester.begin().await;
+    let mut conn = tester.conn().await;
     let invitations = models::Invitation::received(&invitation.invitee_email, &mut conn).await?;
 
     assert_eq!(invitations.len(), 1);
@@ -86,7 +78,7 @@ async fn responds_ok_for_list_received() -> anyhow::Result<()> {
     };
 
     tester.send_admin(Service::list_received, req).await?;
-    let mut conn = tester.begin().await;
+    let mut conn = tester.conn().await;
     let invitations = models::Invitation::received(&invitation.invitee_email, &mut conn).await?;
 
     assert_eq!(invitations.len(), 1);
@@ -156,11 +148,10 @@ async fn responds_ok_for_revoke() -> anyhow::Result<()> {
     let tester = Tester::new().await;
     let invitation = create_invitation(&tester).await?;
     let user = tester.admin_user().await;
-    let mut tx = tester.begin().await;
-    let org = Org::find_by_id(invitation.created_for_org, &mut tx).await?;
+    let mut conn = tester.conn().await;
+    let org = Org::find_by_id(invitation.created_for_org, &mut conn).await?;
     // If the user is already added, thats okay
-    let _ = Org::add_member(user.id, org.id, OrgRole::Admin, &mut tx).await;
-    tx.commit().await.unwrap();
+    let _ = Org::add_member(user.id, org.id, OrgRole::Admin, &mut conn).await;
     let grpc_invitation = GrpcInvitation {
         id: Some(invitation.id.to_string()),
         created_by_id: Some(invitation.created_by_user.to_string()),

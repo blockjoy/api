@@ -18,9 +18,9 @@ axum = "0.6.2"
 base64 = "0.13.0"
 casbin = { version = "2.0.9", default-features = false, features = ["runtime-tokio", "logging", "incremental", "explain"] }
 chrono = {version = "0.4.19", features = ["serde"]}
-diesel = { version = "2.0.3", default-features = false, features = ["postgres", "without-deprecated", "uuid", "chrono", "32-column-tables", "serde_json"] }
+diesel = { version = "2.0.3", default-features = false, features = ["postgres", "without-deprecated", "uuid", "chrono", "32-column-tables", "serde_json", "network-address"] }
 diesel-async = { version = "0.2.0", features = ["bb8", "postgres"] }
-diesel-enum = { git = "https://github.com/ThouCheese/diesel-enum", branch = "feat/diesel-2.0" }
+diesel-derive-enum = { version = "2.0.1", features = ["postgres"] }
 diesel_migrations = { version = "2.0.0", features = ["postgres"] }
 dotenv = "0.15.0"
 futures-util = "0.3.21"
@@ -29,7 +29,8 @@ handlebars = "4.3.3"
 heck = "0.4.0"
 http = "0.2.8"
 hyper = "0.14.20"
-ipnet = "2.5.0"
+ipnet = "2.7.1"
+ipnetwork = "0.20"
 jsonwebtoken = "7.2.0"
 log = "0.4.14"
 petname = "1.1.0"
@@ -37,16 +38,14 @@ pin-project = "1.0.11"
 prost = "0.11.6"
 prost-types = "0.11.6"
 rand = "0.8.5"
-random-string = "1.0.0"
 rumqttc = "0.20.0"
 sendgrid = {version = "0.17.4", default-features = false, features = ["rustls", "async"]}
 serde = {version = "1.0.125", features = ["derive"]}
 serde_json = { version = "1.0.81", features = ["raw_value"] }
-sqlx = {version = "0.6.2", features = ["postgres", "runtime-tokio-rustls", "migrate", "chrono", "uuid", "json", "ipnetwork"]}
 strum = "0.24"
 strum_macros = "0.24"
 thiserror = "1.0.24"
-tokio = {version = "1.2.0", default-features = false, features = ["io-util", "sync", "macros", "sync"]}
+tokio = { version = "1.2.0", default-features = false, features = ["io-util", "sync", "macros", "sync", "rt-multi-thread"] }
 tokio-stream = { version = "0.1.9", features = ["net"] }
 toml = "0.5.9"
 tonic = { version = "0.8.3", features = ["tls-roots"] }

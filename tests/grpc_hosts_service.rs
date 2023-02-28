@@ -2,6 +2,8 @@ mod setup;
 
 use api::grpc::blockjoy::{self, hosts_client};
 use api::models;
+use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use tonic::transport;
 
 type Service = hosts_client::HostsClient<transport::Channel>;
@@ -164,17 +166,15 @@ async fn responds_not_found_for_provision() {
 #[tokio::test]
 async fn responds_ok_for_provision() {
     let tester = setup::Tester::new().await;
-    let host_provision_request = models::HostProvisionRequest {
-        nodes: None,
-        ip_gateway: "172.168.0.1".parse().unwrap(),
-        ip_range_from: "172.168.0.10".parse().unwrap(),
-        ip_range_to: "172.168.0.100".parse().unwrap(),
-    };
-    let mut tx = tester.begin().await;
-    let host_provision = models::HostProvision::create(host_provision_request, &mut tx)
-        .await
-        .unwrap();
-    tx.commit().await.unwrap();
+    let create_host_provision = models::NewHostProvision::new(
+        None,
+        "172.168.0.1".parse().unwrap(),
+        "172.168.0.10".parse().unwrap(),
+        "172.168.0.100".parse().unwrap(),
+    )
+    .unwrap();
+    let mut conn = tester.conn().await;
+    let host_provision = create_host_provision.create(&mut conn).await.unwrap();
     let host_info = blockjoy::HostInfo {
         id: Some(uuid::Uuid::new_v4().to_string()),
         name: Some("tester".into()),
@@ -276,33 +276,40 @@ async fn responds_permission_denied_for_delete() {
 
 #[tokio::test]
 async fn can_update_host_info() {
+    use models::schema::hosts;
     // TODO @Thomas: This doesn't really test the api, should this be here or maybe in
     // `src/models/host.rs`?
 
     let tester = setup::Tester::new().await;
     let host = tester.host().await;
-    let host_info = blockjoy::HostInfo {
-        id: Some(host.id.to_string()),
-        name: Some("tester".to_string()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
-        ..Default::default()
+    let update_host = models::UpdateHost {
+        id: host.id,
+        name: Some("tester"),
+        ip_range_from: Some("192.168.0.10".parse().unwrap()),
+        ip_range_to: Some("192.168.0.20".parse().unwrap()),
+        ip_gateway: Some("192.168.0.1".parse().unwrap()),
+        version: None,
+        location: None,
+        cpu_count: None,
+        mem_size: None,
+        disk_size: None,
+        os: None,
+        os_version: None,
+        ip_addr: None,
+        status: None,
     };
-    let fields = host_info.try_into().unwrap();
-    let mut tx = tester.begin().await;
-    let update = models::Host::update_all(fields, &mut tx).await.unwrap();
+    let mut conn = tester.conn().await;
+    let update = update_host.update(&mut conn).await.unwrap();
     assert_eq!(update.name, "tester".to_string());
 
     // Fetch host after update to see if it really worked as expected
-    let row = sqlx::query(r#"SELECT * from hosts where ID = $1"#)
-        .bind(host.id)
-        .fetch_one(&mut tx)
-        .await;
-    tx.commit().await.unwrap();
 
-    let row = row.unwrap();
-    let updated_host = models::Host::try_from(row).unwrap();
+    let updated_host: models::Host = hosts::table
+        .filter(hosts::id.eq(host.id))
+        .get_result(&mut conn)
+        .await
+        .unwrap();
+
     assert_eq!(updated_host.name, "tester".to_string());
     assert!(!updated_host.ip_addr.is_empty())
 }

@@ -5,6 +5,7 @@
 
 use crate::grpc::blockjoy::{self, metrics_service_server::MetricsService};
 use crate::models;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::Response;
 
 pub struct MetricsServiceImpl {
@@ -14,6 +15,42 @@ pub struct MetricsServiceImpl {
 impl MetricsServiceImpl {
     pub fn new(db: models::DbPool) -> Self {
         Self { db }
+    }
+}
+
+impl blockjoy::NodeMetrics {
+    pub fn as_metrics_update(self, id: &str) -> crate::Result<models::UpdateNodeMetrics> {
+        let id = id.parse()?;
+        Ok(models::UpdateNodeMetrics {
+            id,
+            block_height: self.height.map(i64::try_from).transpose()?,
+            block_age: self.block_age.map(i64::try_from).transpose()?,
+            staking_status: self
+                .staking_status
+                .map(models::NodeStakingStatus::try_from)
+                .transpose()?,
+            consensus: self.consensus,
+            chain_status: self.application_status.map(TryInto::try_into).transpose()?,
+            sync_status: self.sync_status.map(TryInto::try_into).transpose()?,
+        })
+    }
+}
+
+impl blockjoy::HostMetrics {
+    pub fn as_metrics_update(self, id: &str) -> crate::Result<models::UpdateHostMetrics> {
+        let id = id.parse()?;
+        Ok(models::UpdateHostMetrics {
+            id,
+            used_cpu: self.used_cpu.map(i32::try_from).transpose()?,
+            used_memory: self.used_memory.map(i64::try_from).transpose()?,
+            used_disk_space: self.used_disk_space.map(i64::try_from).transpose()?,
+            load_one: self.load_one,
+            load_five: self.load_five,
+            load_fifteen: self.load_fifteen,
+            network_received: self.network_received.map(i64::try_from).transpose()?,
+            network_sent: self.network_sent.map(i64::try_from).transpose()?,
+            uptime: self.uptime.map(i64::try_from).transpose()?,
+        })
     }
 }
 
@@ -30,11 +67,11 @@ impl MetricsService for MetricsServiceImpl {
         let updates = request
             .metrics
             .into_iter()
-            .map(|(k, v)| models::NodeMetricsUpdate::from_metrics(k, v))
+            .map(|(k, v)| v.as_metrics_update(&k))
             .collect::<Result<_, _>>()?;
-        let mut tx = self.db.begin().await?;
-        models::NodeMetricsUpdate::update_metrics(updates, &mut tx).await?;
-        tx.commit().await?;
+        self.db
+            .trx(|c| models::UpdateNodeMetrics::update_metrics(updates, c).scope_boxed())
+            .await?;
         Ok(tonic::Response::new(()))
     }
 
@@ -46,11 +83,11 @@ impl MetricsService for MetricsServiceImpl {
         let updates = request
             .metrics
             .into_iter()
-            .map(|(k, v)| models::HostSelectiveUpdate::from_metrics(k, v))
+            .map(|(k, v)| v.as_metrics_update(&k))
             .collect::<Result<_, _>>()?;
-        let mut tx = self.db.begin().await?;
-        models::HostSelectiveUpdate::update_metrics(updates, &mut tx).await?;
-        tx.commit().await?;
+        self.db
+            .trx(|c| models::UpdateHostMetrics::update_metrics(updates, c).scope_boxed())
+            .await?;
         Ok(tonic::Response::new(()))
     }
 }

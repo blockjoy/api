@@ -12,10 +12,9 @@ type Service = AuthenticationServiceClient<Channel>;
 #[tokio::test]
 async fn responds_ok_with_valid_credentials_for_login() -> anyhow::Result<()> {
     let tester = setup::Tester::new().await;
-    let mut tx = tester.begin().await;
+    let mut conn = tester.conn().await;
     // confirm admin user, otherwise login would fail
-    models::User::confirm(tester.admin_user().await.id, &mut tx).await?;
-    tx.commit().await.unwrap();
+    models::User::confirm(tester.admin_user().await.id, &mut conn).await?;
     let req = blockjoy_ui::LoginUserRequest {
         meta: Some(tester.meta()),
         email: "admin@here.com".to_string(),
@@ -70,7 +69,7 @@ async fn responds_ok_with_valid_credentials_for_confirm() {
         .send_with(Service::confirm, req, token, setup::DummyRefresh)
         .await
         .unwrap();
-    let mut conn = tester.begin().await;
+    let mut conn = tester.conn().await;
     let confirmed = models::User::is_confirmed(tester.admin_user().await.id, &mut conn)
         .await
         .unwrap();

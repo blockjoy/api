@@ -121,21 +121,20 @@ impl RequestMeta {
     }
 }
 
-pub fn pagination_parameters(pagination: Option<Pagination>) -> Result<(i32, i32), Status> {
+pub fn pagination_parameters(pagination: Option<Pagination>) -> Result<(i64, i64), Status> {
     if let Some(pagination) = pagination {
-        let max_items: i32 = env::var("PAGINATION_MAX_ITEMS")
+        let items_per_page = pagination.items_per_page.into();
+        let current_page: i64 = pagination.current_page.into();
+        let max_items = env::var("PAGINATION_MAX_ITEMS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
 
-        if pagination.items_per_page > max_items {
+        if items_per_page > max_items {
             return Err(Status::cancelled("Max items exceeded"));
         }
 
-        Ok((
-            pagination.items_per_page,
-            pagination.current_page * pagination.items_per_page,
-        ))
+        Ok((items_per_page, current_page * items_per_page))
     } else {
         Ok((10, 0))
     }

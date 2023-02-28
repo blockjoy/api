@@ -9,7 +9,8 @@ use crate::grpc::blockjoy_ui::{
 };
 use crate::grpc::helpers::{required, try_get_token};
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
-use crate::models::{self, Host, HostRequest, HostSelectiveUpdate};
+use crate::models;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 
 pub struct HostServiceImpl {
@@ -25,10 +26,10 @@ impl HostServiceImpl {
 impl blockjoy_ui::Host {
     pub async fn from_model(
         model: models::Host,
-        db: &mut sqlx::PgConnection,
+        conn: &mut diesel_async::AsyncPgConnection,
     ) -> errors::Result<Self> {
-        let nodes = models::Node::find_all_by_host(model.id, &mut *db).await?;
-        let nodes = blockjoy_ui::Node::from_models(nodes, &mut *db).await?;
+        let nodes = models::Node::find_all_by_host(model.id, conn).await?;
+        let nodes = blockjoy_ui::Node::from_models(nodes, conn).await?;
         let dto = Self {
             id: Some(model.id.to_string()),
             org_id: None,
@@ -49,6 +50,57 @@ impl blockjoy_ui::Host {
             ip_gateway: model.ip_gateway.map(|ip| ip.to_string()),
         };
         Ok(dto)
+    }
+
+    pub fn as_new(&self) -> crate::Result<models::NewHost<'_>> {
+        Ok(models::NewHost {
+            name: self.name.as_deref().ok_or_else(required("host.name"))?,
+            version: self.version.as_deref(),
+            location: self.location.as_deref(),
+            cpu_count: self.cpu_count,
+            mem_size: self.mem_size,
+            disk_size: self.disk_size,
+            os: self.os.as_deref(),
+            os_version: self.os_version.as_deref(),
+            ip_addr: self.ip.as_deref().ok_or_else(required("host.ip"))?,
+            status: models::ConnectionStatus::Online,
+            ip_range_from: self
+                .ip_range_from
+                .as_ref()
+                .ok_or_else(required("host.ip_range_from"))?
+                .parse()?,
+
+            ip_range_to: self
+                .ip_range_to
+                .as_ref()
+                .ok_or_else(required("host.ip_range_to"))?
+                .parse()?,
+
+            ip_gateway: self
+                .ip_gateway
+                .as_ref()
+                .ok_or_else(required("host.ip_gateway"))?
+                .parse()?,
+        })
+    }
+
+    pub fn as_update(&self) -> crate::Result<models::UpdateHost<'_>> {
+        Ok(models::UpdateHost {
+            id: self.id.as_ref().ok_or_else(required("host.id"))?.parse()?,
+            name: self.name.as_deref(),
+            version: self.version.as_deref(),
+            location: self.location.as_deref(),
+            cpu_count: self.cpu_count,
+            mem_size: self.mem_size,
+            disk_size: self.disk_size,
+            os: self.os.as_deref(),
+            os_version: self.os_version.as_deref(),
+            ip_addr: self.ip.as_deref(),
+            status: None,
+            ip_range_from: None,
+            ip_range_to: None,
+            ip_gateway: None,
+        })
     }
 }
 
@@ -77,7 +129,7 @@ impl HostService for HostServiceImpl {
         let hosts = match param {
             Param::Id(id) => {
                 let host_id = id.parse().map_err(ApiError::from)?;
-                let host = Host::find_by_id(host_id, &mut conn).await?;
+                let host = models::Host::find_by_id(host_id, &mut conn).await?;
                 let host = blockjoy_ui::Host::from_model(host, &mut conn).await?;
                 vec![host]
             }
@@ -107,11 +159,19 @@ impl HostService for HostServiceImpl {
     ) -> Result<Response<CreateHostResponse>, Status> {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
-        let host = inner.host.ok_or_else(required("host"))?;
-        let fields: HostRequest = host.try_into()?;
-        let mut tx = self.db.begin().await?;
-        Host::create(fields, &mut tx).await?;
-        tx.commit().await?;
+        self.db
+            .trx(|c| {
+                async move {
+                    inner
+                        .host
+                        .ok_or_else(required("host"))?
+                        .as_new()?
+                        .create(c)
+                        .await
+                }
+                .scope_boxed()
+            })
+            .await?;
         let response = CreateHostResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
@@ -125,12 +185,19 @@ impl HostService for HostServiceImpl {
     ) -> Result<Response<UpdateHostResponse>, Status> {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
-        let host = inner.host.ok_or_else(required("host"))?;
-        let fields: HostSelectiveUpdate = host.try_into()?;
-
-        let mut tx = self.db.begin().await?;
-        Host::update_all(fields, &mut tx).await?;
-        tx.commit().await?;
+        self.db
+            .trx(|c| {
+                async move {
+                    inner
+                        .host
+                        .ok_or_else(required("host"))?
+                        .as_update()?
+                        .update(c)
+                        .await
+                }
+                .scope_boxed()
+            })
+            .await?;
         let response = UpdateHostResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
@@ -144,9 +211,9 @@ impl HostService for HostServiceImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let host_id = inner.id.parse().map_err(ApiError::from)?;
-        let mut tx = self.db.begin().await?;
-        Host::delete(host_id, &mut tx).await?;
-        tx.commit().await?;
+        self.db
+            .trx(|c| models::Host::delete(host_id, c).scope_boxed())
+            .await?;
         let response = DeleteHostResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };

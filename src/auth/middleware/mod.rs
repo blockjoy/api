@@ -2,12 +2,13 @@
 //!
 //!
 
+use super::AnyToken;
 use crate::auth::unauthenticated_paths::UnauthenticatedPaths;
 use crate::auth::{Authorization, AuthorizationData, AuthorizationState, FindableById, TokenType};
 use crate::auth::{JwtToken, UserRefreshToken};
 use crate::errors::Result;
 use crate::models;
-use crate::models::{Host, User};
+use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::BoxFuture;
 use hyper::{Request, Response};
 use std::fmt::Debug;
@@ -15,14 +16,12 @@ use tonic::body::BoxBody;
 use tonic::Status;
 use tower_http::auth::AsyncAuthorizeRequest;
 
-use super::AnyToken;
-
-fn unauthorized_response(msg: &str) -> Response<BoxBody> {
-    Status::permission_denied(msg).to_http()
+fn unauthorized_response(msg: impl std::fmt::Display) -> Response<BoxBody> {
+    Status::permission_denied(msg.to_string()).to_http()
 }
 
-fn unauthenticated_response(msg: &str) -> Response<BoxBody> {
-    Status::unauthenticated(msg).to_http()
+fn unauthenticated_response(msg: impl std::fmt::Display) -> Response<BoxBody> {
+    Status::unauthenticated(msg.to_string()).to_http()
 }
 
 #[derive(Clone)]
@@ -72,7 +71,7 @@ where
             let token = AnyToken::from_request(&request)
                 .map_err(|_| unauthenticated_response("Missing valid token"))?;
             let cant_parse =
-                |e| unauthenticated_response(&format!("Could not extract token: {e:?}"));
+                |e| unauthenticated_response(format!("Could not extract token: {e:?}"));
 
             match token {
                 AnyToken::PwdReset(token) => {
@@ -87,7 +86,7 @@ where
 
                     let result = enforcer
                         .try_authorized(auth_data)
-                        .map_err(|e| unauthorized_response(&e.to_string()))?;
+                        .map_err(|e| unauthorized_response(e))?;
                     // Evaluate authorization result
                     match result {
                         AuthorizationState::Authorized => {
@@ -110,7 +109,7 @@ where
                     };
                     let result = enforcer
                         .try_authorized(auth_data)
-                        .map_err(|e| unauthorized_response(&e.to_string()))?;
+                        .map_err(|e| unauthorized_response(e))?;
                     // Evaluate authorization result
                     match result {
                         AuthorizationState::Authorized => {
@@ -133,7 +132,7 @@ where
                     };
                     let result = enforcer
                         .try_authorized(auth_data)
-                        .map_err(|e| unauthorized_response(&e.to_string()))?;
+                        .map_err(|e| unauthorized_response(e))?;
                     // Evaluate authorization result
                     match result {
                         AuthorizationState::Authorized => {
@@ -149,20 +148,25 @@ where
                 AnyToken::UserAuth(token) => {
                     // 1. try if token is valid
                     token.encode().map_err(cant_parse)?;
-
-                    let mut tx = db
-                        .begin()
-                        .await
-                        .map_err(|_| Status::unauthenticated("Db down :(").to_http())?;
-                    let refresh_token = match UserRefreshToken::from_request(&request) {
+                    let refresh = match UserRefreshToken::from_request(&request) {
                         Ok(token) => token,
                         Err(e) => {
                             tracing::error!("No refresh token in request: {e}");
-                            let refresh = User::find_by_id(token.get_id(), &mut tx)
+                            let mut conn = db.conn().await.map_err(|e| {
+                                unauthenticated_response(format!("Could get db conn: {e}"))
+                            })?;
+                            let refresh = models::User::find_by_id(token.get_id(), &mut conn)
                                 .await
-                                .map_err(|_| unauthenticated_response("No refresh token for user"))?
+                                .map_err(|e| {
+                                    // Don't mention that the user doesn't exist
+                                    unauthenticated_response(format!(
+                                        "Could not extract refresh token: {e}"
+                                    ))
+                                })?
                                 .refresh
-                                .unwrap_or_default();
+                                .ok_or_else(|| {
+                                    unauthenticated_response("user has no refresh token")
+                                })?;
 
                             UserRefreshToken::from_encoded(
                                 refresh.as_str(),
@@ -170,19 +174,27 @@ where
                                 true,
                             )
                             .map_err(|e| {
-                                unauthenticated_response(&format!(
-                                    "Could not extract refresh token: {e:?}"
+                                unauthenticated_response(format!(
+                                    "Could not extract refresh token: {e}"
                                 ))
                             })?
                         }
                     };
-                    let (_, token, refresh_token) =
-                        User::verify_and_refresh_auth_token(token, refresh_token, &mut tx)
-                            .await
-                            .map_err(|e| Status::from(e).to_http())?;
-                    tx.commit().await.map_err(|_| {
-                        Status::unauthenticated("Could not commit to db :(").to_http()
-                    })?;
+
+                    let (token, refresh) = db
+                        .trx(|c| {
+                            async move {
+                                let (_, token, refresh) =
+                                    models::User::verify_and_refresh_auth_token(token, refresh, c)
+                                        .await?;
+                                Ok((token, refresh))
+                            }
+                            .scope_boxed()
+                        })
+                        .await
+                        .map_err(|e| {
+                            unauthenticated_response(format!("Couldn't authenticate: {e}"))
+                        })?;
                     let auth_data = AuthorizationData {
                         subject: token.role.to_string(),
                         object: request.uri().path().to_string(),
@@ -191,12 +203,12 @@ where
 
                     let result = enforcer
                         .try_authorized(auth_data)
-                        .map_err(|e| unauthorized_response(&e.to_string()))?;
+                        .map_err(|e| unauthorized_response(e))?;
                     // Evaluate authorization result
                     match result {
                         AuthorizationState::Authorized => {
                             request.extensions_mut().insert(token);
-                            request.extensions_mut().insert(refresh_token);
+                            request.extensions_mut().insert(refresh);
 
                             Ok(request)
                         }
@@ -209,8 +221,8 @@ where
                     // 1. try if token is valid
                     token.encode().map_err(cant_parse)?;
 
-                    let token =
-                        Host::verify_auth_token(token).map_err(|e| Status::from(e).to_http())?;
+                    let token = models::Host::verify_auth_token(token)
+                        .map_err(|e| Status::from(e).to_http())?;
 
                     let auth_data = AuthorizationData {
                         subject: token.role.to_string(),
@@ -220,7 +232,7 @@ where
 
                     let result = enforcer
                         .try_authorized(auth_data)
-                        .map_err(|e| unauthorized_response(&e.to_string()))?;
+                        .map_err(|e| unauthorized_response(e))?;
                     // Evaluate authorization result
                     match result {
                         AuthorizationState::Authorized => {

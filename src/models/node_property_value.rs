@@ -1,10 +1,7 @@
-use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgHasArrayType;
-
 use crate::errors::ApiError;
 use crate::models::NodeTypeKey;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NodePropertyValue {
     pub name: String,
     label: String,
@@ -15,16 +12,11 @@ pub struct NodePropertyValue {
     pub value: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A list of properties, paired with an `id`, that goes into the `node_type` field of a `node`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NodeProperties {
     id: i32,
     properties: Option<Vec<NodePropertyValue>>,
-}
-
-impl PgHasArrayType for NodeProperties {
-    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("JSONB[]")
-    }
 }
 
 impl TryFrom<String> for NodeProperties {

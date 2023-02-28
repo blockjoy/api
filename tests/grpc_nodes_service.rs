@@ -42,7 +42,7 @@ async fn responds_ok_for_info_update() {
         .await
         .unwrap();
 
-    let mut conn = tester.pool.conn().await.unwrap();
+    let mut conn = tester.conn().await;
     let node = Node::find_by_id(Uuid::parse_str(node_id.as_str()).unwrap(), &mut conn)
         .await
         .unwrap();

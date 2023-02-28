@@ -1,7 +1,7 @@
 mod setup;
 
 use api::auth::{JwtToken, TokenClaim, TokenRole, TokenType, UserAuthToken, UserRefreshToken};
-use api::models::{User, UserSelectiveUpdate};
+use api::models::{UpdateUser, User};
 use chrono::Utc;
 
 #[tokio::test]
@@ -15,13 +15,14 @@ async fn can_verify_and_refresh_auth_token() -> anyhow::Result<()> {
         TokenRole::User,
         None,
     );
-    let refresh = UserRefreshToken::try_new(claim)?;
-    let fields = UserSelectiveUpdate {
-        refresh_token: Some(refresh.encode()?),
+    let refresh_token = UserRefreshToken::try_new(claim)?;
+    let encoded = refresh_token.encode()?;
+    let fields = UpdateUser {
+        refresh: Some(&encoded),
         ..Default::default()
     };
-    let mut tx = tester.begin().await;
-    let user = User::update_all(refresh.get_id(), fields, &mut tx).await?;
+    let mut conn = tester.conn().await;
+    let user = fields.update(&mut conn).await?;
     let claim = TokenClaim::new(
         user.id,
         Utc::now().timestamp() - 1,
@@ -31,10 +32,9 @@ async fn can_verify_and_refresh_auth_token() -> anyhow::Result<()> {
     );
     let auth = UserAuthToken::try_new(claim)?;
 
-    User::verify_and_refresh_auth_token(auth, refresh, &mut tx)
+    User::verify_and_refresh_auth_token(auth, refresh_token, &mut conn)
         .await
         .unwrap();
-    tx.commit().await.unwrap();
     Ok(())
 }
 
@@ -50,12 +50,13 @@ async fn cannot_verify_and_refresh_wo_valid_refresh_token() -> anyhow::Result<()
         None,
     );
     let refresh_token = UserRefreshToken::try_new(claim)?;
-    let fields = UserSelectiveUpdate {
-        refresh_token: Some(refresh_token.encode()?),
+    let encoded = refresh_token.encode()?;
+    let fields = UpdateUser {
+        refresh: Some(&encoded),
         ..Default::default()
     };
-    let mut tx = tester.begin().await;
-    let user = User::update_all(refresh_token.get_id(), fields, &mut tx).await?;
+    let mut conn = tester.conn().await;
+    let user = fields.update(&mut conn).await?;
     let claim = TokenClaim::new(
         user.id,
         Utc::now().timestamp() - 1,
@@ -65,10 +66,9 @@ async fn cannot_verify_and_refresh_wo_valid_refresh_token() -> anyhow::Result<()
     );
     let auth_token = UserAuthToken::try_new(claim)?;
 
-    User::verify_and_refresh_auth_token(auth_token, refresh_token, &mut tx)
+    User::verify_and_refresh_auth_token(auth_token, refresh_token, &mut conn)
         .await
         .unwrap_err();
-    tx.commit().await.unwrap();
 
     Ok(())
 }
@@ -80,9 +80,8 @@ async fn can_confirm_unconfirmed_user() -> anyhow::Result<()> {
 
     assert!(user.confirmed_at.is_none());
 
-    let mut tx = tester.begin().await;
-    let user = User::confirm(user.id, &mut tx).await?;
-    tx.commit().await.unwrap();
+    let mut conn = tester.conn().await;
+    let user = User::confirm(user.id, &mut conn).await?;
 
     user.confirmed_at.unwrap();
 
@@ -96,15 +95,14 @@ async fn cannot_confirm_confirmed_user() -> anyhow::Result<()> {
 
     assert!(user.confirmed_at.is_none());
 
-    let mut tx = tester.begin().await;
-    let user = User::confirm(user.id, &mut tx).await?;
+    let mut conn = tester.conn().await;
+    let user = User::confirm(user.id, &mut conn).await?;
 
     assert!(user.confirmed_at.is_some());
 
-    User::confirm(user.id, &mut tx)
+    User::confirm(user.id, &mut conn)
         .await
         .expect_err("Already confirmed user confirmed again");
-    tx.commit().await.unwrap();
     Ok(())
 }
 
@@ -115,11 +113,11 @@ async fn can_check_if_user_confirmed() -> anyhow::Result<()> {
 
     assert!(user.confirmed_at.is_none());
 
-    let mut tx = tester.begin().await;
-    let user = User::confirm(user.id, &mut tx).await?;
+    let mut conn = tester.conn().await;
+    let user = User::confirm(user.id, &mut conn).await?;
 
     assert!(user.confirmed_at.is_some());
-    assert!(User::is_confirmed(user.id, &mut tx).await?);
+    assert!(User::is_confirmed(user.id, &mut conn).await?);
 
     Ok(())
 }
@@ -130,9 +128,8 @@ async fn returns_false_for_unconfirmed_user_at_check_if_user_confirmed() -> anyh
     let user = tester.admin_user().await;
 
     assert!(user.confirmed_at.is_none());
-    let mut tx = tester.begin().await;
-    assert!(!User::is_confirmed(user.id, &mut tx).await?);
-    tx.commit().await.unwrap();
+    let mut conn = tester.conn().await;
+    assert!(!User::is_confirmed(user.id, &mut conn).await?);
 
     Ok(())
 }

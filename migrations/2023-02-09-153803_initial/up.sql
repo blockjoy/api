@@ -1,8 +1,16 @@
+DROP TABLE IF EXISTS _sqlx_migrations;
+
+
+-- For our next trick, if the migrations up to here have already been ran by SQLx, then
+-- 'enum_blockchain_status' will already exists.
+DO $$
+BEGIN
+IF NOT EXISTS (SELECT TRUE FROM pg_type WHERE typname = 'enum_blockchain_status') THEN
+
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 
 COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UUIDs)';
 
-DROP TABLE IF EXISTS _sqlx_migrations;
 
 CREATE TYPE enum_blockchain_status AS ENUM (
     'development',
@@ -144,8 +152,8 @@ CREATE TYPE token_type AS ENUM (
     'host_refresh'
 );
 
-CREATE TABLE blockchains (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS blockchains (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     name text NOT NULL,
     description text,
     status enum_blockchain_status DEFAULT 'development'::enum_blockchain_status NOT NULL,
@@ -162,8 +170,8 @@ CREATE TABLE blockchains (
     supported_node_types jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
-CREATE TABLE broadcast_filters (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS broadcast_filters (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     blockchain_id uuid NOT NULL,
     org_id uuid NOT NULL,
     name text NOT NULL,
@@ -177,8 +185,8 @@ CREATE TABLE broadcast_filters (
     txn_types jsonb NOT NULL
 );
 
-CREATE TABLE broadcast_logs (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS broadcast_logs (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     blockchain_id uuid NOT NULL,
     org_id uuid NOT NULL,
     broadcast_filter_id uuid NOT NULL,
@@ -189,8 +197,8 @@ CREATE TABLE broadcast_logs (
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-CREATE TABLE commands (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS commands (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     host_id uuid NOT NULL,
     cmd enum_host_cmd NOT NULL,
     sub_cmd text,
@@ -201,7 +209,7 @@ CREATE TABLE commands (
     resource_id uuid DEFAULT uuid_generate_v4() NOT NULL
 );
 
-CREATE TABLE host_provisions (
+CREATE TABLE IF NOT EXISTS host_provisions (
     id text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     claimed_at timestamp with time zone,
@@ -212,8 +220,8 @@ CREATE TABLE host_provisions (
     ip_gateway inet
 );
 
-CREATE TABLE hosts (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS hosts (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     version text,
     name text NOT NULL,
     location text,
@@ -240,15 +248,15 @@ CREATE TABLE hosts (
     host_type enum_host_type DEFAULT 'cloud'::enum_host_type
 );
 
-CREATE TABLE info (
+CREATE TABLE IF NOT EXISTS info (
     block_height bigint DEFAULT 0 NOT NULL,
     staked_count bigint DEFAULT 0,
     oracle_price bigint DEFAULT 0,
     total_rewards bigint DEFAULT 0
 );
 
-CREATE TABLE invitations (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS invitations (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_by_user uuid,
     created_for_org uuid,
     invitee_email text NOT NULL,
@@ -259,7 +267,7 @@ CREATE TABLE invitations (
     created_for_org_name text DEFAULT ''::text NOT NULL
 );
 
-CREATE TABLE invoices (
+CREATE TABLE IF NOT EXISTS invoices (
     id integer NOT NULL,
     user_id uuid NOT NULL,
     amount bigint NOT NULL,
@@ -279,22 +287,22 @@ CREATE SEQUENCE invoices_id_seq
     NO MAXVALUE
     CACHE 1;
 
-CREATE TABLE ip_addresses (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS ip_addresses (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     ip inet NOT NULL,
     host_id uuid,
     is_assigned boolean DEFAULT false NOT NULL
 );
 
-CREATE TABLE node_key_files (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS node_key_files (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     name text NOT NULL,
     content text NOT NULL,
     node_id uuid NOT NULL
 );
 
-CREATE TABLE nodes (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS nodes (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     org_id uuid NOT NULL,
     host_id uuid NOT NULL,
     name text,
@@ -324,8 +332,8 @@ CREATE TABLE nodes (
     network text DEFAULT ''::text NOT NULL
 );
 
-CREATE TABLE orgs (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS orgs (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     name text NOT NULL,
     is_personal boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -333,7 +341,7 @@ CREATE TABLE orgs (
     deleted_at timestamp with time zone
 );
 
-CREATE TABLE orgs_users (
+CREATE TABLE IF NOT EXISTS orgs_users (
     org_id uuid NOT NULL,
     user_id uuid NOT NULL,
     role enum_org_role,
@@ -341,7 +349,7 @@ CREATE TABLE orgs_users (
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-CREATE TABLE payments (
+CREATE TABLE IF NOT EXISTS payments (
     hash text NOT NULL,
     user_id uuid NOT NULL,
     block bigint NOT NULL,
@@ -352,8 +360,8 @@ CREATE TABLE payments (
     created_at timestamp with time zone DEFAULT now()
 );
 
-CREATE TABLE rewards (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS rewards (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     block bigint NOT NULL,
     hash text NOT NULL,
     validator_id uuid NOT NULL,
@@ -365,13 +373,13 @@ CREATE TABLE rewards (
     validator text NOT NULL
 );
 
-CREATE TABLE token_blacklist (
+CREATE TABLE IF NOT EXISTS token_blacklist (
     token text NOT NULL,
     token_type token_type NOT NULL
 );
 
-CREATE TABLE users (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS users (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     email text NOT NULL,
     hashword text NOT NULL,
     salt text NOT NULL,
@@ -388,53 +396,17 @@ CREATE TABLE users (
 
 ALTER TABLE ONLY invoices ALTER COLUMN id SET DEFAULT nextval('invoices_id_seq'::regclass);
 
-ALTER TABLE ONLY blockchains
-    ADD CONSTRAINT blockchains_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY broadcast_filters
-    ADD CONSTRAINT broadcast_filters_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY broadcast_logs
-    ADD CONSTRAINT broadcast_logs_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY commands
-    ADD CONSTRAINT commands_pkey PRIMARY KEY (id);
-
 ALTER TABLE ONLY rewards
     ADD CONSTRAINT const_rewards_val_hash_u UNIQUE (validator, hash);
-
-ALTER TABLE ONLY host_provisions
-    ADD CONSTRAINT host_provisions_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY hosts
-    ADD CONSTRAINT hosts_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY info
     ADD CONSTRAINT info_pkey PRIMARY KEY (block_height);
 
-ALTER TABLE ONLY invitations
-    ADD CONSTRAINT invitations_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY invoices
-    ADD CONSTRAINT invoices_pkey PRIMARY KEY (id);
-
 ALTER TABLE ONLY ip_addresses
     ADD CONSTRAINT ip_addresses_ip_key UNIQUE (ip);
 
-ALTER TABLE ONLY ip_addresses
-    ADD CONSTRAINT ip_addresses_pkey PRIMARY KEY (id);
-
 ALTER TABLE ONLY node_key_files
     ADD CONSTRAINT node_key_files_name_node_id_key UNIQUE (name, node_id);
-
-ALTER TABLE ONLY node_key_files
-    ADD CONSTRAINT node_key_files_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY nodes
-    ADD CONSTRAINT nodes_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY orgs
-    ADD CONSTRAINT orgs_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY orgs_users
     ADD CONSTRAINT orgs_users_pkey PRIMARY KEY (org_id, user_id);
@@ -442,17 +414,11 @@ ALTER TABLE ONLY orgs_users
 ALTER TABLE ONLY payments
     ADD CONSTRAINT payments_pkey PRIMARY KEY (hash);
 
-ALTER TABLE ONLY rewards
-    ADD CONSTRAINT rewards_pkey PRIMARY KEY (id);
-
 ALTER TABLE ONLY token_blacklist
     ADD CONSTRAINT token_blacklist_pkey PRIMARY KEY (token);
 
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_email_key UNIQUE (email);
-
-ALTER TABLE ONLY users
-    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_refresh_key UNIQUE (refresh);
@@ -583,3 +549,6 @@ ALTER TABLE ONLY orgs_users
 
 ALTER TABLE ONLY orgs_users
     ADD CONSTRAINT orgs_users_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+END IF;
+END$$;

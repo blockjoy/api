@@ -8,6 +8,7 @@ use crate::grpc::blockjoy::{
 };
 use crate::grpc::helpers::required;
 use crate::models::{Blockchain, Command, HostCmd, Node, NodeTypeKey};
+use diesel_async::AsyncPgConnection;
 use prost_types::Timestamp;
 
 impl Parameter {
@@ -21,7 +22,7 @@ impl Parameter {
 
 pub async fn db_command_to_grpc_command(
     cmd: &Command,
-    conn: &mut sqlx::PgConnection,
+    conn: &mut AsyncPgConnection,
 ) -> ApiResult<GrpcCommand> {
     let mut node_cmd = NodeCommand {
         node_id: cmd.resource_id.to_string(),
@@ -50,11 +51,11 @@ pub async fn db_command_to_grpc_command(
 
             let node = Node::find_by_id(cmd.resource_id, conn).await?;
             let network = Parameter::new("network", &node.network);
+            let node_type = node.node_type()?;
             let cmd = blockjoy::NodeInfoUpdate {
                 name: node.name,
                 self_update: Some(node.self_update),
-                properties: node
-                    .node_type
+                properties: node_type
                     .iter_props()
                     .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
                     .map(|(name, value)| Parameter::new(name, value))
@@ -83,25 +84,21 @@ pub async fn db_command_to_grpc_command(
             let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
             let image = ContainerImage {
                 protocol: blockchain.name,
-                node_type: NodeTypeKey::str_from_value(node.node_type.0.get_id()).to_lowercase(),
-                node_version: node
-                    .version
-                    .clone()
-                    .unwrap_or_else(|| "latest".to_string())
-                    .to_lowercase(),
+                node_type: NodeTypeKey::str_from_value(node.node_type()?.get_id()).to_lowercase(),
+                node_version: node.version.as_deref().unwrap_or("latest").to_lowercase(),
                 status: StatusName::Development.into(),
             };
             let network = Parameter::new("network", &node.network);
+            let node_type = node.node_type()?;
             let create_cmd = NodeCreate {
-                name: node.name.unwrap_or_default(),
+                name: node.name.ok_or_else(required("node.name"))?,
                 blockchain: node.blockchain_id.to_string(),
                 image: Some(image),
-                r#type: node.node_type.to_json()?,
+                r#type: node_type.to_json()?,
                 ip: node.ip_addr.ok_or_else(required("node.ip_addr"))?,
-                gateway: node.ip_gateway.ok_or_else(required("node.ip_gateway"))?,
+                gateway: node.ip_gateway,
                 self_update: node.self_update,
-                properties: node
-                    .node_type
+                properties: node_type
                     .iter_props()
                     .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
                     .map(|(name, value)| Parameter::new(name, value))
@@ -146,43 +143,32 @@ pub mod from {
     use crate::cookbook::cookbook_grpc::NetworkConfiguration;
     use crate::errors::ApiError;
     use crate::grpc;
-    use crate::grpc::blockjoy;
-    use crate::grpc::blockjoy::HostInfo;
     use crate::grpc::blockjoy::Keyfile;
     use crate::grpc::blockjoy_ui::blockchain_network::NetworkType;
+    use crate::grpc::blockjoy_ui::BlockchainNetwork;
     use crate::grpc::blockjoy_ui::{
         self, node::NodeStatus as GrpcNodeStatus, node::StakingStatus as GrpcStakingStatus,
-        node::SyncStatus as GrpcSyncStatus, Host as GrpcHost, Node as GrpcNode, Organization,
-        User as GrpcUiUser,
+        node::SyncStatus as GrpcSyncStatus, Node as GrpcNode,
     };
-    use crate::grpc::blockjoy_ui::{BlockchainNetwork, FilterCriteria};
     use crate::grpc::helpers::required;
-    use crate::models::HostSelectiveUpdate;
-    use crate::models::{
-        self, ConnectionStatus, ContainerStatus, HostRequest, NodeChainStatus, NodeCreateRequest,
-        NodeInfo, NodeKeyFile, NodeStakingStatus, NodeSyncStatus, Org, User, UserSelectiveUpdate,
-    };
-    use crate::models::{Invitation, NodeFilter};
+    use crate::models::{self, NodeChainStatus, NodeKeyFile, NodeStakingStatus, NodeSyncStatus};
     use anyhow::anyhow;
-    use serde_json::Value;
-    use std::i64;
-    use std::net::AddrParseError;
-    use std::str::FromStr;
-    use std::string::FromUtf8Error;
     use tonic::{Code, Status};
-    use uuid::Uuid;
 
-    impl From<GrpcUiUser> for UserSelectiveUpdate {
-        fn from(user: GrpcUiUser) -> Self {
-            Self {
-                first_name: user.first_name,
-                last_name: user.last_name,
-                fee_bps: None,
-                staking_quota: None,
-                refresh_token: None,
-            }
-        }
-    }
+    // impl TryFrom<&blockjoy_ui::User> for UpdateUser<'_> {
+    //     type Error = ApiError;
+
+    //     fn try_from(user: &blockjoy_ui::User) -> crate::Result<Self> {
+    //         Ok(Self {
+    //             id: user.id.as_ref().ok_or_else(required("user.id"))?.parse()?,
+    //             first_name: user.first_name.as_deref(),
+    //             last_name: user.last_name.as_deref(),
+    //             fee_bps: None,
+    //             staking_quota: None,
+    //             refresh: None,
+    //         })
+    //     }
+    // }
 
     impl TryFrom<&UserAuthToken> for grpc::blockjoy_ui::ApiToken {
         type Error = ApiError;
@@ -202,167 +188,17 @@ pub mod from {
         }
     }
 
-    impl TryFrom<blockjoy::NodeInfo> for models::NodeInfo {
-        type Error = ApiError;
-
-        fn try_from(value: blockjoy::NodeInfo) -> Result<Self, Self::Error> {
-            Ok(Self {
-                id: value.id.parse()?,
-                version: None,
-                ip_addr: value.ip,
-                block_height: value.block_height,
-                node_data: None,
-                chain_status: Some(
-                    NodeChainStatus::try_from(value.app_status.unwrap_or(0))
-                        .map_err(|_| ApiError::UnexpectedError(anyhow!("Unknown chain status")))?,
-                ),
-                sync_status: Some(
-                    NodeSyncStatus::try_from(value.sync_status.unwrap_or(0))
-                        .map_err(|_| ApiError::UnexpectedError(anyhow!("Unknown sync status")))?,
-                ),
-                staking_status: Some(
-                    NodeStakingStatus::try_from(value.staking_status.unwrap_or(0)).map_err(
-                        |_| ApiError::UnexpectedError(anyhow!("Unknown staking status")),
-                    )?,
-                ),
-                container_status: Some(
-                    ContainerStatus::try_from(value.container_status.unwrap_or(0)).map_err(
-                        |_| ApiError::UnexpectedError(anyhow!("Unknown container status")),
-                    )?,
-                ),
-                self_update: value.self_update.unwrap_or(false),
-            })
-        }
-    }
-
-    impl From<models::Node> for blockjoy::NodeInfo {
-        fn from(value: models::Node) -> Self {
-            Self {
-                id: value.id.to_string(),
-                name: value.name,
-                ip: value.ip_addr,
-                self_update: Some(value.self_update),
-                block_height: value.block_height,
-                onchain_name: None,
-                app_status: Some(value.chain_status as i32),
-                container_status: Some(value.container_status as i32),
-                sync_status: Some(value.sync_status as i32),
-                staking_status: Some(value.staking_status as i32),
-                address: value.address,
-                host_id: Some(value.host_id.to_string()),
-            }
-        }
-    }
-
-    impl TryFrom<Invitation> for blockjoy_ui::Invitation {
-        type Error = ApiError;
-
-        fn try_from(value: Invitation) -> Result<Self, Self::Error> {
-            Ok(Self {
-                id: Some(value.id.to_string()),
-                created_by_id: Some(value.created_by_user.to_string()),
-                created_by_user_name: Some(value.created_by_user_name),
-                created_for_org_id: Some(value.created_for_org.to_string()),
-                created_for_org_name: Some(value.created_for_org_name),
-                invitee_email: Some(value.invitee_email),
-                created_at: Some(try_dt_to_ts(value.created_at)?),
-                accepted_at: value.accepted_at.map(try_dt_to_ts).transpose()?,
-                declined_at: value.declined_at.map(try_dt_to_ts).transpose()?,
-            })
-        }
-    }
-
-    impl From<HostSelectiveUpdate> for HostInfo {
-        fn from(update: HostSelectiveUpdate) -> Self {
-            Self {
-                id: Some(update.id.to_string()),
-                name: update.name,
-                version: update.version,
-                location: update.location,
-                cpu_count: update.cpu_count,
-                mem_size: update.mem_size,
-                disk_size: update.disk_size,
-                os: update.os,
-                os_version: update.os_version,
-                ip: None,
-                ip_range_from: update.ip_range_from.map(|v| v.to_string()),
-                ip_range_to: update.ip_range_to.map(|v| v.to_string()),
-                ip_gateway: update.ip_gateway.map(|v| v.to_string()),
-            }
-        }
-    }
-
-    impl From<models::Host> for HostInfo {
-        fn from(value: models::Host) -> Self {
-            Self {
-                id: Some(value.id.to_string()),
-                name: Some(value.name),
-                version: value.version,
-                location: value.location,
-                cpu_count: value.cpu_count,
-                mem_size: value.mem_size,
-                disk_size: value.disk_size,
-                os: value.os,
-                os_version: value.os_version,
-                ip: Some(value.ip_addr),
-                ip_range_from: value.ip_range_from.map(|ip| ip.to_string()),
-                ip_range_to: value.ip_range_from.map(|ip| ip.to_string()),
-                ip_gateway: value.ip_range_from.map(|ip| ip.to_string()),
-            }
-        }
-    }
-
-    impl TryFrom<FilterCriteria> for NodeFilter {
-        type Error = ();
-
-        fn try_from(value: FilterCriteria) -> Result<Self, Self::Error> {
-            Ok(Self {
-                status: value.states,
-                node_types: value.node_types,
-                blockchains: value
-                    .blockchain_ids
-                    .iter()
-                    .map(|id| Uuid::from_str(id.as_str()).unwrap_or_default())
-                    .collect(),
-            })
-        }
-    }
-
-    impl TryFrom<GrpcHost> for HostSelectiveUpdate {
-        type Error = ApiError;
-
-        fn try_from(host: GrpcHost) -> Result<Self, Self::Error> {
-            let updater = Self {
-                id: host.id.ok_or_else(required("update.id"))?.parse()?,
-                name: host.name,
-                version: host.version,
-                location: host.location,
-                cpu_count: host.cpu_count,
-                mem_size: host.mem_size,
-                disk_size: host.disk_size,
-                os: host.os,
-                os_version: host.os_version,
-                ip_addr: host.ip,
-                status: None,
-                ip_range_from: None,
-                ip_range_to: None,
-                ip_gateway: None,
-                ..Default::default()
-            };
-            Ok(updater)
-        }
-    }
-
     impl TryFrom<models::HostProvision> for blockjoy_ui::HostProvision {
         type Error = ApiError;
 
         fn try_from(hp: models::HostProvision) -> Result<Self, Self::Error> {
+            let install_cmd = hp.install_cmd();
             let hp = Self {
                 id: Some(hp.id),
                 host_id: hp.host_id.map(|id| id.to_string()),
                 created_at: Some(try_dt_to_ts(hp.created_at)?),
                 claimed_at: hp.claimed_at.map(try_dt_to_ts).transpose()?,
-                install_cmd: hp.install_cmd.map(String::from),
+                install_cmd: Some(install_cmd),
                 ip_range_from: hp
                     .ip_range_from
                     .map(|ip| ip.to_string())
@@ -378,44 +214,6 @@ pub mod from {
                 org_id: None,
             };
             Ok(hp)
-        }
-    }
-
-    impl TryFrom<GrpcHost> for HostRequest {
-        type Error = ApiError;
-
-        fn try_from(host: GrpcHost) -> Result<Self, Self::Error> {
-            let req = Self {
-                name: host.name.ok_or_else(required("host.name"))?,
-                version: host.version,
-                location: host.location,
-                cpu_count: host.cpu_count,
-                mem_size: host.mem_size,
-                disk_size: host.disk_size,
-                os: host.os,
-                os_version: host.os_version,
-                ip_addr: host.ip.ok_or_else(required("host.ip"))?,
-                status: ConnectionStatus::Online,
-                ip_range_from: Some(
-                    host.ip_range_from
-                        .ok_or_else(required("host.ip_range_from"))?
-                        .parse()
-                        .map_err(|e: AddrParseError| ApiError::UnexpectedError(anyhow!(e)))?,
-                ),
-                ip_range_to: Some(
-                    host.ip_range_to
-                        .ok_or_else(required("host.ip_range_to"))?
-                        .parse()
-                        .map_err(|e: AddrParseError| ApiError::UnexpectedError(anyhow!(e)))?,
-                ),
-                ip_gateway: Some(
-                    host.ip_gateway
-                        .ok_or_else(required("host.ip_gateway"))?
-                        .parse()
-                        .map_err(|e: AddrParseError| ApiError::UnexpectedError(anyhow!(e)))?,
-                ),
-            };
-            Ok(req)
         }
     }
 
@@ -446,22 +244,6 @@ pub mod from {
         }
     }
 
-    impl TryFrom<&User> for GrpcUiUser {
-        type Error = ApiError;
-
-        fn try_from(user: &User) -> Result<Self, Self::Error> {
-            let user = Self {
-                id: Some(user.id.to_string()),
-                email: Some(user.email.clone()),
-                first_name: Some(user.first_name.clone()),
-                last_name: Some(user.last_name.clone()),
-                created_at: Some(try_dt_to_ts(user.created_at)?),
-                updated_at: None,
-            };
-            Ok(user)
-        }
-    }
-
     impl From<ApiError> for Status {
         fn from(e: ApiError) -> Self {
             let msg = format!("{e:?}");
@@ -484,7 +266,7 @@ pub mod from {
             let e = anyhow!(format!("{status:?}"));
 
             match status.code() {
-                Code::Unauthenticated => ApiError::InvalidAuthentication(e),
+                Code::Unauthenticated => ApiError::InvalidAuthentication(e.to_string()),
                 Code::PermissionDenied => ApiError::InsufficientPermissionsError,
                 Code::InvalidArgument => ApiError::InvalidArgument(status),
                 _ => ApiError::UnexpectedError(e),
@@ -492,46 +274,13 @@ pub mod from {
         }
     }
 
-    impl TryFrom<User> for GrpcUiUser {
-        type Error = ApiError;
+    // impl TryFrom<Org> for Organization {
+    //     type Error = ApiError;
 
-        fn try_from(user: User) -> Result<Self, Self::Error> {
-            let user = Self {
-                id: Some(user.id.to_string()),
-                email: Some(user.email),
-                first_name: Some(user.first_name),
-                last_name: Some(user.last_name),
-                created_at: Some(try_dt_to_ts(user.created_at)?),
-                updated_at: None,
-            };
-            Ok(user)
-        }
-    }
-
-    impl TryFrom<Org> for Organization {
-        type Error = ApiError;
-
-        fn try_from(org: Org) -> Result<Self, Self::Error> {
-            Organization::try_from(&org)
-        }
-    }
-
-    impl TryFrom<&Org> for Organization {
-        type Error = ApiError;
-
-        fn try_from(org: &Org) -> Result<Self, Self::Error> {
-            let org = Self {
-                id: Some(org.id.to_string()),
-                name: Some(org.name.clone()),
-                personal: Some(org.is_personal),
-                member_count: org.member_count,
-                created_at: Some(try_dt_to_ts(org.created_at)?),
-                updated_at: Some(try_dt_to_ts(org.updated_at)?),
-                current_user: None,
-            };
-            Ok(org)
-        }
-    }
+    //     fn try_from(org: Org) -> Result<Self, Self::Error> {
+    //         Organization::try_from(&org)
+    //     }
+    // }
 
     impl From<models::OrgUser> for grpc::blockjoy_ui::OrgUser {
         fn from(value: models::OrgUser) -> Self {
@@ -543,96 +292,63 @@ pub mod from {
         }
     }
 
-    impl TryFrom<Keyfile> for NodeKeyFile {
-        type Error = ApiError;
+    // impl TryFrom<&blockjoy_ui::Node> for models::NewNode<'_> {
+    //     type Error = ApiError;
 
-        fn try_from(value: Keyfile) -> Result<Self, Self::Error> {
-            Ok(Self {
-                name: value.name,
-                content: String::from_utf8(value.content)
-                    .map_err(|e: FromUtf8Error| ApiError::UnexpectedError(anyhow!(e)))?,
-                ..Default::default()
-            })
-        }
-    }
+    //     fn try_from(node: &blockjoy_ui::Node) -> Result<Self, Self::Error> {
+    //         let node_type = node.r#type.as_ref().ok_or_else(required("node.type"))?;
+    //         let props: NodeProperties = serde_json::from_str(&node_type)?;
+    //         let req = Self {
+    //             org_id: node
+    //                 .org_id
+    //                 .as_ref()
+    //                 .ok_or_else(required("node.org_id"))?
+    //                 .parse()?,
+    //             host_name: &node
+    //                 .host_name
+    //                 .as_ref()
+    //                 .ok_or_else(required("node.org_id"))?,
+    //             name: petname::petname(3, "_"),
+    //             groups: node.groups.join(","),
+    //             version: node.version.as_deref(),
+    //             ip_addr: node.ip.as_deref(),
+    //             ip_gateway: node.ip_gateway.as_deref(),
+    //             blockchain_id: node
+    //                 .blockchain_id
+    //                 .as_ref()
+    //                 .ok_or_else(required("node.blockchain_id"))?
+    //                 .parse()?,
+    //             node_type: serde_json::to_value(props)?,
+    //             address: node.address.as_deref(),
+    //             wallet_address: node.wallet_address.as_deref(),
+    //             block_height: node.block_height.map(i64::from),
+    //             node_data: node.node_data.as_deref().map(Value::from),
+    //             chain_status: node
+    //                 .status
+    //                 .ok_or_else(required("node.status"))?
+    //                 .try_into()?,
+    //             sync_status: NodeSyncStatus::Unknown,
+    //             staking_status: NodeStakingStatus::Unknown,
+    //             container_status: ContainerStatus::Unknown,
+    //             self_update: node.self_update.unwrap_or(false),
+    //             vcpu_count: 0,
+    //             mem_size_mb: 0,
+    //             disk_size_gb: 0,
+    //             network: node
+    //                 .network
+    //                 .as_deref()
+    //                 .ok_or_else(required("node.network"))?,
+    //         };
 
-    impl TryFrom<GrpcNode> for NodeCreateRequest {
-        type Error = ApiError;
-
-        fn try_from(node: GrpcNode) -> Result<Self, Self::Error> {
-            let req = Self {
-                org_id: Uuid::parse_str(
-                    node.org_id
-                        .ok_or_else(|| ApiError::validation("GrpcNode.org_id is required"))?
-                        .as_str(),
-                )?,
-                host_name: node.host_name.unwrap_or_default(),
-                name: Some(petname::petname(3, "_")),
-                groups: Some(node.groups.join(",")),
-                version: node.version.map(String::from),
-                ip_addr: node.ip.map(String::from),
-                ip_gateway: node.ip_gateway.map(String::from),
-                blockchain_id: Uuid::parse_str(
-                    node.blockchain_id
-                        .ok_or_else(|| ApiError::validation("GrpcNode.blockchain_id is required"))?
-                        .as_str(),
-                )?,
-                node_type: node
-                    .r#type
-                    .ok_or_else(required("node.type"))?
-                    .try_into()
-                    .map(sqlx::types::Json)
-                    .map_err(|_| ApiError::validation("Node property JSON is invalid"))?,
-                address: node.address.map(String::from),
-                wallet_address: node.wallet_address.map(String::from),
-                block_height: node.block_height.map(i64::from),
-                node_data: node.node_data.map(Value::from),
-                chain_status: node
-                    .status
-                    .ok_or_else(required("node.status"))?
-                    .try_into()?,
-                sync_status: NodeSyncStatus::Unknown,
-                staking_status: Some(NodeStakingStatus::Unknown),
-                container_status: ContainerStatus::Unknown,
-                self_update: node.self_update.unwrap_or(false),
-                vcpu_count: 0,
-                mem_size_mb: 0,
-                disk_size_gb: 0,
-                network: node.network.ok_or_else(required("node.network"))?,
-            };
-
-            Ok(req)
-        }
-    }
-
-    impl TryFrom<GrpcNode> for NodeInfo {
-        type Error = ApiError;
-
-        fn try_from(node: GrpcNode) -> Result<Self, Self::Error> {
-            let node_info = Self {
-                id: node.id.ok_or_else(required("id"))?.parse()?,
-                version: node.version,
-                ip_addr: node.ip,
-                block_height: node.block_height,
-                node_data: node.node_data.map(Value::from),
-                chain_status: node.status.map(|n| n.try_into()).transpose()?,
-                sync_status: node.sync_status.map(NodeSyncStatus::try_from).transpose()?,
-                staking_status: node
-                    .staking_status
-                    .map(NodeStakingStatus::try_from)
-                    .transpose()?,
-                // No container status in node available
-                container_status: None,
-                self_update: node.self_update.unwrap_or(false),
-            };
-            Ok(node_info)
-        }
-    }
+    //         Ok(req)
+    //     }
+    // }
 
     impl TryFrom<models::Node> for GrpcNode {
         type Error = ApiError;
 
         fn try_from(node: models::Node) -> Result<Self, Self::Error> {
+            let node_type = node.node_type()?.to_json()?;
             let res = Self {
                 id: Some(node.id.to_string()),
                 org_id: Some(node.org_id.to_string()),
@@ -643,7 +359,7 @@ pub mod from {
                 groups: vec![],
                 version: node.version,
                 ip: node.ip_addr,
-                r#type: Some(node.node_type.0.to_json()?),
+                r#type: Some(node_type),
                 address: node.address,
                 wallet_address: node.wallet_address,
                 block_height: node.block_height,
@@ -652,8 +368,8 @@ pub mod from {
                 updated_at: Some(try_dt_to_ts(node.updated_at)?),
                 status: Some(node.chain_status as i32),
                 sync_status: Some(node.sync_status as i32),
-                staking_status: Some(node.staking_status as i32),
-                ip_gateway: node.ip_gateway,
+                staking_status: node.staking_status.map(|ss| ss as i32),
+                ip_gateway: Some(node.ip_gateway),
                 self_update: Some(node.self_update),
                 network: Some(node.network.clone()),
                 blockchain_name: Some(node.network),
@@ -748,7 +464,7 @@ pub mod from {
         type Error = ApiError;
 
         fn try_from(model: &models::Blockchain) -> Result<Self, Self::Error> {
-            let json = &model.supported_node_types.0;
+            let json = &model.supported_node_types()?;
             let json = serde_json::to_string(&json)
                 .map_err(|e| anyhow!("Could not serialize supported node types: {e}"))?;
 

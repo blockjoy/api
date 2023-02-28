@@ -1,7 +1,6 @@
 mod setup;
 
 use api::grpc::blockjoy_ui::{self, user_service_client, GetUserRequest};
-use api::models;
 use tonic::transport;
 
 type Service = user_service_client::UserServiceClient<transport::Channel>;
@@ -32,39 +31,6 @@ async fn responds_not_found_with_valid_token_for_delete() {
 #[tokio::test]
 async fn responds_ok_with_valid_token_for_delete() {
     let tester = setup::Tester::new().await;
-    // create a node
-    let blockchain = tester.blockchain().await;
-    let user = tester.admin_user().await;
-    let org = tester.org_for(&user).await;
-    let mut req = models::NodeCreateRequest {
-        org_id: org.id,
-        blockchain_id: blockchain.id,
-        node_type: sqlx::types::Json(models::NodeProperties::special_type(
-            models::NodeTypeKey::Validator,
-        )),
-        chain_status: models::NodeChainStatus::Unknown,
-        sync_status: models::NodeSyncStatus::Syncing,
-        container_status: models::ContainerStatus::Installing,
-        address: None,
-        wallet_address: None,
-        block_height: None,
-        groups: None,
-        node_data: None,
-        ip_addr: None,
-        ip_gateway: Some("192.168.0.1".into()),
-        name: None,
-        version: Some("3.3.0".into()),
-        staking_status: None,
-        self_update: false,
-        vcpu_count: 0,
-        mem_size_mb: 0,
-        disk_size_gb: 0,
-        host_name: "some host".to_string(),
-        network: "some network".to_string(),
-    };
-    let mut tx = tester.begin().await;
-    models::Node::create(&mut req, &mut tx).await.unwrap();
-    tx.commit().await.unwrap();
     let req = blockjoy_ui::DeleteUserRequest {
         meta: Some(tester.meta()),
     };

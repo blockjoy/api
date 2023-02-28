@@ -172,10 +172,10 @@ diesel::table! {
 diesel::table! {
     invitations (id) {
         id -> Uuid,
-        created_by_user -> Nullable<Uuid>,
-        created_for_org -> Nullable<Uuid>,
+        created_by_user -> Uuid,
+        created_for_org -> Uuid,
         invitee_email -> Text,
-        created_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
         accepted_at -> Nullable<Timestamptz>,
         declined_at -> Nullable<Timestamptz>,
         created_by_user_name -> Text,
@@ -236,7 +236,7 @@ diesel::table! {
         node_data -> Nullable<Jsonb>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        blockchain_id -> Nullable<Uuid>,
+        blockchain_id -> Uuid,
         sync_status -> EnumNodeSyncStatus,
         chain_status -> EnumNodeChainStatus,
         staking_status -> Nullable<EnumNodeStakingStatus>,
@@ -272,7 +272,7 @@ diesel::table! {
     orgs_users (org_id, user_id) {
         org_id -> Uuid,
         user_id -> Uuid,
-        role -> Nullable<EnumOrgRole>,
+        role -> EnumOrgRole,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
     }

@@ -1,18 +1,16 @@
 use crate::auth::FindableById;
-use crate::errors::{ApiError, Result};
-use crate::grpc::blockjoy::CommandInfo;
+use crate::errors::Result;
+use crate::grpc::blockjoy;
 use crate::grpc::convert;
 use crate::grpc::notification::Notifier;
-use crate::models::UpdateInfo;
+use crate::models::schema::commands;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use std::convert::From;
+use diesel::prelude::*;
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use uuid::Uuid;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[serde(rename_all = "snake_case")]
-#[sqlx(type_name = "enum_host_cmd", rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
+#[ExistingTypePath = "crate::models::schema::sql_types::EnumHostCmd"]
 pub enum HostCmd {
     CreateNode,
     RestartNode,
@@ -30,7 +28,7 @@ pub enum HostCmd {
     StopBVS,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Clone, Debug, Queryable, Identifiable)]
 pub struct Command {
     pub id: Uuid,
     pub host_id: Uuid,
@@ -44,128 +42,112 @@ pub struct Command {
 }
 
 impl Command {
-    pub async fn find_all_by_host(
-        host_id: Uuid,
-        db: &mut sqlx::PgConnection,
-    ) -> Result<Vec<Command>> {
-        sqlx::query_as("SELECT * FROM commands where host_id = $1 ORDER BY created_at DESC")
-            .bind(host_id)
-            .fetch_all(db)
-            .await
-            .map_err(ApiError::from)
+    pub async fn find_by_host(host_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Vec<Command>> {
+        let commands = commands::table
+            .filter(commands::host_id.eq(host_id))
+            .order_by(commands::created_at.desc())
+            .get_results(conn)
+            .await?;
+        Ok(commands)
     }
 
     pub async fn find_pending_by_host(
         host_id: Uuid,
-        db: &mut sqlx::PgConnection,
+        conn: &mut AsyncPgConnection,
     ) -> Result<Vec<Command>> {
-        sqlx::query_as("SELECT * FROM commands where host_id = $1 AND exit_status IS NULL ORDER BY created_at ASC")
-            .bind(host_id)
-            .fetch_all(db)
-            .await.map_err(ApiError::from)
+        let commands = commands::table
+            .filter(commands::host_id.eq(host_id))
+            .filter(commands::exit_status.is_null())
+            .order_by(commands::created_at.asc())
+            .get_results(conn)
+            .await?;
+        Ok(commands)
     }
 
     pub async fn notify_pending_by_host(
         host_id: Uuid,
         notifier: &Notifier,
-        db: &mut sqlx::PgConnection,
+        conn: &mut AsyncPgConnection,
     ) -> Result<Vec<Command>> {
-        let commands = Self::find_pending_by_host(host_id, db).await?;
+        let commands = Self::find_pending_by_host(host_id, conn).await?;
 
         // Send one notification per pending command
         for command in &commands {
             notifier
                 .bv_commands_sender()
-                .send(&convert::db_command_to_grpc_command(command, db).await?)
+                .send(&convert::db_command_to_grpc_command(command, conn).await?)
                 .await?;
             // notifier.ui_commands_sender().send(command).await?;
         }
 
         Ok(commands)
     }
-
-    pub async fn create(
-        host_id: Uuid,
-        command: CommandRequest,
-        db: &mut sqlx::PgConnection,
-    ) -> Result<Command> {
-        let cmd: Self = sqlx::query_as(
-            "INSERT INTO commands (host_id, cmd, sub_cmd, resource_id) VALUES ($1, $2, $3, $4) RETURNING *",
-        )
-        .bind(host_id)
-        .bind(command.cmd)
-        .bind(command.sub_cmd)
-        .bind(command.resource_id)
-        .fetch_one(&mut *db)
-        .await?;
-        Ok(cmd)
-    }
-
-    pub async fn update_response(
-        id: Uuid,
-        response: CommandResponseRequest,
-        tx: &mut super::DbTrx<'_>,
-    ) -> Result<Command> {
-        sqlx::query_as("UPDATE commands SET response = $1, exit_status = $2, completed_at = now() WHERE id = $3 RETURNING *")
-            .bind(response.response)
-            .bind(response.exit_status)
-            .bind(id)
-            .fetch_one(tx)
-            .await
-            .map_err(ApiError::from)
-    }
-
-    pub async fn delete(id: Uuid, tx: &mut super::DbTrx<'_>) -> Result<u64> {
-        let deleted = sqlx::query("DELETE FROM commands WHERE id = $1")
-            .bind(id)
-            .execute(tx)
+    pub async fn delete(id: Uuid, conn: &mut AsyncPgConnection) -> Result<usize> {
+        let n_deleted = diesel::delete(commands::table.find(id))
+            .execute(conn)
             .await?;
-        Ok(deleted.rows_affected())
+        Ok(n_deleted)
     }
 }
 
 #[tonic::async_trait]
-impl UpdateInfo<CommandInfo, Command> for Command {
-    async fn update_info(info: CommandInfo, tx: &mut super::DbTrx<'_>) -> Result<Command> {
-        let id = Uuid::parse_str(info.id.as_str())?;
-        let cmd = sqlx::query_as::<_, Command>(
-            r##"UPDATE commands SET
-                         response = COALESCE($1, response),
-                         exit_status = COALESCE($2, exit_status)
-                WHERE id = $3
-                RETURNING *
-            "##,
-        )
-        .bind(info.response)
-        .bind(info.exit_code)
-        .bind(id)
-        .fetch_one(tx)
-        .await?;
-
-        Ok(cmd)
+impl super::UpdateInfo<blockjoy::CommandInfo, Command> for Command {
+    async fn update_info(
+        info: blockjoy::CommandInfo,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<Command> {
+        let cmd = UpdateCommand {
+            id: info.id.parse()?,
+            response: info.response.as_deref(),
+            exit_status: info.exit_code,
+            completed_at: chrono::Utc::now(),
+        };
+        cmd.update(conn).await
     }
 }
 
 #[axum::async_trait]
 impl FindableById for Command {
-    async fn find_by_id(id: Uuid, db: &mut sqlx::PgConnection) -> Result<Self> {
-        sqlx::query_as("SELECT * FROM commands WHERE id = $1")
-            .bind(id)
-            .fetch_one(db)
-            .await
-            .map_err(ApiError::from)
+    async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let cmd = commands::table.find(id).get_result(conn).await?;
+        Ok(cmd)
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CommandRequest {
+#[derive(Debug, Insertable)]
+#[diesel(table_name = commands)]
+pub struct NewCommand<'a> {
+    pub host_id: uuid::Uuid,
     pub cmd: HostCmd,
-    pub sub_cmd: Option<String>,
+    pub sub_cmd: Option<&'a str>,
     pub resource_id: Uuid,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CommandResponseRequest {
-    pub response: Option<String>,
+impl NewCommand<'_> {
+    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Command> {
+        let cmd = diesel::insert_into(commands::table)
+            .values(self)
+            .get_result(conn)
+            .await?;
+        Ok(cmd)
+    }
+}
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = commands)]
+pub struct UpdateCommand<'a> {
+    pub id: Uuid,
+    pub response: Option<&'a str>,
     pub exit_status: Option<i32>,
+    pub completed_at: DateTime<Utc>,
+}
+
+impl UpdateCommand<'_> {
+    pub async fn update(self, conn: &mut AsyncPgConnection) -> Result<Command> {
+        let cmd = diesel::update(commands::table.find(self.id))
+            .set(self)
+            .get_result(conn)
+            .await?;
+        Ok(cmd)
+    }
 }

@@ -4,7 +4,7 @@ use crate::grpc::blockjoy::commands_server::Commands;
 use crate::grpc::blockjoy::{Command, CommandInfo, CommandResponse, PendingCommandsRequest};
 use crate::grpc::convert::db_command_to_grpc_command;
 use crate::models;
-use crate::models::CommandResponseRequest;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use std::str::FromStr;
 use tonic::{Request, Response, Status};
 
@@ -15,6 +15,17 @@ pub struct CommandsServiceImpl {
 impl CommandsServiceImpl {
     pub fn new(db: models::DbPool) -> Self {
         Self { db }
+    }
+}
+
+impl CommandInfo {
+    fn as_update(&self) -> crate::Result<models::UpdateCommand<'_>> {
+        Ok(models::UpdateCommand {
+            id: self.id.parse()?,
+            response: self.response.as_deref(),
+            exit_status: self.exit_code,
+            completed_at: chrono::Utc::now(),
+        })
     }
 }
 
@@ -33,15 +44,16 @@ impl Commands for CommandsServiceImpl {
 
     async fn update(&self, request: Request<CommandInfo>) -> Result<Response<()>, Status> {
         let inner = request.into_inner();
-        let cmd_id = uuid::Uuid::from_str(inner.id.as_str()).map_err(ApiError::from)?;
-        let req = CommandResponseRequest {
-            response: inner.response,
-            exit_status: inner.exit_code,
-        };
-        let mut tx = self.db.begin().await?;
-
-        models::Command::update_response(cmd_id, req, &mut tx).await?;
-        tx.commit().await?;
+        self.db
+            .trx(|c| {
+                async move {
+                    let update_cmd = inner.as_update()?;
+                    update_cmd.update(c).await?;
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         Ok(Response::new(()))
     }

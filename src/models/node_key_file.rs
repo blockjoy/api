@@ -1,84 +1,59 @@
+use super::schema::node_key_files;
 use crate::auth::FindableById;
-use crate::errors::{ApiError, Result as ApiResult};
-use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use uuid::Uuid;
+use crate::Result;
+use diesel::prelude::*;
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
-#[derive(Clone, Debug)]
-pub struct CreateNodeKeyFileRequest {
-    pub name: String,
-    pub content: String,
-    pub node_id: Uuid,
+#[derive(Debug, Insertable)]
+#[diesel(table_name = node_key_files)]
+pub struct NewNodeKeyFile<'a> {
+    pub name: &'a str,
+    pub content: &'a str,
+    pub node_id: uuid::Uuid,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, FromRow)]
+impl NewNodeKeyFile<'_> {
+    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<NodeKeyFile> {
+        let file = diesel::insert_into(node_key_files::table)
+            .values(self)
+            .get_result(conn)
+            .await?;
+        Ok(file)
+    }
+}
+
+#[derive(Debug, Queryable)]
 pub struct NodeKeyFile {
-    pub id: Uuid,
+    pub id: uuid::Uuid,
     pub name: String,
     pub content: String,
-    pub node_id: Uuid,
+    pub node_id: uuid::Uuid,
 }
 
 impl NodeKeyFile {
-    pub async fn create(
-        req: CreateNodeKeyFileRequest,
-        db: &mut sqlx::PgConnection,
-    ) -> ApiResult<Self> {
-        sqlx::query_as(
-            r#"
-            INSERT INTO node_key_files 
-                (name, content, node_id)
-            VALUES
-                ($1, $2, $3)
-            RETURNING *
-        "#,
-        )
-        .bind(req.name)
-        .bind(req.content)
-        .bind(req.node_id)
-        .fetch_one(db)
-        .await
-        .map_err(ApiError::from)
+    pub async fn find_by_node(
+        node_id: uuid::Uuid,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<Vec<Self>> {
+        let files = node_key_files::table
+            .filter(node_key_files::node_id.eq(node_id))
+            .get_results(conn)
+            .await?;
+        Ok(files)
     }
 
-    pub async fn find_by_node(node_id: Uuid, db: &mut sqlx::PgConnection) -> ApiResult<Vec<Self>> {
-        sqlx::query_as(
-            r#"
-            SELECT * FROM node_key_files WHERE node_id = $1
-        "#,
-        )
-        .bind(node_id)
-        .fetch_all(db)
-        .await
-        .map_err(ApiError::from)
-    }
-
-    pub async fn delete(node_id: Uuid, db: &mut sqlx::PgConnection) -> ApiResult<Self> {
-        sqlx::query_as(
-            r#"
-            DELETE FROM node_key_files 
-            WHERE node_id = $1
-            RETURNING *
-        "#,
-        )
-        .bind(node_id)
-        .fetch_one(db)
-        .await
-        .map_err(ApiError::from)
+    pub async fn delete(node_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
+        diesel::delete(node_key_files::table.find(node_id))
+            .execute(conn)
+            .await?;
+        Ok(())
     }
 }
 
 #[tonic::async_trait]
 impl FindableById for NodeKeyFile {
-    async fn find_by_id(id: Uuid, db: &mut sqlx::PgConnection) -> ApiResult<Self> {
-        sqlx::query_as(
-            r#"
-            SELECT * FROM node_key_files WHERE id = $1
-        "#,
-        )
-        .bind(id)
-        .fetch_one(db)
-        .await
-        .map_err(ApiError::from)
+    async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let file = node_key_files::table.find(id).get_result(conn).await?;
+        Ok(file)
     }
 }

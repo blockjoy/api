@@ -8,6 +8,7 @@ use tonic::Request;
 
 #[derive(Debug, Clone, Copy)]
 pub struct HardwareRequirements {
+    #[allow(unused)]
     pub(crate) vcpu_count: i64,
     pub(crate) mem_size_mb: i64,
     pub(crate) disk_size_gb: i64,
@@ -28,12 +29,12 @@ pub mod cookbook_grpc {
 pub async fn get_hw_requirements(
     protocol: String,
     node_type: String,
-    node_version: Option<String>,
+    node_version: Option<&str>,
 ) -> ApiResult<HardwareRequirements> {
     let id = cookbook_grpc::ConfigIdentifier {
         protocol,
         node_type,
-        node_version: node_version.unwrap_or_else(|| "latest".to_string()),
+        node_version: node_version.unwrap_or_else(|| "latest").to_string(),
         status: 1,
     };
     let cb_url = KeyProvider::get_var("COOKBOOK_URL")

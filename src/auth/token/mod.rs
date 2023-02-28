@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use axum::http::Request as HttpRequest;
 use base64::DecodeError;
 use chrono::Utc;
+use diesel_async::AsyncPgConnection;
 use http::header::AUTHORIZATION;
 use jsonwebtoken as jwt;
 use jsonwebtoken::errors::Error as JwtError;
@@ -27,7 +28,7 @@ use crate::auth::expiration_provider::ExpirationProvider;
 use crate::auth::key_provider::{KeyProvider, KeyProviderError};
 use crate::auth::{FindableById, Identifiable};
 use crate::errors::{ApiError, Result as ApiResult};
-use crate::models::{self, Host, User};
+use crate::models::{Host, User};
 pub use {
     host_auth::HostAuthToken, host_refresh::HostRefreshToken, invitation::InvitationToken,
     pwd_reset::PwdResetToken, registration_confirmation::RegistrationConfirmationToken,
@@ -105,9 +106,8 @@ pub enum TokenError {
 
 /// The type of token we are dealing with. We have various different types of token and they convey
 /// various different permissions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, EnumIter)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, EnumIter)]
 #[serde(rename_all = "snake_case")]
-#[sqlx(type_name = "token_type", rename_all = "snake_case")]
 pub enum TokenType {
     /// This is a "normal" login token obtained by sending the login credentials to
     /// `AuthenticationService.Login`.
@@ -208,12 +208,12 @@ pub trait JwtToken: Sized + serde::Serialize {
     }
 
     /// Try to retrieve user for given token
-    async fn try_get_user(&self, id: Uuid, db: &mut sqlx::PgConnection) -> ApiResult<User> {
+    async fn try_get_user(&self, id: Uuid, conn: &mut AsyncPgConnection) -> ApiResult<User> {
         match self.token_type() {
             TokenType::UserAuth
             | TokenType::UserRefresh
             | TokenType::RegistrationConfirmation
-            | TokenType::PwdReset => User::find_by_id(id, db).await,
+            | TokenType::PwdReset => User::find_by_id(id, conn).await,
             _ => Err(ApiError::UnexpectedError(anyhow!(
                 "Cannot retrieve user from token of type {}",
                 self.token_type().to_string()
@@ -222,10 +222,10 @@ pub trait JwtToken: Sized + serde::Serialize {
     }
 
     /// Try to retrieve host for given token
-    async fn try_get_host(&self, db: &mut sqlx::PgConnection) -> ApiResult<Host> {
+    async fn try_get_host(&self, conn: &mut AsyncPgConnection) -> ApiResult<Host> {
         match self.token_type() {
             TokenType::HostAuth | TokenType::HostRefresh => {
-                Host::find_by_id(self.get_id(), db).await
+                Host::find_by_id(self.get_id(), conn).await
             }
             _ => Err(ApiError::UnexpectedError(anyhow!(
                 "Cannot retrieve host from token of type {}",
@@ -347,9 +347,12 @@ fn extract_token<B>(req: &HttpRequest<B>) -> TokenResult<String> {
 #[tonic::async_trait]
 pub trait Blacklisted {
     /// Method needs to be called after validation and use
-    async fn blacklist(&self, tx: &mut models::DbTrx<'_>) -> TokenResult<bool>;
+    async fn blacklist(&self, conn: &mut diesel_async::AsyncPgConnection) -> TokenResult<bool>;
 
     /// Return true if encoded token value can be found in blacklist table
-    async fn is_blacklisted(&self, token: String, db: &mut sqlx::PgConnection)
-        -> TokenResult<bool>;
+    async fn is_blacklisted(
+        &self,
+        token: String,
+        conn: &mut AsyncPgConnection,
+    ) -> TokenResult<bool>;
 }

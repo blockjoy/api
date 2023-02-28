@@ -1,38 +1,34 @@
 mod setup;
 
-use api::models::{IpAddress, IpAddressRangeRequest};
+use api::models::{IpAddress, NewIpAddressRange};
 
 #[tokio::test]
 async fn should_create_ip_range() -> anyhow::Result<()> {
     let tester = setup::Tester::new().await;
     let host = tester.host().await;
-    let req = IpAddressRangeRequest::try_new(
+    let new_range = NewIpAddressRange::try_new(
         "192.129.0.10".parse().unwrap(),
         "192.129.0.20".parse().unwrap(),
         Some(host.id),
     )?;
-    let mut tx = tester.pool.begin().await?;
-    let range = IpAddress::create_range(req, &mut tx).await?;
-    tx.commit().await?;
+    let mut conn = tester.conn().await;
+    let range = new_range.create(&mut conn).await?;
     assert_eq!(range.len(), 11);
 
     Ok(())
 }
 
 #[tokio::test]
-async fn should_fail_creating_ip_range() -> anyhow::Result<()> {
+#[should_panic]
+async fn should_fail_creating_ip_range() {
     let tester = setup::Tester::new().await;
     let host = tester.host().await;
-    match IpAddressRangeRequest::try_new(
+    NewIpAddressRange::try_new(
         "192.129.0.20".parse().unwrap(),
         "192.129.0.10".parse().unwrap(),
         Some(host.id),
-    ) {
-        Ok(_) => panic!("This should error"),
-        Err(_) => println!("all good"),
-    }
-
-    Ok(())
+    )
+    .unwrap();
 }
 
 #[test]

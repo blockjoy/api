@@ -1,187 +1,173 @@
 mod setup;
 
-use api::grpc::blockjoy_ui::Invitation as GrpcInvitation;
-use api::models::Invitation;
+use api::auth::FindableById;
+use api::grpc::blockjoy_ui::{self, invitation_service_client};
+use api::models;
+use tonic::transport;
+
+type Service = invitation_service_client::InvitationServiceClient<transport::Channel>;
 
 #[tokio::test]
-async fn cannot_create_invitation_without_valid_props() -> anyhow::Result<()> {
+async fn cannot_create_invitation_without_valid_props() {
     let tester = setup::Tester::new().await;
-    let grpc_invitation = GrpcInvitation {
-        id: None,
-        created_by_id: None,
-        created_for_org_id: None,
-        invitee_email: None,
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: None,
-        created_for_org_name: None,
+    let req = blockjoy_ui::CreateInvitationRequest {
+        created_for_org_id: "".to_string(),
+        invitee_email: "please@me.com".to_string(),
+        meta: None,
     };
 
-    let mut tx = tester.begin().await;
-    Invitation::create(&grpc_invitation, &mut tx)
+    tester.send_admin(Service::create, req).await.unwrap_err();
+}
+
+#[tokio::test]
+async fn can_create_invitation_with_valid_props() {
+    let tester = setup::Tester::new().await;
+    let org = tester.org().await;
+    let req = blockjoy_ui::CreateInvitationRequest {
+        created_for_org_id: org.id.to_string(),
+        invitee_email: "please@me.com".to_string(),
+        meta: None,
+    };
+
+    tester.send_admin(Service::create, req).await.unwrap();
+}
+
+#[tokio::test]
+async fn can_list_pending_invitations() {
+    let tester = setup::Tester::new().await;
+    let user = tester.admin_user().await;
+    let org = tester.org().await;
+    let new_invite = models::NewInvitation {
+        created_by_user: user.id,
+        created_for_org: org.id,
+        created_by_user_name: "hugo".to_string(),
+        created_for_org_name: "boss".to_string(),
+        invitee_email: "hugo@boss.com",
+    };
+    let mut conn = tester.conn().await;
+    new_invite.create(&mut conn).await.unwrap();
+
+    let req = blockjoy_ui::ListPendingInvitationRequest {
+        org_id: org.id.to_string(),
+        meta: None,
+    };
+    let invitations = tester.send_admin(Service::list_pending, req).await.unwrap();
+
+    assert_eq!(invitations.invitations.len(), 1);
+}
+
+#[tokio::test]
+async fn can_list_received_invitations() {
+    let tester = setup::Tester::new().await;
+    let user = tester.admin_user().await;
+    let org = tester.org().await;
+    let new_invite = models::NewInvitation {
+        created_by_user: user.id,
+        created_for_org: org.id,
+        created_by_user_name: "hugo".to_string(),
+        created_for_org_name: "boss".to_string(),
+        invitee_email: &user.email,
+    };
+    let mut conn = tester.conn().await;
+    new_invite.create(&mut conn).await.unwrap();
+
+    let req = blockjoy_ui::ListReceivedInvitationRequest {
+        user_id: user.id.to_string(),
+        meta: None,
+    };
+    let invitations = tester
+        .send_admin(Service::list_received, req)
         .await
-        .expect_err("This shouldn't work");
-    tx.commit().await?;
-    Ok(())
+        .unwrap();
+
+    assert_eq!(invitations.invitations.len(), 1);
 }
 
 #[tokio::test]
-async fn can_create_invitation_with_valid_props() -> anyhow::Result<()> {
+async fn can_accept_invitation() {
     let tester = setup::Tester::new().await;
     let user = tester.admin_user().await;
     let org = tester.org().await;
-    let grpc_invitation = GrpcInvitation {
-        id: None,
-        created_by_id: Some(user.id.to_string()),
-        created_for_org_id: Some(org.id.to_string()),
-        invitee_email: Some("hugo@boss.com".to_string()),
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: Some("hugo".to_string()),
-        created_for_org_name: Some("boss".to_string()),
+    let new_invite = models::NewInvitation {
+        created_by_user: user.id,
+        created_for_org: org.id,
+        created_by_user_name: "hugo".to_string(),
+        created_for_org_name: "boss".to_string(),
+        invitee_email: &user.email,
     };
-    let mut tx = tester.begin().await;
-    Invitation::create(&grpc_invitation, &mut tx).await?;
-    tx.commit().await.unwrap();
+    let mut conn = tester.conn().await;
+    let invite = new_invite.create(&mut conn).await.unwrap();
 
-    Ok(())
+    let req = blockjoy_ui::InvitationRequest {
+        invitation: Some(blockjoy_ui::Invitation {
+            id: Some(invite.id.to_string()),
+            ..Default::default()
+        }),
+        meta: None,
+    };
+    tester.send_admin(Service::accept, req).await.unwrap();
+
+    let invite = models::Invitation::find_by_id(invite.id, &mut conn)
+        .await
+        .unwrap();
+    invite.accepted_at.unwrap();
 }
 
 #[tokio::test]
-async fn can_list_pending_invitations() -> anyhow::Result<()> {
+async fn can_decline_invitation() {
     let tester = setup::Tester::new().await;
     let user = tester.admin_user().await;
     let org = tester.org().await;
-    let grpc_invitation = GrpcInvitation {
-        id: None,
-        created_by_id: Some(user.id.to_string()),
-        created_for_org_id: Some(org.id.to_string()),
-        invitee_email: Some("hugo@boss.com".to_string()),
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: Some("hugo".to_string()),
-        created_for_org_name: Some("boss".to_string()),
+    let new_invite = models::NewInvitation {
+        created_by_user: user.id,
+        created_for_org: org.id,
+        created_by_user_name: "hugo".to_string(),
+        created_for_org_name: "boss".to_string(),
+        invitee_email: &user.email,
     };
-    let mut tx = tester.begin().await;
-    Invitation::create(&grpc_invitation, &mut tx).await?;
-    let invitations = Invitation::pending(org.id, &mut tx).await?;
-    tx.commit().await.unwrap();
+    let mut conn = tester.conn().await;
+    let invite = new_invite.create(&mut conn).await.unwrap();
 
-    assert_eq!(invitations.len(), 1);
+    let req = blockjoy_ui::InvitationRequest {
+        invitation: Some(blockjoy_ui::Invitation {
+            id: Some(invite.id.to_string()),
+            ..Default::default()
+        }),
+        meta: None,
+    };
+    tester.send_admin(Service::decline, req).await.unwrap();
 
-    Ok(())
+    let invite = models::Invitation::find_by_id(invite.id, &mut conn)
+        .await
+        .unwrap();
+    invite.declined_at.unwrap();
 }
 
 #[tokio::test]
-async fn can_list_received_invitations() -> anyhow::Result<()> {
+async fn can_revoke_invitation() {
     let tester = setup::Tester::new().await;
     let user = tester.admin_user().await;
     let org = tester.org().await;
-    let grpc_invitation = GrpcInvitation {
-        id: None,
-        created_by_id: Some(user.id.to_string()),
-        created_for_org_id: Some(org.id.to_string()),
-        invitee_email: Some("hugo@boss.com".to_string()),
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: Some("hugo".to_string()),
-        created_for_org_name: Some("boss".to_string()),
+    let new_invite = models::NewInvitation {
+        created_by_user: user.id,
+        created_for_org: org.id,
+        created_by_user_name: "hugo".to_string(),
+        created_for_org_name: "boss".to_string(),
+        invitee_email: &user.email,
     };
-    let mut tx = tester.begin().await;
-    Invitation::create(&grpc_invitation, &mut tx).await?;
-    let invitations = Invitation::received("hugo@boss.com", &mut tx).await?;
-    tx.commit().await.unwrap();
+    let mut conn = tester.conn().await;
+    let invite = new_invite.create(&mut conn).await.unwrap();
 
-    assert_eq!(invitations.len(), 1);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn can_accept_invitation() -> anyhow::Result<()> {
-    let tester = setup::Tester::new().await;
-    let user = tester.admin_user().await;
-    let org = tester.org().await;
-    let grpc_invitation = GrpcInvitation {
-        id: None,
-        created_by_id: Some(user.id.to_string()),
-        created_for_org_id: Some(org.id.to_string()),
-        invitee_email: Some("hugo@boss.com".to_string()),
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: Some("hugo".to_string()),
-        created_for_org_name: Some("boss".to_string()),
+    let req = blockjoy_ui::InvitationRequest {
+        invitation: Some(blockjoy_ui::Invitation {
+            id: Some(invite.id.to_string()),
+            ..Default::default()
+        }),
+        meta: None,
     };
-    let mut tx = tester.begin().await;
-    let invitation = Invitation::create(&grpc_invitation, &mut tx).await?;
-    let invitation = Invitation::accept(invitation.id, &mut tx).await?;
-    tx.commit().await.unwrap();
+    tester.send_admin(Service::revoke, req).await.unwrap();
 
-    invitation.accepted_at.unwrap();
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn can_decline_invitation() -> anyhow::Result<()> {
-    let tester = setup::Tester::new().await;
-    let user = tester.admin_user().await;
-    let org = tester.org().await;
-    let grpc_invitation = GrpcInvitation {
-        id: None,
-        created_by_id: Some(user.id.to_string()),
-        created_for_org_id: Some(org.id.to_string()),
-        invitee_email: Some("hugo@boss.com".to_string()),
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: Some("hugo".to_string()),
-        created_for_org_name: Some("boss".to_string()),
-    };
-    let mut tx = tester.begin().await;
-    let invitation = Invitation::create(&grpc_invitation, &mut tx).await?;
-    let invitation = Invitation::decline(invitation.id, &mut tx).await?;
-    tx.commit().await.unwrap();
-
-    invitation.declined_at.unwrap();
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn can_revoke_invitation() -> anyhow::Result<()> {
-    let tester = setup::Tester::new().await;
-    let user = tester.admin_user().await;
-    let org = tester.org().await;
-    let grpc_invitation = GrpcInvitation {
-        id: None,
-        created_by_id: Some(user.id.to_string()),
-        created_for_org_id: Some(org.id.to_string()),
-        invitee_email: Some("hugo@boss.com".to_string()),
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: Some("hugo".to_string()),
-        created_for_org_name: Some("boss".to_string()),
-    };
-    let mut tx = tester.begin().await;
-    let invitation = Invitation::create(&grpc_invitation, &mut tx).await?;
-    let invitation_id = invitation.id;
-
-    Invitation::revoke(invitation_id, &mut tx).await?;
-
-    let cnt: i32 = sqlx::query_scalar("select count(*)::int from invitations where id = $1")
-        .bind(invitation_id)
-        .fetch_one(&mut tx)
-        .await?;
-    tx.commit().await.unwrap();
-
-    assert_eq!(cnt, 0);
-
-    Ok(())
+    models::Invitation::find_by_id(invite.id, &mut conn)
+        .await
+        .unwrap_err();
 }

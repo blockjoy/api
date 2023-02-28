@@ -5,7 +5,7 @@ use crate::grpc::blockjoy::{
     KeyFilesGetRequest, KeyFilesGetResponse, KeyFilesSaveRequest, KeyFilesSaveResponse,
 };
 use crate::models;
-use crate::models::{CreateNodeKeyFileRequest, Node, NodeKeyFile};
+use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -31,10 +31,10 @@ impl KeyFiles for KeyFileServiceImpl {
         request: Request<KeyFilesGetRequest>,
     ) -> Result<Response<KeyFilesGetResponse>, Status> {
         let inner = request.into_inner();
-        let node_id = KeyFileServiceImpl::uuid_from_string(inner.node_id)?;
+        let node_id = Self::uuid_from_string(inner.node_id)?;
         let request_id = inner.request_id.clone();
         let mut conn = self.db.conn().await?;
-        let key_files = NodeKeyFile::find_by_node(node_id, &mut conn).await?;
+        let key_files = models::NodeKeyFile::find_by_node(node_id, &mut conn).await?;
 
         // Ensure we return "Not found" if no key files could be found
         if key_files.is_empty() {
@@ -45,7 +45,7 @@ impl KeyFiles for KeyFileServiceImpl {
             origin_request_id: request_id,
             key_files: key_files
                 .into_iter()
-                .map(|f: NodeKeyFile| f.try_into())
+                .map(|f| f.try_into())
                 .collect::<Result<_, ApiError>>()?,
         };
 
@@ -60,25 +60,30 @@ impl KeyFiles for KeyFileServiceImpl {
         let node_id = KeyFileServiceImpl::uuid_from_string(inner.node_id)?;
         let request_id = inner.request_id.clone();
 
-        let mut tx = self.db.begin().await?;
-        // Explicitly check, if node exists
-        Node::find_by_id(node_id, &mut tx)
-            .await
-            .map_err(|_| Status::not_found("Node not found"))?;
+        self.db
+            .trx(|c| {
+                async move {
+                    // Explicitly check, if node exists
+                    models::Node::find_by_id(node_id, c).await?;
 
-        for file in inner.key_files {
-            let req = CreateNodeKeyFileRequest {
-                name: file.name,
-                content: String::from_utf8(file.content).map_err(|e| {
-                    Status::invalid_argument(format!("Couldn't read key file contents: {e}"))
-                })?,
-                node_id,
-            };
+                    for file in inner.key_files {
+                        let new_node_key_file = models::NewNodeKeyFile {
+                            name: &file.name,
+                            content: std::str::from_utf8(&file.content).map_err(|e| {
+                                Status::invalid_argument(format!(
+                                    "Couldn't read key file contents: {e}"
+                                ))
+                            })?,
+                            node_id,
+                        };
 
-            NodeKeyFile::create(req, &mut tx).await?;
-        }
-
-        tx.commit().await?;
+                        new_node_key_file.create(c).await?;
+                    }
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         let response = KeyFilesSaveResponse {
             origin_request_id: request_id,

@@ -31,7 +31,10 @@ async fn responds_ok_for_write_node() {
     let node = tester.node().await;
     assert_eq!(node.block_height, Some(10));
     assert_eq!(node.block_age, Some(5));
-    assert_eq!(node.staking_status, models::NodeStakingStatus::Validating);
+    assert_eq!(
+        node.staking_status,
+        Some(models::NodeStakingStatus::Validating)
+    );
     assert_eq!(node.consensus, Some(false));
     assert_eq!(node.chain_status, models::NodeChainStatus::Electing);
     assert_eq!(node.sync_status, models::NodeSyncStatus::Synced);

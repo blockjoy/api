@@ -38,7 +38,7 @@ impl DashboardService for DashboardServiceImpl {
 
         let mut metrics: Vec<Metric> = Vec::with_capacity(2);
 
-        if let Ok(running_nodes) = Node::running_nodes_count(&org_id, &mut conn).await {
+        if let Ok(running_nodes) = Node::running_nodes_count(org_id, &mut conn).await {
             let running = Metric {
                 name: metric::Name::Online.into(),
                 value: running_nodes.to_string(),

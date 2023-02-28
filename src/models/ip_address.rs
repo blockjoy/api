@@ -1,35 +1,40 @@
-use crate::errors::{ApiError, Result as ApiResult};
-use crate::grpc::helpers::required;
+use super::schema::ip_addresses;
+use crate::errors::{ApiError, Result};
 use anyhow::anyhow;
+use diesel::{dsl, prelude::*};
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use ipnet::{IpAddrRange, Ipv4AddrRange};
-use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use std::net::{IpAddr, Ipv4Addr};
-use std::str::FromStr;
-use uuid::Uuid;
+use std::net::IpAddr;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromRow)]
-pub struct IpAddress {
-    pub(crate) id: Uuid,
-    // Type IpAddr is required by sqlx
-    pub(crate) ip: IpAddr,
-    pub(crate) host_id: Option<Uuid>,
-    pub(crate) is_assigned: bool,
+#[derive(Debug, Insertable)]
+#[diesel(table_name = ip_addresses)]
+pub struct CreateIpAddress {
+    pub ip: ipnetwork::IpNetwork,
+    pub host_id: Option<uuid::Uuid>,
 }
 
-pub struct IpAddressRequest {
-    pub(crate) ip: IpAddr,
-    pub(crate) host_id: Option<Uuid>,
+impl CreateIpAddress {
+    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<IpAddress> {
+        let ip_adress = diesel::insert_into(ip_addresses::table)
+            .values(self)
+            .get_result(conn)
+            .await?;
+        Ok(ip_adress)
+    }
 }
 
-pub struct IpAddressRangeRequest {
-    pub(crate) from: IpAddr,
-    pub(crate) to: IpAddr,
-    pub(crate) host_id: Option<Uuid>,
+pub struct NewIpAddressRange {
+    from: ipnetwork::IpNetwork,
+    to: ipnetwork::IpNetwork,
+    host_id: Option<uuid::Uuid>,
 }
 
-impl IpAddressRangeRequest {
-    pub fn try_new(from: IpAddr, to: IpAddr, host_id: Option<Uuid>) -> ApiResult<Self> {
+impl NewIpAddressRange {
+    pub fn try_new(
+        from: ipnetwork::IpNetwork,
+        to: ipnetwork::IpNetwork,
+        host_id: Option<uuid::Uuid>,
+    ) -> Result<Self> {
         if to < from {
             Err(ApiError::UnexpectedError(anyhow!(
                 "TO IP can't be smaller as FROM IP"
@@ -38,143 +43,129 @@ impl IpAddressRangeRequest {
             Ok(Self { from, to, host_id })
         }
     }
+
+    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Vec<IpAddress>> {
+        let host_id = self.host_id;
+        let start_range = Self::to_ipv4(self.from)?;
+        let stop_range = Self::to_ipv4(self.to)?;
+        let ip_addrs = IpAddrRange::from(Ipv4AddrRange::new(start_range, stop_range));
+        let ip_addrs: Vec<_> = ip_addrs
+            .into_iter()
+            .map(|ip| CreateIpAddress {
+                ip: ip.into(),
+                host_id,
+            })
+            .collect();
+
+        let ip_addrs = diesel::insert_into(ip_addresses::table)
+            .values(ip_addrs)
+            .get_results(conn)
+            .await?;
+        Ok(ip_addrs)
+    }
+
+    fn to_ipv4(addr: ipnetwork::IpNetwork) -> Result<std::net::Ipv4Addr> {
+        match addr.network() {
+            IpAddr::V4(v4) => Ok(v4),
+            IpAddr::V6(v6) => Err(anyhow!("Found v6 ip addr in database: {v6}").into()),
+        }
+    }
 }
 
-pub struct IpAddressSelectiveUpdate {
-    pub(crate) id: Uuid,
-    pub(crate) host_id: Option<Uuid>,
-    pub(crate) assigned: Option<bool>,
+#[derive(Debug, Queryable)]
+pub struct IpAddress {
+    pub(crate) id: uuid::Uuid,
+    pub(crate) ip: ipnetwork::IpNetwork,
+    #[allow(unused)]
+    pub(crate) host_id: Option<uuid::Uuid>,
+    #[allow(unused)]
+    pub(crate) is_assigned: bool,
 }
 
 impl IpAddress {
-    pub async fn create(req: IpAddressRequest, tx: &mut super::DbTrx<'_>) -> ApiResult<Self> {
-        sqlx::query_as(
-            r#"INSERT INTO ip_addresses (ip, host_id) 
-                   values ($1, $2, $3) RETURNING *"#,
-        )
-        .bind(req.ip)
-        .bind(req.host_id)
-        .fetch_one(tx)
-        .await
-        .map_err(ApiError::from)
-    }
-
-    pub async fn create_range(
-        req: IpAddressRangeRequest,
-        tx: &mut super::DbTrx<'_>,
-    ) -> ApiResult<Vec<Self>> {
-        // Type IpAddr is required by sqlx, so we have to convert to Ipv4Addr forth/back
-        let start_range = Ipv4Addr::from_str(req.from.to_string().as_str())
-            .map_err(|e| ApiError::UnexpectedError(anyhow!(e)))?;
-        let stop_range = Ipv4Addr::from_str(req.to.to_string().as_str())
-            .map_err(|e| ApiError::UnexpectedError(anyhow!(e)))?;
-        let ip_addrs = IpAddrRange::from(Ipv4AddrRange::new(start_range, stop_range));
-        let mut created: Vec<Self> = vec![];
-
-        for ip in ip_addrs {
-            tracing::debug!("creating ip {} for host {:?}", ip, req.host_id);
-
-            created.push(
-                sqlx::query_as(
-                    r#"INSERT INTO ip_addresses (ip, host_id) 
-                   values ($1, $2) RETURNING *"#,
-                )
-                .bind(ip)
-                .bind(req.host_id)
-                .fetch_one(&mut *tx)
-                .await?,
-            );
-        }
-
-        Ok(created)
-    }
-
-    pub async fn update(
-        update: IpAddressSelectiveUpdate,
-        tx: &mut super::DbTrx<'_>,
-    ) -> ApiResult<Self> {
-        sqlx::query_as(
-            r#"UPDATE ip_addresses SET 
-                    host_id = COALESCE($1, host_id),
-                    is_assigned = COALESCE($2, is_assigned)
-                WHERE id = $3 RETURNING *"#,
-        )
-        .bind(update.host_id)
-        .bind(update.assigned)
-        .bind(update.id)
-        .fetch_one(tx)
-        .await
-        .map_err(ApiError::from)
-    }
-
     /// Helper returning the next valid IP address for host identified by `host_id`
-    pub async fn next_for_host(host_id: Uuid, tx: &mut super::DbTrx<'_>) -> ApiResult<Self> {
-        let ip: Self = sqlx::query_as(
-            r#"SELECT * from ip_addresses
-                    WHERE host_id = $1 and is_assigned = false
-                    ORDER BY ip ASC LIMIT 1"#,
-        )
-        .bind(host_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(ApiError::IpAssignmentError)?;
+    pub async fn next_for_host(host_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let ip: Self = ip_addresses::table
+            .filter(ip_addresses::host_id.eq(host_id))
+            .filter(ip_addresses::is_assigned.eq(false))
+            .get_result(conn)
+            .await?;
 
-        Self::assign(ip.id, ip.host_id.ok_or_else(required("host.id"))?, tx).await
+        Self::assign(ip.id, host_id, conn).await
     }
 
     /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
-    pub async fn assign(id: Uuid, host_id: Uuid, tx: &mut super::DbTrx<'_>) -> ApiResult<Self> {
-        let fields = IpAddressSelectiveUpdate {
+    pub async fn assign(
+        id: uuid::Uuid,
+        host_id: uuid::Uuid,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<Self> {
+        let fields = UpdateIpAddress {
             id,
             host_id: Some(host_id),
-            assigned: Some(true),
+            is_assigned: Some(true),
         };
 
-        Self::update(fields, tx).await
+        fields.update(conn).await
     }
 
     /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
-    pub async fn unassign(id: Uuid, host_id: Uuid, tx: &mut super::DbTrx<'_>) -> ApiResult<Self> {
-        let fields = IpAddressSelectiveUpdate {
+    pub async fn unassign(
+        id: uuid::Uuid,
+        host_id: uuid::Uuid,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<Self> {
+        let fields = UpdateIpAddress {
             id,
             host_id: Some(host_id),
-            assigned: Some(false),
+            is_assigned: Some(false),
         };
 
-        Self::update(fields, tx).await
+        fields.update(conn).await
     }
 
     pub fn in_range(ip: IpAddr, from: IpAddr, to: IpAddr) -> bool {
-        !(ip < from || ip > to)
+        from < ip && to > ip
     }
 
-    pub async fn assigned(ip: IpAddr, db: &mut sqlx::PgConnection) -> ApiResult<bool> {
-        let ip_count: i32 = sqlx::query_scalar(
-            r#"SELECT count(id)::int from ip_addresses
-                    WHERE ip = $1"#,
-        )
-        .bind(ip)
-        .fetch_one(db)
-        .await?;
-
-        Ok(ip_count > 0)
+    pub async fn assigned(ip: IpAddr, conn: &mut AsyncPgConnection) -> Result<bool> {
+        let ip = ipnetwork::IpNetwork::new(ip, 0)?;
+        let row = ip_addresses::table.filter(ip_addresses::ip.eq(ip));
+        let assigned = diesel::select(dsl::exists(row)).get_result(conn).await?;
+        Ok(assigned)
     }
 
-    pub async fn delete(id: Uuid, tx: &mut super::DbTrx<'_>) -> ApiResult<Self> {
-        sqlx::query_as("delete from ip_addresses where id = $1 returning *")
-            .bind(id)
-            .fetch_one(tx)
-            .await
-            .map_err(ApiError::from)
+    pub async fn delete(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
+        diesel::delete(ip_addresses::table.find(id))
+            .execute(conn)
+            .await?;
+        Ok(())
     }
 
-    pub async fn find_by_node(node_ip: String, db: &mut sqlx::PgConnection) -> ApiResult<Self> {
-        let node_ip: IpAddr = node_ip.parse()?;
+    pub async fn find_by_node(node_ip: IpAddr, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let ip = ipnetwork::IpNetwork::new(node_ip, 0)?;
+        let ip = ip_addresses::table
+            .filter(ip_addresses::ip.eq(ip))
+            .get_result(conn)
+            .await?;
+        Ok(ip)
+    }
+}
 
-        sqlx::query_as("select * from ip_addresses where ip = $1 limit 1")
-            .bind(node_ip)
-            .fetch_one(db)
-            .await
-            .map_err(ApiError::from)
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = ip_addresses)]
+pub struct UpdateIpAddress {
+    pub(crate) id: uuid::Uuid,
+    pub(crate) host_id: Option<uuid::Uuid>,
+    pub(crate) is_assigned: Option<bool>,
+}
+
+impl UpdateIpAddress {
+    pub async fn update(self, conn: &mut AsyncPgConnection) -> Result<IpAddress> {
+        let ip = diesel::update(ip_addresses::table.find(self.id))
+            .set(self)
+            .get_result(conn)
+            .await?;
+        Ok(ip)
     }
 }

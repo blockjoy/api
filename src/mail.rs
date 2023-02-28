@@ -35,7 +35,7 @@ impl MailClient {
 
         self.send_mail(
             &templates,
-            user,
+            Recipient::redact_user(user),
             "[BlockJoy] Password Updated".to_string(),
             None,
         )
@@ -66,7 +66,7 @@ impl MailClient {
 
         self.send_mail(
             &templates,
-            user,
+            Recipient::redact_user(user),
             "[BlockJoy] Verify Your Account".to_string(),
             Some(context),
         )
@@ -77,7 +77,7 @@ impl MailClient {
         &self,
         inviter: &models::User,
         invitee: &models::User,
-        expiration: String,
+        expiration: impl std::fmt::Display,
     ) -> errors::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/invite_registered_user.toml");
         // SAFETY: assume we can write toml and also protected by test
@@ -93,11 +93,11 @@ impl MailClient {
         let mut context = HashMap::new();
         context.insert("inviter".to_owned(), inviter);
         context.insert("link".to_owned(), link);
-        context.insert("expiration".to_owned(), expiration);
+        context.insert("expiration".to_owned(), expiration.to_string());
 
         self.send_mail(
             &templates,
-            invitee,
+            Recipient::redact_user(invitee),
             "[BlockJoy] Organization Invite".to_string(),
             Some(context),
         )
@@ -108,8 +108,8 @@ impl MailClient {
         &self,
         invitation: &models::Invitation,
         inviter: &models::User,
-        invitee: &models::User,
-        expiration: String,
+        invitee: Recipient<'_>,
+        expiration: impl std::fmt::Display,
     ) -> errors::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/invite_user.toml");
         // SAFETY: assume we can write toml and also protected by test
@@ -128,7 +128,7 @@ impl MailClient {
         context.insert("inviter".to_owned(), inviter);
         context.insert("accept_link".to_owned(), accept_link);
         context.insert("decline_link".to_owned(), decline_link);
-        context.insert("expiration".to_owned(), expiration);
+        context.insert("expiration".to_owned(), expiration.to_string());
 
         self.send_mail(
             &templates,
@@ -144,7 +144,7 @@ impl MailClient {
     pub async fn reset_password(
         &self,
         user: &models::User,
-        _db: &mut sqlx::PgConnection,
+        _conn: &mut diesel_async::AsyncPgConnection,
     ) -> errors::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/reset_password.toml");
         // SAFETY: assume we can write toml and also protected by test
@@ -164,7 +164,7 @@ impl MailClient {
 
         self.send_mail(
             &templates,
-            user,
+            Recipient::redact_user(user),
             "[BlockJoy] Reset Password".to_string(),
             Some(context),
         )
@@ -174,7 +174,7 @@ impl MailClient {
     async fn send_mail(
         &self,
         templates: &Templates,
-        to: &models::User,
+        to: Recipient<'_>,
         subject: String,
         // Can't use 'static str for the keys or the values here, see:
         // https://stackoverflow.com/questions/68591843
@@ -205,6 +205,28 @@ impl MailClient {
         }
 
         Ok(())
+    }
+}
+
+pub struct Recipient<'a> {
+    pub first_name: &'a str,
+    pub last_name: &'a str,
+    pub email: &'a str,
+    pub preferred_language: Option<&'a str>,
+}
+
+impl<'a> Recipient<'a> {
+    fn preferred_language(&self) -> &str {
+        self.preferred_language.unwrap_or("en")
+    }
+
+    fn redact_user(value: &'a models::User) -> Self {
+        Self {
+            first_name: &value.first_name,
+            last_name: &value.last_name,
+            email: &value.email,
+            preferred_language: Some(value.preferred_language()),
+        }
     }
 }
 

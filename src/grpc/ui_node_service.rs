@@ -1,3 +1,4 @@
+use super::blockjoy;
 use super::helpers::required;
 use super::notification::Notifier;
 use crate::auth::{FindableById, UserAuthToken};
@@ -11,10 +12,7 @@ use crate::grpc::blockjoy_ui::{
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::{convert, get_refresh_token, response_with_refresh_token};
 use crate::models;
-use crate::models::{
-    Command, CommandRequest, HostCmd, IpAddress, Node, NodeCreateRequest, NodeInfo, User,
-    UserSelectiveUpdate,
-};
+use diesel_async::scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 
@@ -36,9 +34,12 @@ impl blockjoy_ui::Node {
     /// This function is used to create a ui node from a database node. We want to include the
     /// `database_name` in the ui representation, but it is not in the node model. Therefore we
     /// perform a seperate query to the blockchains table.
-    pub async fn from_model(node: models::Node, db: &mut sqlx::PgConnection) -> Result<Self> {
-        let blockchain = models::Blockchain::find_by_id(node.blockchain_id, db).await?;
-        Self::try_new(node, &blockchain)
+    pub async fn from_model(
+        node: models::Node,
+        conn: &mut diesel_async::AsyncPgConnection,
+    ) -> Result<Self> {
+        let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
+        Self::new(node, &blockchain)
     }
 
     /// This function is used to create many ui nodes from many database nodes. The same
@@ -46,10 +47,10 @@ impl blockjoy_ui::Node {
     /// function above, but rather it performs 1 query for n nodes. We like it this way :)
     pub async fn from_models(
         nodes: Vec<models::Node>,
-        db: &mut sqlx::PgConnection,
+        conn: &mut diesel_async::AsyncPgConnection,
     ) -> Result<Vec<Self>> {
         let blockchain_ids: Vec<_> = nodes.iter().map(|n| n.blockchain_id).collect();
-        let blockchains: HashMap<_, _> = models::Blockchain::find_by_ids(&blockchain_ids, db)
+        let blockchains: HashMap<_, _> = models::Blockchain::find_by_ids(&blockchain_ids, conn)
             .await?
             .into_iter()
             .map(|b| (b.id, b))
@@ -58,12 +59,13 @@ impl blockjoy_ui::Node {
         nodes
             .into_iter()
             .map(|n| (n.blockchain_id, n))
-            .map(|(b_id, n)| Self::try_new(n, &blockchains[&b_id]))
+            .map(|(b_id, n)| Self::new(n, &blockchains[&b_id]))
             .collect()
     }
 
     /// Construct a new ui node from the queried parts.
-    fn try_new(node: models::Node, blockchain: &models::Blockchain) -> Result<Self> {
+    fn new(node: models::Node, blockchain: &models::Blockchain) -> Result<Self> {
+        let node_type = node.node_type()?;
         Ok(Self {
             id: Some(node.id.to_string()),
             org_id: Some(node.org_id.to_string()),
@@ -75,8 +77,8 @@ impl blockjoy_ui::Node {
             groups: vec![],
             version: node.version,
             ip: node.ip_addr,
-            ip_gateway: node.ip_gateway,
-            r#type: Some(node.node_type.to_json()?),
+            ip_gateway: Some(node.ip_gateway),
+            r#type: Some(serde_json::to_string(&node_type)?),
             address: node.address,
             wallet_address: node.wallet_address,
             block_height: node.block_height.map(i64::from),
@@ -85,13 +87,105 @@ impl blockjoy_ui::Node {
             created_at: Some(convert::try_dt_to_ts(node.created_at)?),
             updated_at: Some(convert::try_dt_to_ts(node.updated_at)?),
             status: Some(blockjoy_ui::node::NodeStatus::from(node.chain_status).into()),
-            staking_status: Some(
-                blockjoy_ui::node::StakingStatus::from(node.staking_status).into(),
-            ),
+            staking_status: node
+                .staking_status
+                .map(blockjoy_ui::node::StakingStatus::from)
+                .map(Into::into),
             sync_status: Some(blockjoy_ui::node::SyncStatus::from(node.sync_status).into()),
             self_update: Some(node.self_update),
             network: Some(node.network),
             blockchain_name: Some(blockchain.name.clone()),
+        })
+    }
+
+    pub fn as_new(&self) -> Result<models::NewNode<'_>> {
+        Ok(models::NewNode {
+            org_id: self
+                .org_id
+                .as_ref()
+                .ok_or_else(required("node.org_id"))?
+                .parse()?,
+            host_name: self
+                .host_name
+                .as_deref()
+                .ok_or_else(required("node.host_name"))?,
+            name: petname::petname(3, "_"),
+            groups: self.groups.join(","),
+            version: self.version.as_deref(),
+            ip_addr: self.ip.as_deref(),
+            ip_gateway: self.ip_gateway.as_deref(),
+            blockchain_id: self
+                .blockchain_id
+                .as_ref()
+                .ok_or_else(required("node.blockchain_id"))?
+                .parse()?,
+            node_type: serde_json::from_str(
+                self.r#type.as_ref().ok_or_else(required("node.type"))?,
+            )?,
+            address: self.address.as_deref(),
+            wallet_address: self.wallet_address.as_deref(),
+            block_height: self.block_height,
+            node_data: self
+                .node_data
+                .as_deref()
+                .map(serde_json::from_slice)
+                .transpose()?,
+            chain_status: self
+                .status
+                .ok_or_else(required("node.status"))?
+                .try_into()?,
+            sync_status: models::NodeSyncStatus::Unknown,
+            staking_status: models::NodeStakingStatus::Unknown,
+            container_status: models::ContainerStatus::Unknown,
+            self_update: self.self_update.unwrap_or(false),
+            vcpu_count: 0,
+            mem_size_mb: 0,
+            disk_size_gb: 0,
+            network: self
+                .network
+                .as_deref()
+                .ok_or_else(required("node.network"))?,
+        })
+    }
+
+    fn as_update(&self) -> Result<models::UpdateNode<'_>> {
+        Ok(models::UpdateNode {
+            id: self.id.as_ref().ok_or_else(required("node.id"))?.parse()?,
+            version: self.version.as_deref(),
+            ip_addr: self.ip.as_deref(),
+            block_height: None,
+            node_data: self
+                .node_data
+                .as_deref()
+                .map(serde_json::from_slice)
+                .transpose()?,
+            chain_status: None,
+            sync_status: None,
+            staking_status: None,
+            container_status: None,
+            self_update: self.self_update,
+        })
+    }
+}
+
+impl blockjoy_ui::FilterCriteria {
+    fn as_model(&self) -> Result<models::NodeFilter> {
+        Ok(models::NodeFilter {
+            status: self
+                .states
+                .iter()
+                .map(|status| status.parse())
+                .collect::<crate::Result<_>>()?,
+            node_types: self
+                .node_types
+                .iter()
+                .map(|id| id.parse())
+                .collect::<Result<_, _>>()?,
+            blockchains: self
+                .blockchain_ids
+                .iter()
+                .map(|id| id.parse())
+                .collect::<Result<_, _>>()?,
         })
     }
 }
@@ -112,7 +206,7 @@ impl NodeService for NodeServiceImpl {
         let inner = request.into_inner();
         let node_id = inner.id.parse().map_err(ApiError::from)?;
         let mut conn = self.db.conn().await?;
-        let node = Node::find_by_id(node_id, &mut conn).await?;
+        let node = models::Node::find_by_id(node_id, &mut conn).await?;
 
         if node.org_id.to_string() == org_id {
             let response = GetNodeResponse {
@@ -146,18 +240,22 @@ impl NodeService for NodeServiceImpl {
         let mut conn = self.db.conn().await?;
         let nodes = match filters {
             None => {
-                Node::find_all_by_org(org_id, offset, pagination.items_per_page, &mut conn).await?
+                models::Node::find_all_by_org(
+                    org_id,
+                    offset.into(),
+                    pagination.items_per_page.into(),
+                    &mut conn,
+                )
+                .await?
             }
             Some(filter) => {
-                let filter = filter
-                    .try_into()
-                    .map_err(|_| Status::internal("Unexpected error at filtering"))?;
+                let filter = filter.as_model()?;
 
-                Node::find_all_by_filter(
+                models::Node::find_all_by_filter(
                     org_id,
                     filter,
-                    offset,
-                    pagination.items_per_page,
+                    offset.into(),
+                    pagination.items_per_page.into(),
                     &mut conn,
                 )
                 .await?
@@ -180,53 +278,62 @@ impl NodeService for NodeServiceImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         // Check quota
         let mut conn = self.db.conn().await?;
-        let user = User::find_by_id(token.id, &mut conn).await?;
+        let user = models::User::find_by_id(token.id, &mut conn).await?;
 
         if user.staking_quota <= 0 {
             return Err(Status::resource_exhausted("User node quota exceeded"));
         }
 
         let inner = request.into_inner();
-        let mut fields: NodeCreateRequest = inner.node.ok_or_else(required("node"))?.try_into()?;
-        let mut tx = self.db.begin().await?;
-        let node = Node::create(&mut fields, &mut tx).await?;
+        let new_node = inner.node.as_ref().ok_or_else(required("node"))?.as_new()?;
+        let node = self
+            .db
+            .trx(|c| {
+                async move {
+                    let node = new_node.create(c).await?;
 
-        self.notifier
-            .bv_nodes_sender()
-            .send(&node.clone().into())
+                    self.notifier
+                        .bv_nodes_sender()
+                        .send(&blockjoy::NodeInfo::from_model(node.clone()))
+                        .await?;
+                    self.notifier
+                        .ui_nodes_sender()
+                        .send(&node.clone().try_into()?)
+                        .await?;
+
+                    let new_command = models::NewCommand {
+                        host_id: node.host_id,
+                        cmd: models::HostCmd::CreateNode,
+                        sub_cmd: None,
+                        resource_id: node.id,
+                    };
+                    let cmd = new_command.create(c).await?;
+                    let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
+                    self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+
+                    let update_user = models::UpdateUser {
+                        id: user.id,
+                        first_name: None,
+                        last_name: None,
+                        fee_bps: None,
+                        staking_quota: Some(user.staking_quota - 1),
+                        refresh: None,
+                    };
+                    update_user.update(c).await?;
+                    let new_command = models::NewCommand {
+                        host_id: node.host_id,
+                        cmd: models::HostCmd::RestartNode,
+                        sub_cmd: None,
+                        resource_id: node.id,
+                    };
+                    let cmd = new_command.create(c).await?;
+                    let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
+                    self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+                    Ok(node)
+                }
+                .scope_boxed()
+            })
             .await?;
-        self.notifier
-            .ui_nodes_sender()
-            .send(&node.clone().try_into()?)
-            .await?;
-
-        let req = CommandRequest {
-            cmd: HostCmd::CreateNode,
-            sub_cmd: None,
-            resource_id: node.id,
-        };
-        let cmd = Command::create(node.host_id, req, &mut tx).await?;
-        let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
-        self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
-
-        let update_user = UserSelectiveUpdate {
-            first_name: None,
-            last_name: None,
-            fee_bps: None,
-            staking_quota: Some(user.staking_quota - 1),
-            refresh_token: None,
-        };
-        User::update_all(user.id, update_user, &mut tx).await?;
-        let req = CommandRequest {
-            cmd: HostCmd::RestartNode,
-            sub_cmd: None,
-            resource_id: node.id,
-        };
-        let cmd = Command::create(node.host_id, req, &mut tx).await?;
-        let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
-        self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
-
-        tx.commit().await?;
 
         let response_meta =
             ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(node.id);
@@ -244,12 +351,13 @@ impl NodeService for NodeServiceImpl {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
-        let node = inner.node.ok_or_else(required("node"))?;
-        let fields: NodeInfo = node.try_into()?;
+        let update_node = inner
+            .node
+            .as_ref()
+            .ok_or_else(required("node"))?
+            .as_update()?;
 
-        let mut tx = self.db.begin().await?;
-        Node::update_info(&fields, &mut tx).await?;
-        tx.commit().await?;
+        self.db.trx(|c| update_node.update(c).scope_boxed()).await?;
         let response = UpdateNodeResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
@@ -265,51 +373,60 @@ impl NodeService for NodeServiceImpl {
             .clone();
         let inner = request.into_inner();
         let node_id = inner.id.parse().map_err(ApiError::from)?;
-        let mut conn = self.db.conn().await?;
-        let mut tx = self.db.begin().await?;
-        let node = Node::find_by_id(node_id, &mut tx).await?;
+        self.db
+            .trx(|c| {
+                async move {
+                    let node = models::Node::find_by_id(node_id, c).await?;
 
-        if Node::belongs_to_user_org(node.org_id, token.id, &mut tx).await? {
-            // 1. Delete node, if the node belongs to the current user
-            // Key files are deleted automatically because of 'on delete cascade' in tables DDL
-            Node::delete(node_id, &mut tx).await?;
+                    if !models::Node::belongs_to_user_org(node.org_id, token.id, c).await? {
+                        return Err(Status::permission_denied("User cannot delete node").into());
+                    }
+                    // 1. Delete node, if the node belongs to the current user
+                    // Key files are deleted automatically because of 'on delete cascade' in tables DDL
+                    models::Node::delete(node_id, c).await?;
 
-            let host_id = node.host_id;
-            // 2. Do NOT delete reserved IP addresses, but set assigned to false
-            let ip = IpAddress::find_by_node(node.ip_addr.unwrap_or_default(), &mut tx).await?;
+                    let host_id = node.host_id;
+                    // 2. Do NOT delete reserved IP addresses, but set assigned to false
+                    let ip_addr = node
+                        .ip_addr
+                        .as_ref()
+                        .ok_or_else(required("node.ip_addr"))?
+                        .parse()
+                        .map_err(|_| Status::internal("invalid ip"))?;
+                    let ip = models::IpAddress::find_by_node(ip_addr, c).await?;
 
-            IpAddress::unassign(ip.id, host_id, &mut tx).await?;
+                    models::IpAddress::unassign(ip.id, host_id, c).await?;
 
-            // Send delete node command
-            let req = CommandRequest {
-                cmd: HostCmd::DeleteNode,
-                sub_cmd: None,
-                resource_id: node_id,
-            };
-            let cmd = Command::create(node.host_id, req, &mut tx).await?;
-            let user_id = token.id;
-            let user = User::find_by_id(user_id, &mut conn).await?;
-            let update_user = UserSelectiveUpdate {
-                first_name: None,
-                last_name: None,
-                fee_bps: None,
-                staking_quota: Some(user.staking_quota + 1),
-                refresh_token: None,
-            };
+                    // Send delete node command
+                    let new_command = models::NewCommand {
+                        host_id: node.host_id,
+                        cmd: models::HostCmd::DeleteNode,
+                        sub_cmd: None,
+                        resource_id: node_id,
+                    };
+                    let cmd = new_command.create(c).await?;
+                    let user_id = token.id;
+                    let user = models::User::find_by_id(user_id, c).await?;
+                    let update_user = models::UpdateUser {
+                        id: user.id,
+                        first_name: None,
+                        last_name: None,
+                        fee_bps: None,
+                        staking_quota: Some(user.staking_quota + 1),
+                        refresh: None,
+                    };
 
-            User::update_all(user_id, update_user, &mut tx).await?;
+                    update_user.update(c).await?;
 
-            let grpc_cmd = convert::db_command_to_grpc_command(&cmd, &mut tx).await?;
+                    let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
 
-            tx.commit().await?;
-
-            self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
-            // let grpc_cmd = cmd.clone().try_into()?;
-            // self.notifier.ui_commands_sender().send(&grpc_cmd).await;
-
-            Ok(response_with_refresh_token::<()>(refresh_token, ())?)
-        } else {
-            Err(Status::permission_denied("User cannot delete node"))
-        }
+                    self.notifier.bv_commands_sender().send(&grpc_cmd).await
+                    // let grpc_cmd = cmd.clone().try_into()?;
+                    // self.notifier.ui_commands_sender().send(&grpc_cmd).await;
+                }
+                .scope_boxed()
+            })
+            .await?;
+        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
     }
 }

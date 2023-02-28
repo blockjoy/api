@@ -14,8 +14,8 @@
 //! can at least keep the responsibility of verifying this contained to this module. The way we
 //! enforce this is by having the functions that mutate accept a database connection of a different
 //! type than those that do  not mutate. Functions that mutate state will accept their database
-//! connection argument as  `tx: &mut super::DbTrx<'_>`, whereas functions that do not mutate take
-//! `db: &mut sqlx::PgConnection` as their database connection. This ensures that mutating
+//! connection argument as  `conn: &mut AsyncPgConnection`, whereas functions that do not mutate take
+//! `conn: &mut AsyncPgConnection` as their database connection. This ensures that mutating
 //! functions _must_ happen from within a transaction, and functions that not mutate may either be\
 //! called from a transaction or from a 'bare' connection.
 
@@ -24,7 +24,7 @@ mod blockchain;
 mod broadcast;
 mod command;
 mod host;
-mod info;
+mod host_provision;
 mod invitation;
 mod invoice;
 mod ip_address;
@@ -34,18 +34,20 @@ mod node_property_value;
 mod node_type;
 mod org;
 mod payment;
-mod reward;
-mod schema;
+pub mod schema;
 mod user;
 
 use crate::errors::Result;
+use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
+use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
+use diesel_async::{AsyncConnection, AsyncPgConnection};
+
 pub use blacklist_token::*;
 pub use blockchain::*;
 pub use broadcast::*;
 pub use command::*;
-use futures_util::{future::BoxFuture, stream::BoxStream};
 pub use host::*;
-pub use info::*;
+pub use host_provision::*;
 pub use invitation::*;
 pub use invoice::*;
 pub use ip_address::*;
@@ -55,21 +57,17 @@ pub use node_property_value::*;
 pub use node_type::*;
 pub use org::*;
 pub use payment::*;
-pub use reward::*;
-use sqlx::{
-    postgres::{PgQueryResult, PgRow, PgStatement, PgTypeInfo},
-    Describe, Either, Error, Execute, Postgres,
-};
 pub use user::*;
 
 pub const STAKE_QUOTA_DEFAULT: i64 = 3;
 pub const FEE_BPS_DEFAULT: i64 = 300;
 
-pub type PgQuery<'a> = sqlx::query::Query<'a, Postgres, sqlx::postgres::PgArguments>;
 #[tonic::async_trait]
 pub trait UpdateInfo<T, R> {
-    async fn update_info(info: T, tx: &mut DbTrx<'_>) -> Result<R>;
+    async fn update_info(info: T, conn: &mut AsyncPgConnection) -> Result<R>;
 }
+
+diesel::sql_function!(fn lower(x: diesel::sql_types::Text) -> diesel::sql_types::Text);
 
 /// Our wrapper type for a ref counted postgres pool. We use a wrapper type because the functions
 /// `begin` and `conn` return a `Result<_, sqlx::Error>`. From our controllers we must return a
@@ -81,111 +79,79 @@ pub trait UpdateInfo<T, R> {
 /// we _can_ use the `?`-operator in our controllers.
 #[derive(Debug, Clone)]
 pub struct DbPool {
-    /// We do not do any refcounting like wrapping `pool` in an `Arc`, because `sqlx::PgPool`
-    /// internally already does refcounting:
-    /// https://docs.rs/sqlx-core/0.6.2/src/sqlx_core/pool/mod.rs.html#244
-    pool: sqlx::PgPool,
+    pool: Pool<diesel_async::AsyncPgConnection>,
 }
 
-/// This is a wrapper type for a database connection that is in a transaction-state, i.e. `BEGIN;`
-/// has been ran. The same justification as above applies to why we use a wrapper type here.
-#[derive(Debug)]
-pub struct DbTrx<'a>(sqlx::Transaction<'a, Postgres>);
+// /// This is a wrapper type for a database connection that is in a transaction-state, i.e. `BEGIN;`
+// /// has been ran. The same justification as above applies to why we use a wrapper type here.
+// pub struct DbTrx<'a, 'b>(&'a mut PooledConnection<'b, AsyncPgConnection>);
 
 impl DbPool {
-    pub fn new(pool: sqlx::PgPool) -> Self {
+    pub fn new(pool: Pool<diesel_async::AsyncPgConnection>) -> Self {
         Self { pool }
     }
 
-    /// Begins a new new database connnection. This means that the queries performed using this as
-    /// a connection will not be flushed unless `commit` is called on the transaction. This
-    /// function should be used in controllers that perform writes or deletes on the database.
-    pub async fn begin(&self) -> Result<DbTrx<'_>> {
-        Ok(DbTrx(self.pool.begin().await?))
+    pub async fn trx<'a, F, T>(&self, f: F) -> Result<T>
+    where
+        F: for<'r> FnOnce(
+                &'r mut diesel_async::AsyncPgConnection,
+            ) -> ScopedBoxFuture<'a, 'r, crate::Result<T>>
+            + Send
+            + 'a,
+        T: Send + 'a,
+    {
+        self.pool
+            .get()
+            .await?
+            .transaction(|c| {
+                async move {
+                    let ok = f(c).await?;
+                    Ok(ok)
+                }
+                .scope_boxed()
+            })
+            .await
     }
 
     /// Returns a database connection that is not in a transition state. Use this for read-only
     /// endpoints.
-    pub async fn conn(&self) -> Result<sqlx::pool::PoolConnection<Postgres>> {
-        Ok(self.pool.acquire().await?)
+    pub async fn conn(&self) -> Result<PooledConnection<'_, AsyncPgConnection>> {
+        Ok(self.pool.get().await?)
     }
 
     pub fn is_closed(&self) -> bool {
-        self.pool.is_closed()
+        self.pool.state().connections == 0
     }
 
-    pub fn inner(&self) -> &sqlx::PgPool {
+    pub fn inner(&self) -> &Pool<diesel_async::AsyncPgConnection> {
         &self.pool
     }
-
-    #[cfg(test)]
-    pub async fn close(&self) {
-        self.pool.close().await
-    }
 }
 
-impl<'a> DbTrx<'a> {
-    pub async fn commit(self) -> Result<()> {
-        Ok(self.0.commit().await?)
-    }
-}
+// pub trait TrxFn<'a, Ret>: FnOnce(&'a mut diesel_async::AsyncPgConnection) -> Self::Fut {
+//     type Fut: 'a + futures_util::Future<Output = crate::Result<Ret>> + Send;
+// }
 
-impl<'a> std::ops::Deref for DbTrx<'a> {
-    type Target = sqlx::PgConnection;
+// /// Implement our test function trait for all functions of the right signature.
+// impl<'a: 'b, 'b, F, Fut, Ret> TrxFn<'a, Ret> for F
+// where
+//     F: FnOnce(&'a mut diesel_async::AsyncPgConnection) -> Fut,
+//     Fut: 'b + futures_util::Future<Output = crate::Result<Ret>> + Send,
+//     Ret: 'static
+// {
+//     type Fut = Fut;
+// }
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+// impl std::ops::Deref for DbTrx<'_, '_> {
+//     type Target = diesel_async::AsyncPgConnection;
 
-impl<'a> std::ops::DerefMut for DbTrx<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
 
-/// Implementation of Executor for our custom database transaction type. Mostly just lifetime magic
-/// and can safely be ignored wrt understanding the codebase.
-impl<'c, 't> sqlx::Executor<'t> for &'t mut DbTrx<'c> {
-    type Database = Postgres;
-
-    fn fetch_many<'e, 'q: 'e, E: 'q>(
-        self,
-        query: E,
-    ) -> BoxStream<'e, Result<Either<PgQueryResult, PgRow>, Error>>
-    where
-        't: 'e,
-        E: Execute<'q, Postgres>,
-    {
-        self.0.fetch_many(query)
-    }
-
-    fn fetch_optional<'e, 'q: 'e, E: 'q>(
-        self,
-        query: E,
-    ) -> BoxFuture<'e, Result<Option<PgRow>, Error>>
-    where
-        't: 'e,
-        E: Execute<'q, Postgres>,
-    {
-        self.0.fetch_optional(query)
-    }
-
-    fn prepare_with<'e, 'q: 'e>(
-        self,
-        sql: &'q str,
-        parameters: &'e [PgTypeInfo],
-    ) -> BoxFuture<'e, Result<PgStatement<'q>, Error>>
-    where
-        't: 'e,
-    {
-        self.0.prepare_with(sql, parameters)
-    }
-
-    fn describe<'e, 'q: 'e>(self, sql: &'q str) -> BoxFuture<'e, Result<Describe<Postgres>, Error>>
-    where
-        't: 'e,
-    {
-        self.0.describe(sql)
-    }
-}
+// impl std::ops::DerefMut for DbTrx<'_, '_> {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         &mut self.0
+//     }
+// }

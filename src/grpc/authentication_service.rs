@@ -14,6 +14,7 @@ use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::mail::MailClient;
 use crate::models;
 use crate::models::{Org, User};
+use diesel_async::scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -42,42 +43,50 @@ impl AuthenticationService for AuthenticationServiceImpl {
     ) -> Result<Response<LoginUserResponse>, Status> {
         let inner = request.into_inner();
         // User::login checks if user is confirmed before testing for valid login credentials
-        let mut tx = self.db.begin().await?;
-        let user = User::login(inner.clone(), &mut tx)
-            .await
-            .map_err(|e| Status::unauthenticated(e.to_string()))?;
+        let resp = self
+            .db
+            .trx(|c| {
+                {
+                    async move {
+                        let user = User::login(inner.clone(), c)
+                            .await
+                            .map_err(|e| Status::unauthenticated(e.to_string()))?;
 
-        // On login, the refresh token gets renewed anyhow
-        // @see https://app.shortcut.com/blockjoy/story/609/ability-to-login-after-refresh-token-has-expired
-        tracing::debug!("Renewing user refresh token");
-        let refresh_token = UserRefreshToken::create(user.id).encode()?;
-        User::refresh(user.id, refresh_token.clone(), &mut tx).await?;
+                        // On login, the refresh token gets renewed anyhow
+                        // @see https://app.shortcut.com/blockjoy/story/609/ability-to-login-after-refresh-token-has-expired
+                        tracing::debug!("Renewing user refresh token");
+                        let refresh_token = UserRefreshToken::create(user.id).encode()?;
+                        User::set_refresh(user.id, &refresh_token, c).await?;
 
-        // User personal org by default
-        let org = Org::find_personal_org(user.id, &mut tx).await?;
-        let org_user = Org::find_org_user(user.id, org.id, &mut tx).await?;
-        let mut token_data = HashMap::<String, String>::new();
+                        // User personal org by default
+                        let org = Org::find_personal_org(user.id, c).await?;
+                        let org_user = Org::find_org_user(user.id, org.id, c).await?;
+                        let mut token_data = HashMap::<String, String>::new();
 
-        token_data.insert("email".to_string(), user.email.clone());
+                        token_data.insert("email".to_string(), user.email.clone());
 
-        tx.commit().await?;
+                        let auth_token = UserAuthToken::create_token_for::<User>(
+                            &user,
+                            TokenType::UserAuth,
+                            TokenRole::User,
+                            Some(token_data),
+                        )?;
+                        let auth_token = auth_token.set_org_user(&org_user);
 
-        let auth_token = UserAuthToken::create_token_for::<User>(
-            &user,
-            TokenType::UserAuth,
-            TokenRole::User,
-            Some(token_data),
-        )?;
-        let auth_token = auth_token.set_org_user(&org_user);
-
-        let response = LoginUserResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta, None)),
-            token: Some(ApiToken {
-                value: auth_token.to_base64()?,
-            }),
-        };
-
-        Ok(response_with_refresh_token(Some(refresh_token), response)?)
+                        let response = LoginUserResponse {
+                            meta: Some(ResponseMeta::from_meta(inner.meta, None)),
+                            token: Some(ApiToken {
+                                value: auth_token.to_base64()?,
+                            }),
+                        };
+                        Ok(response_with_refresh_token(Some(refresh_token), response)?)
+                    }
+                    .scope_boxed()
+                }
+                .scope_boxed()
+            })
+            .await?;
+        Ok(resp)
     }
 
     async fn confirm(
@@ -89,32 +98,39 @@ impl AuthenticationService for AuthenticationServiceImpl {
             .get::<RegistrationConfirmationToken>()
             .ok_or_else(required("Registration confirmation token extension"))?;
         let user_id = token.get_id();
-        let mut tx = self.db.begin().await?;
-        let user = User::confirm(user_id, &mut tx).await?;
-        let auth_token = UserAuthToken::create_token_for::<User>(
-            &user,
-            TokenType::UserAuth,
-            TokenRole::User,
-            None,
-        )?
-        .encode()?;
-        let refresh_token = UserRefreshToken::create_token_for::<User>(
-            &user,
-            TokenType::UserAuth,
-            TokenRole::User,
-            None,
-        )?
-        .encode()?;
+        let resp = self
+            .db
+            .trx(|c| {
+                async move {
+                    let user = User::confirm(user_id, c).await?;
+                    let auth_token = UserAuthToken::create_token_for::<User>(
+                        &user,
+                        TokenType::UserAuth,
+                        TokenRole::User,
+                        None,
+                    )?
+                    .encode()?;
+                    let refresh_token = UserRefreshToken::create_token_for::<User>(
+                        &user,
+                        TokenType::UserAuth,
+                        TokenRole::User,
+                        None,
+                    )?
+                    .encode()?;
 
-        User::refresh(user.id, refresh_token.clone(), &mut tx).await?;
-        tx.commit().await?;
+                    User::set_refresh(user.id, &refresh_token, c).await?;
 
-        let response = ConfirmRegistrationResponse {
-            meta: Some(ResponseMeta::from_meta(request.into_inner().meta, None)),
-            token: Some(ApiToken { value: auth_token }),
-        };
+                    let response = ConfirmRegistrationResponse {
+                        meta: Some(ResponseMeta::from_meta(request.into_inner().meta, None)),
+                        token: Some(ApiToken { value: auth_token }),
+                    };
 
-        Ok(response_with_refresh_token(Some(refresh_token), response)?)
+                    Ok(response_with_refresh_token(Some(refresh_token), response)?)
+                }
+                .scope_boxed()
+            })
+            .await?;
+        Ok(resp)
     }
 
     async fn refresh(
@@ -136,48 +152,66 @@ impl AuthenticationService for AuthenticationServiceImpl {
         // are not going to return an error. This hides whether or not a user is registered with
         // us to the caller of the api, because this info may be sensitive and this endpoint is not
         // protected by any authentication.
-        let mut tx = self.db.begin().await?;
-        let user = User::find_by_email(&request.email, &mut tx).await;
-        if let Ok(user) = user {
-            let _ = user.email_reset_password(&mut tx).await;
-        }
-        tx.commit().await?;
+        let resp = self
+            .db
+            .trx(|c| {
+                async move {
+                    let user = User::find_by_email(&request.email, c).await;
+                    if let Ok(user) = user {
+                        let _ = user.email_reset_password(c).await;
+                    }
 
-        let meta = ResponseMeta::new(String::from(""), None);
-        let response = ResetPasswordResponse { meta: Some(meta) };
+                    let meta = ResponseMeta::new(String::from(""), None);
+                    let response = ResetPasswordResponse { meta: Some(meta) };
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+                    Ok(response_with_refresh_token(refresh_token, response)?)
+                }
+                .scope_boxed()
+            })
+            .await?;
+        Ok(resp)
     }
 
     async fn update_password(
         &self,
         request: Request<UpdatePasswordRequest>,
     ) -> Result<Response<UpdatePasswordResponse>, Status> {
-        let token = request
-            .extensions()
-            .get::<PwdResetToken>()
-            .ok_or_else(|| Status::unauthenticated("Invalid reset token"))?;
-        let refresh_token = get_refresh_token(&request);
-        let mut tx = self.db.begin().await?;
-        let user_id = token.try_get_user(token.id, &mut tx).await?.id;
-        let request = request.into_inner();
-        let cur_user = User::find_by_id(user_id, &mut tx)
-            .await?
-            .update_password(&request.password, &mut tx)
-            .await?;
-        tx.commit().await?;
-        let meta = ResponseMeta::from_meta(request.meta, None);
-        let auth_token =
-            UserAuthToken::create_token_for(&cur_user, TokenType::UserAuth, TokenRole::User, None)?;
-        let response = UpdatePasswordResponse {
-            meta: Some(meta),
-            token: Some(ApiToken {
-                value: auth_token.to_base64()?,
-            }),
-        };
+        let (refresh_token, response) = self
+            .db
+            .trx(|c| {
+                async move {
+                    let token = request
+                        .extensions()
+                        .get::<PwdResetToken>()
+                        .ok_or_else(|| Status::unauthenticated("Invalid reset token"))?;
+                    let refresh_token = get_refresh_token(&request);
+                    let user_id = token.try_get_user(token.id, c).await?.id;
+                    let request = request.into_inner();
+                    let cur_user = User::find_by_id(user_id, c)
+                        .await?
+                        .update_password(&request.password, c)
+                        .await?;
+                    let meta = ResponseMeta::from_meta(request.meta, None);
+                    let auth_token = UserAuthToken::create_token_for(
+                        &cur_user,
+                        TokenType::UserAuth,
+                        TokenRole::User,
+                        None,
+                    )?;
+                    let response = UpdatePasswordResponse {
+                        meta: Some(meta),
+                        token: Some(ApiToken {
+                            value: auth_token.to_base64()?,
+                        }),
+                    };
 
-        // Send notification mail
-        MailClient::new().update_password(&cur_user).await?;
+                    // Send notification mail
+                    MailClient::new().update_password(&cur_user).await?;
+                    Ok((refresh_token, response))
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         Ok(response_with_refresh_token(refresh_token, response)?)
     }
@@ -186,19 +220,27 @@ impl AuthenticationService for AuthenticationServiceImpl {
         &self,
         request: Request<UpdateUiPasswordRequest>,
     ) -> Result<Response<UpdateUiPasswordResponse>, Status> {
-        let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let mut tx = self.db.begin().await?;
-        let user = token.try_get_user(token.id, &mut tx).await?;
-        let encoded = token
-            .encode()
-            .map_err(|e| Status::internal(format!("Token encode error {e:?}")))?;
-        let inner = request.into_inner();
+        let (refresh_token, response) = self
+            .db
+            .trx(|c| {
+                async move {
+                    let refresh_token = get_refresh_token(&request);
+                    let token = try_get_token::<_, UserAuthToken>(&request)?;
+                    let user = token.try_get_user(token.id, c).await?;
+                    let encoded = token
+                        .encode()
+                        .map_err(|e| Status::internal(format!("Token encode error {e:?}")))?;
+                    let inner = request.into_inner();
 
-        let resp = match user.verify_password(&inner.old_pwd) {
-            Ok(_) => {
-                if inner.new_pwd == inner.new_pwd_confirmation {
-                    user.update_password(&inner.new_pwd, &mut tx).await?;
+                    user.verify_password(&inner.old_pwd)?;
+                    if inner.new_pwd != inner.new_pwd_confirmation {
+                        return Err(Status::invalid_argument(
+                            "Password and password confirmation don't match",
+                        )
+                        .into());
+                    }
+
+                    user.update_password(&inner.new_pwd, c).await?;
 
                     let response = UpdateUiPasswordResponse {
                         meta: None,
@@ -208,17 +250,12 @@ impl AuthenticationService for AuthenticationServiceImpl {
                     // Send notification mail
                     MailClient::new().update_password(&user).await?;
 
-                    Ok(response_with_refresh_token(refresh_token, response)?)
-                } else {
-                    Err(Status::invalid_argument(
-                        "Password and password confirmation don't match",
-                    ))
+                    Ok((refresh_token, response))
                 }
-            }
-            Err(e) => Err(Status::from(e)),
-        };
-        tx.commit().await?;
-        resp
+                .scope_boxed()
+            })
+            .await?;
+        Ok(response_with_refresh_token(refresh_token, response)?)
     }
 
     async fn switch_organization(

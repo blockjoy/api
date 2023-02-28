@@ -9,6 +9,7 @@ pub use token::*;
 use crate::errors::Result as ApiResult;
 use casbin::prelude::*;
 use casbin::Adapter;
+use diesel_async::AsyncPgConnection;
 use std::env;
 use std::env::VarError;
 use std::sync::{Arc, RwLock};
@@ -46,7 +47,7 @@ pub trait Identifiable {
 
 #[axum::async_trait]
 pub trait FindableById: Send + Sync + 'static {
-    async fn find_by_id(id: Uuid, db: &mut sqlx::PgConnection) -> ApiResult<Self>
+    async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> ApiResult<Self>
     where
         Self: Sized;
 }

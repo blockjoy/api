@@ -1,6 +1,3 @@
-use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgHasArrayType;
-
 use crate::errors::ApiError;
 
 pub enum NodeTypeKey {
@@ -60,7 +57,7 @@ impl From<NodeTypeKey> for i32 {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NodeTypeProperty {
     name: String,
     ui_type: String,
@@ -69,17 +66,11 @@ pub struct NodeTypeProperty {
     required: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NodeType {
     id: i32,
     pub version: String,
     properties: Option<Vec<NodeTypeProperty>>,
-}
-
-impl PgHasArrayType for NodeType {
-    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("JSONB[]")
-    }
 }
 
 impl TryFrom<String> for NodeType {

@@ -21,15 +21,15 @@ async fn responds_not_found_without_valid_id_for_get() {
 #[tokio::test]
 async fn responds_ok_with_valid_id_for_get() {
     let tester = setup::Tester::new().await;
-    let req = models::HostProvisionRequest {
-        nodes: None,
-        ip_gateway: "192.168.0.1".parse().unwrap(),
-        ip_range_from: "192.168.0.10".parse().unwrap(),
-        ip_range_to: "192.168.0.100".parse().unwrap(),
-    };
-    let mut tx = tester.begin().await;
-    let provision = models::HostProvision::create(req, &mut tx).await.unwrap();
-    tx.commit().await.unwrap();
+    let new_prov = models::NewHostProvision::new(
+        None,
+        "192.168.0.1".parse().unwrap(),
+        "192.168.0.10".parse().unwrap(),
+        "192.168.0.100".parse().unwrap(),
+    )
+    .unwrap();
+    let mut conn = tester.conn().await;
+    let provision = new_prov.create(&mut conn).await.unwrap();
     let req = blockjoy_ui::GetHostProvisionRequest {
         meta: Some(tester.meta()),
         id: Some(provision.id),

@@ -196,7 +196,10 @@ mod tests {
     async fn test_bv_hosts_sender() {
         let db = crate::TestDb::setup().await;
         let host = db.host().await;
-        let host = host.try_into().unwrap();
+        let host = blockjoy::HostInfo {
+            id: Some(host.id.to_string()),
+            ..Default::default()
+        };
         let notifier = Notifier::new();
         notifier.bv_hosts_sender().send(&host).await.unwrap();
     }
@@ -205,7 +208,7 @@ mod tests {
     async fn test_bv_nodes_sender() {
         let db = crate::TestDb::setup().await;
         let node = db.node().await;
-        let node = node.try_into().unwrap();
+        let node = blockjoy::NodeInfo::from_model(node);
         let notifier = Notifier::new();
         notifier.bv_nodes_sender().send(&node).await.unwrap();
     }

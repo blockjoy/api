@@ -1,19 +1,18 @@
-use crate::auth::{JwtToken, TokenRole, UserAuthToken};
-use crate::errors::ApiError;
+use super::convert;
+use super::helpers::{required, try_get_token};
+use crate::auth::{JwtToken, UserAuthToken};
 use crate::grpc::blockjoy_ui::user_service_server::UserService;
 use crate::grpc::blockjoy_ui::{
-    CreateUserRequest, CreateUserResponse, DeleteUserRequest, GetConfigurationRequest,
+    self, CreateUserRequest, CreateUserResponse, DeleteUserRequest, GetConfigurationRequest,
     GetConfigurationResponse, GetUserRequest, GetUserResponse, ResponseMeta, UpdateUserRequest,
-    UpdateUserResponse, UpsertConfigurationRequest, UpsertConfigurationResponse, User as GrpcUser,
+    UpdateUserResponse, UpsertConfigurationRequest, UpsertConfigurationResponse,
 };
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::mail::MailClient;
 use crate::models;
-use crate::models::{User, UserRequest};
+use crate::models::User;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
-use super::helpers::{required, try_get_token};
 
 pub struct UserServiceImpl {
     db: models::DbPool,
@@ -22,6 +21,33 @@ pub struct UserServiceImpl {
 impl UserServiceImpl {
     pub fn new(db: models::DbPool) -> Self {
         Self { db }
+    }
+}
+
+impl blockjoy_ui::User {
+    pub fn as_update(&self) -> crate::Result<models::UpdateUser<'_>> {
+        Ok(models::UpdateUser {
+            id: self.id.as_ref().ok_or_else(required("user.id"))?.parse()?,
+            first_name: self.first_name.as_deref(),
+            last_name: self.last_name.as_deref(),
+
+            // For obvious reasons, users are not allowed to update these fields
+            fee_bps: None,
+            staking_quota: None,
+            refresh: None,
+        })
+    }
+
+    pub fn from_model(model: models::User) -> crate::Result<Self> {
+        let user = Self {
+            id: Some(model.id.to_string()),
+            email: Some(model.email),
+            first_name: Some(model.first_name),
+            last_name: Some(model.last_name),
+            created_at: Some(convert::try_dt_to_ts(model.created_at)?),
+            updated_at: None,
+        };
+        Ok(user)
     }
 }
 
@@ -38,7 +64,7 @@ impl UserService for UserServiceImpl {
         let inner = request.into_inner();
         let response = GetUserResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
-            user: Some(GrpcUser::try_from(user)?),
+            user: Some(blockjoy_ui::User::from_model(user)?),
         };
 
         Ok(response_with_refresh_token(refresh_token, response)?)
@@ -50,16 +76,17 @@ impl UserService for UserServiceImpl {
     ) -> Result<Response<CreateUserResponse>, Status> {
         let inner = request.into_inner();
         let user = inner.user.ok_or_else(required("user"))?;
-        let user_request = UserRequest {
-            email: user.email.ok_or_else(required("email"))?,
-            first_name: user.first_name.ok_or_else(required("first_name"))?,
-            last_name: user.last_name.ok_or_else(required("last_name"))?,
-            password: inner.password,
-            password_confirm: inner.password_confirmation,
-        };
-        let mut tx = self.db.begin().await?;
-        let new_user = User::create(user_request, Some(TokenRole::User), &mut tx).await?;
-        tx.commit().await?;
+        let new_user = models::NewUser::new(
+            user.email.as_deref().ok_or_else(required("email"))?,
+            user.first_name
+                .as_deref()
+                .ok_or_else(required("first_name"))?,
+            user.last_name
+                .as_deref()
+                .ok_or_else(required("last_name"))?,
+            &inner.password,
+        )?;
+        let new_user = self.db.trx(|c| new_user.create(c).scope_boxed()).await?;
         let meta = ResponseMeta::from_meta(inner.meta, None).with_message(new_user.id);
         let response = CreateUserResponse { meta: Some(meta) };
 
@@ -80,29 +107,34 @@ impl UserService for UserServiceImpl {
             .get::<UserAuthToken>()
             .ok_or_else(required("auth token"))?
             .clone();
-        let mut tx = self.db.begin().await?;
-        let user_id = token.try_get_user(token.id, &mut tx).await?.id;
-        let inner = request.into_inner();
-        let user = inner.user.ok_or_else(required("user"))?;
+        let response = self
+            .db
+            .trx(|c| {
+                async move {
+                    let user_id = token.try_get_user(token.id, c).await?.id;
+                    let inner = request.into_inner();
+                    let user = inner.user.ok_or_else(required("user"))?;
 
-        // Check if current user is the same as the one to be updated
-        if user_id == Uuid::parse_str(user.id()).map_err(ApiError::from)? {
-            let user: GrpcUser = User::update_all(user_id, user.into(), &mut tx)
-                .await?
-                .try_into()?;
-            tx.commit().await?;
-            let response_meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
-            let response = UpdateUserResponse {
-                meta: Some(response_meta),
-                user: Some(user),
-            };
+                    // Check if current user is the same as the one to be updated
+                    if user_id.to_string() != user.id() {
+                        return Err(Status::permission_denied(
+                            "You are not allowed to update this user",
+                        )
+                        .into());
+                    }
+                    let user = user.as_update()?.update(c).await?;
+                    let response_meta =
+                        ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
+                    Ok(UpdateUserResponse {
+                        meta: Some(response_meta),
+                        user: Some(blockjoy_ui::User::from_model(user)?),
+                    })
+                }
+                .scope_boxed()
+            })
+            .await?;
 
-            Ok(response_with_refresh_token(refresh_token, response)?)
-        } else {
-            Err(Status::permission_denied(
-                "You are not allowed to update this user",
-            ))
-        }
+        Ok(response_with_refresh_token(refresh_token, response)?)
     }
 
     async fn delete(&self, request: Request<DeleteUserRequest>) -> Result<Response<()>, Status> {
@@ -111,10 +143,15 @@ impl UserService for UserServiceImpl {
             .extensions()
             .get::<UserAuthToken>()
             .ok_or_else(required("auth token"))?;
-        let mut tx = self.db.begin().await?;
-        let user_id = token.try_get_user(token.id, &mut tx).await?.id;
-        User::delete(user_id, &mut tx).await?;
-        tx.commit().await?;
+        self.db
+            .trx(|c| {
+                async move {
+                    let user_id = token.try_get_user(token.id, c).await?.id;
+                    User::delete(user_id, c).await
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         Ok(response_with_refresh_token::<()>(refresh_token, ())?)
     }
