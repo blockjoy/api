@@ -62,7 +62,7 @@ pub enum ApiError {
     OtherIpParseError(#[from] ipnetwork::IpNetworkError),
 
     #[error("Error reading key: {0}")]
-    Key(KeyProviderError),
+    Key(#[from] KeyProviderError),
 
     #[error("Struggles with receiving through channel: {0}")]
     ChannelError(#[from] tokio::sync::broadcast::error::RecvError),

@@ -1,0 +1,1 @@
+[{"id":10,"version":"1.31.0","properties":[{"name":"self-hosted","ui_type":"switch","default":"false","disabled":true,"required":true}]}]

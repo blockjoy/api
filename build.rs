@@ -10,6 +10,7 @@ fn main() {
                 // Cookbook API
                 "service.proto",
                 // Backend API
+                "discovery.proto",
                 "host_service.proto",
                 "node_service.proto",
                 "key_file_service.proto",

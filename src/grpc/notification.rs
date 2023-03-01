@@ -1,5 +1,7 @@
+use anyhow::anyhow;
+
 use super::{blockjoy, blockjoy_ui};
-use crate::errors::Result;
+use crate::{auth::key_provider::KeyProvider, errors::Result};
 
 /// Presents the following senders:
 ///
@@ -15,7 +17,6 @@ use crate::errors::Result;
 /// |---------------|---------------------------------------------------------|
 /// | commands      | /bv/hosts/<host_id>/nodes/<node_id>/commands            |
 /// |               | /bv/hosts/<host_id>/commands                            |
-/// |               | /bv/commands                                            |
 /// |---------------|---------------------------------------------------------|
 ///
 /// |---------------|---------------------------------------------------------|
@@ -33,76 +34,103 @@ use crate::errors::Result;
 /// | commands      | /orgs/<org_id>/hosts/<host_id>/nodes/<node_id>/commands |
 /// |               | /hosts/<host_id>/nodes/<node_id>/commands               |
 /// |               | /nodes/<node_id>/commands                               |
-/// |               | /commands                                               |
 /// |---------------|---------------------------------------------------------|
-#[derive(Debug, Clone, Default)]
-pub struct Notifier {}
+#[derive(Debug, Clone)]
+pub struct Notifier {
+    client: rumqttc::AsyncClient,
+}
 
 impl Notifier {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new() -> Result<Self> {
+        let options = Self::get_mqtt_options()?;
+        let (client, mut event_loop) = rumqttc::AsyncClient::new(options, 10);
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = event_loop.poll().await {
+                    tracing::warn!("MQTT failure, ignoring and continuing to poll: {e}");
+                }
+            }
+        });
+
+        Ok(Self { client })
     }
 
     // bv_orgs_sender does not exist, blockvisor does not care about organizations.
 
-    pub fn bv_hosts_sender(&self) -> MqttClient<blockjoy::HostInfo> {
-        MqttClient::new()
+    pub fn bv_hosts_sender(&self) -> Result<MqttClient<blockjoy::HostInfo>> {
+        MqttClient::new(self.client.clone())
     }
 
-    pub fn bv_nodes_sender(&self) -> MqttClient<blockjoy::NodeInfo> {
-        MqttClient::new()
+    pub fn bv_nodes_sender(&self) -> Result<MqttClient<blockjoy::NodeInfo>> {
+        tracing::info!("Making a sender for node messages");
+        MqttClient::new(self.client.clone())
     }
 
-    pub fn bv_commands_sender(&self) -> MqttClient<blockjoy::Command> {
-        MqttClient::new()
+    pub fn bv_commands_sender(&self) -> Result<MqttClient<blockjoy::Command>> {
+        MqttClient::new(self.client.clone())
     }
 
-    pub fn ui_orgs_sender(&self) -> MqttClient<blockjoy_ui::Organization> {
-        MqttClient::new()
+    pub fn ui_orgs_sender(&self) -> Result<MqttClient<blockjoy_ui::Organization>> {
+        MqttClient::new(self.client.clone())
     }
 
-    pub fn ui_hosts_sender(&self) -> MqttClient<blockjoy_ui::Host> {
-        MqttClient::new()
+    pub fn ui_hosts_sender(&self) -> Result<MqttClient<blockjoy_ui::Host>> {
+        MqttClient::new(self.client.clone())
     }
 
-    pub fn ui_nodes_sender(&self) -> MqttClient<blockjoy_ui::Node> {
-        MqttClient::new()
+    pub fn ui_nodes_sender(&self) -> Result<MqttClient<blockjoy_ui::Node>> {
+        MqttClient::new(self.client.clone())
     }
 
-    // pub fn ui_commands_sender(&self) -> MqttClient<blockjoy_ui::Command> {
+    // pub fn ui_commands_sender(&self) -> Result<MqttClient<blockjoy_ui::Command>> {
     //     MqttClient::new()
     // }
+
+    fn get_mqtt_options() -> Result<rumqttc::MqttOptions> {
+        let client_id = KeyProvider::get_var("MQTT_CLIENT_ID")?.value;
+        let host = KeyProvider::get_var("MQTT_SERVER_ADDRESS")?.value;
+        let port = KeyProvider::get_var("MQTT_SERVER_PORT")?
+            .value
+            .parse()
+            .map_err(|_| anyhow!("Could not parse MQTT_SERVER_PORT as u16"))?;
+        let username = KeyProvider::get_var("MQTT_USERNAME")?.value;
+        let password = KeyProvider::get_var("MQTT_PASSWORD")?.value;
+        let mut options = rumqttc::MqttOptions::new(client_id, host, port);
+        options.set_credentials(username, password);
+        Ok(options)
+    }
 }
 
 /// The DbListener<T> is a singleton struct that listens for messages coming from the database.
 /// When a message comes in, the re
 pub struct MqttClient<T> {
     client: rumqttc::AsyncClient,
-    _event_loop: rumqttc::EventLoop,
     _pd: std::marker::PhantomData<T>,
 }
 
 impl<T: Notify + prost::Message> MqttClient<T> {
-    fn new() -> Self {
-        let mut options = rumqttc::MqttOptions::new("1", "35.237.162.218", 1883);
-        options.set_credentials("blockvisor-api", "PH*rE:\\ZQlecB9/I?[#R$q3M;5yCb]Y+");
-        let (client, event_loop) = rumqttc::AsyncClient::new(options, 10);
-        Self {
+    fn new(client: rumqttc::AsyncClient) -> Result<Self> {
+        Ok(Self {
             client,
-            _event_loop: event_loop,
             _pd: std::marker::PhantomData,
-        }
+        })
     }
 
-    pub async fn send(&mut self, msg: &T) -> Result<()> {
+    pub async fn send(&mut self, msg: &T) -> Result<()>
+    where
+        T: std::fmt::Debug,
+    {
         const RETAIN: bool = false;
         const QOS: rumqttc::QoS = rumqttc::QoS::ExactlyOnce;
+        const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
         let payload = msg.encode_to_vec();
 
+        tracing::info!("Sending {msg:?} over channels: {:?}", msg.channels());
         for channel in msg.channels() {
             self.client
                 .publish(&channel, QOS, RETAIN, payload.clone())
                 .await?;
+            tracing::info!("Sent {msg:?} over channel {channel}");
         }
         Ok(())
     }
@@ -221,8 +249,13 @@ mod tests {
         let command = convert::db_command_to_grpc_command(&command, &mut conn)
             .await
             .unwrap();
-        let notifier = Notifier::new();
-        notifier.bv_commands_sender().send(&command).await.unwrap();
+        let notifier = Notifier::new().unwrap();
+        notifier
+            .bv_commands_sender()
+            .unwrap()
+            .send(&command)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -230,8 +263,13 @@ mod tests {
         let db = crate::TestDb::setup().await;
         let host = db.host().await;
         let host = host.try_into().unwrap();
-        let notifier = Notifier::new();
-        notifier.ui_hosts_sender().send(&host).await.unwrap();
+        let notifier = Notifier::new().unwrap();
+        notifier
+            .ui_hosts_sender()
+            .unwrap()
+            .send(&host)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -239,7 +277,12 @@ mod tests {
         let db = crate::TestDb::setup().await;
         let node = db.node().await;
         let node = node.try_into().unwrap();
-        let notifier = Notifier::new();
-        notifier.ui_nodes_sender().send(&node).await.unwrap();
+        let notifier = Notifier::new().unwrap();
+        notifier
+            .ui_nodes_sender()
+            .unwrap()
+            .send(&node)
+            .await
+            .unwrap();
     }
 }

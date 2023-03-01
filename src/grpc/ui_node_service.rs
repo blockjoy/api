@@ -22,11 +22,8 @@ pub struct NodeServiceImpl {
 }
 
 impl NodeServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self {
-            db,
-            notifier: Notifier::new(),
-        }
+    pub fn new(db: models::DbPool, notifier: Notifier) -> Self {
+        Self { db, notifier }
     }
 }
 
@@ -274,6 +271,7 @@ impl NodeService for NodeServiceImpl {
         &self,
         request: Request<CreateNodeRequest>,
     ) -> Result<Response<CreateNodeResponse>, Status> {
+        tracing::info!("Endpointerino callederino");
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         // Check quota
@@ -284,6 +282,8 @@ impl NodeService for NodeServiceImpl {
             return Err(Status::resource_exhausted("User node quota exceeded"));
         }
 
+        tracing::info!("Wow quota not even exceeded");
+
         let inner = request.into_inner();
         let new_node = inner.node.as_ref().ok_or_else(required("node"))?.as_new()?;
         let node = self
@@ -293,11 +293,11 @@ impl NodeService for NodeServiceImpl {
                     let node = new_node.create(c).await?;
 
                     self.notifier
-                        .bv_nodes_sender()
+                        .bv_nodes_sender()?
                         .send(&blockjoy::NodeInfo::from_model(node.clone()))
                         .await?;
                     self.notifier
-                        .ui_nodes_sender()
+                        .ui_nodes_sender()?
                         .send(&node.clone().try_into()?)
                         .await?;
 
@@ -309,7 +309,7 @@ impl NodeService for NodeServiceImpl {
                     };
                     let cmd = new_command.create(c).await?;
                     let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
-                    self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+                    self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
 
                     let update_user = models::UpdateUser {
                         id: user.id,
@@ -328,7 +328,7 @@ impl NodeService for NodeServiceImpl {
                     };
                     let cmd = new_command.create(c).await?;
                     let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
-                    self.notifier.bv_commands_sender().send(&grpc_cmd).await?;
+                    self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
                     Ok(node)
                 }
                 .scope_boxed()
@@ -420,9 +420,9 @@ impl NodeService for NodeServiceImpl {
 
                     let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
 
-                    self.notifier.bv_commands_sender().send(&grpc_cmd).await
+                    self.notifier.bv_commands_sender()?.send(&grpc_cmd).await
                     // let grpc_cmd = cmd.clone().try_into()?;
-                    // self.notifier.ui_commands_sender().send(&grpc_cmd).await;
+                    // self.notifier.ui_commands_sender()?.send(&grpc_cmd).await;
                 }
                 .scope_boxed()
             })

@@ -85,9 +85,13 @@ impl KeyProvider {
 
     fn get_key_value(name: &str) -> KeyProviderResult {
         let path = format!("{}/{}", Self::get_env_value("SECRETS_ROOT")?, name);
-        let value = fs::read_to_string(path).map(KeyValue::new)?;
-
-        Ok(value)
+        match fs::read_to_string(path).map(KeyValue::new) {
+            Ok(value) => Ok(value),
+            Err(e) => {
+                tracing::error!("Couldn't read key value '{name}' from disk");
+                Err(KeyProviderError::Disk(e))
+            }
+        }
     }
 }
 

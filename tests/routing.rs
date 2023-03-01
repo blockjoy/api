@@ -8,6 +8,9 @@ fn possible_routes() -> Vec<(&'static str, &'static str, StatusCode)> {
     vec![
         // Non nested routes
         ("/health", "GET", StatusCode::OK),
+        // MQTT routes
+        ("/mqtt/auth", "POST", StatusCode::BAD_REQUEST),
+        ("/mqtt/acl", "POST", StatusCode::BAD_REQUEST),
     ]
 }
 
@@ -30,6 +33,7 @@ async fn test_possible_routes() -> anyhow::Result<()> {
 
         let req = Request::builder()
             .method(method)
+            .header("content-type", "application/json")
             .uri(route)
             .body(Body::empty())?;
         let response = app.clone().oneshot(req).await?;

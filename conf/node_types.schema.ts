@@ -185,24 +185,30 @@ const ada_validator: NodeType = {
 ///             ETH sample                       ///
 ////////////////////////////////////////////////////
 
-const eth_node: NodeType = {
-    id: NodeTypeKey.Node,
-    version: '3.4.0-build.1',
-    properties: [
-        disabled_self_hosted
-    ]
-}
-
 const eth_validator: NodeType = {
     id: NodeTypeKey.Validator,
-    version: '3.4.0-build.6',
+    version: '3.30.2-build.5',
     properties: [
         {
-            name: 'keystore-file',
+            name: 'keystore-file-1',
             ui_type: UiType.KeyUpload,
             default: "",
             disabled: false,
             required: true,
+        },
+        {
+            name: 'keystore-file-2',
+            ui_type: UiType.KeyUpload,
+            default: "",
+            disabled: false,
+            required: false,
+        },
+        {
+            name: 'keystore-file-3',
+            ui_type: UiType.KeyUpload,
+            default: "",
+            disabled: false,
+            required: false,
         },
         {
             name: 'voting-pwd',
@@ -240,14 +246,42 @@ function write_json(chain: string, node_types: SupportedNodeTypes) {
     });
 }
 
+////////////////////////////////////////////////////
+///             TEZO sample                      ///
+////////////////////////////////////////////////////
+const tezo_full: NodeType = {
+    id: NodeTypeKey.Node,
+    version: '15.1-2-build.1',
+    properties: [
+        disabled_self_hosted
+    ],
+};
+
+////////////////////////////////////////////////////
+///             NEAR sample                      ///
+////////////////////////////////////////////////////
+const near_full: NodeType = {
+    id: NodeTypeKey.Node,
+    version: '1.31.0',
+    properties: [
+        disabled_self_hosted
+    ],
+};
+
 // Write HNT node types
 // write_json("HNT", [hnt_validator, hnt_miner]);
 
 // Write ETH node types
-write_json("ETH", [eth_node, eth_validator]);
+// write_json("ETH", [eth_validator]);
 
 // Write ADA node types
 // write_json("ADA", [ada_full, ada_validator]);
 
 // Write ALGO node types
 // write_json("ALGO", [algo_node]);
+
+// Write TEZO node types
+write_json("TEZO", [tezo_full]);
+
+// Write NEAR node types
+write_json("NEAR", [near_full]);

@@ -94,7 +94,6 @@ dependencies = [
  "strum_macros",
  "temp-env",
  "tempfile",
- "test_macros",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -2340,16 +2339,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be55cf8942feac5c765c2c993422806843c9a9a45d4d5c407ad6dd2ea95eb9b6"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "test_macros"
-version = "0.1.0"
-source = "git+https://github.com/blockjoy/test-macros/#9a2b9801ec4ddd083364f2fac314f301c0a89932"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

@@ -17,11 +17,8 @@ pub struct CommandServiceImpl {
 }
 
 impl CommandServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self {
-            db,
-            notifier: Notifier::new(),
-        }
+    pub fn new(db: models::DbPool, notifier: Notifier) -> Self {
+        Self { db, notifier }
     }
 
     async fn handle_request(
@@ -71,27 +68,25 @@ async fn create_command(
     };
 
     let db_cmd = new_command.create(conn).await?;
-    let grpc_cmd = convert::db_command_to_grpc_command(&db_cmd, conn).await?;
-    notifier.bv_commands_sender().send(&grpc_cmd).await?;
-
     match cmd {
         models::HostCmd::RestartNode | models::HostCmd::KillNode => {
+            let grpc_cmd = convert::db_command_to_grpc_command(&db_cmd, conn).await?;
+            notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
             let node = models::Node::find_by_id(resource_id, conn).await?;
             notifier
-                .bv_nodes_sender()
+                .bv_nodes_sender()?
                 .send(&blockjoy::NodeInfo::from_model(node.clone()))
                 .await?;
-            notifier.ui_nodes_sender().send(&node.try_into()?).await?;
+            notifier.ui_nodes_sender()?.send(&node.try_into()?).await?;
         }
         _ => {}
     }
-
     Ok(db_cmd)
 }
 
 async fn send_notification(command: blockjoy::Command, notifier: &Notifier) -> Result<()> {
     tracing::debug!("Sending notification: {:?}", command);
-    notifier.bv_commands_sender().send(&command).await?;
+    notifier.bv_commands_sender()?.send(&command).await?;
     Ok(())
 }
 

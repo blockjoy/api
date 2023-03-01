@@ -1,4 +1,5 @@
 use api::grpc::blockjoy::commands_client::CommandsClient;
+use api::grpc::blockjoy::discovery_client::DiscoveryClient;
 use api::grpc::blockjoy::hosts_client::HostsClient;
 use api::grpc::blockjoy::key_files_client::KeyFilesClient;
 use api::grpc::blockjoy::metrics_service_client::MetricsServiceClient;
@@ -104,6 +105,12 @@ impl GrpcClient<Channel> for NodesClient<Channel> {
 }
 
 impl GrpcClient<Channel> for CommandsClient<Channel> {
+    fn create(channel: Channel) -> Self {
+        Self::new(channel)
+    }
+}
+
+impl GrpcClient<Channel> for DiscoveryClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }

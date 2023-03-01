@@ -6,6 +6,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 pub mod handlers;
+pub mod mqtt;
 pub mod routes;
 
 pub async fn server(db: models::DbPool) -> Router {
