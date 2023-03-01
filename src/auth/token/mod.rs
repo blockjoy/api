@@ -272,14 +272,14 @@ pub trait JwtToken: Sized + serde::Serialize {
         validation.validate_exp = validate_exp;
 
         match jwt::decode::<T>(
-            encoded,
+            dbg!(encoded),
             &jwt::DecodingKey::from_secret(secret.as_bytes()),
             &validation,
         ) {
             Ok(token) => Ok(token.claims),
             Err(e) => {
                 tracing::error!("Error decoding token: {e:?}");
-                Err(TokenError::EnDeCoding(e))
+                Err(TokenError::EnDeCoding(dbg!(e)))
             }
         }
     }
@@ -291,6 +291,7 @@ struct UnknownToken {
 }
 
 /// A token whose `token_type` is not known.
+#[derive(Debug)]
 pub enum AnyToken {
     UserAuth(UserAuthToken),
     HostAuth(HostAuthToken),

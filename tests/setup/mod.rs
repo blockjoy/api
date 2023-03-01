@@ -6,9 +6,8 @@ mod helper_traits;
 use api::auth::{self, JwtToken, TokenRole, TokenType};
 use api::models;
 use api::{grpc::blockjoy_ui, TestDb};
-use diesel::prelude::*;
 use diesel_async::pooled_connection::bb8::PooledConnection;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use diesel_async::AsyncPgConnection;
 pub use dummy_token::*;
 use futures_util::{Stream, StreamExt};
 use helper_traits::GrpcClient;
@@ -102,7 +101,7 @@ impl Tester {
     /// Returns a (auth, refresh) token pair.
     pub async fn admin_token(&self) -> (impl JwtToken, impl JwtToken) {
         let auth = self.user_token(&self.admin_user().await).await;
-        let refresh = self.db.user_refresh_token(auth.get_id());
+        let refresh = dbg!(self.db.user_refresh_token(auth.get_id()));
         (auth, refresh)
     }
 
@@ -132,11 +131,11 @@ impl Tester {
 
     pub async fn org_for(&self, user: &models::User) -> models::Org {
         let mut conn = self.conn().await;
-        models::Org::find_all_by_user(user.id, &mut conn)
+        dbg!(models::Org::find_all_by_user(user.id, &mut conn)
             .await
-            .unwrap()
-            .pop()
-            .unwrap()
+            .unwrap())
+        .pop()
+        .unwrap()
     }
 
     pub async fn user_token(&self, user: &models::User) -> impl JwtToken + Clone {
@@ -162,38 +161,10 @@ impl Tester {
     }
 
     pub async fn node(&self) -> models::Node {
-        use models::schema::nodes;
-        // sqlx::query_as(r#"
-        //     INSERT INTO
-        //         nodes (id, org_id, host_id, node_type, blockchain_id)
-        //     VALUES
-        //         ('59edfb35-bbf1-460f-bd3d-e4c86ba73e0d', (SELECT id FROM orgs LIMIT 1), (SELECT id FROM hosts LIMIT 1), '{"id":404}', (SELECT id FROM blockchains LIMIT 1))
-        //     ON CONFLICT (id) DO UPDATE
-        //     SET id = '59edfb35-bbf1-460f-bd3d-e4c86ba73e0d'
-        //     RETURNING *;
-        // "#)
-        // .fetch_one(&mut self.conn().await)
-        // .await
-        // .unwrap()
+        use api::auth::FindableById;
         let mut conn = self.conn().await;
-        let org = self.org().await;
-        let host = self.host().await;
-        let blockchain = self.blockchain().await;
-        let id: uuid::Uuid = "59edfb35-bbf1-460f-bd3d-e4c86ba73e0d".parse().unwrap();
-        diesel::insert_into(nodes::table)
-            .values((
-                nodes::id.eq(id),
-                nodes::org_id.eq(org.id),
-                nodes::host_id.eq(host.id),
-                nodes::node_type.eq(serde_json::json!({"id":404})),
-                nodes::blockchain_id.eq(blockchain.id),
-            ))
-            .on_conflict(nodes::id)
-            .do_update()
-            .set(nodes::id.eq(id))
-            .get_result(&mut conn)
-            .await
-            .unwrap()
+        let node_id = "cdbbc736-f399-42ab-86cf-617ce983011d".parse().unwrap();
+        models::Node::find_by_id(node_id, &mut conn).await.unwrap()
     }
 
     pub async fn blockchain(&self) -> models::Blockchain {
@@ -274,7 +245,7 @@ impl Tester {
         req.metadata_mut()
             .insert("authorization", auth.parse().unwrap());
 
-        let refresh = format!("refresh={}", refresh.to_base64().unwrap());
+        let refresh = format!("refresh={}", refresh.encode().unwrap());
         req.metadata_mut()
             .insert("cookie", refresh.parse().unwrap());
 

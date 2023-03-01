@@ -76,12 +76,8 @@ async fn responds_error_for_delete_on_personal_org() {
         meta: Some(tester.meta()),
         id: org_id,
     };
-    let result = tester.send_admin(Service::delete, req).await;
-
-    match result {
-        Err(status) => assert_eq!(status.code(), tonic::Code::NotFound),
-        Ok(_) => panic!("This may not work"),
-    }
+    let status = tester.send_admin(Service::delete, req).await.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::PermissionDenied);
 }
 
 #[tokio::test]

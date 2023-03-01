@@ -68,7 +68,7 @@ where
                 .extensions()
                 .get::<models::DbPool>()
                 .unwrap_or_else(|| panic!("DB extension missing"));
-            let token = AnyToken::from_request(&request)
+            let token = dbg!(AnyToken::from_request(&request))
                 .map_err(|_| unauthenticated_response("Missing valid token"))?;
             let cant_parse =
                 |e| unauthenticated_response(format!("Could not extract token: {e:?}"));
@@ -147,8 +147,8 @@ where
                 }
                 AnyToken::UserAuth(token) => {
                     // 1. try if token is valid
-                    token.encode().map_err(cant_parse)?;
-                    let refresh = match UserRefreshToken::from_request(&request) {
+                    dbg!(token.encode().map_err(cant_parse))?;
+                    let refresh = match dbg!(UserRefreshToken::from_request(&request)) {
                         Ok(token) => token,
                         Err(e) => {
                             tracing::error!("No refresh token in request: {e}");

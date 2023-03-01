@@ -46,7 +46,7 @@ impl blockjoy::NodeInfo {
     pub fn from_model(model: models::Node) -> Self {
         Self {
             id: model.id.to_string(),
-            name: model.name,
+            name: Some(model.name),
             ip: model.ip_addr,
             self_update: Some(model.self_update),
             block_height: model.block_height,

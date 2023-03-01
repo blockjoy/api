@@ -53,7 +53,7 @@ pub async fn db_command_to_grpc_command(
             let network = Parameter::new("network", &node.network);
             let node_type = node.node_type()?;
             let cmd = blockjoy::NodeInfoUpdate {
-                name: node.name,
+                name: Some(node.name),
                 self_update: Some(node.self_update),
                 properties: node_type
                     .iter_props()
@@ -80,7 +80,7 @@ pub async fn db_command_to_grpc_command(
         }
         // The following should be HostCommands
         HostCmd::CreateNode => {
-            let node = Node::find_by_id(cmd.resource_id, conn).await?;
+            let node = dbg!(Node::find_by_id(cmd.resource_id, conn).await?);
             let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
             let image = ContainerImage {
                 protocol: blockchain.name,
@@ -91,7 +91,7 @@ pub async fn db_command_to_grpc_command(
             let network = Parameter::new("network", &node.network);
             let node_type = node.node_type()?;
             let create_cmd = NodeCreate {
-                name: node.name.ok_or_else(required("node.name"))?,
+                name: node.name,
                 blockchain: node.blockchain_id.to_string(),
                 image: Some(image),
                 r#type: node_type.to_json()?,
@@ -355,7 +355,7 @@ pub mod from {
                 host_id: Some(node.host_id.to_string()),
                 host_name: Some(node.host_name),
                 blockchain_id: Some(node.blockchain_id.to_string()),
-                name: node.name,
+                name: Some(node.name),
                 groups: vec![],
                 version: node.version,
                 ip: node.ip_addr,

@@ -69,7 +69,7 @@ impl blockjoy_ui::Node {
             host_id: Some(node.host_id.to_string()),
             host_name: Some(node.host_name),
             blockchain_id: Some(node.blockchain_id.to_string()),
-            name: node.name,
+            name: Some(node.name),
             // TODO: get node groups
             groups: vec![],
             version: node.version,
