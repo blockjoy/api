@@ -27,6 +27,7 @@ mod test {
     use diesel::prelude::*;
     use diesel_async::pooled_connection::bb8::Pool;
     use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+    use diesel_async::scoped_futures::ScopedFutureExt;
     use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
     use rand::Rng;
     use uuid::Uuid;
@@ -35,6 +36,7 @@ mod test {
     pub struct TestDb {
         pub pool: models::DbPool,
         test_db_name: String,
+        test_db_url: String,
         main_db_url: String,
     }
 
@@ -86,11 +88,12 @@ mod test {
             let db = TestDb {
                 pool: models::DbPool::new(pool),
                 test_db_name: db_name,
-                main_db_url: db_url,
+                test_db_url: db_url,
+                main_db_url,
             };
             for migration in super::MIGRATIONS.migrations().unwrap() {
                 migration
-                    .run(&mut PgConnection::establish(&db.test_db_name).unwrap())
+                    .run(&mut PgConnection::establish(&db.test_db_url).unwrap())
                     .unwrap();
             }
             db.seed().await;
@@ -117,10 +120,10 @@ mod test {
 
         /// Seeds the database with some initial data that we need for running tests.
         async fn seed(&self) {
-            // self.pool
-            //     .trx(|c| async move { Self::_seed(c).await })
-            //     .await
-            //     .expect("Could not seed db");
+            self.pool
+                .trx(|c| Self::_seed(c).scope_boxed())
+                .await
+                .expect("Could not seed db");
         }
 
         async fn _seed(conn: &mut diesel_async::AsyncPgConnection) -> crate::Result<()> {
@@ -131,30 +134,30 @@ mod test {
             /*
             diesel::sql_query("INSERT INTO blockchains (id,name,status,supported_node_types) values ('fd5e2a49-f741-4eb2-a8b1-ee6222146ced','DeletedChain', 'deleted', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]')")
             .execute(conn)
-            .await?;
+            .await.unwrap();
             diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Pocket', 'production', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]')")
             .execute(conn)
-            .await?;
+            .await.unwrap();
             diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Cosmos', 'production', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]');")
             .execute(conn)
-            .await?;
+            .await.unwrap();
             diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Etherium', 'production', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]');")
             .execute(conn)
-            .await?;
+            .await.unwrap();
             diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Lightning', 'production', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]');")
             .execute(conn)
-            .await?;
+            .await.unwrap();
             diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Algorand', 'production', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]');")
             .execute(conn)
-            .await?;
+            .await.unwrap();
              */
 
             diesel::sql_query("INSERT INTO blockchains (id,name,status,supported_node_types) values ('1fdbf4c3-ff16-489a-8d3d-87c8620b963c','Helium', 'production', '[]')")
                 .execute(conn)
-                .await?;
+                .await.unwrap();
             diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Ethereum', 'production', '[{\"id\":3,\"version\": \"3.3.0\", \"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]}]');")
                 .execute(conn)
-                .await?;
+                .await.unwrap();
             // let blockchain: models::Blockchain = diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Helium', 'production', '[{\"id\":3, \"version\": \"0.0.3\",\"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]}]') RETURNING *;")
             let blockchain: models::Blockchain = diesel::insert_into(blockchains::table)
                 .values((
@@ -186,21 +189,21 @@ mod test {
                     )),
                 ))
                 .get_result(conn)
-                .await?;
+                .await
+                .unwrap();
 
             let user = models::NewUser::new("test@here.com", "Luuk", "Tester", "abc12345").unwrap();
             let admin = models::NewUser::new("admin@here.com", "Mr", "Admin", "abc12345").unwrap();
 
-            let user = user.create(conn).await?;
+            let user = user.create(conn).await.unwrap();
 
-            admin.create(conn).await?;
+            admin.create(conn).await.unwrap();
 
             diesel::sql_query(
-                "UPDATE users set pay_address = '123456', staking_quota = 3 where email = 'test@here.com'",
+                "UPDATE users set pay_address = '123456', staking_quota = 3 WHERE email = 'test@here.com'",
             )
             .execute(conn)
-            .await
-            ?;
+            .await.unwrap();
 
             diesel::sql_query("
             INSERT INTO
@@ -209,8 +212,7 @@ mod test {
                 ($1, 99, 200, 1, 1000000000, now(), now(), false);")
                 .bind::<diesel::sql_types::Uuid, _>(user.id)
                 .execute(conn)
-                .await
-                ?;
+                .await.unwrap();
 
             let host1 = models::NewHost {
                 name: "Host-1",
@@ -223,12 +225,12 @@ mod test {
                 os_version: None,
                 ip_addr: "192.168.1.1",
                 status: models::ConnectionStatus::Online,
-                ip_range_from: "192.168.0.10".parse()?,
-                ip_range_to: "192.168.0.100".parse()?,
-                ip_gateway: "192.168.0.1".parse()?,
+                ip_range_from: "192.168.0.10".parse().unwrap(),
+                ip_range_to: "192.168.0.100".parse().unwrap(),
+                ip_gateway: "192.168.0.1".parse().unwrap(),
             };
 
-            let host1 = host1.create(conn).await?;
+            let host1 = host1.create(conn).await.unwrap();
 
             let host2 = models::NewHost {
                 name: "Host-2",
@@ -241,12 +243,12 @@ mod test {
                 os_version: None,
                 ip_addr: "192.168.2.1",
                 status: models::ConnectionStatus::Online,
-                ip_range_from: "192.12.0.10".parse()?,
-                ip_range_to: "192.12.0.20".parse()?,
-                ip_gateway: "192.12.0.1".parse()?,
+                ip_range_from: "192.12.0.10".parse().unwrap(),
+                ip_range_to: "192.12.0.20".parse().unwrap(),
+                ip_gateway: "192.12.0.1".parse().unwrap(),
             };
 
-            host2.create(conn).await?;
+            host2.create(conn).await.unwrap();
 
             let org_id: uuid::Uuid = diesel::insert_into(orgs::table)
                 .values(orgs::name.eq("the blockboys"))

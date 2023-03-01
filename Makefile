@@ -10,7 +10,6 @@ export API_SERVICE_SECRET=abc123
 
 test: 
 	@docker-compose up -d
-	@sqlx migrate run
 	@cargo test
 	@docker-compose down
 

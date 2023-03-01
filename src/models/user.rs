@@ -249,6 +249,7 @@ pub struct NewUser<'a> {
     first_name: &'a str,
     last_name: &'a str,
     hashword: String,
+    salt: String,
 }
 
 impl<'a> NewUser<'a> {
@@ -269,6 +270,7 @@ impl<'a> NewUser<'a> {
                 first_name,
                 last_name,
                 hashword: hashword.to_string(),
+                salt: salt.as_str().to_owned(),
             };
 
             create_user
