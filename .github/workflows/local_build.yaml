@@ -17,7 +17,7 @@ jobs:
       - name: Build and Push API
         uses: RafikFarhad/push-to-gcr-github-action@v5-beta
         with:
-          registry: gcr.io
+          registry: us-docker.pkg.dev
           project_id: blockjoy-deployer
           image_name: dev-blockvisor-api
           image_tag: ${{ github.sha }}
@@ -28,7 +28,7 @@ jobs:
       - name: Build and Push Migrations
         uses: RafikFarhad/push-to-gcr-github-action@v5-beta
         with:
-          registry: gcr.io
+          registry: us-docker.pkg.dev
           project_id: blockjoy-deployer
           image_name: dev-blockvisor-migrations
           image_tag: ${{ github.sha }}
