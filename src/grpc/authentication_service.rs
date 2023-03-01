@@ -152,7 +152,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         // are not going to return an error. This hides whether or not a user is registered with
         // us to the caller of the api, because this info may be sensitive and this endpoint is not
         // protected by any authentication.
-        let resp = self
+        let response = self
             .db
             .trx(|c| {
                 async move {
@@ -163,13 +163,12 @@ impl AuthenticationService for AuthenticationServiceImpl {
 
                     let meta = ResponseMeta::new(String::from(""), None);
                     let response = ResetPasswordResponse { meta: Some(meta) };
-
-                    Ok(response_with_refresh_token(refresh_token, response)?)
+                    Ok(response)
                 }
                 .scope_boxed()
             })
             .await?;
-        Ok(resp)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn update_password(
@@ -213,7 +212,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
             })
             .await?;
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn update_ui_password(
@@ -255,7 +254,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
                 .scope_boxed()
             })
             .await?;
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn switch_organization(
@@ -284,6 +283,6 @@ impl AuthenticationService for AuthenticationServiceImpl {
             }),
         };
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 }

@@ -185,7 +185,7 @@ impl MailClient {
         let (html, text) = template.render(context)?;
 
         let to = sendgrid::Destination {
-            address: &to.email,
+            address: to.email,
             name: &format!("{} {}", to.first_name, to.last_name),
         };
         let mail = sendgrid::Mail {

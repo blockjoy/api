@@ -433,7 +433,7 @@ impl NewNode<'_> {
     pub async fn create(mut self, conn: &mut AsyncPgConnection) -> Result<Node> {
         let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let node_type = NodeTypeKey::str_from_value(self.node_type()?.get_id());
-        let requirements = get_hw_requirements(chain.name, node_type, self.version.clone()).await?;
+        let requirements = get_hw_requirements(chain.name, node_type, self.version).await?;
         let host_id = Host::get_next_available_host_id(requirements, conn).await?;
         let host = Host::find_by_id(host_id, conn).await?;
         let ip_gateway = host.ip_gateway.map(|ip| ip.to_string());

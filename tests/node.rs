@@ -11,7 +11,7 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
     let req = models::NewNode {
         org_id: org.id,
         blockchain_id: blockchain.id,
-        node_type: serde_json::to_value(&models::NodeProperties::special_type(
+        node_type: serde_json::to_value(models::NodeProperties::special_type(
             models::NodeTypeKey::Validator,
         ))?,
         chain_status: models::NodeChainStatus::Unknown,

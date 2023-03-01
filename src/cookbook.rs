@@ -34,7 +34,7 @@ pub async fn get_hw_requirements(
     let id = cookbook_grpc::ConfigIdentifier {
         protocol,
         node_type,
-        node_version: node_version.unwrap_or_else(|| "latest").to_string(),
+        node_version: node_version.unwrap_or("latest").to_string(),
         status: 1,
     };
     let cb_url = KeyProvider::get_var("COOKBOOK_URL")

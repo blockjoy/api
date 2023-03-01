@@ -145,7 +145,7 @@ impl InvitationService for InvitationServiceImpl {
             })
             .await?;
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     /// TODO: Role should be checked by policies
@@ -178,7 +178,7 @@ impl InvitationService for InvitationServiceImpl {
                     invitations,
                 };
 
-                Ok(response_with_refresh_token(refresh_token, response)?)
+                response_with_refresh_token(refresh_token, response)
             }
         }
     }
@@ -203,7 +203,7 @@ impl InvitationService for InvitationServiceImpl {
             invitations,
         };
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn accept(&self, request: Request<InvitationRequest>) -> Result<Response<()>, Status> {

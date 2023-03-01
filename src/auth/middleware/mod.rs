@@ -86,7 +86,7 @@ where
 
                     let result = enforcer
                         .try_authorized(auth_data)
-                        .map_err(|e| unauthorized_response(e))?;
+                        .map_err(unauthorized_response)?;
                     // Evaluate authorization result
                     match result {
                         AuthorizationState::Authorized => {
@@ -109,7 +109,7 @@ where
                     };
                     let result = enforcer
                         .try_authorized(auth_data)
-                        .map_err(|e| unauthorized_response(e))?;
+                        .map_err(unauthorized_response)?;
                     // Evaluate authorization result
                     match result {
                         AuthorizationState::Authorized => {
@@ -132,7 +132,7 @@ where
                     };
                     let result = enforcer
                         .try_authorized(auth_data)
-                        .map_err(|e| unauthorized_response(e))?;
+                        .map_err(unauthorized_response)?;
                     // Evaluate authorization result
                     match result {
                         AuthorizationState::Authorized => {
@@ -203,7 +203,7 @@ where
 
                     let result = enforcer
                         .try_authorized(auth_data)
-                        .map_err(|e| unauthorized_response(e))?;
+                        .map_err(unauthorized_response)?;
                     // Evaluate authorization result
                     match result {
                         AuthorizationState::Authorized => {
@@ -232,7 +232,7 @@ where
 
                     let result = enforcer
                         .try_authorized(auth_data)
-                        .map_err(|e| unauthorized_response(e))?;
+                        .map_err(unauthorized_response)?;
                     // Evaluate authorization result
                     match result {
                         AuthorizationState::Authorized => {

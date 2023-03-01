@@ -64,7 +64,7 @@ impl BlockchainService for BlockchainServiceImpl {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
             blockchain: Some(blockchain.try_into()?),
         };
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn list(
@@ -102,6 +102,6 @@ impl BlockchainService for BlockchainServiceImpl {
             blockchains: grpc_blockchains,
         };
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 }

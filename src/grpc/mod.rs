@@ -179,7 +179,7 @@ fn rate_limiting_settings() -> usize {
 pub fn response_with_refresh_token<ResponseBody>(
     token: Option<String>,
     inner: ResponseBody,
-) -> ApiResult<tonic::Response<ResponseBody>> {
+) -> ApiResult<tonic::Response<ResponseBody>, tonic::Status> {
     let mut response = tonic::Response::new(inner);
 
     if let Some(token) = token {

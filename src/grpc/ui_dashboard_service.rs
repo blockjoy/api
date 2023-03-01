@@ -59,6 +59,6 @@ impl DashboardService for DashboardServiceImpl {
             metrics,
         };
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 }

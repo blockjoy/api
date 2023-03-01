@@ -67,7 +67,7 @@ impl UserService for UserServiceImpl {
             user: Some(blockjoy_ui::User::from_model(user)?),
         };
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn create(
@@ -134,7 +134,7 @@ impl UserService for UserServiceImpl {
             })
             .await?;
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn delete(&self, request: Request<DeleteUserRequest>) -> Result<Response<()>, Status> {

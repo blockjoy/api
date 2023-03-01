@@ -104,6 +104,6 @@ impl HostProvisionService for HostProvisionServiceImpl {
         let meta = ResponseMeta::from_meta(inner.meta, Some(token)).with_message(provision.id);
         let response = CreateHostProvisionResponse { meta: Some(meta) };
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 }

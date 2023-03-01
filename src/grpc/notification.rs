@@ -228,8 +228,13 @@ mod tests {
             id: Some(host.id.to_string()),
             ..Default::default()
         };
-        let notifier = Notifier::new();
-        notifier.bv_hosts_sender().send(&host).await.unwrap();
+        let notifier = Notifier::new().unwrap();
+        notifier
+            .bv_hosts_sender()
+            .unwrap()
+            .send(&host)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -237,8 +242,13 @@ mod tests {
         let db = crate::TestDb::setup().await;
         let node = db.node().await;
         let node = blockjoy::NodeInfo::from_model(node);
-        let notifier = Notifier::new();
-        notifier.bv_nodes_sender().send(&node).await.unwrap();
+        let notifier = Notifier::new().unwrap();
+        notifier
+            .bv_nodes_sender()
+            .unwrap()
+            .send(&node)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

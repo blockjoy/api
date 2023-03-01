@@ -210,7 +210,7 @@ impl NodeService for NodeServiceImpl {
                 meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
                 node: Some(blockjoy_ui::Node::from_model(node, &mut conn).await?),
             };
-            Ok(response_with_refresh_token(refresh_token, response)?)
+            response_with_refresh_token(refresh_token, response)
         } else {
             Err(Status::permission_denied("Access not allowed"))
         }
@@ -264,7 +264,7 @@ impl NodeService for NodeServiceImpl {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
             nodes,
         };
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn create(
@@ -341,7 +341,7 @@ impl NodeService for NodeServiceImpl {
             meta: Some(response_meta),
         };
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn update(
@@ -361,7 +361,7 @@ impl NodeService for NodeServiceImpl {
         let response = UpdateNodeResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn delete(&self, request: Request<DeleteNodeRequest>) -> Result<Response<()>, Status> {

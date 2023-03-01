@@ -150,7 +150,7 @@ impl HostService for HostServiceImpl {
             hosts,
         };
 
-        Ok(response_with_refresh_token(refresh_token, response)?)
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn create(
