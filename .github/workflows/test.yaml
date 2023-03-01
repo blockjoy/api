@@ -68,19 +68,13 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-      - name: Install sqlx-cli
-        run: >
-          cargo install sqlx-cli --features postgres
-      - name: Migrate
-        uses: actions-rs/cargo@v1
-        with:
-          command: sqlx
-          args: migrate run
+      - name: Install libpq
+        run: apt install libpq-dev -y
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --no-fail-fast -- --test-threads=1 
+          args: --no-fail-fast
   lints:
     name: Lints
     runs-on: self-hosted
