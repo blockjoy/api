@@ -19,7 +19,7 @@ jobs:
         with:
           registry: us-docker.pkg.dev
           project_id: blockjoy-deployer
-          image_name: dev-blockvisor-api
+          image_name: dev-blockvisor-api/dev-blockvisor-api
           image_tag: ${{ github.sha }}
           dockerfile: ./migrations/Dockerfile
           context: ./migrations
@@ -30,7 +30,7 @@ jobs:
         with:
           registry: us-docker.pkg.dev
           project_id: blockjoy-deployer
-          image_name: dev-blockvisor-migrations
+          image_name: dev-blockvisor-migrations/dev-blockvisor-migrations
           image_tag: ${{ github.sha }}
           dockerfile: ./Dockerfile
           context: ./
