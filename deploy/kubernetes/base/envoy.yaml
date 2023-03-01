@@ -70,3 +70,21 @@ spec:
   timeoutSec: 86400
   connectionDraining:
     drainingTimeoutSec: 100
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy-ilb
+  annotations:
+    cloud.google.com/backend-config: '{"default": "envoy"}'
+    networking.gke.io/load-balancer-type: "Internal"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  selector:
+    app: envoy
+  ports:
+  - name: proxy-port
+    protocol: TCP
+    port: 8080
+    targetPort: 8080

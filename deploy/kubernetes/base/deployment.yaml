@@ -56,4 +56,20 @@ spec:
       port: 8080
       targetPort: 8080
 ---
-
+apiVersion: v1
+kind: Service
+metadata:
+  name: blockvisor-api-ilb
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  selector:
+    app: blockvisor-api
+  ports:
+  - name: tcp-port
+    protocol: TCP
+    port: 8080
+    targetPort: 8080
+---

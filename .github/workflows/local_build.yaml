@@ -1,0 +1,35 @@
+name: Local Build
+on:
+   push:
+     branches: [main, ci/gcr]
+jobs:
+  build-and-push-to-gcr:
+    runs-on: self-hosted
+    steps:      
+      - uses: actions/checkout@v3
+
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GOOGLE_CREDENTIALS }}'
+
+      - name: Build and Push API
+        uses: RafikFarhad/push-to-gcr-github-action@v5-beta
+        with:
+          registry: gcr.io
+          project_id: blockjoy-deployer
+          image_name: dev-blockvisor-api
+          image_tag: ${{ github.sha }}
+          dockerfile: ./migrations/Dockerfile
+          context: ./migrations
+
+      - name: Build and Push Migrations
+        uses: RafikFarhad/push-to-gcr-github-action@v5-beta
+        with:
+          registry: gcr.io
+          project_id: blockjoy-deployer
+          image_name: dev-blockvisor-migrations
+          image_tag: ${{ github.sha }}
+          dockerfile: ./Dockerfile
+          context: ./
