@@ -8,6 +8,13 @@ export DATABASE_URL_NAKED=postgres://blockvisor:password@localhost:25432
 export JWT_SECRET=123456
 export API_SERVICE_SECRET=abc123
 
+export MQTT_CLIENT_ID=1
+export MQTT_SERVER_ADDRESS=35.237.162.218
+export MQTT_SERVER_PORT=1883
+export MQTT_USERNAME=blockvisor-api
+export MQTT_PASSWORD=PH*rE:\ZQlecB9/I?[#R$q3M;5yCb]Y+
+export KEY_SERVICE_URL=henk
+
 test: 
 	@docker-compose up -d
 	@cargo test

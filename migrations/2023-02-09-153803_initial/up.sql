@@ -1,8 +1,8 @@
 DROP TABLE IF EXISTS _sqlx_migrations;
 
 
--- For our next trick, if the migrations up to here have already been ran by SQLx, then
--- 'enum_blockchain_status' will already exists.
+-- For our next trick, if the migrations up to here have already been ran by SQLx, then the type
+-- 'enum_blockchain_status' will already exist. Therefore we only perform the initial migration
 DO $$
 BEGIN
 IF NOT EXISTS (SELECT TRUE FROM pg_type WHERE typname = 'enum_blockchain_status') THEN

@@ -226,7 +226,7 @@ diesel::table! {
         id -> Uuid,
         org_id -> Uuid,
         host_id -> Uuid,
-        name -> Nullable<Text>,
+        name -> Text,
         groups -> Nullable<Text>,
         version -> Nullable<Text>,
         ip_addr -> Nullable<Text>,

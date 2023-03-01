@@ -53,7 +53,7 @@ pub async fn db_command_to_grpc_command(
             let network = Parameter::new("network", &node.network);
             let node_type = node.node_type()?;
             let cmd = blockjoy::NodeInfoUpdate {
-                name: node.name,
+                name: Some(node.name),
                 self_update: Some(node.self_update),
                 properties: node_type
                     .iter_props()
@@ -91,7 +91,7 @@ pub async fn db_command_to_grpc_command(
             let network = Parameter::new("network", &node.network);
             let node_type = node.node_type()?;
             let create_cmd = NodeCreate {
-                name: node.name.ok_or_else(required("node.name"))?,
+                name: node.name,
                 blockchain: node.blockchain_id.to_string(),
                 image: Some(image),
                 r#type: node_type.to_json()?,
@@ -274,14 +274,6 @@ pub mod from {
         }
     }
 
-    // impl TryFrom<Org> for Organization {
-    //     type Error = ApiError;
-
-    //     fn try_from(org: Org) -> Result<Self, Self::Error> {
-    //         Organization::try_from(&org)
-    //     }
-    // }
-
     impl From<models::OrgUser> for grpc::blockjoy_ui::OrgUser {
         fn from(value: models::OrgUser) -> Self {
             Self {
@@ -291,58 +283,6 @@ pub mod from {
             }
         }
     }
-
-    // impl TryFrom<&blockjoy_ui::Node> for models::NewNode<'_> {
-    //     type Error = ApiError;
-
-    //     fn try_from(node: &blockjoy_ui::Node) -> Result<Self, Self::Error> {
-    //         let node_type = node.r#type.as_ref().ok_or_else(required("node.type"))?;
-    //         let props: NodeProperties = serde_json::from_str(&node_type)?;
-    //         let req = Self {
-    //             org_id: node
-    //                 .org_id
-    //                 .as_ref()
-    //                 .ok_or_else(required("node.org_id"))?
-    //                 .parse()?,
-    //             host_name: &node
-    //                 .host_name
-    //                 .as_ref()
-    //                 .ok_or_else(required("node.org_id"))?,
-    //             name: petname::petname(3, "_"),
-    //             groups: node.groups.join(","),
-    //             version: node.version.as_deref(),
-    //             ip_addr: node.ip.as_deref(),
-    //             ip_gateway: node.ip_gateway.as_deref(),
-    //             blockchain_id: node
-    //                 .blockchain_id
-    //                 .as_ref()
-    //                 .ok_or_else(required("node.blockchain_id"))?
-    //                 .parse()?,
-    //             node_type: serde_json::to_value(props)?,
-    //             address: node.address.as_deref(),
-    //             wallet_address: node.wallet_address.as_deref(),
-    //             block_height: node.block_height.map(i64::from),
-    //             node_data: node.node_data.as_deref().map(Value::from),
-    //             chain_status: node
-    //                 .status
-    //                 .ok_or_else(required("node.status"))?
-    //                 .try_into()?,
-    //             sync_status: NodeSyncStatus::Unknown,
-    //             staking_status: NodeStakingStatus::Unknown,
-    //             container_status: ContainerStatus::Unknown,
-    //             self_update: node.self_update.unwrap_or(false),
-    //             vcpu_count: 0,
-    //             mem_size_mb: 0,
-    //             disk_size_gb: 0,
-    //             network: node
-    //                 .network
-    //                 .as_deref()
-    //                 .ok_or_else(required("node.network"))?,
-    //         };
-
-    //         Ok(req)
-    //     }
-    // }
 
     impl TryFrom<models::Node> for GrpcNode {
         type Error = ApiError;
@@ -355,7 +295,7 @@ pub mod from {
                 host_id: Some(node.host_id.to_string()),
                 host_name: Some(node.host_name),
                 blockchain_id: Some(node.blockchain_id.to_string()),
-                name: node.name,
+                name: Some(node.name),
                 groups: vec![],
                 version: node.version,
                 ip: node.ip_addr,

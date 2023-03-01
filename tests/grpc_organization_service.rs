@@ -1,6 +1,9 @@
 mod setup;
 
-use api::grpc::blockjoy_ui::{self, organization_service_client};
+use api::{
+    grpc::blockjoy_ui::{self, organization_service_client},
+    models,
+};
 use tonic::transport;
 
 type Service = organization_service_client::OrganizationServiceClient<transport::Channel>;
@@ -71,17 +74,16 @@ async fn responds_ok_for_update() {
 async fn responds_error_for_delete_on_personal_org() {
     let tester = setup::Tester::new().await;
     let user = tester.admin_user().await;
-    let org_id = tester.org_for(&user).await.id.to_string();
+    let mut conn = tester.conn().await;
+    let org = models::Org::find_personal_org(user.id, &mut conn)
+        .await
+        .unwrap();
     let req = blockjoy_ui::DeleteOrganizationRequest {
         meta: Some(tester.meta()),
-        id: org_id,
+        id: org.id.to_string(),
     };
-    let result = tester.send_admin(Service::delete, req).await;
-
-    match result {
-        Err(status) => assert_eq!(status.code(), tonic::Code::NotFound),
-        Ok(_) => panic!("This may not work"),
-    }
+    let status = tester.send_admin(Service::delete, req).await.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::PermissionDenied);
 }
 
 #[tokio::test]

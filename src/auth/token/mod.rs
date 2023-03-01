@@ -291,6 +291,7 @@ struct UnknownToken {
 }
 
 /// A token whose `token_type` is not known.
+#[derive(Debug)]
 pub enum AnyToken {
     UserAuth(UserAuthToken),
     HostAuth(HostAuthToken),

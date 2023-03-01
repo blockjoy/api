@@ -129,7 +129,7 @@ impl IpAddress {
     }
 
     pub async fn assigned(ip: IpAddr, conn: &mut AsyncPgConnection) -> Result<bool> {
-        let ip = ipnetwork::IpNetwork::new(ip, 0)?;
+        let ip = ipnetwork::IpNetwork::new(ip, 32)?;
         let row = ip_addresses::table.filter(ip_addresses::ip.eq(ip));
         let assigned = diesel::select(dsl::exists(row)).get_result(conn).await?;
         Ok(assigned)
@@ -143,7 +143,7 @@ impl IpAddress {
     }
 
     pub async fn find_by_node(node_ip: IpAddr, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let ip = ipnetwork::IpNetwork::new(node_ip, 0)?;
+        let ip = ipnetwork::IpNetwork::new(node_ip, 32)?;
         let ip = ip_addresses::table
             .filter(ip_addresses::ip.eq(ip))
             .get_result(conn)

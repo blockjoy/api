@@ -34,6 +34,7 @@ async fn responds_ok_with_single_get() {
     let node = tester.node().await;
     let update = models::UpdateNode {
         id: node.id,
+        name: None,
         version: None,
         ip_addr: Some("123.123.123.123"),
         block_height: None,
@@ -101,6 +102,7 @@ async fn responds_ok_for_pending() {
     let node = tester.node().await;
     let update = models::UpdateNode {
         id: node.id,
+        name: None,
         version: None,
         ip_addr: Some("123.123.123.123"),
         block_height: None,

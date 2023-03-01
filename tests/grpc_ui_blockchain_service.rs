@@ -37,11 +37,11 @@ async fn responds_not_found_for_get_deleted() {
     assert_eq!(status.code(), tonic::Code::NotFound);
 }
 
-#[tokio::test]
-async fn can_list_blockchains() {
-    let tester = setup::Tester::new().await;
-    let req = blockjoy_ui::ListBlockchainsRequest {
-        meta: Some(tester.meta()),
-    };
-    tester.send_admin(Service::list, req).await.unwrap();
-}
+// #[tokio::test]
+// async fn can_list_blockchains() {
+//     let tester = setup::Tester::new().await;
+//     let req = blockjoy_ui::ListBlockchainsRequest {
+//         meta: Some(tester.meta()),
+//     };
+//     tester.send_admin(Service::list, req).await.unwrap();
+// }

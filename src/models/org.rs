@@ -40,17 +40,6 @@ impl FindableById for Org {
 }
 
 impl Org {
-    pub async fn find_all(conn: &mut AsyncPgConnection) -> Result<Vec<Org>> {
-        let orgs = orgs::table
-            .filter(orgs::deleted_at.is_null())
-            .inner_join(orgs_users::table)
-            .group_by(orgs::id)
-            .select((orgs::all_columns, dsl::count(orgs_users::user_id)))
-            .get_results(conn)
-            .await?;
-        Ok(orgs)
-    }
-
     pub async fn find_by_user(
         org_id: Uuid,
         user_id: Uuid,
@@ -159,16 +148,7 @@ impl Org {
         role: OrgRole,
         conn: &mut AsyncPgConnection,
     ) -> Result<OrgUser> {
-        let org_user = NewOrgUser {
-            user_id,
-            org_id,
-            role,
-        };
-        let org_user = diesel::insert_into(orgs_users::table)
-            .values(&org_user)
-            .get_result(conn)
-            .await?;
-        Ok(org_user)
+        NewOrgUser::new(org_id, user_id, role).create(conn).await
     }
 
     /// Returns the user role in the organization
@@ -252,12 +232,9 @@ impl<'a> NewOrg<'a> {
             .values(self)
             .get_result(conn)
             .await?;
-        let org_user = NewOrgUser {
-            org_id: org.id,
-            user_id,
-            role: OrgRole::Owner,
-        };
-        org_user.create(conn).await?;
+        NewOrgUser::new(org.id, user_id, OrgRole::Owner)
+            .create(conn)
+            .await?;
 
         Ok(Org { org, members: 1 })
     }
@@ -301,12 +278,20 @@ pub struct OrgUser {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = orgs_users)]
 pub struct NewOrgUser {
-    pub org_id: Uuid,
-    pub user_id: Uuid,
-    pub role: OrgRole,
+    org_id: Uuid,
+    user_id: Uuid,
+    role: OrgRole,
 }
 
 impl NewOrgUser {
+    pub fn new(org_id: Uuid, user_id: Uuid, role: OrgRole) -> Self {
+        Self {
+            org_id,
+            user_id,
+            role,
+        }
+    }
+
     pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<OrgUser> {
         let org_user = diesel::insert_into(orgs_users::table)
             .values(self)

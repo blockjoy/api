@@ -155,6 +155,10 @@ impl OrganizationService for OrganizationServiceImpl {
             .db
             .trx(|c| {
                 async move {
+                    let org = Org::find_by_id(org_id, c).await?;
+                    if org.is_personal {
+                        return Err(Status::permission_denied("Can't deleted personal org").into());
+                    }
                     let member = Org::find_org_user(user_id, org_id, c).await?;
 
                     // Only owner or admins may delete orgs

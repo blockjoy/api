@@ -9,6 +9,7 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
     let user = tester.admin_user().await;
     let org = tester.org_for(&user).await;
     let req = models::NewNode {
+        id: uuid::Uuid::new_v4(),
         org_id: org.id,
         blockchain_id: blockchain.id,
         node_type: serde_json::to_value(models::NodeProperties::special_type(
@@ -31,7 +32,7 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         vcpu_count: 0,
         mem_size_mb: 0,
         disk_size_gb: 0,
-        host_name: "some host",
+        host_name: Some("some host"),
         network: "some network",
     };
 

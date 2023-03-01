@@ -17,7 +17,7 @@ async fn create_invitation(tester: &Tester) -> anyhow::Result<models::Invitation
         created_by_user_name: user.last_name,
         created_for_org: org.id,
         created_for_org_name: org.org.name,
-        invitee_email: "how_can_i@enjoy.blocks",
+        invitee_email: "test@here.com",
     };
     let mut conn = tester.conn().await;
     let inv = new_invitation.create(&mut conn).await?;
@@ -93,14 +93,7 @@ async fn responds_ok_for_accept() -> anyhow::Result<()> {
     let token = InvitationToken::create_for_invitation(&invitation)?;
     let grpc_invitation = GrpcInvitation {
         id: Some(invitation.id.to_string()),
-        created_by_id: Some(invitation.created_by_user.to_string()),
-        created_for_org_id: Some(invitation.created_for_org.to_string()),
-        invitee_email: Some(invitation.invitee_email.to_string()),
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: Some("hugo".to_string()),
-        created_for_org_name: Some("boss".to_string()),
+        ..Default::default()
     };
     let req = blockjoy_ui::InvitationRequest {
         meta: Some(tester.meta()),

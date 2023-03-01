@@ -131,26 +131,6 @@ mod test {
                 .execute(conn)
                 .await
                 .expect("could not update info in test setup");
-            /*
-            diesel::sql_query("INSERT INTO blockchains (id,name,status,supported_node_types) values ('fd5e2a49-f741-4eb2-a8b1-ee6222146ced','DeletedChain', 'deleted', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]')")
-            .execute(conn)
-            .await.unwrap();
-            diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Pocket', 'production', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]')")
-            .execute(conn)
-            .await.unwrap();
-            diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Cosmos', 'production', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]');")
-            .execute(conn)
-            .await.unwrap();
-            diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Etherium', 'production', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]');")
-            .execute(conn)
-            .await.unwrap();
-            diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Lightning', 'production', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]');")
-            .execute(conn)
-            .await.unwrap();
-            diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Algorand', 'production', '[{ \"id\": 2, \"properties\": [{\"name\": \"ip\",\"label\": \"IP address\",\"default\": \"\",\"type\": \"string\"},{\"name\": \"managed\",\"label\": \"Self hosted or managed?\",\"default\": \"true\",\"type\": \"boolean\"}]},{\"id\": 3,\"properties\": []}]');")
-            .execute(conn)
-            .await.unwrap();
-             */
 
             diesel::sql_query("INSERT INTO blockchains (id,name,status,supported_node_types) values ('1fdbf4c3-ff16-489a-8d3d-87c8620b963c','Helium', 'production', '[]')")
                 .execute(conn)
@@ -163,32 +143,21 @@ mod test {
                 .values((
                     blockchains::name.eq("Helium"),
                     blockchains::status.eq(models::BlockchainStatus::Production),
-                    blockchains::supported_node_types.eq(serde_json::json!(
-                        [
-                            {
-                                "id": 3,
-                                "version": "0.0.3",
-                                "properties": [
-                                    {
-                                        "name": "keystore-file",
-                                        "ui_type": "key-upload",
-                                        "default": "",
-                                        "disabled": false,
-                                        "required": true
-                                    },
-                                    {
-                                        "name": "self-hosted",
-                                        "ui_type": "switch",
-                                        "default": "false",
-                                        "disabled": true,
-                                        "required": true
-                                    },
-                                ],
-                            },
-                        ]
-                    )),
+                    blockchains::supported_node_types
+                        .eq(serde_json::json!([Self::test_node_types()])),
                 ))
                 .get_result(conn)
+                .await
+                .unwrap();
+
+            let org_id: uuid::Uuid = "08dede71-b97d-47c1-a91d-6ba0997b3cdd".parse().unwrap();
+            diesel::insert_into(orgs::table)
+                .values((
+                    orgs::id.eq(org_id),
+                    orgs::name.eq("the blockboys"),
+                    orgs::is_personal.eq(false),
+                ))
+                .execute(conn)
                 .await
                 .unwrap();
 
@@ -196,8 +165,12 @@ mod test {
             let admin = models::NewUser::new("admin@here.com", "Mr", "Admin", "abc12345").unwrap();
 
             let user = user.create(conn).await.unwrap();
+            let admin = admin.create(conn).await.unwrap();
 
-            admin.create(conn).await.unwrap();
+            models::NewOrgUser::new(org_id, admin.id, models::OrgRole::Admin)
+                .create(conn)
+                .await
+                .unwrap();
 
             diesel::sql_query(
                 "UPDATE users set pay_address = '123456', staking_quota = 3 WHERE email = 'test@here.com'",
@@ -231,6 +204,15 @@ mod test {
             };
 
             let host1 = host1.create(conn).await.unwrap();
+            models::NewIpAddressRange::try_new(
+                "127.0.0.1".parse().unwrap(),
+                "127.0.0.10".parse().unwrap(),
+                Some(host1.id),
+            )
+            .unwrap()
+            .create(conn)
+            .await
+            .unwrap();
 
             let host2 = models::NewHost {
                 name: "Host-2",
@@ -249,22 +231,29 @@ mod test {
             };
 
             host2.create(conn).await.unwrap();
+            let node_id: uuid::Uuid = "cdbbc736-f399-42ab-86cf-617ce983011d".parse().unwrap();
 
-            let org_id: uuid::Uuid = diesel::insert_into(orgs::table)
-                .values(orgs::name.eq("the blockboys"))
-                .returning(orgs::id)
-                .get_result(conn)
+            let ip_gateway = host1.ip_gateway.unwrap().to_string();
+            let ip_addr = models::IpAddress::next_for_host(host1.id, conn)
                 .await
-                .unwrap();
+                .unwrap()
+                .ip
+                .ip()
+                .to_string();
 
             diesel::insert_into(nodes::table)
                 .values((
+                    nodes::id.eq(node_id),
+                    nodes::name.eq("Test Node"),
                     nodes::org_id.eq(org_id),
                     nodes::host_id.eq(host1.id),
                     nodes::blockchain_id.eq(blockchain.id),
-                    nodes::node_type.eq(serde_json::json!({"id": 1})),
+                    nodes::node_type.eq(Self::test_node_types()),
                     nodes::block_age.eq(0),
                     nodes::consensus.eq(true),
+                    nodes::chain_status.eq(models::NodeChainStatus::Broadcasting),
+                    nodes::ip_gateway.eq(ip_gateway),
+                    nodes::ip_addr.eq(ip_addr),
                 ))
                 .execute(conn)
                 .await
@@ -287,10 +276,10 @@ mod test {
         }
 
         pub async fn org(&self) -> models::Org {
-            models::Org::find_all(&mut self.pool.conn().await.unwrap())
+            use crate::auth::FindableById;
+            let id = "08dede71-b97d-47c1-a91d-6ba0997b3cdd".parse().unwrap();
+            models::Org::find_by_id(id, &mut self.pool.conn().await.unwrap())
                 .await
-                .unwrap()
-                .pop()
                 .unwrap()
         }
 
@@ -344,6 +333,31 @@ mod test {
             );
 
             HostRefreshToken::try_new(claim).unwrap()
+        }
+
+        fn test_node_types() -> serde_json::Value {
+            serde_json::json!({
+                "id": 3,
+                "version": "0.0.3",
+                "properties": [
+                    {
+                        "name": "keystore-file",
+                        "label": "some-label",
+                        "description": "please put your file here",
+                        "ui_type": "key-upload",
+                        "disabled": false,
+                        "required": true
+                    },
+                    {
+                        "name": "self-hosted",
+                        "label": "some-better-label",
+                        "description": "check if you want to self-host",
+                        "ui_type": "switch",
+                        "disabled": true,
+                        "required": true
+                    },
+                ],
+            })
         }
     }
 }

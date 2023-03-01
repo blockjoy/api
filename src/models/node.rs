@@ -198,7 +198,7 @@ pub struct Node {
     pub id: Uuid,
     pub org_id: Uuid,
     pub host_id: Uuid,
-    pub name: Option<String>,
+    pub name: String,
     pub groups: Option<String>,
     pub version: Option<String>,
     pub ip_addr: Option<String>,
@@ -308,29 +308,22 @@ impl Node {
             // node's blockchain is in the provided list.
             query = query.filter(nodes::blockchain_id.eq_any(&filter.blockchains));
         }
+
         if !filter.status.is_empty() {
-            // let statuses = filter
-            //     .status
-            //     .iter()
-            //     .map(|s| NodeChainStatus::a)
-            //     .collect::<Result<Vec<NodeChainStatus>>>()?;
-            // query = query.filter(nodes::chain_status.eq_any(statuses));
+            query = query.filter(nodes::chain_status.eq_any(&filter.status));
         }
 
         let mut nodes: Vec<Node> = query.get_results(conn).await?;
-        if !filter.node_types.is_empty() {
-            // nodes.retain(|n| filter.node_types.contains(&n.node_type().unwrap().get_id()));
 
-            nodes = nodes
-                .into_iter()
-                .map(|n| n.node_type().map(|nt| (nt, n)))
-                .filter(|res| {
-                    res.as_ref()
-                        .map(|(nt, _)| filter.node_types.contains(&nt.get_id()))
-                        .unwrap_or(true)
-                })
-                .map(|res| res.map(|(_, n)| n))
-                .collect::<Result<_>>()?;
+        if !filter.node_types.is_empty() {
+            let mut remaining = Vec::new();
+            for node in nodes {
+                let node_type = node.node_type()?;
+                if filter.node_types.contains(&node_type.get_id()) {
+                    remaining.push(node);
+                }
+            }
+            nodes = remaining;
         }
         Ok(nodes)
     }
@@ -400,8 +393,9 @@ pub struct NodeProvision {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = nodes)]
 pub struct NewNode<'a> {
+    pub id: uuid::Uuid,
     pub org_id: uuid::Uuid,
-    pub host_name: &'a str,
+    pub host_name: Option<&'a str>,
     pub name: String,
     pub groups: String,
     pub version: Option<&'a str>,
@@ -437,16 +431,14 @@ impl NewNode<'_> {
         let host_id = Host::get_next_available_host_id(requirements, conn).await?;
         let host = Host::find_by_id(host_id, conn).await?;
         let ip_gateway = host.ip_gateway.map(|ip| ip.to_string());
-        let ip_addr = IpAddress::next_for_host(host_id, conn)
-            .await?
-            .ip
-            .to_string();
+        let ip_addr =
+            dbg!(dbg!(IpAddress::next_for_host(host_id, conn).await?.ip.ip()).to_string());
 
         self.ip_gateway = ip_gateway.as_deref();
         self.ip_addr = Some(&ip_addr);
 
         diesel::insert_into(nodes::table)
-            .values(self)
+            .values((self, nodes::host_id.eq(host_id)))
             .get_result(conn)
             .await
             .map_err(|e| {
@@ -456,61 +448,11 @@ impl NewNode<'_> {
     }
 }
 
-// #[derive(Debug, AsChangeset)]
-// #[diesel(table_name = nodes)]
-// pub struct UpdateNode<'a> {
-//     pub id: Uuid,
-//     pub host_id: Option<uuid::Uuid>,
-//     pub name: Option<&'a str>,
-//     pub ip_addr: Option<&'a str>,
-//     pub chain_status: Option<NodeChainStatus>,
-//     pub sync_status: Option<NodeSyncStatus>,
-//     pub staking_status: Option<NodeStakingStatus>,
-//     pub block_height: Option<i64>,
-//     pub self_update: bool,
-//     pub container_status: Option<ContainerStatus>,
-//     pub address: Option<&'a str>,
-// }
-
-// impl TryFrom<GrpcNodeInfo> for UpdateNode<'_> {
-//     type Error = ApiError;
-
-//     fn try_from(info: GrpcNodeInfo) -> Result<Self> {
-//         let GrpcNodeInfo {
-//             id,
-//             host_id,
-//             name,
-//             ip,
-//             app_status,
-//             sync_status,
-//             staking_status,
-//             block_height,
-//             self_update,
-//             container_status,
-//             onchain_name: _, // We explicitly do not use this field
-//             address,
-//         } = info;
-//         let req = Self {
-//             id: id.as_str().parse()?,
-//             name,
-//             ip_addr: ip,
-//             chain_status: app_status.map(|n| n.try_into()).transpose()?,
-//             sync_status: sync_status.map(|n| n.try_into()).transpose()?,
-//             staking_status: staking_status.map(|n| n.try_into()).transpose()?,
-//             block_height,
-//             self_update: self_update.unwrap_or(false),
-//             container_status: container_status.map(|n| n.try_into()).transpose()?,
-//             address,
-//             host_id: host_id.map(|s| s.parse()).transpose()?,
-//         };
-//         Ok(req)
-//     }
-// }
-
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = nodes)]
 pub struct UpdateNode<'a> {
     pub id: uuid::Uuid,
+    pub name: Option<&'a str>,
     pub version: Option<&'a str>,
     pub ip_addr: Option<&'a str>,
     pub block_height: Option<i64>,
