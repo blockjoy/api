@@ -45,11 +45,11 @@ pub async fn mqtt_acl(Json(payload): Json<MqttAclRequest>) -> impl IntoResponse 
             }
         }
         Ok(_) => (
-            StatusCode::NOT_ACCEPTABLE,
+            StatusCode::IM_A_TEAPOT,
             Json("{ \"message\": \"Not supported\"}"),
         ),
         Err(_) => (
-            StatusCode::NOT_ACCEPTABLE,
+            StatusCode::EXPECTATION_FAILED,
             Json("{ \"message\": \"Unknown\"}"),
         ),
     }
