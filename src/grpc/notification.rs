@@ -48,7 +48,7 @@ impl Notifier {
             loop {
                 if let Err(e) = event_loop.poll().await {
                     tracing::warn!("MQTT failure, ignoring and continuing to poll: {e}");
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 }
             }
         });
@@ -88,7 +88,8 @@ impl Notifier {
     // }
 
     fn get_mqtt_options() -> Result<rumqttc::MqttOptions> {
-        let client_id = KeyProvider::get_var("MQTT_CLIENT_ID")?.value;
+        // let client_id = KeyProvider::get_var("MQTT_CLIENT_ID")?.value;
+        let client_id = format!("blockvisor-api-{}", uuid::Uuid::new_v4());
         let host = KeyProvider::get_var("MQTT_SERVER_ADDRESS")?.value;
         let port = KeyProvider::get_var("MQTT_SERVER_PORT")?
             .value

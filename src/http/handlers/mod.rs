@@ -29,16 +29,16 @@ pub async fn mqtt_acl(Json(payload): Json<MqttAclRequest>) -> impl IntoResponse 
     tracing::info!("Got acl payload: {payload:?}");
 
     // TODO: Remove the unwraps, just for testing
-    match determine_token_by_str(payload.username.as_str()) {
+    match dbg!(determine_token_by_str(&payload.username)) {
         Ok(TokenType::UserAuth) => {
-            if MqttUserPolicy::allow(payload.username.as_str(), payload.topic).unwrap() {
+            if MqttUserPolicy::allow(&payload.username, payload.topic).unwrap() {
                 (StatusCode::OK, Json("{}"))
             } else {
                 (StatusCode::FORBIDDEN, Json("{}"))
             }
         }
         Ok(TokenType::HostAuth) => {
-            if MqttHostPolicy::allow(payload.username.as_str(), payload.topic).unwrap() {
+            if MqttHostPolicy::allow(&payload.username, payload.topic).unwrap() {
                 (StatusCode::OK, Json("{}"))
             } else {
                 (StatusCode::FORBIDDEN, Json("{}"))
