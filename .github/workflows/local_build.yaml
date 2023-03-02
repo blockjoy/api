@@ -21,8 +21,8 @@ jobs:
           project_id: blockjoy-deployer
           image_name: blockvisor-api/dev-blockvisor-api
           image_tag: ${{ github.sha }},latest
-          dockerfile: ./migrations/Dockerfile
-          context: ./migrations
+          dockerfile: ./Dockerfile
+          context: ./
           target: build
 
       - name: Build and Push Migrations
@@ -32,6 +32,6 @@ jobs:
           project_id: blockjoy-deployer
           image_name: blockvisor-api-migrations/dev-blockvisor-api-migrations
           image_tag: ${{ github.sha }},latest
-          dockerfile: ./Dockerfile
-          context: ./
+          dockerfile: ./migrations/Dockerfile
+          context: ./migrations
           target: build
