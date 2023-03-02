@@ -289,6 +289,13 @@ impl Node {
         Ok(node)
     }
 
+    pub async fn all(db: &mut sqlx::PgConnection) -> Result<Vec<Self>> {
+        sqlx::query_as("SELECT * FROM nodes")
+            .fetch_all(db)
+            .await
+            .map_err(ApiError::from)
+    }
+
     pub async fn update_info(info: &NodeInfo, tx: &mut super::DbTrx<'_>) -> Result<Node> {
         sqlx::query_as(
             r#"UPDATE nodes SET 
