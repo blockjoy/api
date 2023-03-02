@@ -48,6 +48,7 @@ impl Notifier {
             loop {
                 if let Err(e) = event_loop.poll().await {
                     tracing::warn!("MQTT failure, ignoring and continuing to poll: {e}");
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
             }
         });

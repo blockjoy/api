@@ -109,6 +109,22 @@ pub async fn server(
     let auth_service = AuthorizationService::new(enforcer);
     let notifier = Notifier::new().expect("Could not set up MQTT notifier!");
 
+    let msg = blockjoy::Command {
+        r#type: Some(blockjoy::command::Type::Node(blockjoy::NodeCommand {
+            node_id: uuid::Uuid::new_v4().to_string(),
+            api_command_id: uuid::Uuid::new_v4().to_string(),
+            created_at: Some(convert::try_dt_to_ts(chrono::Utc::now()).unwrap()),
+            host_id: uuid::Uuid::new_v4().to_string(),
+            command: None,
+        })),
+    };
+    notifier
+        .bv_commands_sender()
+        .unwrap()
+        .send(&msg)
+        .await
+        .unwrap();
+
     let discovery_service =
         grpc::blockjoy::discovery_server::DiscoveryServer::new(DiscoveryServiceImpl::default());
     let command_service =
