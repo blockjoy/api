@@ -9,7 +9,7 @@ fn main() -> anyhow::Result<()> {
     migrate();
 
     tracing_subscriber::registry()
-        .with(fmt::layer())
+        .with(fmt::layer().with_ansi(false))
         .with(EnvFilter::from_default_env())
         .init();
 

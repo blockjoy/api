@@ -237,7 +237,7 @@ impl InvitationService for InvitationServiceImpl {
             .trx(|c| Invitation::decline(invitation_id, c).scope_boxed())
             .await?;
 
-        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 
     async fn revoke(&self, request: Request<InvitationRequest>) -> Result<Response<()>, Status> {
@@ -267,6 +267,6 @@ impl InvitationService for InvitationServiceImpl {
             })
             .await?;
 
-        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 }

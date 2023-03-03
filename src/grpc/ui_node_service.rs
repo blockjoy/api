@@ -353,16 +353,7 @@ impl NodeService for NodeServiceImpl {
             .ok_or_else(required("node"))?
             .as_update()?;
 
-        self.db
-            .trx(|c| {
-                async move {
-                    // Check if the node exists
-                    models::Node::find_by_id(update_node.id, c).await?;
-                    update_node.update(c).await
-                }
-                .scope_boxed()
-            })
-            .await?;
+        self.db.trx(|c| update_node.update(c).scope_boxed()).await?;
         let response = UpdateNodeResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
@@ -430,6 +421,6 @@ impl NodeService for NodeServiceImpl {
                 .scope_boxed()
             })
             .await?;
-        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 }

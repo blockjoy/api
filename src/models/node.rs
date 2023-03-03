@@ -246,6 +246,10 @@ impl Node {
         Ok(res)
     }
 
+    pub async fn all(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
+        nodes::table.get_results(conn).await.map_err(ApiError::from)
+    }
+
     pub async fn find_all_by_host(
         host_id: Uuid,
         conn: &mut AsyncPgConnection,

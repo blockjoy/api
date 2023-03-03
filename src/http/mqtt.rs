@@ -14,23 +14,24 @@ pub enum MqttPolicyError {
     Topic(anyhow::Error),
 }
 
-#[derive(Deserialize)]
-pub struct MqttAuthRequest {
-    pub username: String,
-}
-
-#[derive(Deserialize, Eq, PartialEq)]
+#[derive(Deserialize, Eq, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum MqttOperationType {
     Publish,
     Subscribe,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct MqttAclRequest {
-    pub operation: MqttOperationType,
+    pub operation: String,
     pub username: String,
     pub topic: String,
+}
+
+#[derive(Deserialize)]
+pub struct MqttAuthRequest {
+    pub username: String,
+    pub password: String,
 }
 
 pub type MqttAclPolicyResult = Result<bool, MqttPolicyError>;
@@ -50,6 +51,8 @@ impl MqttAclPolicy for MqttUserPolicy {
         let token = UserAuthToken::from_str(token)?;
         let _org_id = token.data.get("org_id").unwrap_or(&String::new());
 
+        tracing::info!("MqttUserPolicy returns true");
+
         Ok(true)
     }
 }
@@ -59,10 +62,13 @@ impl MqttAclPolicy for MqttHostPolicy {
         let token = HostAuthToken::from_str(token)?;
         let host_id = topic
             .split('/')
-            .nth(1)
+            .nth(3)
             .ok_or("")
             .map_err(|e| MqttPolicyError::Topic(anyhow!(e)))?;
+        let result = token.id.to_string().as_str() == host_id;
 
-        Ok(token.id.to_string().as_str() == host_id)
+        tracing::info!("MqttAclPolicy returns: {result}");
+
+        Ok(result)
     }
 }

@@ -20,33 +20,36 @@ pub async fn health(Extension(db): Extension<models::DbPool>) -> impl IntoRespon
     }
 }
 
-pub async fn mqtt_auth(Json(_payload): Json<MqttAclRequest>) -> impl IntoResponse {
+pub async fn mqtt_auth(Json(payload): Json<serde_json::Value>) -> impl IntoResponse {
+    tracing::info!("Value is {payload:?}");
     (StatusCode::OK, Json("{}"))
 }
 
 pub async fn mqtt_acl(Json(payload): Json<MqttAclRequest>) -> impl IntoResponse {
+    tracing::info!("Got acl payload: {payload:?}");
+
     // TODO: Remove the unwraps, just for testing
-    match determine_token_by_str(payload.username.as_str()) {
+    match dbg!(determine_token_by_str(&payload.username)) {
         Ok(TokenType::UserAuth) => {
-            if MqttUserPolicy::allow(payload.username.as_str(), payload.topic).unwrap() {
+            if MqttUserPolicy::allow(&payload.username, payload.topic).unwrap() {
                 (StatusCode::OK, Json("{}"))
             } else {
                 (StatusCode::FORBIDDEN, Json("{}"))
             }
         }
         Ok(TokenType::HostAuth) => {
-            if MqttHostPolicy::allow(payload.username.as_str(), payload.topic).unwrap() {
+            if MqttHostPolicy::allow(&payload.username, payload.topic).unwrap() {
                 (StatusCode::OK, Json("{}"))
             } else {
                 (StatusCode::FORBIDDEN, Json("{}"))
             }
         }
         Ok(_) => (
-            StatusCode::NOT_ACCEPTABLE,
+            StatusCode::IM_A_TEAPOT,
             Json("{ \"message\": \"Not supported\"}"),
         ),
         Err(_) => (
-            StatusCode::NOT_ACCEPTABLE,
+            StatusCode::EXPECTATION_FAILED,
             Json("{ \"message\": \"Unknown\"}"),
         ),
     }

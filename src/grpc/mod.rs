@@ -107,7 +107,24 @@ pub async fn server(
         .await
         .expect("Could not create Authorization!");
     let auth_service = AuthorizationService::new(enforcer);
-    let notifier = Notifier::new().expect("Could not set up MQTT notifier!");
+    let notifier = Notifier::new()
+        .await
+        .expect("Could not set up MQTT notifier!");
+    let msg = blockjoy::Command {
+        r#type: Some(blockjoy::command::Type::Node(blockjoy::NodeCommand {
+            node_id: uuid::Uuid::new_v4().to_string(),
+            api_command_id: uuid::Uuid::new_v4().to_string(),
+            created_at: Some(convert::try_dt_to_ts(chrono::Utc::now()).unwrap()),
+            host_id: uuid::Uuid::new_v4().to_string(),
+            command: None,
+        })),
+    };
+    notifier
+        .bv_commands_sender()
+        .unwrap()
+        .send(&msg)
+        .await
+        .unwrap();
 
     let discovery_service =
         grpc::blockjoy::discovery_server::DiscoveryServer::new(DiscoveryServiceImpl::default());
@@ -128,7 +145,8 @@ pub async fn server(
         HostProvisionServiceServer::new(HostProvisionServiceImpl::new(db.clone()));
     let ui_command_service =
         CommandServiceServer::new(CommandServiceImpl::new(db.clone(), notifier.clone()));
-    let ui_node_service = NodeServiceServer::new(NodeServiceImpl::new(db.clone(), notifier));
+    let ui_node_service =
+        NodeServiceServer::new(NodeServiceImpl::new(db.clone(), notifier.clone()));
     let ui_dashboard_service = DashboardServiceServer::new(DashboardServiceImpl::new(db.clone()));
     let ui_blockchain_service =
         BlockchainServiceServer::new(BlockchainServiceImpl::new(db.clone()));
@@ -147,6 +165,32 @@ pub async fn server(
                 .allow_origin(tower_http::cors::Any),
         )
         .into_inner();
+
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            println!("Lets restart a node!");
+            let Ok(mut conn) = db.conn().await else { continue };
+            let Ok(mut nodes) = models::Node::all(&mut conn).await else { continue };
+            let Some(node) = nodes.pop() else { continue };
+            println!("Going to restart this node: {node:?}");
+            let cmd = models::NewCommand {
+                host_id: node.host_id,
+                cmd: models::HostCmd::RestartNode,
+                sub_cmd: None,
+                resource_id: node.id,
+            };
+            println!("Creating a command for it: {cmd:?}");
+            let Ok(cmd) = cmd.create(&mut conn).await else { continue };
+            println!("Created! Look: {cmd:?}");
+            let Ok(msg) = convert::db_command_to_grpc_command(&cmd, &mut conn).await else { continue };
+            println!("Now as gRPC message: {msg:?}");
+            let Ok(mut sender) = notifier.bv_commands_sender() else { continue };
+            println!("Sender created");
+            let Ok(()) = sender.send(&msg).await else { continue };
+            println!("Message sent!");
+        }
+    });
 
     Server::builder()
         .layer(middleware)

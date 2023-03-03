@@ -156,7 +156,7 @@ impl UserService for UserServiceImpl {
             })
             .await?;
 
-        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 
     async fn upsert_configuration(
