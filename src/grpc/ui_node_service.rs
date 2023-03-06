@@ -383,13 +383,15 @@ impl NodeService for NodeServiceImpl {
 
                     let host_id = node.host_id;
                     // 2. Do NOT delete reserved IP addresses, but set assigned to false
-                    let ip_addr = dbg!(node.ip_addr.as_ref())
+                    let ip_addr = node
+                        .ip_addr
+                        .as_ref()
                         .ok_or_else(required("node.ip_addr"))?
                         .parse()
                         .map_err(|_| Status::internal("invalid ip"))?;
-                    let ip = dbg!(models::IpAddress::find_by_node(ip_addr, c).await)?;
+                    let ip = models::IpAddress::find_by_node(ip_addr, c).await?;
 
-                    dbg!(models::IpAddress::unassign(ip.id, host_id, c).await)?;
+                    models::IpAddress::unassign(ip.id, host_id, c).await?;
 
                     // Send delete node command
                     let new_command = models::NewCommand {
@@ -398,9 +400,9 @@ impl NodeService for NodeServiceImpl {
                         sub_cmd: None,
                         resource_id: node_id,
                     };
-                    let cmd = dbg!(new_command.create(c).await)?;
+                    let cmd = new_command.create(c).await?;
                     let user_id = token.id;
-                    let user = dbg!(models::User::find_by_id(user_id, c).await)?;
+                    let user = models::User::find_by_id(user_id, c).await?;
                     let update_user = models::UpdateUser {
                         id: user.id,
                         first_name: None,
@@ -410,9 +412,9 @@ impl NodeService for NodeServiceImpl {
                         refresh: None,
                     };
 
-                    dbg!(update_user.update(c).await)?;
+                    update_user.update(c).await?;
 
-                    let grpc_cmd = dbg!(convert::db_command_to_grpc_command(&cmd, c).await)?;
+                    let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
 
                     self.notifier.bv_commands_sender()?.send(&grpc_cmd).await
                     // let grpc_cmd = cmd.clone().try_into()?;
