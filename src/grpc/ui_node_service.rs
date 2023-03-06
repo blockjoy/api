@@ -281,7 +281,7 @@ impl NodeService for NodeServiceImpl {
         }
 
         let inner = request.into_inner();
-        let node = self
+        let (node, msg) = self
             .db
             .trx(|c| {
                 async move {
@@ -324,13 +324,12 @@ impl NodeService for NodeServiceImpl {
                     };
                     let cmd = new_command.create(c).await?;
                     let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
-                    self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
-                    Ok(node)
+                    Ok((node, grpc_cmd))
                 }
                 .scope_boxed()
             })
             .await?;
-
+        self.notifier.bv_commands_sender()?.send(&msg).await?;
         let response_meta =
             ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(node.id);
         let response = CreateNodeResponse {
