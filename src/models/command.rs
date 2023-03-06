@@ -5,7 +5,7 @@ use crate::grpc::convert;
 use crate::grpc::notification::Notifier;
 use crate::models::schema::commands;
 use chrono::{DateTime, Utc};
-use diesel::prelude::*;
+use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use uuid::Uuid;
 
@@ -41,6 +41,8 @@ pub struct Command {
     pub resource_id: Uuid,
 }
 
+type Pending = dsl::Filter<commands::table, dsl::IsNull<commands::exit_status>>;
+
 impl Command {
     pub async fn find_by_host(host_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Vec<Command>> {
         let commands = commands::table
@@ -55,9 +57,8 @@ impl Command {
         host_id: Uuid,
         conn: &mut AsyncPgConnection,
     ) -> Result<Vec<Command>> {
-        let commands = commands::table
+        let commands = Self::pending()
             .filter(commands::host_id.eq(host_id))
-            .filter(commands::exit_status.is_null())
             .order_by(commands::created_at.asc())
             .get_results(conn)
             .await?;
@@ -82,11 +83,26 @@ impl Command {
 
         Ok(commands)
     }
+
     pub async fn delete(id: Uuid, conn: &mut AsyncPgConnection) -> Result<usize> {
         let n_deleted = diesel::delete(commands::table.find(id))
             .execute(conn)
             .await?;
         Ok(n_deleted)
+    }
+
+    pub async fn delete_pending(node_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
+        // We assume that node_id is a valid Node.id, and then we can treat commands::resource_id
+        // as a node_id without accidentally deleting stuff we don't want to delete, because we
+        // don't expect any uuid-collisions to ever happen.
+        diesel::delete(Self::pending().filter(commands::resource_id.eq(node_id)))
+            .execute(conn)
+            .await?;
+        Ok(())
+    }
+
+    fn pending() -> Pending {
+        commands::table.filter(commands::exit_status.is_null())
     }
 }
 
