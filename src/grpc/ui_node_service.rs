@@ -97,15 +97,13 @@ impl blockjoy_ui::Node {
 
     pub fn as_new(&self) -> Result<models::NewNode<'_>> {
         Ok(models::NewNode {
+            id: uuid::Uuid::new_v4(),
             org_id: self
                 .org_id
                 .as_ref()
                 .ok_or_else(required("node.org_id"))?
                 .parse()?,
-            host_name: self
-                .host_name
-                .as_deref()
-                .ok_or_else(required("node.host_name"))?,
+            host_name: self.host_name.as_deref(),
             name: petname::petname(3, "_"),
             groups: self.groups.join(","),
             version: self.version.as_deref(),
@@ -148,6 +146,7 @@ impl blockjoy_ui::Node {
     fn as_update(&self) -> Result<models::UpdateNode<'_>> {
         Ok(models::UpdateNode {
             id: self.id.as_ref().ok_or_else(required("node.id"))?.parse()?,
+            name: self.name.as_deref(),
             version: self.version.as_deref(),
             ip_addr: self.ip.as_deref(),
             block_height: None,
@@ -198,7 +197,7 @@ impl NodeService for NodeServiceImpl {
         let org_id = token
             .data
             .get("org_id")
-            .unwrap_or(&"".to_string())
+            .ok_or_else(required("token.org_id"))?
             .to_owned();
         let inner = request.into_inner();
         let node_id = inner.id.parse().map_err(ApiError::from)?;
@@ -271,7 +270,6 @@ impl NodeService for NodeServiceImpl {
         &self,
         request: Request<CreateNodeRequest>,
     ) -> Result<Response<CreateNodeResponse>, Status> {
-        tracing::info!("Endpointerino callederino");
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         // Check quota
@@ -282,15 +280,13 @@ impl NodeService for NodeServiceImpl {
             return Err(Status::resource_exhausted("User node quota exceeded"));
         }
 
-        tracing::info!("Wow quota not even exceeded");
-
         let inner = request.into_inner();
-        let new_node = inner.node.as_ref().ok_or_else(required("node"))?.as_new()?;
         let node = self
             .db
             .trx(|c| {
                 async move {
-                    let node = new_node.create(c).await?;
+                    let node = inner.node.as_ref().ok_or_else(required("node"))?;
+                    let node = node.as_new()?.create(c).await?;
 
                     self.notifier
                         .bv_nodes_sender()?
@@ -372,10 +368,10 @@ impl NodeService for NodeServiceImpl {
             .ok_or_else(required("User token"))?
             .clone();
         let inner = request.into_inner();
-        let node_id = inner.id.parse().map_err(ApiError::from)?;
         self.db
             .trx(|c| {
                 async move {
+                    let node_id = inner.id.parse()?;
                     let node = models::Node::find_by_id(node_id, c).await?;
 
                     if !models::Node::belongs_to_user_org(node.org_id, token.id, c).await? {
@@ -396,6 +392,9 @@ impl NodeService for NodeServiceImpl {
                     let ip = models::IpAddress::find_by_node(ip_addr, c).await?;
 
                     models::IpAddress::unassign(ip.id, host_id, c).await?;
+
+                    // Delete all pending commands for this node: there are not useable anymore
+                    models::Command::delete_pending(node_id, c).await?;
 
                     // Send delete node command
                     let new_command = models::NewCommand {
@@ -427,6 +426,6 @@ impl NodeService for NodeServiceImpl {
                 .scope_boxed()
             })
             .await?;
-        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 }

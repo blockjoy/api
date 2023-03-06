@@ -25,3 +25,10 @@ patches:
         name: blockvisor-api
         annotations:
           kubernetes.io/ingress.global-static-ip-name: blockvisor-api-dev
+  - patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: envoy-ilb
+      spec:
+        loadBalancerIP: 10.1.0.15

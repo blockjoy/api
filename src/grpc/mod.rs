@@ -107,7 +107,9 @@ pub async fn server(
         .await
         .expect("Could not create Authorization!");
     let auth_service = AuthorizationService::new(enforcer);
-    let notifier = Notifier::new().expect("Could not set up MQTT notifier!");
+    let notifier = Notifier::new()
+        .await
+        .expect("Could not set up MQTT notifier!");
 
     let discovery_service =
         grpc::blockjoy::discovery_server::DiscoveryServer::new(DiscoveryServiceImpl::default());

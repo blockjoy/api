@@ -51,6 +51,6 @@ async fn responds_valid_values_for_metrics() {
 
     assert_eq!(online_name, metric::Name::Online as i32);
     assert_eq!(offline_name, metric::Name::Offline as i32);
-    assert_eq!(online_value, 0);
+    assert_eq!(online_value, 1);
     assert_eq!(offline_value, 0);
 }

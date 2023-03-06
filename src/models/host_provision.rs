@@ -56,22 +56,6 @@ impl HostProvision {
             return Err(anyhow::anyhow!("Host provision has already been claimed.").into());
         }
 
-        // req.ip_range_from = Some(
-        //     host_provision
-        //         .ip_range_from
-        //         .ok_or_else(required("host.ip_range_from"))?,
-        // );
-        // req.ip_range_to = Some(
-        //     host_provision
-        //         .ip_range_to
-        //         .ok_or_else(required("host.ip_range_to"))?,
-        // );
-        // req.ip_gateway = Some(
-        //     host_provision
-        //         .ip_gateway
-        //         .ok_or_else(required("host.ip_gateway"))?,
-        // );
-
         let host = req.create(conn).await?;
 
         diesel::update(host_provisions::table.find(host_provision.id))

@@ -76,6 +76,9 @@ impl UserService for UserServiceImpl {
     ) -> Result<Response<CreateUserResponse>, Status> {
         let inner = request.into_inner();
         let user = inner.user.ok_or_else(required("user"))?;
+        if inner.password != inner.password_confirmation {
+            return Err(Status::invalid_argument("Passwords don't match"));
+        }
         let new_user = models::NewUser::new(
             user.email.as_deref().ok_or_else(required("email"))?,
             user.first_name
@@ -153,7 +156,7 @@ impl UserService for UserServiceImpl {
             })
             .await?;
 
-        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 
     async fn upsert_configuration(

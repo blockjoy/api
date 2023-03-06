@@ -39,27 +39,17 @@ impl FindableById for Org {
     }
 }
 
-impl Org {
-    pub async fn find_all(conn: &mut AsyncPgConnection) -> Result<Vec<Org>> {
-        let orgs = orgs::table
-            .filter(orgs::deleted_at.is_null())
-            .inner_join(orgs_users::table)
-            .group_by(orgs::id)
-            .select((orgs::all_columns, dsl::count(orgs_users::user_id)))
-            .get_results(conn)
-            .await?;
-        Ok(orgs)
-    }
+type NotDeleted = dsl::Filter<orgs::table, dsl::IsNull<orgs::deleted_at>>;
 
+impl Org {
     pub async fn find_by_user(
         org_id: Uuid,
         user_id: Uuid,
         conn: &mut AsyncPgConnection,
     ) -> Result<Org> {
-        let org = orgs::table
+        let org = Self::not_deleted()
             .find(org_id)
             .filter(orgs_users::user_id.eq(user_id))
-            .filter(orgs::deleted_at.is_null())
             .inner_join(orgs_users::table)
             .group_by(orgs::id)
             .select((orgs::all_columns, dsl::count(orgs_users::user_id)))
@@ -69,9 +59,8 @@ impl Org {
     }
 
     pub async fn find_all_by_user(user_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Vec<Org>> {
-        let orgs = orgs::table
+        let orgs = Self::not_deleted()
             .filter(orgs_users::user_id.eq(user_id))
-            .filter(orgs::deleted_at.is_null())
             .inner_join(orgs_users::table)
             .group_by(orgs::id)
             .select((orgs::all_columns, dsl::count(orgs_users::user_id)))
@@ -107,7 +96,7 @@ impl Org {
     }
 
     pub async fn find_personal_org(user_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Org> {
-        let org = orgs::table
+        let org = Self::not_deleted()
             .filter(orgs::is_personal)
             .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::role.eq(OrgRole::Owner))
@@ -159,16 +148,7 @@ impl Org {
         role: OrgRole,
         conn: &mut AsyncPgConnection,
     ) -> Result<OrgUser> {
-        let org_user = NewOrgUser {
-            user_id,
-            org_id,
-            role,
-        };
-        let org_user = diesel::insert_into(orgs_users::table)
-            .values(&org_user)
-            .get_result(conn)
-            .await?;
-        Ok(org_user)
+        NewOrgUser::new(org_id, user_id, role).create(conn).await
     }
 
     /// Returns the user role in the organization
@@ -215,8 +195,9 @@ impl Org {
         let to_restore = orgs::table
             .filter(orgs::id.eq(org_id))
             .filter(orgs::is_personal.eq(false));
+        let none: Option<chrono::DateTime<chrono::Utc>> = None;
         let org: OrgWithoutMembers = diesel::update(to_restore)
-            .set(orgs::deleted_at.eq(None as Option<chrono::DateTime<chrono::Utc>>))
+            .set(orgs::deleted_at.eq(none))
             .get_result(conn)
             .await?;
 
@@ -227,6 +208,10 @@ impl Org {
             .await?;
 
         Ok(Self { org, members })
+    }
+
+    fn not_deleted() -> NotDeleted {
+        orgs::table.filter(orgs::deleted_at.is_null())
     }
 }
 
@@ -252,12 +237,9 @@ impl<'a> NewOrg<'a> {
             .values(self)
             .get_result(conn)
             .await?;
-        let org_user = NewOrgUser {
-            org_id: org.id,
-            user_id,
-            role: OrgRole::Owner,
-        };
-        org_user.create(conn).await?;
+        NewOrgUser::new(org.id, user_id, OrgRole::Owner)
+            .create(conn)
+            .await?;
 
         Ok(Org { org, members: 1 })
     }
@@ -301,12 +283,20 @@ pub struct OrgUser {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = orgs_users)]
 pub struct NewOrgUser {
-    pub org_id: Uuid,
-    pub user_id: Uuid,
-    pub role: OrgRole,
+    org_id: Uuid,
+    user_id: Uuid,
+    role: OrgRole,
 }
 
 impl NewOrgUser {
+    pub fn new(org_id: Uuid, user_id: Uuid, role: OrgRole) -> Self {
+        Self {
+            org_id,
+            user_id,
+            role,
+        }
+    }
+
     pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<OrgUser> {
         let org_user = diesel::insert_into(orgs_users::table)
             .values(self)

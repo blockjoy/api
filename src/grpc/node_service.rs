@@ -19,6 +19,7 @@ impl blockjoy::NodeInfo {
     pub fn as_update(&self) -> crate::Result<models::UpdateNode> {
         Ok(models::UpdateNode {
             id: self.id.parse()?,
+            name: self.name.as_deref(),
             version: None,
             ip_addr: self.ip.as_deref(),
             block_height: self.block_height,

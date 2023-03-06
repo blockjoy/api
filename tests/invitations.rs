@@ -93,7 +93,7 @@ async fn can_accept_invitation() {
         created_for_org: org.id,
         created_by_user_name: "hugo".to_string(),
         created_for_org_name: "boss".to_string(),
-        invitee_email: &user.email,
+        invitee_email: "test@here.com",
     };
     let mut conn = tester.conn().await;
     let invite = new_invite.create(&mut conn).await.unwrap();
@@ -160,7 +160,7 @@ async fn can_revoke_invitation() {
 
     let req = blockjoy_ui::InvitationRequest {
         invitation: Some(blockjoy_ui::Invitation {
-            id: Some(invite.id.to_string()),
+            invitee_email: Some(user.email),
             ..Default::default()
         }),
         meta: None,

@@ -14,7 +14,7 @@ pub enum ApiError {
     #[error("{0}")]
     ValidationError(String),
 
-    #[error("Record not found. {0}")]
+    #[error("{0}")]
     NotFoundError(diesel::result::Error),
 
     #[error("Duplicate resource conflict on constraint {constraint}.")]

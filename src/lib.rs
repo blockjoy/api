@@ -150,12 +150,27 @@ mod test {
                 .await
                 .unwrap();
 
+            let org_id: uuid::Uuid = "08dede71-b97d-47c1-a91d-6ba0997b3cdd".parse().unwrap();
+            diesel::insert_into(orgs::table)
+                .values((
+                    orgs::id.eq(org_id),
+                    orgs::name.eq("the blockboys"),
+                    orgs::is_personal.eq(false),
+                ))
+                .execute(conn)
+                .await
+                .unwrap();
+
             let user = models::NewUser::new("test@here.com", "Luuk", "Tester", "abc12345").unwrap();
             let admin = models::NewUser::new("admin@here.com", "Mr", "Admin", "abc12345").unwrap();
 
             let user = user.create(conn).await.unwrap();
+            let admin = admin.create(conn).await.unwrap();
 
-            admin.create(conn).await.unwrap();
+            models::NewOrgUser::new(org_id, admin.id, models::OrgRole::Admin)
+                .create(conn)
+                .await
+                .unwrap();
 
             diesel::sql_query(
                 "UPDATE users set pay_address = '123456', staking_quota = 3 WHERE email = 'test@here.com'",
@@ -189,6 +204,15 @@ mod test {
             };
 
             let host1 = host1.create(conn).await.unwrap();
+            models::NewIpAddressRange::try_new(
+                "127.0.0.1".parse().unwrap(),
+                "127.0.0.10".parse().unwrap(),
+                Some(host1.id),
+            )
+            .unwrap()
+            .create(conn)
+            .await
+            .unwrap();
 
             let host2 = models::NewHost {
                 name: "Host-2",
@@ -207,14 +231,16 @@ mod test {
             };
 
             host2.create(conn).await.unwrap();
-
-            let org_id: uuid::Uuid = diesel::insert_into(orgs::table)
-                .values(orgs::name.eq("the blockboys"))
-                .returning(orgs::id)
-                .get_result(conn)
-                .await
-                .unwrap();
             let node_id: uuid::Uuid = "cdbbc736-f399-42ab-86cf-617ce983011d".parse().unwrap();
+
+            let ip_gateway = host1.ip_gateway.unwrap().to_string();
+            let ip_addr = models::IpAddress::next_for_host(host1.id, conn)
+                .await
+                .unwrap()
+                .ip
+                .ip()
+                .to_string();
+
             diesel::insert_into(nodes::table)
                 .values((
                     nodes::id.eq(node_id),
@@ -225,6 +251,9 @@ mod test {
                     nodes::node_type.eq(Self::test_node_types()),
                     nodes::block_age.eq(0),
                     nodes::consensus.eq(true),
+                    nodes::chain_status.eq(models::NodeChainStatus::Broadcasting),
+                    nodes::ip_gateway.eq(ip_gateway),
+                    nodes::ip_addr.eq(ip_addr),
                 ))
                 .execute(conn)
                 .await
@@ -247,10 +276,10 @@ mod test {
         }
 
         pub async fn org(&self) -> models::Org {
-            models::Org::find_all(&mut self.pool.conn().await.unwrap())
+            use crate::auth::FindableById;
+            let id = "08dede71-b97d-47c1-a91d-6ba0997b3cdd".parse().unwrap();
+            models::Org::find_by_id(id, &mut self.pool.conn().await.unwrap())
                 .await
-                .unwrap()
-                .pop()
                 .unwrap()
         }
 

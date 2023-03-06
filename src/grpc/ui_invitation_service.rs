@@ -215,7 +215,6 @@ impl InvitationService for InvitationServiceImpl {
                     let invitation = Invitation::accept(invitation_id, c).await?;
                     // Only registered users can accept an invitation
                     let new_member = User::find_by_email(&invitation.invitee_email, c).await?;
-
                     Org::add_member(
                         new_member.id,
                         invitation.created_for_org,
@@ -228,7 +227,7 @@ impl InvitationService for InvitationServiceImpl {
             })
             .await?;
 
-        Ok(response_with_refresh_token(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 
     async fn decline(&self, request: Request<InvitationRequest>) -> Result<Response<()>, Status> {
@@ -238,7 +237,7 @@ impl InvitationService for InvitationServiceImpl {
             .trx(|c| Invitation::decline(invitation_id, c).scope_boxed())
             .await?;
 
-        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 
     async fn revoke(&self, request: Request<InvitationRequest>) -> Result<Response<()>, Status> {
@@ -268,6 +267,6 @@ impl InvitationService for InvitationServiceImpl {
             })
             .await?;
 
-        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 }

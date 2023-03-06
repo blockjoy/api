@@ -101,7 +101,7 @@ impl Tester {
     /// Returns a (auth, refresh) token pair.
     pub async fn admin_token(&self) -> (impl JwtToken, impl JwtToken) {
         let auth = self.user_token(&self.admin_user().await).await;
-        let refresh = dbg!(self.db.user_refresh_token(auth.get_id()));
+        let refresh = self.db.user_refresh_token(auth.get_id());
         (auth, refresh)
     }
 
@@ -121,21 +121,17 @@ impl Tester {
     }
 
     pub async fn org(&self) -> models::Org {
-        let mut conn = self.conn().await;
-        models::Org::find_all(&mut conn)
-            .await
-            .unwrap()
-            .pop()
-            .unwrap()
+        self.db.org().await
     }
 
     pub async fn org_for(&self, user: &models::User) -> models::Org {
         let mut conn = self.conn().await;
-        dbg!(models::Org::find_all_by_user(user.id, &mut conn)
+        models::Org::find_all_by_user(user.id, &mut conn)
             .await
-            .unwrap())
-        .pop()
-        .unwrap()
+            .unwrap()
+            .into_iter()
+            .find(|o| !o.is_personal)
+            .unwrap()
     }
 
     pub async fn user_token(&self, user: &models::User) -> impl JwtToken + Clone {

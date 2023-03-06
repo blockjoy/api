@@ -246,6 +246,10 @@ impl Node {
         Ok(res)
     }
 
+    pub async fn all(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
+        nodes::table.get_results(conn).await.map_err(ApiError::from)
+    }
+
     pub async fn find_all_by_host(
         host_id: Uuid,
         conn: &mut AsyncPgConnection,
@@ -393,8 +397,9 @@ pub struct NodeProvision {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = nodes)]
 pub struct NewNode<'a> {
+    pub id: uuid::Uuid,
     pub org_id: uuid::Uuid,
-    pub host_name: &'a str,
+    pub host_name: Option<&'a str>,
     pub name: String,
     pub groups: String,
     pub version: Option<&'a str>,
@@ -433,13 +438,14 @@ impl NewNode<'_> {
         let ip_addr = IpAddress::next_for_host(host_id, conn)
             .await?
             .ip
+            .ip()
             .to_string();
 
         self.ip_gateway = ip_gateway.as_deref();
         self.ip_addr = Some(&ip_addr);
 
         diesel::insert_into(nodes::table)
-            .values(self)
+            .values((self, nodes::host_id.eq(host_id)))
             .get_result(conn)
             .await
             .map_err(|e| {
@@ -453,6 +459,7 @@ impl NewNode<'_> {
 #[diesel(table_name = nodes)]
 pub struct UpdateNode<'a> {
     pub id: uuid::Uuid,
+    pub name: Option<&'a str>,
     pub version: Option<&'a str>,
     pub ip_addr: Option<&'a str>,
     pub block_height: Option<i64>,

@@ -86,7 +86,7 @@ impl OrganizationService for OrganizationServiceImpl {
                     organizations,
                 };
 
-                Ok(response_with_refresh_token(refresh_token, inner)?)
+                response_with_refresh_token(refresh_token, inner)
             }
             Err(e) => Err(Status::from(e)),
         }
@@ -115,7 +115,7 @@ impl OrganizationService for OrganizationServiceImpl {
         let inner = CreateOrganizationResponse {
             meta: Some(response_meta),
         };
-        Ok(response_with_refresh_token(refresh_token, inner)?)
+        response_with_refresh_token(refresh_token, inner)
     }
 
     async fn update(
@@ -139,7 +139,7 @@ impl OrganizationService for OrganizationServiceImpl {
         self.db.trx(|c| update.update(c).scope_boxed()).await?;
         let meta = ResponseMeta::from_meta(inner.meta, Some(token));
         let inner = UpdateOrganizationResponse { meta: Some(meta) };
-        Ok(response_with_refresh_token(refresh_token, inner)?)
+        response_with_refresh_token(refresh_token, inner)
     }
 
     async fn delete(
@@ -179,7 +179,7 @@ impl OrganizationService for OrganizationServiceImpl {
                 .scope_boxed()
             })
             .await?;
-        Ok(response_with_refresh_token(refresh_token, resp)?)
+        response_with_refresh_token(refresh_token, resp)
     }
 
     async fn restore(
@@ -240,7 +240,7 @@ impl OrganizationService for OrganizationServiceImpl {
             users: users?,
         };
 
-        Ok(response_with_refresh_token(refresh_token, inner)?)
+        response_with_refresh_token(refresh_token, inner)
     }
 
     async fn remove_member(
@@ -273,7 +273,7 @@ impl OrganizationService for OrganizationServiceImpl {
                 .scope_boxed()
             })
             .await?;
-        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 
     async fn leave(
@@ -289,6 +289,6 @@ impl OrganizationService for OrganizationServiceImpl {
             .trx(|c| Org::remove_org_user(user_id, org_id, c).scope_boxed())
             .await?;
 
-        Ok(response_with_refresh_token::<()>(refresh_token, ())?)
+        response_with_refresh_token(refresh_token, ())
     }
 }
