@@ -281,21 +281,12 @@ impl NodeService for NodeServiceImpl {
         }
 
         let inner = request.into_inner();
-        let (node, msg) = self
+        let (node, create_msg, restart_msg) = self
             .db
             .trx(|c| {
                 async move {
                     let node = inner.node.as_ref().ok_or_else(required("node"))?;
                     let node = node.as_new()?.create(c).await?;
-
-                    self.notifier
-                        .bv_nodes_sender()?
-                        .send(&blockjoy::NodeInfo::from_model(node.clone()))
-                        .await?;
-                    self.notifier
-                        .ui_nodes_sender()?
-                        .send(&node.clone().try_into()?)
-                        .await?;
 
                     let new_command = models::NewCommand {
                         host_id: node.host_id,
@@ -304,8 +295,7 @@ impl NodeService for NodeServiceImpl {
                         resource_id: node.id,
                     };
                     let cmd = new_command.create(c).await?;
-                    let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
-                    self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
+                    let create_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
 
                     let update_user = models::UpdateUser {
                         id: user.id,
@@ -316,6 +306,7 @@ impl NodeService for NodeServiceImpl {
                         refresh: None,
                     };
                     update_user.update(c).await?;
+
                     let new_command = models::NewCommand {
                         host_id: node.host_id,
                         cmd: models::HostCmd::RestartNode,
@@ -323,13 +314,30 @@ impl NodeService for NodeServiceImpl {
                         resource_id: node.id,
                     };
                     let cmd = new_command.create(c).await?;
-                    let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
-                    Ok((node, grpc_cmd))
+                    let restart_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
+
+                    Ok((node, create_msg, restart_msg))
                 }
                 .scope_boxed()
             })
             .await?;
-        self.notifier.bv_commands_sender()?.send(&msg).await?;
+
+        self.notifier
+            .bv_nodes_sender()?
+            .send(&blockjoy::NodeInfo::from_model(node.clone()))
+            .await?;
+        self.notifier
+            .ui_nodes_sender()?
+            .send(&node.clone().try_into()?)
+            .await?;
+        self.notifier
+            .bv_commands_sender()?
+            .send(&create_msg)
+            .await?;
+        self.notifier
+            .bv_commands_sender()?
+            .send(&restart_msg)
+            .await?;
         let response_meta =
             ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(node.id);
         let response = CreateNodeResponse {
