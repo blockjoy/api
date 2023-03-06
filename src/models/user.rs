@@ -12,7 +12,7 @@ use argon2::{
     Argon2,
 };
 use chrono::{DateTime, Utc};
-use diesel::prelude::*;
+use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use rand::rngs::OsRng;
 use uuid::Uuid;
@@ -36,6 +36,8 @@ pub struct User {
     pub confirmed_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
 }
+
+type NotDeleted = dsl::Filter<users::table, dsl::IsNull<users::deleted_at>>;
 
 impl User {
     /// Test if given `token` has expired and refresh it using the `refresh_token` if necessary
@@ -109,9 +111,8 @@ impl User {
     }
 
     pub async fn find_all_pay_address(conn: &mut AsyncPgConnection) -> Result<Vec<UserPayAddress>> {
-        let addrs = users::table
+        let addrs = Self::not_deleted()
             .filter(users::pay_address.is_not_null())
-            .filter(users::deleted_at.is_null())
             .select((users::id, users::pay_address))
             .get_results(conn)
             .await?;
@@ -119,18 +120,16 @@ impl User {
     }
 
     pub async fn find_by_email(email: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let users = users::table
+        let users = Self::not_deleted()
             .filter(super::lower(users::email).eq(&email.to_lowercase()))
-            .filter(users::deleted_at.is_null())
             .get_result(conn)
             .await?;
         Ok(users)
     }
 
     pub async fn find_by_refresh(refresh: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let users = users::table
+        let users = Self::not_deleted()
             .filter(users::refresh.eq(refresh))
-            .filter(users::deleted_at.is_null())
             .get_result(conn)
             .await?;
         Ok(users)
@@ -189,10 +188,9 @@ impl User {
     }
 
     pub async fn confirm(user_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let target_user = users::table
+        let target_user = Self::not_deleted()
             .find(user_id)
-            .filter(users::confirmed_at.is_null())
-            .filter(users::deleted_at.is_null());
+            .filter(users::confirmed_at.is_null());
         let user = diesel::update(target_user)
             .set(users::confirmed_at.eq(chrono::Utc::now()))
             .get_result(conn)
@@ -201,9 +199,8 @@ impl User {
     }
 
     pub async fn is_confirmed(id: Uuid, conn: &mut AsyncPgConnection) -> Result<bool> {
-        let is_confirmed = users::table
+        let is_confirmed = Self::not_deleted()
             .find(id)
-            .filter(users::deleted_at.is_null())
             .select(users::confirmed_at.is_not_null())
             .get_result(conn)
             .await?;
@@ -238,6 +235,10 @@ impl User {
         // Needs to be done later, but we want to have some stub in place so we keep our code aware
         // of language differences.
         "en"
+    }
+
+    fn not_deleted() -> NotDeleted {
+        users::table.filter(users::deleted_at.is_null())
     }
 }
 
@@ -332,11 +333,7 @@ pub struct UserLogin {
 #[axum::async_trait]
 impl FindableById for User {
     async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let user = users::table
-            .find(id)
-            .filter(users::deleted_at.is_null())
-            .get_result(conn)
-            .await?;
+        let user = User::not_deleted().find(id).get_result(conn).await?;
         Ok(user)
     }
 }

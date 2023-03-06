@@ -217,7 +217,7 @@ impl InvitationService for InvitationServiceImpl {
                     let new_member = User::find_by_email(&invitation.invitee_email, c).await?;
                     Org::add_member(
                         new_member.id,
-                        dbg!(invitation.created_for_org),
+                        invitation.created_for_org,
                         OrgRole::Member,
                         c,
                     )

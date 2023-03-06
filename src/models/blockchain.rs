@@ -1,6 +1,6 @@
 use super::schema::blockchains;
 use crate::errors::Result;
-use diesel::prelude::*;
+use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
@@ -32,6 +32,9 @@ pub struct Blockchain {
     supported_node_types: serde_json::Value,       // supported_node_types -> Jsonb,
 }
 
+type NotDeleted =
+    dsl::Filter<blockchains::table, dsl::NotEq<blockchains::status, BlockchainStatus>>;
+
 impl Blockchain {
     pub fn supported_node_types(&self) -> Result<Vec<super::NodeType>> {
         let res = serde_json::from_value(self.supported_node_types.clone())?;
@@ -39,9 +42,8 @@ impl Blockchain {
     }
 
     pub async fn find_all(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
-        let chains = blockchains::table
-            .filter(blockchains::status.ne(BlockchainStatus::Deleted))
-            .order_by(blockchains::name)
+        let chains = Self::not_deleted()
+            .order_by(super::lower(blockchains::name))
             .get_results(conn)
             .await?;
 
@@ -49,11 +51,7 @@ impl Blockchain {
     }
 
     pub async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let chain = blockchains::table
-            .filter(blockchains::status.ne(BlockchainStatus::Deleted))
-            .find(id)
-            .get_result(conn)
-            .await?;
+        let chain = Self::not_deleted().find(id).get_result(conn).await?;
 
         Ok(chain)
     }
@@ -62,13 +60,16 @@ impl Blockchain {
         ids: &[uuid::Uuid],
         conn: &mut AsyncPgConnection,
     ) -> Result<Vec<Self>> {
-        let chains = blockchains::table
-            .filter(blockchains::status.ne(BlockchainStatus::Deleted))
+        let chains = Self::not_deleted()
             .filter(blockchains::id.eq_any(ids))
-            .order_by(blockchains::name)
+            .order_by(super::lower(blockchains::name))
             .get_results(conn)
             .await?;
 
         Ok(chains)
+    }
+
+    fn not_deleted() -> NotDeleted {
+        blockchains::table.filter(blockchains::status.ne(BlockchainStatus::Deleted))
     }
 }

@@ -435,8 +435,11 @@ impl NewNode<'_> {
         let host_id = Host::get_next_available_host_id(requirements, conn).await?;
         let host = Host::find_by_id(host_id, conn).await?;
         let ip_gateway = host.ip_gateway.map(|ip| ip.to_string());
-        let ip_addr =
-            dbg!(dbg!(IpAddress::next_for_host(host_id, conn).await?.ip.ip()).to_string());
+        let ip_addr = IpAddress::next_for_host(host_id, conn)
+            .await?
+            .ip
+            .ip()
+            .to_string();
 
         self.ip_gateway = ip_gateway.as_deref();
         self.ip_addr = Some(&ip_addr);
