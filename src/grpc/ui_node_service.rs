@@ -393,6 +393,9 @@ impl NodeService for NodeServiceImpl {
 
                     models::IpAddress::unassign(ip.id, host_id, c).await?;
 
+                    // Delete all pending commands for this node: there are not useable anymore
+                    models::Command::delete_pending(node_id, c).await?;
+
                     // Send delete node command
                     let new_command = models::NewCommand {
                         host_id: node.host_id,
