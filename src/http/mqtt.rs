@@ -64,7 +64,10 @@ impl MqttAclPolicy for MqttUserPolicy {
                 .get("org_id")
                 .ok_or_else(|| anyhow!("token.org_id is required"))?
                 .parse()?;
-            let node_id = rest[..36].parse()?;
+            let node_id = rest
+                .get(..36)
+                .ok_or_else(|| anyhow!("`{rest}` is too shoprt to contain a valid uuid"))?
+                .parse()?;
             let mut conn = self
                 .db
                 .conn()
