@@ -24,35 +24,47 @@ pub async fn db_command_to_grpc_command(
     cmd: &Command,
     conn: &mut AsyncPgConnection,
 ) -> ApiResult<GrpcCommand> {
-    let mut node_cmd = NodeCommand {
-        node_id: cmd.resource_id.to_string(),
-        host_id: cmd.host_id.to_string(),
-        command: None,
-        api_command_id: cmd.id.to_string(),
-        created_at: None,
+    use blockjoy::command::Type;
+    use node_command::Command;
+
+    // Closure to conveniently construct a NodeCommand from the data that we need to have.
+    let node_cmd = |command, node_id| {
+        Ok(GrpcCommand {
+            r#type: Some(Type::Node(NodeCommand {
+                node_id,
+                host_id: cmd.host_id.to_string(),
+                command: Some(command),
+                api_command_id: cmd.id.to_string(),
+                created_at: Some(try_dt_to_ts(cmd.created_at)?),
+            })),
+        })
     };
 
-    node_cmd.command = match cmd.cmd {
-        HostCmd::RestartNode => Some(node_command::Command::Restart(NodeRestart {})),
+    match cmd.cmd {
+        HostCmd::RestartNode => {
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let cmd = Command::Restart(NodeRestart {});
+            node_cmd(cmd, node_id.to_string())
+        }
         HostCmd::KillNode => {
             tracing::debug!("Using NodeStop for KillNode");
-            Some(node_command::Command::Stop(NodeStop {}))
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let cmd = Command::Stop(NodeStop {});
+            node_cmd(cmd, node_id.to_string())
         }
-        HostCmd::ShutdownNode => Some(node_command::Command::Stop(NodeStop {})),
+        HostCmd::ShutdownNode => {
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let cmd = Command::Stop(NodeStop {});
+            node_cmd(cmd, node_id.to_string())
+        }
         HostCmd::UpdateNode => {
             tracing::debug!("Using NodeUpgrade for UpdateNode");
 
-            // TODO: add image
-            // Self {
-            //     r#type: Some(command::Type::Node(NodeUpgrade {
-            //         node_id: node_cmd.node_id.clone(),
-            //     })),
-            // }
-
-            let node = Node::find_by_id(cmd.resource_id, conn).await?;
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let node = Node::find_by_id(node_id, conn).await?;
             let network = Parameter::new("network", &node.network);
             let node_type = node.node_type()?;
-            let cmd = blockjoy::NodeInfoUpdate {
+            let cmd = Command::Update(blockjoy::NodeInfoUpdate {
                 name: Some(node.name),
                 self_update: Some(node.self_update),
                 properties: node_type
@@ -61,26 +73,24 @@ pub async fn db_command_to_grpc_command(
                     .map(|(name, value)| Parameter::new(name, value))
                     .chain([network])
                     .collect(),
-            };
+            });
 
-            Some(node_command::Command::Update(cmd))
+            node_cmd(cmd, node_id.to_string())
         }
         HostCmd::MigrateNode => {
-            tracing::debug!("Using NodeGenericCommand for MigrateNode");
+            tracing::error!("Using NodeGenericCommand for MigrateNode");
             unimplemented!();
-            /*
-            node_cmd.command = Some(node_command::Command::Generic(NodeGenericCommand {
-                node_id: node_cmd.node_id.clone(),
-            }))
-             */
         }
         HostCmd::GetNodeVersion => {
             tracing::debug!("Using NodeInfoGet for GetNodeVersion");
-            Some(node_command::Command::InfoGet(NodeInfoGet {}))
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let cmd = Command::InfoGet(NodeInfoGet {});
+            node_cmd(cmd, node_id.to_string())
         }
         // The following should be HostCommands
         HostCmd::CreateNode => {
-            let node = dbg!(Node::find_by_id(cmd.resource_id, conn).await?);
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let node = Node::find_by_id(node_id, conn).await?;
             let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
             let image = ContainerImage {
                 protocol: blockchain.name,
@@ -90,7 +100,7 @@ pub async fn db_command_to_grpc_command(
             };
             let network = Parameter::new("network", &node.network);
             let node_type = node.node_type()?;
-            let create_cmd = NodeCreate {
+            let cmd = Command::Create(NodeCreate {
                 name: node.name,
                 blockchain: node.blockchain_id.to_string(),
                 image: Some(image),
@@ -104,11 +114,16 @@ pub async fn db_command_to_grpc_command(
                     .map(|(name, value)| Parameter::new(name, value))
                     .chain([network])
                     .collect(),
-            };
+            });
 
-            Some(node_command::Command::Create(create_cmd))
+            node_cmd(cmd, node_id.to_string())
         }
-        HostCmd::DeleteNode => Some(node_command::Command::Delete(NodeDelete {})),
+        HostCmd::DeleteNode => {
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let cmd = Command::Delete(NodeDelete {});
+            node_cmd(cmd, node_id.to_string())
+        }
+
         HostCmd::GetBVSVersion => unimplemented!(),
         HostCmd::UpdateBVS => unimplemented!(),
         HostCmd::RestartBVS => unimplemented!(),
@@ -117,11 +132,7 @@ pub async fn db_command_to_grpc_command(
         HostCmd::StopBVS => unimplemented!(),
         // TODO: Missing
         // NodeStart, NodeUpgrade
-    };
-
-    Ok(GrpcCommand {
-        r#type: Some(blockjoy::command::Type::Node(node_cmd)),
-    })
+    }
 }
 
 /// Function to convert the datetimes from the database into the API representation of a timestamp.

@@ -292,7 +292,7 @@ impl NodeService for NodeServiceImpl {
                         host_id: node.host_id,
                         cmd: models::HostCmd::CreateNode,
                         sub_cmd: None,
-                        resource_id: node.id,
+                        node_id: Some(node.id),
                     };
                     let cmd = new_command.create(c).await?;
                     let create_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
@@ -311,7 +311,7 @@ impl NodeService for NodeServiceImpl {
                         host_id: node.host_id,
                         cmd: models::HostCmd::RestartNode,
                         sub_cmd: None,
-                        resource_id: node.id,
+                        node_id: Some(node.id),
                     };
                     let cmd = new_command.create(c).await?;
                     let restart_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
@@ -408,7 +408,7 @@ impl NodeService for NodeServiceImpl {
                         host_id: node.host_id,
                         cmd: models::HostCmd::DeleteNode,
                         sub_cmd: None,
-                        resource_id: node_id,
+                        node_id: Some(node_id),
                     };
                     let cmd = new_command.create(c).await?;
                     let user_id = token.id;

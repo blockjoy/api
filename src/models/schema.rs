@@ -109,7 +109,7 @@ diesel::table! {
         exit_status -> Nullable<Int4>,
         created_at -> Timestamptz,
         completed_at -> Nullable<Timestamptz>,
-        resource_id -> Uuid,
+        node_id -> Nullable<Uuid>,
     }
 }
 
@@ -337,6 +337,7 @@ diesel::table! {
 diesel::joinable!(broadcast_filters -> blockchains (blockchain_id));
 diesel::joinable!(broadcast_filters -> orgs (org_id));
 diesel::joinable!(commands -> hosts (host_id));
+diesel::joinable!(commands -> nodes (node_id));
 diesel::joinable!(host_provisions -> hosts (host_id));
 diesel::joinable!(invitations -> orgs (created_for_org));
 diesel::joinable!(invitations -> users (created_by_user));

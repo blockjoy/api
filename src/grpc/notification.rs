@@ -131,7 +131,6 @@ impl<T: Notify + prost::Message> MqttClient<T> {
     {
         const RETAIN: bool = false;
         const QOS: rumqttc::QoS = rumqttc::QoS::ExactlyOnce;
-        const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
         let payload = msg.encode_to_vec();
 
         tracing::info!("Sending {msg:?} over channels: {:?}", msg.channels());
