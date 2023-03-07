@@ -198,28 +198,20 @@ impl Notify for blockjoy::Command {
 
 impl Notify for blockjoy_ui::Organization {
     fn channels(&self) -> Vec<String> {
-        let org_id = self.id.as_ref().unwrap();
-
-        vec![format!("/orgs/{org_id}")]
+        vec![] // TODO
     }
 }
 
 impl Notify for blockjoy_ui::Host {
     fn channels(&self) -> Vec<String> {
-        let host_id = self.id.as_ref().unwrap();
-        let org_id = self.org_id.as_ref();
-
-        let mut res = vec![format!("/hosts/{host_id}")];
-        res.extend(org_id.map(|o| format!("/orgs/{o}/hosts/{host_id}")));
-        res
+        vec![] // TODO
     }
 }
 
 impl Notify for blockjoy_ui::Node {
     fn channels(&self) -> Vec<String> {
-        let host_id = self.host_id.as_ref().unwrap();
         let node_id = self.id.as_ref().unwrap();
-        vec![format!("/hosts/{host_id}/nodes/{node_id}")]
+        vec![format!("/nodes/{node_id}")]
     }
 }
 

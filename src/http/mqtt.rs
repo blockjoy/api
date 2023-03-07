@@ -1,5 +1,8 @@
-use crate::auth::{HostAuthToken, UserAuthToken};
-use anyhow::anyhow;
+use crate::{
+    auth::{FindableById, HostAuthToken, UserAuthToken},
+    models,
+};
+use anyhow::{anyhow, Context};
 use serde::Deserialize;
 use std::str::FromStr;
 use thiserror::Error;
@@ -7,9 +10,11 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum MqttPolicyError {
     #[error("Unknown MQTT policy error: {0}")]
-    Unknown(anyhow::Error),
+    Unknown(#[from] anyhow::Error),
     #[error("Error validating token: {0}")]
     Token(#[from] crate::auth::token::TokenError),
+    #[error("Error parsing uuid: {0}")]
+    Uuid(#[from] uuid::Error),
     #[error("Can't use topic: {0}")]
     Topic(anyhow::Error),
 }
@@ -36,29 +41,53 @@ pub struct MqttAuthRequest {
 
 pub type MqttAclPolicyResult = Result<bool, MqttPolicyError>;
 
+#[tonic::async_trait]
 pub trait MqttAclPolicy {
-    fn allow(token: &str, topic: String) -> MqttAclPolicyResult;
+    async fn allow(&self, token: &str, topic: String) -> MqttAclPolicyResult;
 }
 
-pub struct MqttUserPolicy;
+pub struct MqttUserPolicy {
+    pub db: models::DbPool,
+}
+
 pub struct MqttHostPolicy;
 
 #[tonic::async_trait]
 impl MqttAclPolicy for MqttUserPolicy {
-    /// TODO
-    fn allow(token: &str, _topic: String) -> MqttAclPolicyResult {
+    async fn allow(&self, token: &str, topic: String) -> MqttAclPolicyResult {
         // Verify token
-        let token = UserAuthToken::from_str(token)?;
-        let _org_id = token.data.get("org_id").unwrap_or(&String::new());
+        let data = UserAuthToken::from_str(token)?.data;
 
-        tracing::info!("MqttUserPolicy returns true");
+        let is_allowed = if let Some(rest) = topic.strip_prefix("/nodes/") {
+            // If we are subscribing to an org-specific topic, we need
+            let org_id = data
+                .get("org_id")
+                .ok_or_else(|| anyhow!("token.org_id is required"))?
+                .parse()?;
+            let node_id = rest[..36].parse()?;
+            let mut conn = self
+                .db
+                .conn()
+                .await
+                .with_context(|| "Couldn't get database connection")?;
+            let node = models::Node::find_by_id(node_id, &mut conn)
+                .await
+                .with_context(|| "No such node")?;
 
-        Ok(true)
+            node.org_id == org_id
+        } else {
+            false
+        };
+
+        tracing::info!("MqttUserPolicy returns {is_allowed}");
+
+        Ok(is_allowed)
     }
 }
 
+#[tonic::async_trait]
 impl MqttAclPolicy for MqttHostPolicy {
-    fn allow(token: &str, topic: String) -> MqttAclPolicyResult {
+    async fn allow(&self, token: &str, topic: String) -> MqttAclPolicyResult {
         let token = HostAuthToken::from_str(token)?;
         let host_id = topic
             .split('/')

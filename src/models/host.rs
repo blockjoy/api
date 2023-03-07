@@ -100,11 +100,6 @@ impl Host {
         Ok(host)
     }
 
-    pub async fn find_by_id(host_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let host = hosts::table.find(host_id).get_result(conn).await?;
-        Ok(host)
-    }
-
     pub async fn find_by_name(name: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
         let host = hosts::table
             .filter(hosts::name.eq(name))
