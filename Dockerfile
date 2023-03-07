@@ -15,7 +15,7 @@ RUN strip target/release/api
 # Slim output image not containing any build tools / artefacts
 FROM alpine:latest
 
-RUN apk add libgcc libpq-dev
+RUN apk add --no-cache libgcc libpq-dev
 
 COPY --from=build /usr/src/api/target/release/api /usr/bin/api
 COPY --from=build /usr/src/api/conf /etc/api/conf
