@@ -474,7 +474,7 @@ pub struct UpdateNode<'a> {
 impl UpdateNode<'_> {
     pub async fn update(&self, conn: &mut AsyncPgConnection) -> Result<Node> {
         let node = diesel::update(nodes::table.find(self.id))
-            .set(self)
+            .set((self, nodes::updated_at.eq(chrono::Utc::now())))
             .get_result(conn)
             .await?;
         Ok(node)

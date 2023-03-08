@@ -105,7 +105,7 @@ impl UpdateBroadcastFilter {
         self.validate()
             .map_err(|e| ApiError::ValidationError(e.to_string()))?;
         let filter = diesel::update(broadcast_filters::table.find(self.id))
-            .set(self)
+            .set((self, broadcast_filters::updated_at.eq(chrono::Utc::now())))
             .get_result(conn)
             .await?;
         Ok(filter)
