@@ -1,0 +1,3 @@
+-- Your SQL goes here
+
+ALTER TABLE nodes ADD COLUMN created_by UUID NULL REFERENCES users ON DELETE SET NULL;

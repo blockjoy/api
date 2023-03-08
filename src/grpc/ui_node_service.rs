@@ -13,6 +13,7 @@ use crate::grpc::helpers::try_get_token;
 use crate::grpc::{convert, get_refresh_token, response_with_refresh_token};
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use futures_util::future::OptionFuture;
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 
@@ -36,7 +37,13 @@ impl blockjoy_ui::Node {
         conn: &mut diesel_async::AsyncPgConnection,
     ) -> Result<Self> {
         let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
-        Self::new(node, &blockchain)
+        let user = OptionFuture::from(
+            node.created_by
+                .map(|u_id| models::User::find_by_id(u_id, conn)),
+        )
+        .await
+        .transpose()?;
+        Self::new(node, &blockchain, user.as_ref())
     }
 
     /// This function is used to create many ui nodes from many database nodes. The same
@@ -52,16 +59,32 @@ impl blockjoy_ui::Node {
             .into_iter()
             .map(|b| (b.id, b))
             .collect();
+        let user_ids: Vec<_> = nodes.iter().flat_map(|n| n.created_by).collect();
+        let users: HashMap<_, _> = models::User::find_by_ids(&user_ids, conn)
+            .await?
+            .into_iter()
+            .map(|u| (u.id, u))
+            .collect();
 
         nodes
             .into_iter()
-            .map(|n| (n.blockchain_id, n))
-            .map(|(b_id, n)| Self::new(n, &blockchains[&b_id]))
+            .map(|n| (n.blockchain_id, n.created_by, n))
+            .map(|(b_id, u_id, n)| {
+                Self::new(
+                    n,
+                    &blockchains[&b_id],
+                    u_id.and_then(|u_id| users.get(&u_id)),
+                )
+            })
             .collect()
     }
 
     /// Construct a new ui node from the queried parts.
-    fn new(node: models::Node, blockchain: &models::Blockchain) -> Result<Self> {
+    fn new(
+        node: models::Node,
+        blockchain: &models::Blockchain,
+        user: Option<&models::User>,
+    ) -> Result<Self> {
         let node_type = node.node_type()?;
         Ok(Self {
             id: Some(node.id.to_string()),
@@ -92,10 +115,13 @@ impl blockjoy_ui::Node {
             self_update: Some(node.self_update),
             network: Some(node.network),
             blockchain_name: Some(blockchain.name.clone()),
+            created_by: user.map(|u| u.id.to_string()),
+            created_by_name: user.map(|u| format!("{} {}", u.first_name, u.last_name)),
+            created_by_email: user.map(|u| u.email.clone()),
         })
     }
 
-    pub fn as_new(&self) -> Result<models::NewNode<'_>> {
+    pub fn as_new(&self, user_id: uuid::Uuid) -> Result<models::NewNode<'_>> {
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4(),
             org_id: self
@@ -140,6 +166,7 @@ impl blockjoy_ui::Node {
                 .network
                 .as_deref()
                 .ok_or_else(required("node.network"))?,
+            created_by: user_id,
         })
     }
 
@@ -281,12 +308,14 @@ impl NodeService for NodeServiceImpl {
         }
 
         let inner = request.into_inner();
-        let (node, create_msg, restart_msg) = self
+        let (node, ui_node, create_msg, restart_msg) = self
             .db
             .trx(|c| {
                 async move {
                     let node = inner.node.as_ref().ok_or_else(required("node"))?;
-                    let node = node.as_new()?.create(c).await?;
+                    let node = node.as_new(user.id)?.create(c).await?;
+
+                    let ui_node = blockjoy_ui::Node::from_model(node.clone(), c).await?;
 
                     let new_command = models::NewCommand {
                         host_id: node.host_id,
@@ -316,7 +345,7 @@ impl NodeService for NodeServiceImpl {
                     let cmd = new_command.create(c).await?;
                     let restart_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
 
-                    Ok((node, create_msg, restart_msg))
+                    Ok((node, ui_node, create_msg, restart_msg))
                 }
                 .scope_boxed()
             })
@@ -326,10 +355,7 @@ impl NodeService for NodeServiceImpl {
             .bv_nodes_sender()?
             .send(&blockjoy::NodeInfo::from_model(node.clone()))
             .await?;
-        self.notifier
-            .ui_nodes_sender()?
-            .send(&node.clone().try_into()?)
-            .await?;
+        self.notifier.ui_nodes_sender()?.send(&ui_node).await?;
         self.notifier
             .bv_commands_sender()?
             .send(&create_msg)

@@ -223,6 +223,7 @@ pub struct Node {
     pub disk_size_gb: i64,
     pub host_name: String,
     pub network: String,
+    pub created_by: Option<uuid::Uuid>,
 }
 
 #[derive(Clone, Debug)]
@@ -420,6 +421,7 @@ pub struct NewNode<'a> {
     pub mem_size_mb: i64,
     pub disk_size_gb: i64,
     pub network: &'a str,
+    pub created_by: uuid::Uuid,
 }
 
 impl NewNode<'_> {

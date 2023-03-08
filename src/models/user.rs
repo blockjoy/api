@@ -110,6 +110,17 @@ impl User {
         Ok(users)
     }
 
+    pub async fn find_by_ids(
+        user_ids: &[uuid::Uuid],
+        conn: &mut AsyncPgConnection,
+    ) -> Result<Vec<Self>> {
+        let users = Self::not_deleted()
+            .filter(users::id.eq_any(user_ids))
+            .get_results(conn)
+            .await?;
+        Ok(users)
+    }
+
     pub async fn find_all_pay_address(conn: &mut AsyncPgConnection) -> Result<Vec<UserPayAddress>> {
         let addrs = Self::not_deleted()
             .filter(users::pay_address.is_not_null())

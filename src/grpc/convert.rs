@@ -148,7 +148,7 @@ pub mod from {
     use crate::grpc::blockjoy_ui::BlockchainNetwork;
     use crate::grpc::blockjoy_ui::{
         self, node::NodeStatus as GrpcNodeStatus, node::StakingStatus as GrpcStakingStatus,
-        node::SyncStatus as GrpcSyncStatus, Node as GrpcNode,
+        node::SyncStatus as GrpcSyncStatus,
     };
     use crate::grpc::helpers::required;
     use crate::models::{self, NodeChainStatus, NodeKeyFile, NodeStakingStatus, NodeSyncStatus};
@@ -281,40 +281,6 @@ pub mod from {
                 org_id: value.org_id.to_string(),
                 role: value.role as i32,
             }
-        }
-    }
-
-    impl TryFrom<models::Node> for GrpcNode {
-        type Error = ApiError;
-
-        fn try_from(node: models::Node) -> Result<Self, Self::Error> {
-            let node_type = node.node_type()?.to_json()?;
-            let res = Self {
-                id: Some(node.id.to_string()),
-                org_id: Some(node.org_id.to_string()),
-                host_id: Some(node.host_id.to_string()),
-                host_name: Some(node.host_name),
-                blockchain_id: Some(node.blockchain_id.to_string()),
-                name: Some(node.name),
-                groups: vec![],
-                version: node.version,
-                ip: node.ip_addr,
-                r#type: Some(node_type),
-                address: node.address,
-                wallet_address: node.wallet_address,
-                block_height: node.block_height,
-                node_data: None,
-                created_at: Some(try_dt_to_ts(node.created_at)?),
-                updated_at: Some(try_dt_to_ts(node.updated_at)?),
-                status: Some(node.chain_status as i32),
-                sync_status: Some(node.sync_status as i32),
-                staking_status: node.staking_status.map(|ss| ss as i32),
-                ip_gateway: Some(node.ip_gateway),
-                self_update: Some(node.self_update),
-                network: Some(node.network.clone()),
-                blockchain_name: Some(node.network),
-            };
-            Ok(res)
         }
     }
 

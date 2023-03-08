@@ -251,6 +251,7 @@ diesel::table! {
         disk_size_gb -> Int8,
         host_name -> Text,
         network -> Text,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -346,6 +347,7 @@ diesel::joinable!(node_key_files -> nodes (node_id));
 diesel::joinable!(nodes -> blockchains (blockchain_id));
 diesel::joinable!(nodes -> hosts (host_id));
 diesel::joinable!(nodes -> orgs (org_id));
+diesel::joinable!(nodes -> users (created_by));
 diesel::joinable!(orgs_users -> orgs (org_id));
 diesel::joinable!(orgs_users -> users (user_id));
 diesel::joinable!(payments -> users (user_id));

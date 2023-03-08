@@ -294,8 +294,11 @@ mod tests {
     #[tokio::test]
     async fn test_ui_nodes_sender() {
         let db = crate::TestDb::setup().await;
+        let mut conn = db.pool.conn().await.unwrap();
         let node = db.node().await;
-        let node = node.try_into().unwrap();
+        let node = blockjoy_ui::Node::from_model(node, &mut conn)
+            .await
+            .unwrap();
         let notifier = Notifier::new().await.unwrap();
         notifier
             .ui_nodes_sender()
