@@ -79,17 +79,19 @@ impl BlockchainService for BlockchainServiceImpl {
         let mut grpc_blockchains = vec![];
 
         for blockchain in blockchains {
-            let node_types = blockchain.supported_node_types()?;
+            let node_types = dbg!(blockchain.supported_node_types())?;
             let name = blockchain.name.clone();
             let mut blockchain = blockjoy_ui::Blockchain::from_model(blockchain)?;
 
             for node_type in node_types {
-                let nets = get_networks(
-                    name.clone(),
-                    NodeTypeKey::str_from_value(node_type.get_id()),
-                    Some(node_type.version.to_string()),
-                )
-                .await?;
+                let nets = dbg!(
+                    get_networks(
+                        name.clone(),
+                        NodeTypeKey::str_from_value(node_type.get_id()),
+                        Some(node_type.version.to_string()),
+                    )
+                    .await
+                )?;
 
                 blockchain.networks.extend(nets.iter().map(|c| c.into()));
             }

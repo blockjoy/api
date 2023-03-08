@@ -299,7 +299,7 @@ impl<'a> NewUser<'a> {
     }
 }
 
-#[derive(Debug, Clone, Default, AsChangeset)]
+#[derive(Debug, Clone, AsChangeset)]
 #[diesel(table_name = users)]
 pub struct UpdateUser<'a> {
     pub id: uuid::Uuid,

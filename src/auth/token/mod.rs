@@ -272,7 +272,7 @@ pub trait JwtToken: Sized + serde::Serialize {
         validation.validate_exp = validate_exp;
 
         match jwt::decode::<T>(
-            dbg!(encoded),
+            encoded,
             &jwt::DecodingKey::from_secret(secret.as_bytes()),
             &validation,
         ) {
