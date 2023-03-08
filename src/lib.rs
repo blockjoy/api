@@ -144,7 +144,7 @@ mod test {
                     blockchains::name.eq("Helium"),
                     blockchains::status.eq(models::BlockchainStatus::Production),
                     blockchains::supported_node_types
-                        .eq(serde_json::json!([Self::test_node_types()])),
+                        .eq(serde_json::json!([Self::test_node_properties()])),
                 ))
                 .get_result(conn)
                 .await
@@ -248,12 +248,13 @@ mod test {
                     nodes::org_id.eq(org_id),
                     nodes::host_id.eq(host1.id),
                     nodes::blockchain_id.eq(blockchain.id),
-                    nodes::node_type.eq(Self::test_node_types()),
+                    nodes::properties.eq(Self::test_node_properties()),
                     nodes::block_age.eq(0),
                     nodes::consensus.eq(true),
                     nodes::chain_status.eq(models::NodeChainStatus::Broadcasting),
                     nodes::ip_gateway.eq(ip_gateway),
                     nodes::ip_addr.eq(ip_addr),
+                    nodes::node_type.eq(models::NodeType::Validator),
                 ))
                 .execute(conn)
                 .await
@@ -335,9 +336,8 @@ mod test {
             HostRefreshToken::try_new(claim).unwrap()
         }
 
-        fn test_node_types() -> serde_json::Value {
+        fn test_node_properties() -> serde_json::Value {
             serde_json::json!({
-                "id": 3,
                 "version": "0.0.3",
                 "properties": [
                     {

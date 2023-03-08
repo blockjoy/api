@@ -34,6 +34,10 @@ pub mod sql_types {
     pub struct EnumNodeSyncStatus;
 
     #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_node_type"))]
+    pub struct EnumNodeType;
+
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_org_role"))]
     pub struct EnumOrgRole;
 
@@ -221,6 +225,7 @@ diesel::table! {
     use super::sql_types::EnumNodeChainStatus;
     use super::sql_types::EnumNodeStakingStatus;
     use super::sql_types::EnumContainerStatus;
+    use super::sql_types::EnumNodeType;
 
     nodes (id) {
         id -> Uuid,
@@ -241,7 +246,7 @@ diesel::table! {
         chain_status -> EnumNodeChainStatus,
         staking_status -> Nullable<EnumNodeStakingStatus>,
         container_status -> EnumContainerStatus,
-        node_type -> Jsonb,
+        properties -> Jsonb,
         ip_gateway -> Text,
         self_update -> Bool,
         block_age -> Nullable<Int8>,
@@ -251,6 +256,7 @@ diesel::table! {
         disk_size_gb -> Int8,
         host_name -> Text,
         network -> Text,
+        node_type -> EnumNodeType,
     }
 }
 

@@ -7,7 +7,7 @@ use crate::grpc::blockjoy::{
     NodeDelete, NodeInfoGet, NodeRestart, NodeStop,
 };
 use crate::grpc::helpers::required;
-use crate::models::{Blockchain, Command, HostCmd, Node, NodeTypeKey};
+use crate::models::{self, Blockchain, Command, HostCmd, Node};
 use diesel_async::AsyncPgConnection;
 use prost_types::Timestamp;
 
@@ -51,16 +51,17 @@ pub async fn db_command_to_grpc_command(
 
             let node = Node::find_by_id(cmd.resource_id, conn).await?;
             let network = Parameter::new("network", &node.network);
-            let node_type = node.node_type()?;
+            let properties = node
+                .properties()?
+                .iter_props()
+                .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
+                .map(|(name, value)| Parameter::new(name, value))
+                .chain([network])
+                .collect();
             let cmd = blockjoy::NodeInfoUpdate {
                 name: Some(node.name),
                 self_update: Some(node.self_update),
-                properties: node_type
-                    .iter_props()
-                    .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
-                    .map(|(name, value)| Parameter::new(name, value))
-                    .chain([network])
-                    .collect(),
+                properties,
             };
 
             Some(node_command::Command::Update(cmd))
@@ -84,26 +85,31 @@ pub async fn db_command_to_grpc_command(
             let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
             let image = ContainerImage {
                 protocol: blockchain.name,
-                node_type: NodeTypeKey::str_from_value(node.node_type()?.get_id()).to_lowercase(),
+                node_type: node.node_type.to_string().to_lowercase(),
                 node_version: node.version.as_deref().unwrap_or("latest").to_lowercase(),
                 status: StatusName::Development.into(),
             };
             let network = Parameter::new("network", &node.network);
-            let node_type = node.node_type()?;
+            let r#type = models::NodePropertiesWithId {
+                id: node.node_type.into(),
+                props: node.properties()?,
+            };
+            let properties = node
+                .properties()?
+                .iter_props()
+                .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
+                .map(|(name, value)| Parameter::new(name, value))
+                .chain([network])
+                .collect();
             let create_cmd = NodeCreate {
                 name: node.name,
                 blockchain: node.blockchain_id.to_string(),
                 image: Some(image),
-                r#type: node_type.to_json()?,
+                r#type: serde_json::to_string(&r#type)?,
                 ip: node.ip_addr.ok_or_else(required("node.ip_addr"))?,
                 gateway: node.ip_gateway,
                 self_update: node.self_update,
-                properties: node_type
-                    .iter_props()
-                    .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
-                    .map(|(name, value)| Parameter::new(name, value))
-                    .chain([network])
-                    .collect(),
+                properties,
             };
 
             Some(node_command::Command::Create(create_cmd))
@@ -288,7 +294,10 @@ pub mod from {
         type Error = ApiError;
 
         fn try_from(node: models::Node) -> Result<Self, Self::Error> {
-            let node_type = node.node_type()?.to_json()?;
+            let properties = models::NodePropertiesWithId {
+                id: node.node_type.into(),
+                props: node.properties()?,
+            };
             let res = Self {
                 id: Some(node.id.to_string()),
                 org_id: Some(node.org_id.to_string()),
@@ -299,7 +308,7 @@ pub mod from {
                 groups: vec![],
                 version: node.version,
                 ip: node.ip_addr,
-                r#type: Some(node_type),
+                r#type: Some(serde_json::to_string(&properties)?),
                 address: node.address,
                 wallet_address: node.wallet_address,
                 block_height: node.block_height,

@@ -213,7 +213,7 @@ pub struct Node {
     pub chain_status: NodeChainStatus,
     pub staking_status: Option<NodeStakingStatus>,
     pub container_status: ContainerStatus,
-    node_type: serde_json::Value,
+    properties: serde_json::Value,
     pub ip_gateway: String,
     pub self_update: bool,
     pub block_age: Option<i64>,
@@ -223,6 +223,7 @@ pub struct Node {
     pub disk_size_gb: i64,
     pub host_name: String,
     pub network: String,
+    pub node_type: NodeType,
 }
 
 #[derive(Clone, Debug)]
@@ -241,8 +242,8 @@ impl FindableById for Node {
 }
 
 impl Node {
-    pub fn node_type(&self) -> Result<super::NodeProperties> {
-        let res = serde_json::from_value(self.node_type.clone())?;
+    pub fn properties(&self) -> Result<super::NodeProperties> {
+        let res = serde_json::from_value(self.properties.clone())?;
         Ok(res)
     }
 
@@ -322,8 +323,8 @@ impl Node {
         if !filter.node_types.is_empty() {
             let mut remaining = Vec::new();
             for node in nodes {
-                let node_type = node.node_type()?;
-                if filter.node_types.contains(&node_type.get_id()) {
+                let node_type = node.node_type;
+                if filter.node_types.contains(&node_type.into()) {
                     remaining.push(node);
                 }
             }
@@ -406,7 +407,7 @@ pub struct NewNode<'a> {
     pub ip_addr: Option<&'a str>,
     pub ip_gateway: Option<&'a str>,
     pub blockchain_id: Uuid,
-    pub node_type: serde_json::Value,
+    pub properties: serde_json::Value,
     pub address: Option<&'a str>,
     pub wallet_address: Option<&'a str>,
     pub block_height: Option<i64>,
@@ -420,17 +421,18 @@ pub struct NewNode<'a> {
     pub mem_size_mb: i64,
     pub disk_size_gb: i64,
     pub network: &'a str,
+    pub node_type: NodeType,
 }
 
 impl NewNode<'_> {
-    pub fn node_type(&self) -> Result<super::NodeProperties> {
-        let res = serde_json::from_value(self.node_type.clone())?;
+    pub fn properties(&self) -> Result<super::NodeProperties> {
+        let res = serde_json::from_value(self.properties.clone())?;
         Ok(res)
     }
 
     pub async fn create(mut self, conn: &mut AsyncPgConnection) -> Result<Node> {
         let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
-        let node_type = NodeTypeKey::str_from_value(self.node_type()?.get_id());
+        let node_type = self.node_type.to_string();
         let requirements = get_hw_requirements(chain.name, node_type, self.version).await?;
         let host_id = Host::get_next_available_host_id(requirements, conn).await?;
         let host = Host::find_by_id(host_id, conn).await?;

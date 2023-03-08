@@ -7,7 +7,6 @@ use crate::errors::ApiError;
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;
-use crate::models::NodeTypeKey;
 
 type Result<T, E = tonic::Status> = std::result::Result<T, E>;
 
@@ -83,11 +82,11 @@ impl BlockchainService for BlockchainServiceImpl {
             let name = blockchain.name.clone();
             let mut blockchain = blockjoy_ui::Blockchain::from_model(blockchain)?;
 
-            for node_type in node_types {
+            for node_properties in node_types {
                 let nets = get_networks(
                     name.clone(),
-                    NodeTypeKey::str_from_value(node_type.get_id()),
-                    Some(node_type.version.to_string()),
+                    models::NodeType::str_from_value(node_properties.id),
+                    Some(node_properties.version.clone()),
                 )
                 .await?;
 

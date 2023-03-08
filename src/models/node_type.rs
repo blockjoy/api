@@ -1,6 +1,9 @@
 use crate::errors::ApiError;
 
-pub enum NodeTypeKey {
+// TODO: This should not have to implement serialize anymore.
+#[derive(Debug, Clone, Copy, diesel_derive_enum::DbEnum, serde::Serialize, serde::Deserialize)]
+#[ExistingTypePath = "crate::models::schema::sql_types::EnumNodeType"]
+pub enum NodeType {
     Unknown = 0,
     Miner = 1,
     Etl = 2,
@@ -16,7 +19,7 @@ pub enum NodeTypeKey {
     LightNode = 12,
 }
 
-impl NodeTypeKey {
+impl NodeType {
     pub fn str_from_value(value: i32) -> String {
         match value {
             0 => "Unknown".to_string(),
@@ -37,119 +40,100 @@ impl NodeTypeKey {
     }
 }
 
-impl From<NodeTypeKey> for i32 {
-    fn from(id: NodeTypeKey) -> Self {
-        match id {
-            NodeTypeKey::Unknown => 0,
-            NodeTypeKey::Miner => 1,
-            NodeTypeKey::Etl => 2,
-            NodeTypeKey::Validator => 3,
-            NodeTypeKey::Api => 4,
-            NodeTypeKey::Oracle => 5,
-            NodeTypeKey::Relay => 6,
-            NodeTypeKey::Execution => 7,
-            NodeTypeKey::Beacon => 8,
-            NodeTypeKey::MevBoost => 9,
-            NodeTypeKey::Node => 10,
-            NodeTypeKey::FullNode => 11,
-            NodeTypeKey::LightNode => 12,
-        }
+impl std::fmt::Display for NodeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let i: i32 = (*self).into();
+        write!(f, "{}", Self::str_from_value(i))
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct NodeTypeProperty {
-    name: String,
-    ui_type: String,
-    default: String,
-    disabled: bool,
-    required: bool,
+impl std::str::FromStr for NodeType {
+    type Err = ApiError;
+
+    fn from_str(s: &str) -> crate::Result<Self> {
+        let res = match s.to_lowercase().as_str() {
+            "unknown" => Self::Unknown,
+            "miner" => Self::Miner,
+            "etl" => Self::Etl,
+            "validator" => Self::Validator,
+            "api" => Self::Api,
+            "oracle" => Self::Oracle,
+            "relay" => Self::Relay,
+            "execution" => Self::Execution,
+            "beacon" => Self::Beacon,
+            "mevboost" => Self::MevBoost,
+            "node" => Self::Node,
+            "fullnode" => Self::FullNode,
+            "lightnode" => Self::LightNode,
+            _ => return Err(anyhow::anyhow!("Cannot parse {s} as a valid NodeType").into()),
+        };
+        Ok(res)
+    }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct NodeType {
-    id: i32,
-    pub version: String,
-    properties: Option<Vec<NodeTypeProperty>>,
-}
-
-impl TryFrom<String> for NodeType {
+impl TryFrom<i32> for NodeType {
     type Error = ApiError;
 
-    fn try_from(json: String) -> Result<Self, Self::Error> {
-        serde_json::from_str(&json).map_err(Into::into)
-    }
-}
-
-impl NodeTypeProperty {
-    pub fn get_name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn get_label(&self) -> &str {
-        &self.name
-    }
-
-    pub fn get_default(&self) -> &str {
-        &self.default
-    }
-
-    pub fn get_property_type(&self) -> &str {
-        &self.ui_type
-    }
-}
-
-impl NodeType {
-    pub fn to_json(&self) -> Result<String, ApiError> {
-        #[derive(serde::Serialize)]
-        struct NodeTypeWithoutVersion<'a> {
-            id: i32,
-            properties: &'a Option<Vec<NodeTypeProperty>>,
-        }
-        let without_version = NodeTypeWithoutVersion {
-            id: self.id,
-            properties: &self.properties,
+    fn try_from(value: i32) -> crate::Result<Self> {
+        let val = match value {
+            0 => NodeType::Unknown,
+            1 => NodeType::Miner,
+            2 => NodeType::Etl,
+            3 => NodeType::Validator,
+            4 => NodeType::Api,
+            5 => NodeType::Oracle,
+            6 => NodeType::Relay,
+            7 => NodeType::Execution,
+            8 => NodeType::Beacon,
+            9 => NodeType::MevBoost,
+            10 => NodeType::Node,
+            11 => NodeType::FullNode,
+            12 => NodeType::LightNode,
+            _ => return Err(anyhow::anyhow!("Cannot parse {value} as a NodeType").into()),
         };
-        let json_str = serde_json::to_string(&without_version)?;
-        Ok(json_str)
+        Ok(val)
     }
+}
 
-    pub fn special_type(id: NodeTypeKey) -> Self {
-        Self {
-            id: id.into(),
-            version: "".into(),
-            properties: Some(vec![]),
+impl Into<i32> for NodeType {
+    fn into(self) -> i32 {
+        match self {
+            NodeType::Unknown => 0,
+            NodeType::Miner => 1,
+            NodeType::Etl => 2,
+            NodeType::Validator => 3,
+            NodeType::Api => 4,
+            NodeType::Oracle => 5,
+            NodeType::Relay => 6,
+            NodeType::Execution => 7,
+            NodeType::Beacon => 8,
+            NodeType::MevBoost => 9,
+            NodeType::Node => 10,
+            NodeType::FullNode => 11,
+            NodeType::LightNode => 12,
         }
-    }
-
-    pub fn get_id(&self) -> i32 {
-        self.id
-    }
-
-    pub fn get_properties(&self) -> Option<&[NodeTypeProperty]> {
-        self.properties.as_deref()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::models::NodeTypeKey;
+    use crate::models::NodeType;
 
     #[test]
     fn returns_valid_string_for_value() {
-        assert_eq!(NodeTypeKey::str_from_value(0), "Unknown".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(1), "Miner".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(2), "ETL".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(3), "Validator".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(4), "API".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(5), "Oracle".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(6), "Relay".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(7), "Execution".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(8), "Beacon".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(9), "MEVBoost".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(10), "Node".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(11), "FullNode".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(12), "LightNode".to_string());
-        assert_eq!(NodeTypeKey::str_from_value(100), "Unknown".to_string());
+        assert_eq!(NodeType::str_from_value(0), "Unknown");
+        assert_eq!(NodeType::str_from_value(1), "Miner");
+        assert_eq!(NodeType::str_from_value(2), "ETL");
+        assert_eq!(NodeType::str_from_value(3), "Validator");
+        assert_eq!(NodeType::str_from_value(4), "API");
+        assert_eq!(NodeType::str_from_value(5), "Oracle");
+        assert_eq!(NodeType::str_from_value(6), "Relay");
+        assert_eq!(NodeType::str_from_value(7), "Execution");
+        assert_eq!(NodeType::str_from_value(8), "Beacon");
+        assert_eq!(NodeType::str_from_value(9), "MEVBoost");
+        assert_eq!(NodeType::str_from_value(10), "Node");
+        assert_eq!(NodeType::str_from_value(11), "FullNode");
+        assert_eq!(NodeType::str_from_value(12), "LightNode");
+        assert_eq!(NodeType::str_from_value(100), "Unknown");
     }
 }

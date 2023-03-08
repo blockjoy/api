@@ -70,11 +70,17 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         org_id: None,
         status: Some(node::NodeStatus::UndefinedApplicationStatus as i32),
         r#type: Some(
-            models::NodeType::special_type(models::NodeTypeKey::Api)
-                .to_json()
-                .unwrap(),
+            serde_json::to_string(&models::NodePropertiesWithId {
+                id: models::NodeType::Api.into(),
+                props: models::NodeProperties {
+                    version: None,
+                    properties: Some(vec![]),
+                },
+            })
+            .unwrap(),
         ),
         sync_status: Some(models::NodeSyncStatus::Unknown as i32),
+
         ..Default::default()
     };
     let req = blockjoy_ui::CreateNodeRequest {

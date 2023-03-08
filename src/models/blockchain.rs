@@ -15,28 +15,28 @@ pub enum BlockchainStatus {
 
 #[derive(Clone, Debug, Queryable, Identifiable)]
 pub struct Blockchain {
-    pub id: uuid::Uuid,                            // id -> Uuid,
-    pub name: String,                              // name -> Text,
-    pub description: Option<String>,               // description -> Nullable<Text>,
-    pub status: BlockchainStatus,                  // status -> EnumBlockchainStatus,
-    pub project_url: Option<String>,               // project_url -> Nullable<Text>,
-    pub repo_url: Option<String>,                  // repo_url -> Nullable<Text>,
-    pub supports_etl: bool,                        // supports_etl -> Bool,
-    pub supports_node: bool,                       // supports_node -> Bool,
-    pub supports_staking: bool,                    // supports_staking -> Bool,
-    pub supports_broadcast: bool,                  // supports_broadcast -> Bool,
-    pub version: Option<String>,                   // version -> Nullable<Text>,
-    pub created_at: chrono::DateTime<chrono::Utc>, // created_at -> Timestamptz,
-    pub updated_at: chrono::DateTime<chrono::Utc>, // updated_at -> Timestamptz,
-    pub token: Option<String>,                     // token -> Nullable<Text>,
-    supported_node_types: serde_json::Value,       // supported_node_types -> Jsonb,
+    pub id: uuid::Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub status: BlockchainStatus,
+    pub project_url: Option<String>,
+    pub repo_url: Option<String>,
+    pub supports_etl: bool,
+    pub supports_node: bool,
+    pub supports_staking: bool,
+    pub supports_broadcast: bool,
+    pub version: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub token: Option<String>,
+    supported_node_types: serde_json::Value,
 }
 
 type NotDeleted =
     dsl::Filter<blockchains::table, dsl::NotEq<blockchains::status, BlockchainStatus>>;
 
 impl Blockchain {
-    pub fn supported_node_types(&self) -> Result<Vec<super::NodeType>> {
+    pub fn supported_node_types(&self) -> Result<Vec<super::BlockchainProperties>> {
         let res = serde_json::from_value(self.supported_node_types.clone())?;
         Ok(res)
     }
