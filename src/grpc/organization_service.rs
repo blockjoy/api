@@ -114,6 +114,7 @@ impl OrganizationService for OrganizationServiceImpl {
             ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(org.id);
         let inner = CreateOrganizationResponse {
             meta: Some(response_meta),
+            organization: Some(blockjoy_ui::Organization::from_model(org)?),
         };
         response_with_refresh_token(refresh_token, inner)
     }

@@ -368,6 +368,7 @@ impl NodeService for NodeServiceImpl {
             ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(node.id);
         let response = CreateNodeResponse {
             meta: Some(response_meta),
+            node: Some(ui_node),
         };
 
         response_with_refresh_token(refresh_token, response)
