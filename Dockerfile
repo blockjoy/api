@@ -2,7 +2,7 @@
 FROM rust:alpine as build
 
 # We are indirectly depending on libbrotli.
-RUN apk update && apk add protobuf libc-dev protobuf-dev protoc libpq
+RUN apk update && apk add protobuf libc-dev protobuf-dev protoc libpq-dev
 
 WORKDIR /usr/src/api
 
@@ -15,7 +15,7 @@ RUN strip target/release/api
 # Slim output image not containing any build tools / artefacts
 FROM alpine:latest
 
-RUN apk add libgcc libpq
+RUN apk add --no-cache libgcc libpq
 
 COPY --from=build /usr/src/api/target/release/api /usr/bin/api
 COPY --from=build /usr/src/api/conf /etc/api/conf
