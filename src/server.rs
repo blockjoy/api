@@ -48,31 +48,30 @@ pub async fn start() -> anyhow::Result<()> {
     Ok(axum::Server::bind(&addr.parse()?).serve(hybrid).await?)
 }
 
-fn establish_connection(url: &str) -> BoxFuture<ConnectionResult<AsyncPgConnection>> {
-    (async {
+fn establish_connection(config: &str) -> BoxFuture<ConnectionResult<AsyncPgConnection>> {
+    let fut = async {
         let rustls_config = rustls::ClientConfig::builder()
             .with_safe_defaults()
             .with_root_certificates(root_certs())
             .with_no_client_auth();
-        let ssl = tokio_postgres_rustls::MakeRustlsConnect::new(rustls_config);
-        let (client, conn) = tokio_postgres::connect(url, ssl)
+        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(rustls_config);
+        let (client, conn) = tokio_postgres::connect(config, tls)
             .await
             .map_err(|e| ConnectionError::BadConnection(e.to_string()))?;
         tokio::spawn(async move {
             if let Err(e) = conn.await {
-                eprintln!("connection error: {}", e);
+                tracing::error!("Database connection: {e}");
             }
         });
         AsyncPgConnection::try_from(client).await
-    })
-    .boxed()
+    };
+    fut.boxed()
 }
 
 fn root_certs() -> rustls::RootCertStore {
     let mut roots = rustls::RootCertStore::empty();
-    for cert in rustls_native_certs::load_native_certs().expect("could not load platform certs") {
-        roots.add(&rustls::Certificate(cert.0)).unwrap();
-    }
+    let certs = rustls_native_certs::load_native_certs().expect("Certs not loadable!");
+    roots.add_parsable_certificates(&certs.into_iter().map(|cert| cert.0).collect::<Vec<_>>());
 
     roots
 }
