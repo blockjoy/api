@@ -24,6 +24,7 @@ fn main() {
                 "dashboard_service.proto",
                 "host_provision_service.proto",
                 "invitation_service.proto",
+                "mqtt.proto",
                 "fe_host_service.proto",
                 "ui_node_service.proto",
                 "organization_service.proto",

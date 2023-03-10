@@ -315,7 +315,7 @@ impl NodeService for NodeServiceImpl {
                     let node = inner.node.as_ref().ok_or_else(required("node"))?;
                     let node = node.as_new(user.id)?.create(c).await?;
 
-                    let ui_node = blockjoy_ui::Node::from_model(node.clone(), c).await?;
+                    let ui_node = blockjoy_ui::NodeMessage::created(node.clone(), c).await?;
 
                     let new_command = models::NewCommand {
                         host_id: node.host_id,
@@ -378,7 +378,9 @@ impl NodeService for NodeServiceImpl {
         request: Request<UpdateNodeRequest>,
     ) -> Result<Response<UpdateNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
+        let token = try_get_token::<_, UserAuthToken>(&request)?;
+        let user_id = token.id;
+        let token = token.try_into()?;
         let inner = request.into_inner();
         let update_node = inner
             .node
@@ -386,7 +388,20 @@ impl NodeService for NodeServiceImpl {
             .ok_or_else(required("node"))?
             .as_update()?;
 
-        self.db.trx(|c| update_node.update(c).scope_boxed()).await?;
+        let msg = self
+            .db
+            .trx(|c| {
+                async move {
+                    let user = models::User::find_by_id(user_id, c).await?;
+                    let node = update_node.update(c).await?;
+                    blockjoy_ui::NodeMessage::updated(node, user, c).await
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        self.notifier.ui_nodes_sender()?.send(&msg).await?;
+
         let response = UpdateNodeResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
@@ -438,6 +453,7 @@ impl NodeService for NodeServiceImpl {
                         node_id: None,
                     };
                     let cmd = new_command.create(c).await?;
+
                     let user_id = token.id;
                     let user = models::User::find_by_id(user_id, c).await?;
                     let update_user = models::UpdateUser {
@@ -448,14 +464,16 @@ impl NodeService for NodeServiceImpl {
                         staking_quota: Some(user.staking_quota + 1),
                         refresh: None,
                     };
-
                     update_user.update(c).await?;
 
                     let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
+                    self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
 
-                    self.notifier.bv_commands_sender()?.send(&grpc_cmd).await
-                    // let grpc_cmd = cmd.clone().try_into()?;
-                    // self.notifier.ui_commands_sender()?.send(&grpc_cmd).await;
+                    self.notifier
+                        .ui_nodes_sender()?
+                        .send(&blockjoy_ui::NodeMessage::deleted(node, user))
+                        .await?;
+                    Ok(())
                 }
                 .scope_boxed()
             })
