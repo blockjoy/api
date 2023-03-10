@@ -36,6 +36,8 @@ prost = "0.11.6"
 prost-types = "0.11.6"
 rand = "0.8.5"
 rumqttc = "0.20.0"
+rustls = "0.20.8"
+rustls-native-certs = "0.6.2"
 sendgrid = { version = "0.17.4", default-features = false, features = ["rustls", "async"] }
 serde = { version = "1.0.125", features = ["derive"] }
 serde_json = { version = "1.0.81", features = ["raw_value"] }
@@ -43,6 +45,8 @@ strum = "0.24"
 strum_macros = "0.24"
 thiserror = "1.0.24"
 tokio = { version = "1.2.0", default-features = false, features = ["io-util", "sync", "macros", "sync", "rt-multi-thread"] }
+tokio-postgres = "0.7.7"
+tokio-postgres-rustls = "0.9.0"
 tokio-stream = { version = "0.1.9", features = ["net"] }
 toml = "0.5.9"
 tonic = { version = "0.8.3", features = ["tls-roots"] }

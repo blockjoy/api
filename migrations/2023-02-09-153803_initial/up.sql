@@ -210,7 +210,7 @@ CREATE TABLE IF NOT EXISTS commands (
 );
 
 CREATE TABLE IF NOT EXISTS host_provisions (
-    id text NOT NULL,
+    id text PRIMARY KEY,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     claimed_at timestamp with time zone,
     host_id uuid,
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS invitations (
 );
 
 CREATE TABLE IF NOT EXISTS invoices (
-    id integer NOT NULL,
+    id integer PRIMARY KEY,
     user_id uuid NOT NULL,
     amount bigint NOT NULL,
     validators_count bigint NOT NULL,
