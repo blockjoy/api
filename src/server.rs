@@ -49,6 +49,7 @@ pub async fn start() -> anyhow::Result<()> {
 }
 
 fn establish_connection(config: &str) -> BoxFuture<ConnectionResult<AsyncPgConnection>> {
+    dbg!(config);
     let fut = async {
         let rustls_config = rustls::ClientConfig::builder()
             .with_safe_defaults()
@@ -71,7 +72,7 @@ fn establish_connection(config: &str) -> BoxFuture<ConnectionResult<AsyncPgConne
 fn root_certs() -> rustls::RootCertStore {
     let mut roots = rustls::RootCertStore::empty();
     let certs = rustls_native_certs::load_native_certs().expect("Certs not loadable!");
-    roots.add_parsable_certificates(&certs.into_iter().map(|cert| cert.0).collect::<Vec<_>>());
-
+    let certs: Vec<_> = certs.into_iter().map(|cert| cert.0).collect();
+    roots.add_parsable_certificates(&certs);
     roots
 }
