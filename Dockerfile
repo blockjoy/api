@@ -2,7 +2,7 @@
 FROM rust:alpine as build
 
 # We are indirectly depending on libbrotli.
-RUN apk update && apk add protobuf libc-dev protobuf-dev protoc libpq-dev
+RUN apk update && apk add protobuf libc-dev protobuf-dev protoc libpq
 
 WORKDIR /usr/src/api
 
