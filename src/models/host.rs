@@ -231,25 +231,28 @@ pub struct NewHost<'a> {
     pub os_version: Option<&'a str>,
     pub ip_addr: &'a str,
     pub status: ConnectionStatus,
-    pub ip_range_from: ipnetwork::IpNetwork,
-    pub ip_range_to: ipnetwork::IpNetwork,
-    pub ip_gateway: ipnetwork::IpNetwork,
+    pub ip_range_from: Option<ipnetwork::IpNetwork>,
+    pub ip_range_to: Option<ipnetwork::IpNetwork>,
+    pub ip_gateway: Option<ipnetwork::IpNetwork>,
 }
 
 impl NewHost<'_> {
     /// Creates a new `Host` in the db, including the necessary related rows.
     pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Host> {
+        let (ip_gateway, ip_range_from, ip_range_to) = (
+            self.ip_gateway.ok_or_else(required("ip_gateway"))?,
+            self.ip_range_from.ok_or_else(required("ip_range_from"))?,
+            self.ip_range_to.ok_or_else(required("ip_range_to"))?,
+        );
+
         // Ensure gateway IP is not amongst the ones created in the IP range
         if super::IpAddress::in_range(
-            self.ip_gateway.network(),
-            self.ip_range_from.network(),
-            self.ip_range_to.network(),
+            ip_gateway.network(),
+            ip_range_from.network(),
+            ip_range_to.network(),
         ) {
             return Err(ApiError::IpGatewayError(anyhow!(
-                "{} is in range {} - {}",
-                self.ip_gateway,
-                self.ip_range_from,
-                self.ip_range_to
+                "{ip_gateway} is in range {ip_range_from} - {ip_range_to}",
             )));
         }
 
@@ -259,11 +262,8 @@ impl NewHost<'_> {
             .await?;
 
         // Create IP range for new host
-        let create_range = super::NewIpAddressRange::try_new(
-            host.ip_range_from.ok_or_else(required("ip.range.from"))?,
-            host.ip_range_to.ok_or_else(required("ip.range.to"))?,
-            Some(host.id),
-        )?;
+        let create_range =
+            super::NewIpAddressRange::try_new(ip_range_from, ip_range_to, Some(host.id))?;
         create_range.create(conn).await?;
 
         Ok(host)

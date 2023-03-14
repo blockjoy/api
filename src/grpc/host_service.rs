@@ -62,18 +62,10 @@ impl blockjoy::HostInfo {
             ip_range_from: self
                 .ip_range_from
                 .as_ref()
-                .ok_or_else(required("info.ip_range_from"))?
-                .parse()?,
-            ip_range_to: self
-                .ip_range_to
-                .as_ref()
-                .ok_or_else(required("info.ip_range_to"))?
-                .parse()?,
-            ip_gateway: self
-                .ip_gateway
-                .as_ref()
-                .ok_or_else(required("info.ip_gateway"))?
-                .parse()?,
+                .map(|ip| ip.parse())
+                .transpose()?,
+            ip_range_to: self.ip_range_to.as_ref().map(|ip| ip.parse()).transpose()?,
+            ip_gateway: self.ip_gateway.as_ref().map(|ip| ip.parse()).transpose()?,
         };
         Ok(new_host)
     }

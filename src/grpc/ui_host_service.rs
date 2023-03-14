@@ -64,23 +64,26 @@ impl blockjoy_ui::Host {
             os_version: self.os_version.as_deref(),
             ip_addr: self.ip.as_deref().ok_or_else(required("host.ip"))?,
             status: models::ConnectionStatus::Online,
-            ip_range_from: self
-                .ip_range_from
-                .as_ref()
-                .ok_or_else(required("host.ip_range_from"))?
-                .parse()?,
+            ip_range_from: Some(
+                self.ip_range_from
+                    .as_ref()
+                    .ok_or_else(required("host.ip_range_from"))?
+                    .parse()?,
+            ),
 
-            ip_range_to: self
-                .ip_range_to
-                .as_ref()
-                .ok_or_else(required("host.ip_range_to"))?
-                .parse()?,
+            ip_range_to: Some(
+                self.ip_range_to
+                    .as_ref()
+                    .ok_or_else(required("host.ip_range_to"))?
+                    .parse()?,
+            ),
 
-            ip_gateway: self
-                .ip_gateway
-                .as_ref()
-                .ok_or_else(required("host.ip_gateway"))?
-                .parse()?,
+            ip_gateway: Some(
+                self.ip_gateway
+                    .as_ref()
+                    .ok_or_else(required("host.ip_gateway"))?
+                    .parse()?,
+            ),
         })
     }
 
