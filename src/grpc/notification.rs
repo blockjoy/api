@@ -214,7 +214,8 @@ impl blockjoy_ui::NodeMessage {
     fn node_id(&self) -> Option<uuid::Uuid> {
         use node_message::Message::*;
         match self.message.as_ref()? {
-            Created(blockjoy_ui::NodeCreated { node }) | Updated(blockjoy_ui::NodeUpdated { node, .. }) => {
+            Created(blockjoy_ui::NodeCreated { node })
+            | Updated(blockjoy_ui::NodeUpdated { node, .. }) => {
                 node.as_ref()?.id.as_ref()?.parse().ok()
             }
             Deleted(blockjoy_ui::NodeDeleted { node_id, .. }) => node_id.parse().ok(),
@@ -224,8 +225,9 @@ impl blockjoy_ui::NodeMessage {
     fn org_id(&self) -> Option<uuid::Uuid> {
         use node_message::Message::*;
         match self.message.as_ref()? {
-            Created(blockjoy_ui::NodeCreated { node }) | Updated(blockjoy_ui::NodeUpdated { node, .. }) => {
-                node.as_ref()?.id.as_ref()?.parse().ok()
+            Created(blockjoy_ui::NodeCreated { node })
+            | Updated(blockjoy_ui::NodeUpdated { node, .. }) => {
+                node.as_ref()?.org_id.as_ref()?.parse().ok()
             }
             Deleted(blockjoy_ui::NodeDeleted {
                 organization_id, ..
