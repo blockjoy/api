@@ -107,13 +107,13 @@ html = """
           'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
           'Droid Sans', 'Helvetica Neue', sans-serif;
         color: #5f615d !important;
-        background: #fafafa !important;
+        background: #ffffff !important;
         box-sizing: border-box;
         font-size: 14px;
         width: 100%;
         margin: 0;
       "
-      bgcolor="#fafafa"
+      bgcolor="#ffffff"
     >
       <tr
         style="
