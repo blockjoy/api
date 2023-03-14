@@ -113,7 +113,7 @@ diesel::table! {
         exit_status -> Nullable<Int4>,
         created_at -> Timestamptz,
         completed_at -> Nullable<Timestamptz>,
-        resource_id -> Uuid,
+        node_id -> Nullable<Uuid>,
     }
 }
 
@@ -256,6 +256,7 @@ diesel::table! {
         disk_size_gb -> Int8,
         host_name -> Text,
         network -> Text,
+        created_by -> Nullable<Uuid>,
         node_type -> EnumNodeType,
     }
 }
@@ -343,6 +344,7 @@ diesel::table! {
 diesel::joinable!(broadcast_filters -> blockchains (blockchain_id));
 diesel::joinable!(broadcast_filters -> orgs (org_id));
 diesel::joinable!(commands -> hosts (host_id));
+diesel::joinable!(commands -> nodes (node_id));
 diesel::joinable!(host_provisions -> hosts (host_id));
 diesel::joinable!(invitations -> orgs (created_for_org));
 diesel::joinable!(invitations -> users (created_by_user));
@@ -352,6 +354,7 @@ diesel::joinable!(node_key_files -> nodes (node_id));
 diesel::joinable!(nodes -> blockchains (blockchain_id));
 diesel::joinable!(nodes -> hosts (host_id));
 diesel::joinable!(nodes -> orgs (org_id));
+diesel::joinable!(nodes -> users (created_by));
 diesel::joinable!(orgs_users -> orgs (org_id));
 diesel::joinable!(orgs_users -> users (user_id));
 diesel::joinable!(payments -> users (user_id));

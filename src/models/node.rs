@@ -224,6 +224,7 @@ pub struct Node {
     pub host_name: String,
     pub network: String,
     pub node_type: NodeType,
+    pub created_by: Option<uuid::Uuid>,
 }
 
 #[derive(Clone, Debug)]
@@ -323,8 +324,8 @@ impl Node {
         if !filter.node_types.is_empty() {
             let mut remaining = Vec::new();
             for node in nodes {
-                let node_type = node.node_type;
-                if filter.node_types.contains(&node_type.into()) {
+                let node_type = node.node_type()?;
+                if filter.node_types.contains(&node_type.get_id()) {
                     remaining.push(node);
                 }
             }
@@ -422,6 +423,7 @@ pub struct NewNode<'a> {
     pub disk_size_gb: i64,
     pub network: &'a str,
     pub node_type: NodeType,
+    pub created_by: uuid::Uuid,
 }
 
 impl NewNode<'_> {
@@ -476,7 +478,7 @@ pub struct UpdateNode<'a> {
 impl UpdateNode<'_> {
     pub async fn update(&self, conn: &mut AsyncPgConnection) -> Result<Node> {
         let node = diesel::update(nodes::table.find(self.id))
-            .set(self)
+            .set((self, nodes::updated_at.eq(chrono::Utc::now())))
             .get_result(conn)
             .await?;
         Ok(node)

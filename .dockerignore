@@ -7,3 +7,4 @@
 target
 Makefile
 api.yaml
+Dockerfile

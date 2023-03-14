@@ -1,13 +1,14 @@
 use super::blockjoy::Parameter;
 use crate::auth::FindableById;
-use crate::errors::Result as ApiResult;
+use crate::errors::{ApiError, Result as ApiResult};
 use crate::grpc::blockjoy::container_image::StatusName;
 use crate::grpc::blockjoy::{
     self, node_command, Command as GrpcCommand, ContainerImage, NodeCommand, NodeCreate,
     NodeDelete, NodeInfoGet, NodeRestart, NodeStop,
 };
 use crate::grpc::helpers::required;
-use crate::models::{self, Blockchain, Command, HostCmd, Node};
+use crate::models::{self, Blockchain, Command, HostCmd, Node, NodeType};
+use anyhow::anyhow;
 use diesel_async::AsyncPgConnection;
 use prost_types::Timestamp;
 
@@ -24,74 +25,83 @@ pub async fn db_command_to_grpc_command(
     cmd: &Command,
     conn: &mut AsyncPgConnection,
 ) -> ApiResult<GrpcCommand> {
-    let mut node_cmd = NodeCommand {
-        node_id: cmd.resource_id.to_string(),
-        host_id: cmd.host_id.to_string(),
-        command: None,
-        api_command_id: cmd.id.to_string(),
-        created_at: None,
+    use blockjoy::command::Type;
+    use node_command::Command;
+
+    // Closure to conveniently construct a NodeCommand from the data that we need to have.
+    let node_cmd = |command, node_id| {
+        Ok(GrpcCommand {
+            r#type: Some(Type::Node(NodeCommand {
+                node_id,
+                host_id: cmd.host_id.to_string(),
+                command: Some(command),
+                api_command_id: cmd.id.to_string(),
+                created_at: Some(try_dt_to_ts(cmd.created_at)?),
+            })),
+        })
     };
 
-    node_cmd.command = match cmd.cmd {
-        HostCmd::RestartNode => Some(node_command::Command::Restart(NodeRestart {})),
+    match cmd.cmd {
+        HostCmd::RestartNode => {
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let cmd = Command::Restart(NodeRestart {});
+            node_cmd(cmd, node_id.to_string())
+        }
         HostCmd::KillNode => {
             tracing::debug!("Using NodeStop for KillNode");
-            Some(node_command::Command::Stop(NodeStop {}))
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let cmd = Command::Stop(NodeStop {});
+            node_cmd(cmd, node_id.to_string())
         }
-        HostCmd::ShutdownNode => Some(node_command::Command::Stop(NodeStop {})),
+        HostCmd::ShutdownNode => {
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let cmd = Command::Stop(NodeStop {});
+            node_cmd(cmd, node_id.to_string())
+        }
         HostCmd::UpdateNode => {
             tracing::debug!("Using NodeUpgrade for UpdateNode");
 
-            // TODO: add image
-            // Self {
-            //     r#type: Some(command::Type::Node(NodeUpgrade {
-            //         node_id: node_cmd.node_id.clone(),
-            //     })),
-            // }
-
-            let node = Node::find_by_id(cmd.resource_id, conn).await?;
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let node = Node::find_by_id(node_id, conn).await?;
             let network = Parameter::new("network", &node.network);
-            let properties = node
-                .properties()?
-                .iter_props()
-                .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
-                .map(|(name, value)| Parameter::new(name, value))
-                .chain([network])
-                .collect();
-            let cmd = blockjoy::NodeInfoUpdate {
+            let node_type = node.node_type()?;
+            let cmd = Command::Update(blockjoy::NodeInfoUpdate {
                 name: Some(node.name),
                 self_update: Some(node.self_update),
-                properties,
-            };
+                properties: node_type
+                    .iter_props()
+                    .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
+                    .map(|(name, value)| Parameter::new(name, value))
+                    .chain([network])
+                    .collect(),
+            });
 
-            Some(node_command::Command::Update(cmd))
+            node_cmd(cmd, node_id.to_string())
         }
         HostCmd::MigrateNode => {
-            tracing::debug!("Using NodeGenericCommand for MigrateNode");
-            unimplemented!();
-            /*
-            node_cmd.command = Some(node_command::Command::Generic(NodeGenericCommand {
-                node_id: node_cmd.node_id.clone(),
-            }))
-             */
+            tracing::error!("Using NodeGenericCommand for MigrateNode");
+            Err(ApiError::UnexpectedError(anyhow!("Not implemented")))
         }
         HostCmd::GetNodeVersion => {
             tracing::debug!("Using NodeInfoGet for GetNodeVersion");
-            Some(node_command::Command::InfoGet(NodeInfoGet {}))
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let cmd = Command::InfoGet(NodeInfoGet {});
+            node_cmd(cmd, node_id.to_string())
         }
         // The following should be HostCommands
         HostCmd::CreateNode => {
-            let node = dbg!(Node::find_by_id(cmd.resource_id, conn).await?);
+            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
+            let node = Node::find_by_id(node_id, conn).await?;
             let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
             let image = ContainerImage {
                 protocol: blockchain.name,
-                node_type: node.node_type.to_string().to_lowercase(),
+                node_type: NodeTypeKey::str_from_value(node.node_type()?.get_id()).to_lowercase(),
                 node_version: node.version.as_deref().unwrap_or("latest").to_lowercase(),
                 status: StatusName::Development.into(),
             };
             let network = Parameter::new("network", &node.network);
             let r#type = models::NodePropertiesWithId {
-                id: node.node_type.into(),
+                id: node.node_type()?,
                 props: node.properties()?,
             };
             let properties = node
@@ -112,22 +122,25 @@ pub async fn db_command_to_grpc_command(
                 properties,
             };
 
-            Some(node_command::Command::Create(create_cmd))
+            node_cmd(cmd, node_id.to_string())
         }
-        HostCmd::DeleteNode => Some(node_command::Command::Delete(NodeDelete {})),
-        HostCmd::GetBVSVersion => unimplemented!(),
-        HostCmd::UpdateBVS => unimplemented!(),
-        HostCmd::RestartBVS => unimplemented!(),
-        HostCmd::RemoveBVS => unimplemented!(),
-        HostCmd::CreateBVS => unimplemented!(),
-        HostCmd::StopBVS => unimplemented!(),
+        HostCmd::DeleteNode => {
+            let node_id = cmd
+                .sub_cmd
+                .clone()
+                .ok_or_else(required("command.node_id"))?;
+            let cmd = Command::Delete(NodeDelete {});
+            node_cmd(cmd, node_id)
+        }
+        HostCmd::GetBVSVersion => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::UpdateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::RestartBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::RemoveBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::CreateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::StopBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
         // TODO: Missing
         // NodeStart, NodeUpgrade
-    };
-
-    Ok(GrpcCommand {
-        r#type: Some(blockjoy::command::Type::Node(node_cmd)),
-    })
+    }
 }
 
 /// Function to convert the datetimes from the database into the API representation of a timestamp.
@@ -154,7 +167,7 @@ pub mod from {
     use crate::grpc::blockjoy_ui::BlockchainNetwork;
     use crate::grpc::blockjoy_ui::{
         self, node::NodeStatus as GrpcNodeStatus, node::StakingStatus as GrpcStakingStatus,
-        node::SyncStatus as GrpcSyncStatus, Node as GrpcNode,
+        node::SyncStatus as GrpcSyncStatus,
     };
     use crate::grpc::helpers::required;
     use crate::models::{self, NodeChainStatus, NodeKeyFile, NodeStakingStatus, NodeSyncStatus};
@@ -287,43 +300,6 @@ pub mod from {
                 org_id: value.org_id.to_string(),
                 role: value.role as i32,
             }
-        }
-    }
-
-    impl TryFrom<models::Node> for GrpcNode {
-        type Error = ApiError;
-
-        fn try_from(node: models::Node) -> Result<Self, Self::Error> {
-            let properties = models::NodePropertiesWithId {
-                id: node.node_type.into(),
-                props: node.properties()?,
-            };
-            let res = Self {
-                id: Some(node.id.to_string()),
-                org_id: Some(node.org_id.to_string()),
-                host_id: Some(node.host_id.to_string()),
-                host_name: Some(node.host_name),
-                blockchain_id: Some(node.blockchain_id.to_string()),
-                name: Some(node.name),
-                groups: vec![],
-                version: node.version,
-                ip: node.ip_addr,
-                r#type: Some(serde_json::to_string(&properties)?),
-                address: node.address,
-                wallet_address: node.wallet_address,
-                block_height: node.block_height,
-                node_data: None,
-                created_at: Some(try_dt_to_ts(node.created_at)?),
-                updated_at: Some(try_dt_to_ts(node.updated_at)?),
-                status: Some(node.chain_status as i32),
-                sync_status: Some(node.sync_status as i32),
-                staking_status: node.staking_status.map(|ss| ss as i32),
-                ip_gateway: Some(node.ip_gateway),
-                self_update: Some(node.self_update),
-                network: Some(node.network.clone()),
-                blockchain_name: Some(node.network),
-            };
-            Ok(res)
         }
     }
 

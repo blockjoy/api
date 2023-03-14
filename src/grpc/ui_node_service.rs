@@ -13,6 +13,7 @@ use crate::grpc::helpers::try_get_token;
 use crate::grpc::{convert, get_refresh_token, response_with_refresh_token};
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use futures_util::future::OptionFuture;
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 
@@ -36,7 +37,13 @@ impl blockjoy_ui::Node {
         conn: &mut diesel_async::AsyncPgConnection,
     ) -> Result<Self> {
         let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
-        Self::new(node, &blockchain)
+        let user = OptionFuture::from(
+            node.created_by
+                .map(|u_id| models::User::find_by_id(u_id, conn)),
+        )
+        .await
+        .transpose()?;
+        Self::new(node, &blockchain, user.as_ref())
     }
 
     /// This function is used to create many ui nodes from many database nodes. The same
@@ -52,20 +59,37 @@ impl blockjoy_ui::Node {
             .into_iter()
             .map(|b| (b.id, b))
             .collect();
+        let user_ids: Vec<_> = nodes.iter().flat_map(|n| n.created_by).collect();
+        let users: HashMap<_, _> = models::User::find_by_ids(&user_ids, conn)
+            .await?
+            .into_iter()
+            .map(|u| (u.id, u))
+            .collect();
 
         nodes
             .into_iter()
-            .map(|n| (n.blockchain_id, n))
-            .map(|(b_id, n)| Self::new(n, &blockchains[&b_id]))
+            .map(|n| (n.blockchain_id, n.created_by, n))
+            .map(|(b_id, u_id, n)| {
+                Self::new(
+                    n,
+                    &blockchains[&b_id],
+                    u_id.and_then(|u_id| users.get(&u_id)),
+                )
+            })
             .collect()
     }
 
     /// Construct a new ui node from the queried parts.
-    fn new(node: models::Node, blockchain: &models::Blockchain) -> Result<Self> {
+    fn new(
+        node: models::Node,
+        blockchain: &models::Blockchain,
+        user: Option<&models::User>,
+    ) -> Result<Self> {
         let properties = models::NodePropertiesWithId {
             id: node.node_type.into(),
             props: node.properties()?,
         };
+        let node_type = node.node_type()?;
         Ok(Self {
             id: Some(node.id.to_string()),
             org_id: Some(node.org_id.to_string()),
@@ -95,10 +119,13 @@ impl blockjoy_ui::Node {
             self_update: Some(node.self_update),
             network: Some(node.network),
             blockchain_name: Some(blockchain.name.clone()),
+            created_by: user.map(|u| u.id.to_string()),
+            created_by_name: user.map(|u| format!("{} {}", u.first_name, u.last_name)),
+            created_by_email: user.map(|u| u.email.clone()),
         })
     }
 
-    pub fn as_new(&self) -> Result<models::NewNode<'_>> {
+    pub fn as_new(&self, user_id: uuid::Uuid) -> Result<models::NewNode<'_>> {
         let properties = self.r#type.as_ref().ok_or_else(required("node.type"))?;
         let properties: models::NodePropertiesWithId = serde_json::from_str(properties)?;
         Ok(models::NewNode {
@@ -144,6 +171,49 @@ impl blockjoy_ui::Node {
                 .as_deref()
                 .ok_or_else(required("node.network"))?,
             node_type: properties.id.try_into()?,
+            created_by: user_id,
+        })
+    }
+
+    fn as_update(&self) -> Result<models::UpdateNode<'_>> {
+        Ok(models::UpdateNode {
+            id: self.id.as_ref().ok_or_else(required("node.id"))?.parse()?,
+            name: self.name.as_deref(),
+            version: self.version.as_deref(),
+            ip_addr: self.ip.as_deref(),
+            block_height: None,
+            node_data: self
+                .node_data
+                .as_deref()
+                .map(serde_json::from_slice)
+                .transpose()?,
+            chain_status: None,
+            sync_status: None,
+            staking_status: None,
+            container_status: None,
+            self_update: self.self_update,
+        })
+    }
+}
+
+impl blockjoy_ui::FilterCriteria {
+    fn as_model(&self) -> Result<models::NodeFilter> {
+        Ok(models::NodeFilter {
+            status: self
+                .states
+                .iter()
+                .map(|status| status.parse())
+                .collect::<crate::Result<_>>()?,
+            node_types: self
+                .node_types
+                .iter()
+                .map(|id| id.parse())
+                .collect::<Result<_, _>>()?,
+            blockchains: self
+                .blockchain_ids
+                .iter()
+                .map(|id| id.parse())
+                .collect::<Result<_, _>>()?,
         })
     }
 
@@ -285,7 +355,7 @@ impl NodeService for NodeServiceImpl {
         }
 
         let inner = request.into_inner();
-        let (node, create_msg, restart_msg) = self
+        let (node, ui_node, create_msg, restart_msg) = self
             .db
             .trx(|c| {
                 async move {
@@ -296,7 +366,7 @@ impl NodeService for NodeServiceImpl {
                         host_id: node.host_id,
                         cmd: models::HostCmd::CreateNode,
                         sub_cmd: None,
-                        resource_id: node.id,
+                        node_id: Some(node.id),
                     };
                     let cmd = new_command.create(c).await?;
                     let create_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
@@ -315,12 +385,12 @@ impl NodeService for NodeServiceImpl {
                         host_id: node.host_id,
                         cmd: models::HostCmd::RestartNode,
                         sub_cmd: None,
-                        resource_id: node.id,
+                        node_id: Some(node.id),
                     };
                     let cmd = new_command.create(c).await?;
                     let restart_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
 
-                    Ok((node, create_msg, restart_msg))
+                    Ok((node, ui_node, create_msg, restart_msg))
                 }
                 .scope_boxed()
             })
@@ -330,10 +400,7 @@ impl NodeService for NodeServiceImpl {
             .bv_nodes_sender()?
             .send(&blockjoy::NodeInfo::from_model(node.clone()))
             .await?;
-        self.notifier
-            .ui_nodes_sender()?
-            .send(&node.clone().try_into()?)
-            .await?;
+        self.notifier.ui_nodes_sender()?.send(&ui_node).await?;
         self.notifier
             .bv_commands_sender()?
             .send(&create_msg)
@@ -408,11 +475,14 @@ impl NodeService for NodeServiceImpl {
                     models::Command::delete_pending(node_id, c).await?;
 
                     // Send delete node command
+                    let node_id = node_id.to_string();
                     let new_command = models::NewCommand {
                         host_id: node.host_id,
                         cmd: models::HostCmd::DeleteNode,
-                        sub_cmd: None,
-                        resource_id: node_id,
+                        sub_cmd: Some(&node_id),
+                        // Note that the `node_id` goes into the `sub_cmd` field, not the node_id
+                        // field, because the node was just deleted.
+                        node_id: None,
                     };
                     let cmd = new_command.create(c).await?;
                     let user_id = token.id;

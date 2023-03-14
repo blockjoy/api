@@ -21,7 +21,7 @@ async fn create_command(
         host_id: host.id,
         cmd: cmd_type,
         sub_cmd: None,
-        resource_id: node_id,
+        node_id: Some(node_id),
     };
 
     new_cmd.create(&mut conn).await.unwrap()

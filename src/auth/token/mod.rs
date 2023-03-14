@@ -3,7 +3,7 @@ use axum::http::Request as HttpRequest;
 use base64::DecodeError;
 use chrono::Utc;
 use diesel_async::AsyncPgConnection;
-use http::header::AUTHORIZATION;
+use hyper::header::AUTHORIZATION;
 use jsonwebtoken as jwt;
 use jsonwebtoken::errors::Error as JwtError;
 use serde::de::DeserializeOwned;

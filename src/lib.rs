@@ -292,6 +292,7 @@ mod test {
                     commands::id.eq(id),
                     commands::host_id.eq(host.id),
                     commands::cmd.eq(models::HostCmd::RestartNode),
+                    commands::node_id.eq(self.node().await.id),
                 ))
                 .get_result(&mut self.pool.conn().await.unwrap())
                 .await
@@ -346,7 +347,8 @@ mod test {
                         "description": "please put your file here",
                         "ui_type": "key-upload",
                         "disabled": false,
-                        "required": true
+                        "required": true,
+                        "default": "wow!"
                     },
                     {
                         "name": "self-hosted",
@@ -354,7 +356,8 @@ mod test {
                         "description": "check if you want to self-host",
                         "ui_type": "switch",
                         "disabled": true,
-                        "required": true
+                        "required": true,
+                        "default": "hank"
                     },
                 ],
             })

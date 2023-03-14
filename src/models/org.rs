@@ -256,7 +256,7 @@ impl<'a> UpdateOrg<'a> {
     /// Updates an organization
     pub async fn update(self, conn: &mut AsyncPgConnection) -> Result<Org> {
         let org: OrgWithoutMembers = diesel::update(orgs::table)
-            .set(self)
+            .set((self, orgs::updated_at.eq(chrono::Utc::now())))
             .get_result(conn)
             .await?;
 

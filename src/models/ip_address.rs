@@ -15,11 +15,11 @@ pub struct CreateIpAddress {
 
 impl CreateIpAddress {
     pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<IpAddress> {
-        let ip_adress = diesel::insert_into(ip_addresses::table)
+        let ip_address = diesel::insert_into(ip_addresses::table)
             .values(self)
             .get_result(conn)
             .await?;
-        Ok(ip_adress)
+        Ok(ip_address)
     }
 }
 

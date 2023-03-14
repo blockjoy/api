@@ -59,25 +59,35 @@ async fn create_command(
     notifier: Notifier,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> Result<models::Command> {
-    let resource_id = get_resource_id_from_params(params)?;
     let new_command = models::NewCommand {
         host_id,
         cmd,
         sub_cmd: None,
-        resource_id,
+        node_id: cmd
+            .is_node_specific()
+            .then(|| get_resource_id_from_params(params))
+            .transpose()?,
     };
 
     let db_cmd = new_command.create(conn).await?;
     match cmd {
         models::HostCmd::RestartNode | models::HostCmd::KillNode => {
+            // RestartNode and KillNode are node-specific, so unwrap below is safe:
+            let node_id = db_cmd
+                .node_id
+                .expect("RestartNode and KillNode must be node-specific!");
+
             let grpc_cmd = convert::db_command_to_grpc_command(&db_cmd, conn).await?;
             notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
-            let node = models::Node::find_by_id(resource_id, conn).await?;
+            let node = models::Node::find_by_id(node_id, conn).await?;
             notifier
                 .bv_nodes_sender()?
                 .send(&blockjoy::NodeInfo::from_model(node.clone()))
                 .await?;
-            notifier.ui_nodes_sender()?.send(&node.try_into()?).await?;
+            notifier
+                .ui_nodes_sender()?
+                .send(&blockjoy_ui::Node::from_model(node, conn).await?)
+                .await?;
         }
         _ => {}
     }

@@ -23,13 +23,3 @@ jobs:
           image_tag: ${{ github.sha }},latest
           dockerfile: ./Dockerfile
           context: ./
-
-      - name: Build and Push Migrations
-        uses: RafikFarhad/push-to-gcr-github-action@v5-beta
-        with:
-          registry: us-docker.pkg.dev
-          project_id: blockjoy-deployer
-          image_name: blockvisor-api-migrations/dev-blockvisor-api-migrations
-          image_tag: ${{ github.sha }},latest
-          dockerfile: ./migrations/Dockerfile
-          context: ./migrations

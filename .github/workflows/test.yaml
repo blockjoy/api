@@ -69,7 +69,7 @@ jobs:
           profile: minimal
           override: true
       - name: Install libpq
-        run: apt install libpq-dev -y
+        run: apt update && apt install libpq-dev -y
       - name: Test
         uses: actions-rs/cargo@v1
         with:

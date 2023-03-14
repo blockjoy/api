@@ -131,7 +131,6 @@ impl<T: Notify + prost::Message> MqttClient<T> {
     {
         const RETAIN: bool = false;
         const QOS: rumqttc::QoS = rumqttc::QoS::ExactlyOnce;
-        const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
         let payload = msg.encode_to_vec();
 
         tracing::info!("Sending {msg:?} over channels: {:?}", msg.channels());
@@ -294,8 +293,11 @@ mod tests {
     #[tokio::test]
     async fn test_ui_nodes_sender() {
         let db = crate::TestDb::setup().await;
+        let mut conn = db.pool.conn().await.unwrap();
         let node = db.node().await;
-        let node = node.try_into().unwrap();
+        let node = blockjoy_ui::Node::from_model(node, &mut conn)
+            .await
+            .unwrap();
         let notifier = Notifier::new().await.unwrap();
         notifier
             .ui_nodes_sender()

@@ -28,6 +28,23 @@ pub enum HostCmd {
     StopBVS,
 }
 
+impl HostCmd {
+    pub fn is_node_specific(&self) -> bool {
+        use HostCmd::*;
+
+        matches!(
+            self,
+            CreateNode
+                | RestartNode
+                | KillNode
+                | ShutdownNode
+                | DeleteNode
+                | UpdateNode
+                | MigrateNode
+        )
+    }
+}
+
 #[derive(Clone, Debug, Queryable, Identifiable)]
 pub struct Command {
     pub id: Uuid,
@@ -38,7 +55,7 @@ pub struct Command {
     pub exit_status: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
-    pub resource_id: Uuid,
+    pub node_id: Option<Uuid>,
 }
 
 type Pending = dsl::Filter<commands::table, dsl::IsNull<commands::exit_status>>;
@@ -92,10 +109,7 @@ impl Command {
     }
 
     pub async fn delete_pending(node_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
-        // We assume that node_id is a valid Node.id, and then we can treat commands::resource_id
-        // as a node_id without accidentally deleting stuff we don't want to delete, because we
-        // don't expect any uuid-collisions to ever happen.
-        diesel::delete(Self::pending().filter(commands::resource_id.eq(node_id)))
+        diesel::delete(Self::pending().filter(commands::node_id.eq(node_id)))
             .execute(conn)
             .await?;
         Ok(())
@@ -136,7 +150,7 @@ pub struct NewCommand<'a> {
     pub host_id: uuid::Uuid,
     pub cmd: HostCmd,
     pub sub_cmd: Option<&'a str>,
-    pub resource_id: Uuid,
+    pub node_id: Option<Uuid>,
 }
 
 impl NewCommand<'_> {
