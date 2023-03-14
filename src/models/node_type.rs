@@ -61,7 +61,7 @@ impl From<NodeTypeKey> for i32 {
 pub struct NodeTypeProperty {
     name: String,
     ui_type: String,
-    default: String,
+    default: Option<String>,
     disabled: bool,
     required: bool,
 }
@@ -90,8 +90,8 @@ impl NodeTypeProperty {
         &self.name
     }
 
-    pub fn get_default(&self) -> &str {
-        &self.default
+    pub fn get_default(&self) -> Option<&str> {
+        self.default.as_deref()
     }
 
     pub fn get_property_type(&self) -> &str {

@@ -348,7 +348,8 @@ mod test {
                         "description": "please put your file here",
                         "ui_type": "key-upload",
                         "disabled": false,
-                        "required": true
+                        "required": true,
+                        "default": "wow!"
                     },
                     {
                         "name": "self-hosted",
@@ -356,7 +357,8 @@ mod test {
                         "description": "check if you want to self-host",
                         "ui_type": "switch",
                         "disabled": true,
-                        "required": true
+                        "required": true,
+                        "default": "hank"
                     },
                 ],
             })
