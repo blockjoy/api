@@ -2,6 +2,7 @@ use super::mqtt::MqttAclRequest;
 use crate::auth::{determine_token_by_str, TokenType};
 use crate::http::mqtt::{MqttAclPolicy, MqttHostPolicy, MqttUserPolicy};
 use crate::models;
+use anyhow::Context;
 use axum::extract::{Extension, Json};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -25,32 +26,45 @@ pub async fn mqtt_auth(Json(payload): Json<serde_json::Value>) -> impl IntoRespo
     (StatusCode::OK, Json("{}"))
 }
 
-pub async fn mqtt_acl(Json(payload): Json<MqttAclRequest>) -> impl IntoResponse {
+pub async fn mqtt_acl(
+    Extension(db): Extension<models::DbPool>,
+    Json(payload): Json<MqttAclRequest>,
+) -> crate::Result<impl IntoResponse> {
     tracing::info!("Got acl payload: {payload:?}");
 
     // TODO: Remove the unwraps, just for testing
     match determine_token_by_str(&payload.username) {
         Ok(TokenType::UserAuth) => {
-            if MqttUserPolicy::allow(&payload.username, payload.topic).unwrap() {
-                (StatusCode::OK, Json("{}"))
+            let policy = MqttUserPolicy { db };
+            if policy
+                .allow(&payload.username, &payload.topic)
+                .await
+                .with_context(|| "Could not determine access")?
+            {
+                Ok((StatusCode::OK, Json("{}")))
             } else {
-                (StatusCode::FORBIDDEN, Json("{}"))
+                Ok((StatusCode::FORBIDDEN, Json("{}")))
             }
         }
         Ok(TokenType::HostAuth) => {
-            if MqttHostPolicy::allow(&payload.username, payload.topic).unwrap() {
-                (StatusCode::OK, Json("{}"))
+            let policy = MqttHostPolicy;
+            if policy
+                .allow(&payload.username, &payload.topic)
+                .await
+                .with_context(|| "Could not determine access")?
+            {
+                Ok((StatusCode::OK, Json("{}")))
             } else {
-                (StatusCode::FORBIDDEN, Json("{}"))
+                Ok((StatusCode::FORBIDDEN, Json("{}")))
             }
         }
-        Ok(_) => (
-            StatusCode::IM_A_TEAPOT,
+        Ok(_) => Ok((
+            StatusCode::FORBIDDEN,
             Json("{ \"message\": \"Not supported\"}"),
-        ),
-        Err(_) => (
-            StatusCode::EXPECTATION_FAILED,
+        )),
+        Err(_) => Ok((
+            StatusCode::UNAUTHORIZED,
             Json("{ \"message\": \"Unknown\"}"),
-        ),
+        )),
     }
 }
