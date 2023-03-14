@@ -88,7 +88,7 @@ html = """
         'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans',
         'Helvetica Neue', sans-serif;
       color: #5f615d !important;
-      background: #ffffff !important;
+      background: #fafafa !important;
       box-sizing: border-box;
       font-size: 14px;
       -webkit-font-smoothing: antialiased;
@@ -98,7 +98,7 @@ html = """
       line-height: 1.6em;
       margin: 0;
     "
-    bgcolor="#ffffff"
+    bgcolor="#fafafa"
   >
     <table
       class="body-wrap"
@@ -107,13 +107,13 @@ html = """
           'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
           'Droid Sans', 'Helvetica Neue', sans-serif;
         color: #5f615d !important;
-        background: #ffffff !important;
+        background: #fafafa !important;
         box-sizing: border-box;
         font-size: 14px;
         width: 100%;
         margin: 0;
       "
-      bgcolor="#ffffff"
+      bgcolor="#fafafa"
     >
       <tr
         style="
@@ -275,11 +275,91 @@ html = """
                         "
                         valign="top"
                       >
-                        <img
-                          width="64px"
-                          height="64px"
-                          src="https://tools.stakejoy.com/blockjoy_transparent.png"
-                        />
+                        <svg
+                          width="64"
+                          height="64"
+                          viewBox="0 0 64 64"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <path
+                            d="M34.2857 51V44.3333H27.8571V51H34.2857Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M21.4286 24.3333L21.4286 17.6667L15 17.6667L15 24.3333H21.4286Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M21.4286 31V24.3333H15V31H21.4286Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M21.4286 37.6667V31H15V37.6667H21.4286Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M34.2857 31V24.3333H27.8571V31H34.2857Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M40.7143 31V24.3333H34.2857V31H40.7143Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M47.1429 37.6667V31H40.7143V37.6667H47.1429Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M21.4286 11V17.6667L15 17.6667C15 13.9848 17.8782 11 21.4286 11Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M60 34.2C56.4496 34.2 53.5714 37.1848 53.5714 40.8667V34.2H60Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M47.1429 34.2C50.6933 34.2 53.5714 37.1848 53.5714 40.8667V34.2H47.1429Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M47.1429 34.2C50.6933 34.2 53.5714 31.2152 53.5714 27.5333V34.2H47.1429Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M60 34.2C56.4496 34.2 53.5714 31.2152 53.5714 27.5333V34.2H60Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M47.1429 31H40.7143V24.3333C44.2647 24.3333 47.1429 27.3181 47.1429 31Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M21.4286 24.3333H27.8571V31C24.3067 31 21.4286 28.0152 21.4286 24.3333Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M40.7143 44.3333V37.6667H47.1429C47.1429 41.3486 44.2647 44.3333 40.7143 44.3333Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M40.7143 44.3333H34.2857V51C37.8361 51 40.7143 48.0152 40.7143 44.3333Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M21.4286 44.3333H27.8571V51C24.3067 51 21.4286 48.0152 21.4286 44.3333Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M15 37.6667H21.4286L21.4286 44.3333C17.8782 44.3333 15 41.3486 15 37.6667Z"
+                            fill="#212423"
+                          />
+                          <path
+                            d="M34.2857 51V44.3333M34.2857 51H27.8571M34.2857 51C37.8361 51 40.7143 48.0152 40.7143 44.3333M34.2857 44.3333H27.8571M34.2857 44.3333H40.7143M27.8571 44.3333V51M27.8571 44.3333H21.4286M27.8571 51C24.3067 51 21.4286 48.0152 21.4286 44.3333M21.4286 24.3333L21.4286 17.6667M21.4286 24.3333H15M21.4286 24.3333V31M21.4286 24.3333H27.8571M21.4286 24.3333C21.4286 28.0152 24.3067 31 27.8571 31M21.4286 17.6667L15 17.6667M21.4286 17.6667V11C17.8782 11 15 13.9848 15 17.6667M15 17.6667L15 24.3333M15 24.3333V31M21.4286 31H15M21.4286 31V37.6667M15 31V37.6667M21.4286 37.6667H15M21.4286 37.6667L21.4286 44.3333M15 37.6667C15 41.3486 17.8782 44.3333 21.4286 44.3333M34.2857 31V24.3333M34.2857 31H27.8571M34.2857 31H40.7143M34.2857 24.3333H27.8571M34.2857 24.3333H40.7143M27.8571 24.3333V31M40.7143 31V24.3333M40.7143 31H47.1429M40.7143 31V37.6667M40.7143 24.3333C44.2647 24.3333 47.1429 27.3181 47.1429 31M47.1429 37.6667V31M47.1429 37.6667H40.7143M47.1429 37.6667C47.1429 41.3486 44.2647 44.3333 40.7143 44.3333M40.7143 37.6667V44.3333M53.5714 40.8667C53.5714 37.1848 56.4496 34.2 60 34.2M53.5714 40.8667V34.2M53.5714 40.8667C53.5714 37.1848 50.6933 34.2 47.1429 34.2M60 34.2H53.5714M60 34.2C56.4496 34.2 53.5714 31.2152 53.5714 27.5333M53.5714 34.2H47.1429M53.5714 34.2V27.5333M47.1429 34.2C50.6933 34.2 53.5714 31.2152 53.5714 27.5333"
+                            stroke="#212423"
+                            stroke-width="0.25"
+                          />
+                        </svg>
                       </td>
                     </tr>
                     <tr
@@ -658,9 +738,9 @@ html = """
     <style>
     .email,
     body {
-      background: #343434;
+      background: #212423;
       color: #f8faf6;
-      font-family: 'Styrene A LC', -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
         "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
         "Helvetica Neue", sans-serif;
       margin: 0;
@@ -680,7 +760,7 @@ html = """
       padding: 0 20px;
       margin-bottom: 20px;
       background: #bff589;
-      color: #5F615D !important;;;
+      color: #212423;
       border: 0;
       border-radius: 8px;
       font-family: inherit;
@@ -880,9 +960,9 @@ html = """
     <style>
     .email,
     body {
-      background: #343434;
+      background: #212423;
       color: #f8faf6;
-      font-family: 'Styrene A LC', -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
         "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
         "Helvetica Neue", sans-serif;
       margin: 0;
@@ -902,7 +982,7 @@ html = """
       padding: 0 20px;
       margin-bottom: 20px;
       background: #bff589;
-      color: #5F615D !important;;;
+      color: #212423;
       border: 0;
       border-radius: 8px;
       font-family: inherit;
