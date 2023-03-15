@@ -15,16 +15,6 @@ async fn can_verify_and_refresh_auth_token() {
         TokenRole::User,
         None,
     );
-<<<<<<< HEAD
-    let refresh_token = UserRefreshToken::try_new(claim)?;
-    let encoded = refresh_token.encode()?;
-    let fields = UpdateUser {
-        refresh: Some(&encoded),
-        ..Default::default()
-    };
-    let mut conn = tester.conn().await;
-    let user = fields.update(&mut conn).await?;
-=======
     let refresh_token = UserRefreshToken::try_new(claim).unwrap();
     let encoded = refresh_token.encode().unwrap();
     let fields = UpdateUser {
@@ -37,7 +27,6 @@ async fn can_verify_and_refresh_auth_token() {
     };
     let mut conn = tester.conn().await;
     let user = fields.update(&mut conn).await.unwrap();
->>>>>>> main
     let claim = TokenClaim::new(
         user.id,
         Utc::now().timestamp() - 1,
@@ -50,10 +39,6 @@ async fn can_verify_and_refresh_auth_token() {
     User::verify_and_refresh_auth_token(auth, refresh_token, &mut conn)
         .await
         .unwrap();
-<<<<<<< HEAD
-    Ok(())
-=======
->>>>>>> main
 }
 
 #[tokio::test]
@@ -67,16 +52,6 @@ async fn cannot_verify_and_refresh_wo_valid_refresh_token() {
         TokenRole::User,
         None,
     );
-<<<<<<< HEAD
-    let refresh_token = UserRefreshToken::try_new(claim)?;
-    let encoded = refresh_token.encode()?;
-    let fields = UpdateUser {
-        refresh: Some(&encoded),
-        ..Default::default()
-    };
-    let mut conn = tester.conn().await;
-    let user = fields.update(&mut conn).await?;
-=======
     let refresh_token = UserRefreshToken::try_new(claim).unwrap();
     let encoded = refresh_token.encode().unwrap();
     let fields = UpdateUser {
@@ -89,7 +64,6 @@ async fn cannot_verify_and_refresh_wo_valid_refresh_token() {
     };
     let mut conn = tester.conn().await;
     let user = fields.update(&mut conn).await.unwrap();
->>>>>>> main
     let claim = TokenClaim::new(
         user.id,
         Utc::now().timestamp() - 1,
@@ -102,11 +76,6 @@ async fn cannot_verify_and_refresh_wo_valid_refresh_token() {
     User::verify_and_refresh_auth_token(auth_token, refresh_token, &mut conn)
         .await
         .unwrap_err();
-<<<<<<< HEAD
-
-    Ok(())
-=======
->>>>>>> main
 }
 
 #[tokio::test]
@@ -117,11 +86,7 @@ async fn can_confirm_unconfirmed_user() {
     assert!(user.confirmed_at.is_none());
 
     let mut conn = tester.conn().await;
-<<<<<<< HEAD
-    let user = User::confirm(user.id, &mut conn).await?;
-=======
     let user = User::confirm(user.id, &mut conn).await.unwrap();
->>>>>>> main
 
     user.confirmed_at.unwrap();
 }
@@ -134,21 +99,13 @@ async fn cannot_confirm_confirmed_user() {
     assert!(user.confirmed_at.is_none());
 
     let mut conn = tester.conn().await;
-<<<<<<< HEAD
-    let user = User::confirm(user.id, &mut conn).await?;
-=======
     let user = User::confirm(user.id, &mut conn).await.unwrap();
->>>>>>> main
 
     assert!(user.confirmed_at.is_some());
 
     User::confirm(user.id, &mut conn)
         .await
         .expect_err("Already confirmed user confirmed again");
-<<<<<<< HEAD
-    Ok(())
-=======
->>>>>>> main
 }
 
 #[tokio::test]
@@ -159,19 +116,10 @@ async fn can_check_if_user_confirmed() {
     assert!(user.confirmed_at.is_none());
 
     let mut conn = tester.conn().await;
-<<<<<<< HEAD
-    let user = User::confirm(user.id, &mut conn).await?;
-
-    assert!(user.confirmed_at.is_some());
-    assert!(User::is_confirmed(user.id, &mut conn).await?);
-
-    Ok(())
-=======
     let user = User::confirm(user.id, &mut conn).await.unwrap();
 
     assert!(user.confirmed_at.is_some());
     assert!(User::is_confirmed(user.id, &mut conn).await.unwrap());
->>>>>>> main
 }
 
 #[tokio::test]
@@ -181,11 +129,5 @@ async fn returns_false_for_unconfirmed_user_at_check_if_user_confirmed() {
 
     assert!(user.confirmed_at.is_none());
     let mut conn = tester.conn().await;
-<<<<<<< HEAD
-    assert!(!User::is_confirmed(user.id, &mut conn).await?);
-
-    Ok(())
-=======
     assert!(!User::is_confirmed(user.id, &mut conn).await.unwrap());
->>>>>>> main
 }

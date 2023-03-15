@@ -84,10 +84,6 @@ async fn create_command(
                 .bv_nodes_sender()?
                 .send(&blockjoy::NodeInfo::from_model(node.clone()))
                 .await?;
-            notifier
-                .ui_nodes_sender()?
-                .send(&blockjoy_ui::Node::from_model(node, conn).await?)
-                .await?;
         }
         _ => {}
     }

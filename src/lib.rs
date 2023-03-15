@@ -198,9 +198,9 @@ mod test {
                 os_version: None,
                 ip_addr: "192.168.1.1",
                 status: models::ConnectionStatus::Online,
-                ip_range_from: "192.168.0.10".parse().unwrap(),
-                ip_range_to: "192.168.0.100".parse().unwrap(),
-                ip_gateway: "192.168.0.1".parse().unwrap(),
+                ip_range_from: Some("192.168.0.10".parse().unwrap()),
+                ip_range_to: Some("192.168.0.100".parse().unwrap()),
+                ip_gateway: Some("192.168.0.1".parse().unwrap()),
             };
 
             let host1 = host1.create(conn).await.unwrap();
@@ -225,9 +225,9 @@ mod test {
                 os_version: None,
                 ip_addr: "192.168.2.1",
                 status: models::ConnectionStatus::Online,
-                ip_range_from: "192.12.0.10".parse().unwrap(),
-                ip_range_to: "192.12.0.20".parse().unwrap(),
-                ip_gateway: "192.12.0.1".parse().unwrap(),
+                ip_range_from: Some("192.12.0.10".parse().unwrap()),
+                ip_range_to: Some("192.12.0.20".parse().unwrap()),
+                ip_gateway: Some("192.12.0.1".parse().unwrap()),
             };
 
             host2.create(conn).await.unwrap();
@@ -286,13 +286,14 @@ mod test {
 
         pub async fn command(&self) -> models::Command {
             let host = self.host().await;
+            let node = self.node().await;
             let id: Uuid = "eab8a84b-8e3d-4b02-bf14-4160e76c177b".parse().unwrap();
             diesel::insert_into(commands::table)
                 .values((
                     commands::id.eq(id),
                     commands::host_id.eq(host.id),
+                    commands::node_id.eq(node.id),
                     commands::cmd.eq(models::HostCmd::RestartNode),
-                    commands::node_id.eq(self.node().await.id),
                 ))
                 .get_result(&mut self.pool.conn().await.unwrap())
                 .await

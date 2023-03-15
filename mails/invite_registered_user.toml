@@ -276,8 +276,7 @@ html = """
                         valign="top"
                       >
                         <img
-                          width="64px"
-                          height="64px"
+                          style="width: 64px; height: 64px"
                           src="https://tools.stakejoy.com/blockjoy_transparent.png"
                         />
                       </td>
@@ -469,19 +468,9 @@ html = """
                         "
                         valign="top"
                       >
-                        You can decline the invitation by clicking
-                        <a
-                          style="
-                            font-weight: bold !important;
-                            text-decoration: underline !important;
-                            color: #5f615d !important;
-                          "
-                          href="{{decline_link}}"
-                          >here</a
-                        >.
+                        To decline the invitation, ignore this email.
                       </td>
                     </tr>
-
                     <tr
                       style="
                         font-family: 'Styrene A LC', -apple-system,
@@ -658,9 +647,9 @@ html = """
     <style>
     .email,
     body {
-      background: #343434;
+      background: #212423;
       color: #f8faf6;
-      font-family: 'Styrene A LC', -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
         "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
         "Helvetica Neue", sans-serif;
       margin: 0;
@@ -680,7 +669,7 @@ html = """
       padding: 0 20px;
       margin-bottom: 20px;
       background: #bff589;
-      color: #5F615D !important;;;
+      color: #212423;
       border: 0;
       border-radius: 8px;
       font-family: inherit;
@@ -880,9 +869,9 @@ html = """
     <style>
     .email,
     body {
-      background: #343434;
+      background: #212423;
       color: #f8faf6;
-      font-family: 'Styrene A LC', -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
         "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
         "Helvetica Neue", sans-serif;
       margin: 0;
@@ -902,7 +891,7 @@ html = """
       padding: 0 20px;
       margin-bottom: 20px;
       background: #bff589;
-      color: #5F615D !important;;;
+      color: #212423;
       border: 0;
       border-radius: 8px;
       font-family: inherit;

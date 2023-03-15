@@ -1,40 +1,41 @@
 use anyhow::anyhow;
+use diesel_async::AsyncPgConnection;
 
-use super::{blockjoy, blockjoy_ui};
-use crate::{auth::key_provider::KeyProvider, errors::Result};
+use super::{
+    blockjoy,
+    blockjoy_ui::{self, node_message},
+};
+use crate::{auth::key_provider::KeyProvider, errors::Result, models};
 
 /// Presents the following senders:
 ///
-/// |---------------|---------------------------------------------------------|
-/// | private api   | topics                                                  |
-/// |---------------|---------------------------------------------------------|
-/// | organizations | -                                                       |
-/// |---------------|---------------------------------------------------------|
-/// | hosts         | /bv/hosts/<host_id>                                     |
-/// |---------------|---------------------------------------------------------|
-/// | nodes         | /bv/hosts/<host_id>/nodes/<node_id>                     |
-/// |               | /bv/nodes/<node_id>                                     |
-/// |---------------|---------------------------------------------------------|
-/// | commands      | /bv/hosts/<host_id>/nodes/<node_id>/commands            |
-/// |               | /bv/hosts/<host_id>/commands                            |
-/// |---------------|---------------------------------------------------------|
+/// |---------------|----------------------------------------------|
+/// | private api   | topics                                       |
+/// |---------------|----------------------------------------------|
+/// | organizations | -                                            |
+/// |---------------|----------------------------------------------|
+/// | hosts         | /bv/hosts/<host_id>                          |
+/// |---------------|----------------------------------------------|
+/// | nodes         | /bv/hosts/<host_id>/nodes/<node_id>          |
+/// |               | /bv/nodes/<node_id>                          |
+/// |---------------|----------------------------------------------|
+/// | commands      | /bv/hosts/<host_id>/nodes/<node_id>/commands |
+/// |               | /bv/hosts/<host_id>/commands                 |
+/// |---------------|----------------------------------------------|
 ///
-/// |---------------|---------------------------------------------------------|
-/// | public api    | topics                                                  |
-/// |---------------|---------------------------------------------------------|
-/// | organizations | /orgs/<org_id>                                          |
-/// |---------------|---------------------------------------------------------|
-/// | hosts         | /orgs/<org_id>/hosts/<host_id>                          |
-/// |               | /hosts/<host_id>                                        |
-/// |---------------|---------------------------------------------------------|
-/// | nodes         | /orgs/<org_id>/hosts/<host_id>/nodes/<node_id>          |
-/// |               | /hosts/<host_id>/nodes/<node_id>                        |
-/// |               | /nodes/<node_id>                                        |
-/// |---------------|---------------------------------------------------------|
-/// | commands      | /orgs/<org_id>/hosts/<host_id>/nodes/<node_id>/commands |
-/// |               | /hosts/<host_id>/nodes/<node_id>/commands               |
-/// |               | /nodes/<node_id>/commands                               |
-/// |---------------|---------------------------------------------------------|
+/// |---------------|----------------------------------------------|
+/// | public api    | topics                                       |
+/// |---------------|----------------------------------------------|
+/// | organizations | /orgs/<org_id>                               |
+/// |---------------|----------------------------------------------|
+/// | hosts         | -                                            |
+/// |---------------|----------------------------------------------|
+/// | nodes         | /orgs/<org_id>/nodes/<node_id>               |
+/// |               | /nodes/<node_id>                             |
+/// |---------------|----------------------------------------------|
+/// | commands      | /orgs/<org_id>/nodes/<node_id>/commands      |
+/// |               | /nodes/<node_id>/commands                    |
+/// |---------------|----------------------------------------------|
 #[derive(Debug, Clone)]
 pub struct Notifier {
     client: rumqttc::AsyncClient,
@@ -86,7 +87,7 @@ impl Notifier {
         MqttClient::new(self.client.clone())
     }
 
-    pub fn ui_nodes_sender(&self) -> Result<MqttClient<blockjoy_ui::Node>> {
+    pub fn ui_nodes_sender(&self) -> Result<MqttClient<blockjoy_ui::NodeMessage>> {
         MqttClient::new(self.client.clone())
     }
 
@@ -205,20 +206,77 @@ impl Notify for blockjoy_ui::Organization {
 
 impl Notify for blockjoy_ui::Host {
     fn channels(&self) -> Vec<String> {
-        let host_id = self.id.as_ref().unwrap();
-        let org_id = self.org_id.as_ref();
-
-        let mut res = vec![format!("/hosts/{host_id}")];
-        res.extend(org_id.map(|o| format!("/orgs/{o}/hosts/{host_id}")));
-        res
+        vec![]
     }
 }
 
-impl Notify for blockjoy_ui::Node {
+impl blockjoy_ui::NodeMessage {
+    fn node_id(&self) -> Option<uuid::Uuid> {
+        use node_message::Message::*;
+        match self.message.as_ref()? {
+            Created(blockjoy_ui::NodeCreated { node })
+            | Updated(blockjoy_ui::NodeUpdated { node, .. }) => {
+                node.as_ref()?.id.as_ref()?.parse().ok()
+            }
+            Deleted(blockjoy_ui::NodeDeleted { node_id, .. }) => node_id.parse().ok(),
+        }
+    }
+
+    fn org_id(&self) -> Option<uuid::Uuid> {
+        use node_message::Message::*;
+        match self.message.as_ref()? {
+            Created(blockjoy_ui::NodeCreated { node })
+            | Updated(blockjoy_ui::NodeUpdated { node, .. }) => {
+                node.as_ref()?.org_id.as_ref()?.parse().ok()
+            }
+            Deleted(blockjoy_ui::NodeDeleted {
+                organization_id, ..
+            }) => organization_id.parse().ok(),
+        }
+    }
+
+    pub async fn created(model: models::Node, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
+        Ok(Self {
+            message: Some(node_message::Message::Created(blockjoy_ui::NodeCreated {
+                node: Some(blockjoy_ui::Node::from_model(model, conn).await?),
+            })),
+        })
+    }
+
+    pub async fn updated(
+        model: models::Node,
+        user: models::User,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Self> {
+        Ok(Self {
+            message: Some(node_message::Message::Updated(blockjoy_ui::NodeUpdated {
+                node: Some(blockjoy_ui::Node::from_model(model, conn).await?),
+                updated_by: user.id.to_string(),
+                updated_by_name: format!("{} {}", user.first_name, user.last_name),
+                updated_by_email: user.email,
+            })),
+        })
+    }
+
+    pub fn deleted(model: models::Node, user: models::User) -> Self {
+        Self {
+            message: Some(node_message::Message::Deleted(blockjoy_ui::NodeDeleted {
+                node_id: model.id.to_string(),
+                host_id: model.host_id.to_string(),
+                organization_id: model.org_id.to_string(),
+                deleted_by: user.id.to_string(),
+                deleted_by_name: format!("{} {}", user.first_name, user.last_name),
+                deleted_by_email: user.email,
+            })),
+        }
+    }
+}
+
+impl Notify for blockjoy_ui::NodeMessage {
     fn channels(&self) -> Vec<String> {
-        let host_id = self.host_id.as_ref().unwrap();
-        let node_id = self.id.as_ref().unwrap();
-        vec![format!("/hosts/{host_id}/nodes/{node_id}")]
+        let node_id = self.node_id().unwrap();
+        let org_id = self.org_id().unwrap();
+        vec![format!("/orgs/{org_id}/nodes"), format!("/nodes/{node_id}")]
     }
 }
 
@@ -295,7 +353,7 @@ mod tests {
         let db = crate::TestDb::setup().await;
         let mut conn = db.pool.conn().await.unwrap();
         let node = db.node().await;
-        let node = blockjoy_ui::Node::from_model(node, &mut conn)
+        let node = blockjoy_ui::NodeMessage::created(node, &mut conn)
             .await
             .unwrap();
         let notifier = Notifier::new().await.unwrap();

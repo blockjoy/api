@@ -89,7 +89,6 @@ impl blockjoy_ui::Node {
             id: node.node_type.into(),
             props: node.properties()?,
         };
-        let node_type = node.node_type()?;
         Ok(Self {
             id: Some(node.id.to_string()),
             org_id: Some(node.org_id.to_string()),
@@ -139,8 +138,6 @@ impl blockjoy_ui::Node {
             name: petname::petname(3, "_"),
             groups: self.groups.join(","),
             version: self.version.as_deref(),
-            ip_addr: self.ip.as_deref(),
-            ip_gateway: self.ip_gateway.as_deref(),
             blockchain_id: self
                 .blockchain_id
                 .as_ref()
@@ -172,48 +169,6 @@ impl blockjoy_ui::Node {
                 .ok_or_else(required("node.network"))?,
             node_type: properties.id.try_into()?,
             created_by: user_id,
-        })
-    }
-
-    fn as_update(&self) -> Result<models::UpdateNode<'_>> {
-        Ok(models::UpdateNode {
-            id: self.id.as_ref().ok_or_else(required("node.id"))?.parse()?,
-            name: self.name.as_deref(),
-            version: self.version.as_deref(),
-            ip_addr: self.ip.as_deref(),
-            block_height: None,
-            node_data: self
-                .node_data
-                .as_deref()
-                .map(serde_json::from_slice)
-                .transpose()?,
-            chain_status: None,
-            sync_status: None,
-            staking_status: None,
-            container_status: None,
-            self_update: self.self_update,
-        })
-    }
-}
-
-impl blockjoy_ui::FilterCriteria {
-    fn as_model(&self) -> Result<models::NodeFilter> {
-        Ok(models::NodeFilter {
-            status: self
-                .states
-                .iter()
-                .map(|status| status.parse())
-                .collect::<crate::Result<_>>()?,
-            node_types: self
-                .node_types
-                .iter()
-                .map(|id| id.parse())
-                .collect::<Result<_, _>>()?,
-            blockchains: self
-                .blockchain_ids
-                .iter()
-                .map(|id| id.parse())
-                .collect::<Result<_, _>>()?,
         })
     }
 
@@ -360,7 +315,9 @@ impl NodeService for NodeServiceImpl {
             .trx(|c| {
                 async move {
                     let node = inner.node.as_ref().ok_or_else(required("node"))?;
-                    let node = node.as_new()?.create(c).await?;
+                    let node = node.as_new(user.id)?.create(c).await?;
+
+                    let ui_node = blockjoy_ui::NodeMessage::created(node.clone(), c).await?;
 
                     let new_command = models::NewCommand {
                         host_id: node.host_id,
@@ -423,7 +380,9 @@ impl NodeService for NodeServiceImpl {
         request: Request<UpdateNodeRequest>,
     ) -> Result<Response<UpdateNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
+        let token = try_get_token::<_, UserAuthToken>(&request)?;
+        let user_id = token.id;
+        let token = token.try_into()?;
         let inner = request.into_inner();
         let update_node = inner
             .node
@@ -431,7 +390,20 @@ impl NodeService for NodeServiceImpl {
             .ok_or_else(required("node"))?
             .as_update()?;
 
-        self.db.trx(|c| update_node.update(c).scope_boxed()).await?;
+        let msg = self
+            .db
+            .trx(|c| {
+                async move {
+                    let user = models::User::find_by_id(user_id, c).await?;
+                    let node = update_node.update(c).await?;
+                    blockjoy_ui::NodeMessage::updated(node, user, c).await
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        self.notifier.ui_nodes_sender()?.send(&msg).await?;
+
         let response = UpdateNodeResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
@@ -485,6 +457,7 @@ impl NodeService for NodeServiceImpl {
                         node_id: None,
                     };
                     let cmd = new_command.create(c).await?;
+
                     let user_id = token.id;
                     let user = models::User::find_by_id(user_id, c).await?;
                     let update_user = models::UpdateUser {
@@ -495,14 +468,16 @@ impl NodeService for NodeServiceImpl {
                         staking_quota: Some(user.staking_quota + 1),
                         refresh: None,
                     };
-
                     update_user.update(c).await?;
 
                     let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
+                    self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
 
-                    self.notifier.bv_commands_sender()?.send(&grpc_cmd).await
-                    // let grpc_cmd = cmd.clone().try_into()?;
-                    // self.notifier.ui_commands_sender()?.send(&grpc_cmd).await;
+                    self.notifier
+                        .ui_nodes_sender()?
+                        .send(&blockjoy_ui::NodeMessage::deleted(node, user))
+                        .await?;
+                    Ok(())
                 }
                 .scope_boxed()
             })

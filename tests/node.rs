@@ -12,16 +12,10 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         id: uuid::Uuid::new_v4(),
         org_id: org.id,
         blockchain_id: blockchain.id,
-<<<<<<< HEAD
         properties: serde_json::to_value(models::NodeProperties {
             version: None,
             properties: Some(vec![]),
         })?,
-=======
-        node_type: serde_json::to_value(models::NodeProperties::special_type(
-            models::NodeTypeKey::Validator,
-        ))?,
->>>>>>> main
         chain_status: models::NodeChainStatus::Unknown,
         sync_status: models::NodeSyncStatus::Syncing,
         container_status: models::ContainerStatus::Installing,
@@ -30,8 +24,6 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         block_height: None,
         groups: "".to_string(),
         node_data: None,
-        ip_addr: None,
-        ip_gateway: Some("192.168.0.1"),
         name: "Mr. Nodington".to_string(),
         version: Some("3.3.0"),
         staking_status: models::NodeStakingStatus::Staked,
@@ -41,11 +33,8 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         disk_size_gb: 0,
         host_name: Some("some host"),
         network: "some network",
-<<<<<<< HEAD
         node_type: models::NodeType::Validator,
-=======
         created_by: user.id,
->>>>>>> main
     };
 
     let mut conn = tester.conn().await;

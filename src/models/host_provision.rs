@@ -47,7 +47,7 @@ impl HostProvision {
 
     pub async fn claim(
         host_provision_id: &str,
-        req: super::NewHost<'_>,
+        mut new_host: super::NewHost<'_>,
         conn: &mut AsyncPgConnection,
     ) -> Result<super::Host> {
         let host_provision = Self::find_by_id(host_provision_id, conn).await?;
@@ -56,7 +56,10 @@ impl HostProvision {
             return Err(anyhow::anyhow!("Host provision has already been claimed.").into());
         }
 
-        let host = req.create(conn).await?;
+        new_host.ip_range_from = host_provision.ip_range_from;
+        new_host.ip_range_to = host_provision.ip_range_to;
+        new_host.ip_gateway = host_provision.ip_gateway;
+        let host = new_host.create(conn).await?;
 
         diesel::update(host_provisions::table.find(host_provision.id))
             .set((
