@@ -56,13 +56,8 @@ pub struct MqttHostPolicy;
 impl MqttAclPolicy for MqttUserPolicy {
     async fn allow(&self, token: &str, topic: &str) -> MqttAclPolicyResult {
         // Verify token
-        let data = UserAuthToken::from_str(token)?.data;
-
-        let user_org_id = data
-            .get("org_id")
-            .ok_or_else(|| anyhow!("token.org_id is required"))?
-            .parse()?;
-
+        let token = UserAuthToken::from_str(token)?;
+        let user_org_id = token.try_org_id().with_context(|| "Policy error")?;
         let is_allowed = if let Some(rest) = topic.strip_prefix("/orgs/") {
             let org_id: uuid::Uuid = rest
                 .get(..36)

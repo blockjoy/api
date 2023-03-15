@@ -6,8 +6,6 @@ use crate::grpc::blockjoy_ui::{metric, DashboardMetricsRequest, DashboardMetrics
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;
-use crate::models::{Node, Org};
-use std::str::FromStr;
 use tonic::{Request, Response, Status};
 
 pub struct DashboardServiceImpl {
@@ -28,32 +26,30 @@ impl DashboardService for DashboardServiceImpl {
     ) -> Result<Response<DashboardMetricsResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
-        let user_id = token.id;
         let inner = request.into_inner();
-        let org_id = uuid::Uuid::from_str(inner.org_id.as_str()).map_err(ApiError::from)?;
+        let org_id = inner.org_id.parse().map_err(ApiError::from)?;
+        if token.try_org_id()? != org_id {
+            return Err(tonic::Status::permission_denied(
+                "Can't get metrics for this org",
+            ));
+        }
 
         let mut conn = self.db.conn().await?;
-        // Ensure user is of member of the org
-        Org::find_org_user(user_id, org_id, &mut conn).await?;
-
         let mut metrics: Vec<Metric> = Vec::with_capacity(2);
-
-        if let Ok(running_nodes) = Node::running_nodes_count(org_id, &mut conn).await {
+        if let Ok(running_nodes) = models::Node::running_nodes_count(org_id, &mut conn).await {
             let running = Metric {
                 name: metric::Name::Online.into(),
                 value: running_nodes.to_string(),
             };
-            metrics.insert(0, running);
+            metrics.push(running);
         }
-
-        if let Ok(stopped_nodes) = Node::halted_nodes_count(&org_id, &mut conn).await {
+        if let Ok(stopped_nodes) = models::Node::halted_nodes_count(&org_id, &mut conn).await {
             let stopped = Metric {
                 name: metric::Name::Offline.into(),
                 value: stopped_nodes.to_string(),
             };
-            metrics.insert(1, stopped);
+            metrics.push(stopped);
         }
-
         let response = DashboardMetricsResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
             metrics,

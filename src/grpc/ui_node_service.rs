@@ -219,17 +219,12 @@ impl NodeService for NodeServiceImpl {
     ) -> Result<Response<GetNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
-        let org_id = token
-            .data
-            .get("org_id")
-            .ok_or_else(required("token.org_id"))?
-            .to_owned();
         let inner = request.into_inner();
         let node_id = inner.id.parse().map_err(ApiError::from)?;
         let mut conn = self.db.conn().await?;
         let node = models::Node::find_by_id(node_id, &mut conn).await?;
 
-        if node.org_id.to_string() == org_id {
+        if node.org_id == token.try_org_id()? {
             let response = GetNodeResponse {
                 meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
                 node: Some(blockjoy_ui::Node::from_model(node, &mut conn).await?),

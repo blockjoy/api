@@ -1,5 +1,6 @@
 use crate::auth::{JwtToken, TokenClaim, TokenResult, TokenRole, TokenType};
 use crate::errors::Result;
+use crate::grpc::helpers::required;
 use std::collections::HashMap;
 use std::str;
 use std::str::FromStr;
@@ -46,6 +47,15 @@ impl UserAuthToken {
         self.data.insert("org_role".into(), user.role.to_string());
 
         self
+    }
+
+    pub fn try_org_id(&self) -> crate::Result<uuid::Uuid> {
+        let org_id = self
+            .data
+            .get("org_id")
+            .ok_or_else(required("token.org_id"))?
+            .parse()?;
+        Ok(org_id)
     }
 }
 
