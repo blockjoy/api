@@ -23,8 +23,6 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         block_height: None,
         groups: "".to_string(),
         node_data: None,
-        ip_addr: None,
-        ip_gateway: Some("192.168.0.1"),
         name: "Mr. Nodington".to_string(),
         version: Some("3.3.0"),
         staking_status: models::NodeStakingStatus::Staked,
