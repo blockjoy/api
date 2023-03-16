@@ -27,9 +27,8 @@ pub struct OrgWithoutMembers {
 #[tonic::async_trait]
 impl FindableById for Org {
     async fn find_by_id(org_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let org = orgs::table
+        let org = Org::not_deleted()
             .filter(orgs::id.eq(org_id))
-            .filter(orgs::deleted_at.is_null())
             .inner_join(orgs_users::table)
             .group_by(orgs::id)
             .select((orgs::all_columns, dsl::count(orgs_users::user_id)))

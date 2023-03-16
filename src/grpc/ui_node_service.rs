@@ -1,6 +1,5 @@
 use super::blockjoy;
 use super::helpers::required;
-use super::notification::Notifier;
 use crate::auth::{FindableById, UserAuthToken};
 use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy_ui::node_service_server::NodeService;
@@ -16,17 +15,6 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::OptionFuture;
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
-
-pub struct NodeServiceImpl {
-    db: models::DbPool,
-    notifier: Notifier,
-}
-
-impl NodeServiceImpl {
-    pub fn new(db: models::DbPool, notifier: Notifier) -> Self {
-        Self { db, notifier }
-    }
-}
 
 impl blockjoy_ui::Node {
     /// This function is used to create a ui node from a database node. We want to include the
@@ -216,7 +204,7 @@ impl blockjoy_ui::FilterCriteria {
 }
 
 #[tonic::async_trait]
-impl NodeService for NodeServiceImpl {
+impl NodeService for super::GrpcImpl {
     async fn get(
         &self,
         request: Request<GetNodeRequest>,

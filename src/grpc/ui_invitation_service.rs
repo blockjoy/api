@@ -15,41 +15,31 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-pub struct InvitationServiceImpl {
-    db: models::DbPool,
-}
+fn get_refresh_token_invitation_id_from_request(
+    request: Request<InvitationRequest>,
+) -> Result<(Option<String>, Uuid), Status> {
+    let refresh_token = get_refresh_token(&request);
+    let invitation_id = match try_get_token::<_, InvitationToken>(&request) {
+        Ok(token) => {
+            tracing::debug!("Found invitation token");
 
-impl InvitationServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
+            token.id
+        }
+        Err(_) => {
+            tracing::debug!("No invitation token available, trying user auth token");
 
-    fn get_refresh_token_invitation_id_from_request(
-        request: Request<InvitationRequest>,
-    ) -> Result<(Option<String>, Uuid), Status> {
-        let refresh_token = get_refresh_token(&request);
-        let invitation_id = match try_get_token::<_, InvitationToken>(&request) {
-            Ok(token) => {
-                tracing::debug!("Found invitation token");
+            let inner = request.into_inner();
+            let invitation_id = inner
+                .invitation
+                .ok_or_else(|| Status::permission_denied("No valid invitation found"))?
+                .id
+                .ok_or_else(|| Status::permission_denied("No valid invitation ID found"))?;
 
-                token.id
-            }
-            Err(_) => {
-                tracing::debug!("No invitation token available, trying user auth token");
+            invitation_id.parse().map_err(ApiError::from)?
+        }
+    };
 
-                let inner = request.into_inner();
-                let invitation_id = inner
-                    .invitation
-                    .ok_or_else(|| Status::permission_denied("No valid invitation found"))?
-                    .id
-                    .ok_or_else(|| Status::permission_denied("No valid invitation ID found"))?;
-
-                Uuid::parse_str(invitation_id.as_str()).map_err(ApiError::from)?
-            }
-        };
-
-        Ok((refresh_token, invitation_id))
-    }
+    Ok((refresh_token, invitation_id))
 }
 
 impl blockjoy_ui::CreateInvitationRequest {
@@ -93,7 +83,7 @@ impl blockjoy_ui::Invitation {
 }
 
 #[tonic::async_trait]
-impl InvitationService for InvitationServiceImpl {
+impl InvitationService for super::GrpcImpl {
     async fn create(
         &self,
         request: Request<CreateInvitationRequest>,
@@ -207,8 +197,7 @@ impl InvitationService for InvitationServiceImpl {
     }
 
     async fn accept(&self, request: Request<InvitationRequest>) -> Result<Response<()>, Status> {
-        let (refresh_token, invitation_id) =
-            InvitationServiceImpl::get_refresh_token_invitation_id_from_request(request)?;
+        let (refresh_token, invitation_id) = get_refresh_token_invitation_id_from_request(request)?;
         self.db
             .trx(|c| {
                 async move {
@@ -231,8 +220,7 @@ impl InvitationService for InvitationServiceImpl {
     }
 
     async fn decline(&self, request: Request<InvitationRequest>) -> Result<Response<()>, Status> {
-        let (refresh_token, invitation_id) =
-            InvitationServiceImpl::get_refresh_token_invitation_id_from_request(request)?;
+        let (refresh_token, invitation_id) = get_refresh_token_invitation_id_from_request(request)?;
         self.db
             .trx(|c| Invitation::decline(invitation_id, c).scope_boxed())
             .await?;

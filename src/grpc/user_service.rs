@@ -14,16 +14,6 @@ use crate::models::User;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 
-pub struct UserServiceImpl {
-    db: models::DbPool,
-}
-
-impl UserServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
-
 impl blockjoy_ui::User {
     pub fn as_update(&self) -> crate::Result<models::UpdateUser<'_>> {
         Ok(models::UpdateUser {
@@ -52,7 +42,7 @@ impl blockjoy_ui::User {
 }
 
 #[tonic::async_trait]
-impl UserService for UserServiceImpl {
+impl UserService for super::GrpcImpl {
     async fn get(
         &self,
         request: Request<GetUserRequest>,

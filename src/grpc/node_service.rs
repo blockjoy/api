@@ -5,16 +5,6 @@ use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 
-pub struct UpdateNodeServiceImpl {
-    db: models::DbPool,
-}
-
-impl UpdateNodeServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
-
 impl blockjoy::NodeInfo {
     pub fn as_update(&self) -> crate::Result<models::UpdateNode> {
         Ok(models::UpdateNode {
@@ -63,7 +53,7 @@ impl blockjoy::NodeInfo {
 }
 
 #[tonic::async_trait]
-impl Nodes for UpdateNodeServiceImpl {
+impl Nodes for super::GrpcImpl {
     async fn info_update(
         &self,
         request: Request<blockjoy::NodeInfoUpdateRequest>,

@@ -3,7 +3,6 @@ use api::grpc::blockjoy;
 use api::grpc::blockjoy::nodes_client::NodesClient;
 use api::models::Node;
 use tonic::transport::Channel;
-use uuid::Uuid;
 
 mod setup;
 
@@ -43,7 +42,7 @@ async fn responds_ok_for_info_update() {
         .unwrap();
 
     let mut conn = tester.conn().await;
-    let node = Node::find_by_id(Uuid::parse_str(node_id.as_str()).unwrap(), &mut conn)
+    let node = Node::find_by_id(node_id.parse().unwrap(), &mut conn)
         .await
         .unwrap();
 

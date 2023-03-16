@@ -11,17 +11,6 @@ use crate::models;
 use crate::models::{Host, HostProvision};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
-pub struct HostsServiceImpl {
-    db: models::DbPool,
-}
-
-impl HostsServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
 
 impl blockjoy::HostInfo {
     pub fn as_update(&self) -> crate::Result<models::UpdateHost> {
@@ -72,7 +61,7 @@ impl blockjoy::HostInfo {
 }
 
 #[tonic::async_trait]
-impl Hosts for HostsServiceImpl {
+impl Hosts for super::GrpcImpl {
     async fn provision(
         &self,
         request: Request<ProvisionHostRequest>,
@@ -131,7 +120,7 @@ impl Hosts for HostsServiceImpl {
     ) -> Result<Response<DeleteHostResponse>, Status> {
         let host_token_id = try_get_token::<_, HostAuthToken>(&request)?.id;
         let inner = request.into_inner();
-        let host_id = Uuid::parse_str(inner.host_id.as_str()).map_err(ApiError::from)?;
+        let host_id = inner.host_id.parse().map_err(ApiError::from)?;
         if host_token_id != host_id {
             let msg = format!("Not allowed to delete host '{host_id}'");
             return Err(Status::permission_denied(msg));

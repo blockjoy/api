@@ -13,16 +13,6 @@ use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 
-pub struct HostServiceImpl {
-    db: models::DbPool,
-}
-
-impl HostServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
-
 impl blockjoy_ui::Host {
     pub async fn from_model(
         model: models::Host,
@@ -108,7 +98,7 @@ impl blockjoy_ui::Host {
 }
 
 #[tonic::async_trait]
-impl HostService for HostServiceImpl {
+impl HostService for super::GrpcImpl {
     /// Get host(s) by one of:
     /// - ID
     /// - Organization ID

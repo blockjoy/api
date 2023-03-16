@@ -5,11 +5,8 @@ use crate::grpc::blockjoy::ServicesResponse;
 use anyhow::anyhow;
 use tonic::{Request, Response, Status};
 
-#[derive(Default)]
-pub struct DiscoveryServiceImpl;
-
 #[tonic::async_trait]
-impl Discovery for DiscoveryServiceImpl {
+impl Discovery for super::GrpcImpl {
     async fn services(&self, _request: Request<()>) -> Result<Response<ServicesResponse>, Status> {
         let response = ServicesResponse {
             key_service_url: std::env::var("KEY_SERVICE_URL").map_err(|e| {

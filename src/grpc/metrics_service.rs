@@ -8,16 +8,6 @@ use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::Response;
 
-pub struct MetricsServiceImpl {
-    db: models::DbPool,
-}
-
-impl MetricsServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
-
 impl blockjoy::NodeMetrics {
     pub fn as_metrics_update(self, id: &str) -> crate::Result<models::UpdateNodeMetrics> {
         let id = id.parse()?;
@@ -55,7 +45,7 @@ impl blockjoy::HostMetrics {
 }
 
 #[tonic::async_trait]
-impl MetricsService for MetricsServiceImpl {
+impl MetricsService for super::GrpcImpl {
     /// Update the metrics for the nodes provided in this request. Since this endpoint is called
     /// often (e.g. if we have 10,000 nodes, 170 calls per second) we take care to perform a single
     /// query for this whole list of metrics that comes in.

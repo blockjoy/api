@@ -7,31 +7,15 @@ use crate::grpc::blockjoy::{
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
-pub struct KeyFileServiceImpl {
-    db: models::DbPool,
-}
-
-impl KeyFileServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-
-    fn uuid_from_string(val: String) -> Result<Uuid, Status> {
-        Uuid::parse_str(val.as_str())
-            .map_err(|e| Status::invalid_argument(format!("Cannot parse node ID: {e}")))
-    }
-}
 
 #[tonic::async_trait]
-impl KeyFiles for KeyFileServiceImpl {
+impl KeyFiles for super::GrpcImpl {
     async fn get(
         &self,
         request: Request<KeyFilesGetRequest>,
     ) -> Result<Response<KeyFilesGetResponse>, Status> {
         let inner = request.into_inner();
-        let node_id = Self::uuid_from_string(inner.node_id)?;
+        let node_id = inner.node_id.parse().map_err(ApiError::from)?;
         let request_id = inner.request_id.clone();
         let mut conn = self.db.conn().await?;
         let key_files = models::NodeKeyFile::find_by_node(node_id, &mut conn).await?;
@@ -57,7 +41,7 @@ impl KeyFiles for KeyFileServiceImpl {
         request: Request<KeyFilesSaveRequest>,
     ) -> Result<Response<KeyFilesSaveResponse>, Status> {
         let inner = request.into_inner();
-        let node_id = KeyFileServiceImpl::uuid_from_string(inner.node_id)?;
+        let node_id = inner.node_id.parse().map_err(ApiError::from)?;
         let request_id = inner.request_id.clone();
 
         self.db

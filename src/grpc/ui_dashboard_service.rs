@@ -8,18 +8,8 @@ use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;
 use tonic::{Request, Response, Status};
 
-pub struct DashboardServiceImpl {
-    db: models::DbPool,
-}
-
-impl DashboardServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
-
 #[tonic::async_trait]
-impl DashboardService for DashboardServiceImpl {
+impl DashboardService for super::GrpcImpl {
     async fn metrics(
         &self,
         request: Request<DashboardMetricsRequest>,

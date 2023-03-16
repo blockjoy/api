@@ -10,16 +10,6 @@ use crate::models;
 
 type Result<T, E = tonic::Status> = std::result::Result<T, E>;
 
-pub struct BlockchainServiceImpl {
-    db: models::DbPool,
-}
-
-impl BlockchainServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
-
 impl blockjoy_ui::Blockchain {
     fn from_model(model: models::Blockchain) -> crate::Result<Self> {
         let supported_nodes_types = serde_json::to_string(&model.supported_node_types()?)?;
@@ -46,7 +36,7 @@ impl blockjoy_ui::Blockchain {
 }
 
 #[tonic::async_trait]
-impl BlockchainService for BlockchainServiceImpl {
+impl BlockchainService for super::GrpcImpl {
     async fn get(
         &self,
         request: tonic::Request<blockjoy_ui::GetBlockchainRequest>,

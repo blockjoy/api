@@ -8,16 +8,6 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use std::str::FromStr;
 use tonic::{Request, Response, Status};
 
-pub struct CommandsServiceImpl {
-    db: models::DbPool,
-}
-
-impl CommandsServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
-
 impl CommandInfo {
     fn as_update(&self) -> crate::Result<models::UpdateCommand<'_>> {
         Ok(models::UpdateCommand {
@@ -30,7 +20,7 @@ impl CommandInfo {
 }
 
 #[tonic::async_trait]
-impl Commands for CommandsServiceImpl {
+impl Commands for super::GrpcImpl {
     async fn get(&self, request: Request<CommandInfo>) -> Result<Response<Command>, Status> {
         let inner = request.into_inner();
         let cmd_id = uuid::Uuid::from_str(inner.id.as_str()).map_err(ApiError::from)?;
@@ -63,7 +53,7 @@ impl Commands for CommandsServiceImpl {
         request: Request<PendingCommandsRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
         let inner = request.into_inner();
-        let host_id = uuid::Uuid::parse_str(inner.host_id.as_str()).map_err(ApiError::from)?;
+        let host_id = inner.host_id.parse().map_err(ApiError::from)?;
         let mut db_conn = self.db.conn().await?;
         let cmds = models::Command::find_pending_by_host(host_id, &mut db_conn).await?;
         let mut response = CommandResponse { commands: vec![] };

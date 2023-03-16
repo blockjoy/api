@@ -35,7 +35,7 @@ use crate::auth::{
     UserRefreshToken,
 };
 use crate::errors::{ApiError, Result as ApiResult};
-use crate::grpc::authentication_service::AuthenticationServiceImpl;
+// use crate::grpc::authentication_service::AuthenticationServiceImpl;
 use crate::grpc::blockjoy::key_files_server::KeyFilesServer;
 use crate::grpc::blockjoy_ui::authentication_service_server::AuthenticationServiceServer;
 use crate::grpc::blockjoy_ui::blockchain_service_server::BlockchainServiceServer;
@@ -47,25 +47,11 @@ use crate::grpc::blockjoy_ui::invitation_service_server::InvitationServiceServer
 use crate::grpc::blockjoy_ui::node_service_server::NodeServiceServer;
 use crate::grpc::blockjoy_ui::organization_service_server::OrganizationServiceServer;
 use crate::grpc::blockjoy_ui::user_service_server::UserServiceServer;
-use crate::grpc::command_service::CommandsServiceImpl;
-use crate::grpc::key_file_service::KeyFileServiceImpl;
-use crate::grpc::metrics_service::MetricsServiceImpl;
-use crate::grpc::organization_service::OrganizationServiceImpl;
-use crate::grpc::service_discovery::DiscoveryServiceImpl;
-use crate::grpc::ui_blockchain_service::BlockchainServiceImpl;
-use crate::grpc::ui_command_service::CommandServiceImpl;
-use crate::grpc::ui_dashboard_service::DashboardServiceImpl;
-use crate::grpc::ui_host_provision_service::HostProvisionServiceImpl;
-use crate::grpc::ui_host_service::HostServiceImpl;
-use crate::grpc::ui_invitation_service::InvitationServiceImpl;
-use crate::grpc::ui_node_service::NodeServiceImpl;
-use crate::grpc::user_service::UserServiceImpl;
 use crate::{grpc, models};
 use anyhow::anyhow;
 use axum::Extension;
 use blockjoy::hosts_server::HostsServer;
 use chrono::NaiveDateTime;
-use host_service::HostsServiceImpl;
 use std::env;
 use tonic::metadata::errors::InvalidMetadataValue;
 use tonic::transport::server::Router;
@@ -75,6 +61,14 @@ use tower_http::auth::AsyncRequireAuthorizationLayer;
 use tower_http::classify::{GrpcErrorsAsFailures, SharedClassifier};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+
+/// This struct is used to implement all the gRPC traits as we need them. It can be trivially
+/// cloned, both member structs use interal refcounting.
+#[derive(Clone)]
+struct GrpcImpl {
+    db: models::DbPool,
+    notifier: Notifier,
+}
 
 pub async fn server(
     db: models::DbPool,
@@ -110,32 +104,27 @@ pub async fn server(
     let notifier = Notifier::new()
         .await
         .expect("Could not set up MQTT notifier!");
+    let impler = GrpcImpl {
+        db: db.clone(),
+        notifier,
+    };
 
-    let discovery_service =
-        grpc::blockjoy::discovery_server::DiscoveryServer::new(DiscoveryServiceImpl::default());
-    let command_service =
-        grpc::blockjoy::commands_server::CommandsServer::new(CommandsServiceImpl::new(db.clone()));
-    let node_service = grpc::blockjoy::nodes_server::NodesServer::new(
-        node_service::UpdateNodeServiceImpl::new(db.clone()),
-    );
-    let h_service = HostsServer::new(HostsServiceImpl::new(db.clone()));
-    let k_service = KeyFilesServer::new(KeyFileServiceImpl::new(db.clone()));
-    let m_service = MetricsServiceServer::new(MetricsServiceImpl::new(db.clone()));
-    let ui_auth_service =
-        AuthenticationServiceServer::new(AuthenticationServiceImpl::new(db.clone()));
-    let ui_org_service = OrganizationServiceServer::new(OrganizationServiceImpl::new(db.clone()));
-    let ui_user_service = UserServiceServer::new(UserServiceImpl::new(db.clone()));
-    let ui_host_service = HostServiceServer::new(HostServiceImpl::new(db.clone()));
-    let ui_hostprovision_service =
-        HostProvisionServiceServer::new(HostProvisionServiceImpl::new(db.clone()));
-    let ui_command_service =
-        CommandServiceServer::new(CommandServiceImpl::new(db.clone(), notifier.clone()));
-    let ui_node_service = NodeServiceServer::new(NodeServiceImpl::new(db.clone(), notifier));
-    let ui_dashboard_service = DashboardServiceServer::new(DashboardServiceImpl::new(db.clone()));
-    let ui_blockchain_service =
-        BlockchainServiceServer::new(BlockchainServiceImpl::new(db.clone()));
-    let ui_invitation_service =
-        InvitationServiceServer::new(InvitationServiceImpl::new(db.clone()));
+    let discovery_service = grpc::blockjoy::discovery_server::DiscoveryServer::new(impler.clone());
+    let command_service = grpc::blockjoy::commands_server::CommandsServer::new(impler.clone());
+    let node_service = grpc::blockjoy::nodes_server::NodesServer::new(impler.clone());
+    let h_service = HostsServer::new(impler.clone());
+    let k_service = KeyFilesServer::new(impler.clone());
+    let m_service = MetricsServiceServer::new(impler.clone());
+    let ui_auth_service = AuthenticationServiceServer::new(impler.clone());
+    let ui_org_service = OrganizationServiceServer::new(impler.clone());
+    let ui_user_service = UserServiceServer::new(impler.clone());
+    let ui_host_service = HostServiceServer::new(impler.clone());
+    let ui_hostprovision_service = HostProvisionServiceServer::new(impler.clone());
+    let ui_command_service = CommandServiceServer::new(impler.clone());
+    let ui_node_service = NodeServiceServer::new(impler.clone());
+    let ui_dashboard_service = DashboardServiceServer::new(impler.clone());
+    let ui_blockchain_service = BlockchainServiceServer::new(impler.clone());
+    let ui_invitation_service = InvitationServiceServer::new(impler);
 
     let middleware = tower::ServiceBuilder::new()
         .layer(TraceLayer::new_for_grpc())

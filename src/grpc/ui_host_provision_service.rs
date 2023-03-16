@@ -14,16 +14,6 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncPgConnection;
 use tonic::{Request, Response, Status};
 
-pub struct HostProvisionServiceImpl {
-    db: models::DbPool,
-}
-
-impl HostProvisionServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
-
 impl blockjoy_ui::HostProvision {
     fn from_model(hp: models::HostProvision, _conn: &mut AsyncPgConnection) -> Result<Self> {
         let install_cmd = hp.install_cmd();
@@ -61,7 +51,7 @@ impl blockjoy_ui::HostProvision {
 }
 
 #[tonic::async_trait]
-impl HostProvisionService for HostProvisionServiceImpl {
+impl HostProvisionService for super::GrpcImpl {
     async fn get(
         &self,
         request: Request<GetHostProvisionRequest>,

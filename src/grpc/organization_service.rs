@@ -12,20 +12,10 @@ use crate::grpc::blockjoy_ui::{
 };
 use crate::grpc::helpers::pagination_parameters;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
-use crate::models::{self, NewOrg, Org, OrgRole};
+use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
-
-pub struct OrganizationServiceImpl {
-    db: models::DbPool,
-}
-
-impl OrganizationServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
 
 impl blockjoy_ui::Organization {
     fn from_model(model: models::Org) -> crate::Result<Self> {
@@ -44,7 +34,7 @@ impl blockjoy_ui::Organization {
 }
 
 #[tonic::async_trait]
-impl OrganizationService for OrganizationServiceImpl {
+impl OrganizationService for super::GrpcImpl {
     async fn get(
         &self,
         request: Request<GetOrganizationsRequest>,
@@ -53,43 +43,40 @@ impl OrganizationService for OrganizationServiceImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let user_id = token.id;
         let inner = request.into_inner();
-        let org_id = inner.org_id.clone();
+        let org_id = inner.org_id;
 
         let mut conn = self.db.conn().await?;
-        let organizations: Vec<Org> = match org_id {
-            Some(org_id) => vec![
-                Org::find_by_id(org_id.parse().map_err(ApiError::UuidParseError)?, &mut conn)
-                    .await?,
-            ],
-            None => Org::find_all_by_user(user_id, &mut conn).await?,
+        let organizations: Vec<models::Org> = match org_id {
+            Some(org_id) => {
+                let org_id = org_id.parse().map_err(ApiError::UuidParseError)?;
+                vec![models::Org::find_by_id(org_id, &mut conn).await?]
+            }
+            None => models::Org::find_all_by_user(user_id, &mut conn).await?,
         };
-        let organizations: crate::Result<Vec<Organization>> = organizations
+        let mut organizations = organizations
             .into_iter()
             .map(Organization::from_model)
-            .collect();
+            .collect::<crate::Result<Vec<_>>>()?;
 
-        match organizations {
-            Ok(mut organizations) => {
-                for mut org in &mut organizations {
-                    let org_id: Uuid = org
-                        .id
-                        .as_ref()
-                        .unwrap_or(&"".to_string())
-                        .parse()
-                        .map_err(ApiError::UuidParseError)?;
-                    org.current_user =
-                        Some(Org::find_org_user(user_id, org_id, &mut conn).await?.into());
-                }
-
-                let inner = GetOrganizationsResponse {
-                    meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
-                    organizations,
-                };
-
-                response_with_refresh_token(refresh_token, inner)
-            }
-            Err(e) => Err(Status::from(e)),
+        for mut org in &mut organizations {
+            let org_id: Uuid = org
+                .id
+                .as_ref()
+                .ok_or_else(required("org.id"))?
+                .parse()
+                .map_err(ApiError::UuidParseError)?;
+            let user = models::Org::find_org_user(user_id, org_id, &mut conn)
+                .await?
+                .into();
+            org.current_user = Some(user);
         }
+
+        let inner = GetOrganizationsResponse {
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
+            organizations,
+        };
+
+        response_with_refresh_token(refresh_token, inner)
     }
 
     async fn create(
@@ -102,7 +89,7 @@ impl OrganizationService for OrganizationServiceImpl {
         let inner = request.into_inner();
         let org = inner.organization.ok_or_else(required("organization"))?;
         let name = org.name.ok_or_else(required("organization.name"))?;
-        let new_org = NewOrg {
+        let new_org = models::NewOrg {
             name: &name,
             is_personal: false,
         };
@@ -146,30 +133,32 @@ impl OrganizationService for OrganizationServiceImpl {
         &self,
         request: Request<DeleteOrganizationRequest>,
     ) -> Result<Response<DeleteOrganizationResponse>, Status> {
+        use models::OrgRole::*;
+
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let user_id = token.id;
         let inner = request.into_inner();
-        let org_id = Uuid::parse_str(inner.id.as_str()).map_err(ApiError::from)?;
+        let org_id = inner.id.parse().map_err(ApiError::from)?;
         let resp = self
             .db
             .trx(|c| {
                 async move {
-                    let org = Org::find_by_id(org_id, c).await?;
+                    let org = models::Org::find_by_id(org_id, c).await?;
                     if org.is_personal {
                         return Err(Status::permission_denied("Can't deleted personal org").into());
                     }
-                    let member = Org::find_org_user(user_id, org_id, c).await?;
+                    let member = models::Org::find_org_user(user_id, org_id, c).await?;
 
                     // Only owner or admins may delete orgs
                     match member.role {
-                        OrgRole::Member => Err(Status::permission_denied(format!(
+                        Member => Err(Status::permission_denied(format!(
                             "User {user_id} has insufficient privileges to delete org {org_id}"
                         ))
                         .into()),
-                        OrgRole::Owner | OrgRole::Admin => {
+                        Owner | Admin => {
                             tracing::debug!("Deleting org: {}", org_id);
-                            Org::delete(org_id, c).await?;
+                            models::Org::delete(org_id, c).await?;
 
                             let meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
                             Ok(DeleteOrganizationResponse { meta: Some(meta) })
@@ -186,23 +175,25 @@ impl OrganizationService for OrganizationServiceImpl {
         &self,
         request: Request<RestoreOrganizationRequest>,
     ) -> Result<Response<RestoreOrganizationResponse>, Status> {
+        use models::OrgRole::*;
+
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let user_id = token.id;
         let inner = request.into_inner();
-        let org_id = Uuid::parse_str(inner.id.as_str()).map_err(ApiError::from)?;
+        let org_id = inner.id.parse().map_err(ApiError::from)?;
         let resp = self
             .db
             .trx(|c| {
                 async move {
-                    let member = Org::find_org_user(user_id, org_id, c).await?;
+                    let member = models::Org::find_org_user(user_id, org_id, c).await?;
                     match member.role {
-                        OrgRole::Member => Err(Status::permission_denied(format!(
+                        Member => Err(Status::permission_denied(format!(
                             "User {user_id} has no sufficient privileges to restore org {org_id}"
                         ))
                         .into()),
                         // Only owner or admins may restore orgs
-                        OrgRole::Owner | OrgRole::Admin => {
-                            let org = Org::restore(org_id, c).await?;
+                        Owner | Admin => {
+                            let org = models::Org::restore(org_id, c).await?;
                             let meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
                             let inner = RestoreOrganizationResponse {
                                 meta: Some(meta),
@@ -226,11 +217,12 @@ impl OrganizationService for OrganizationServiceImpl {
         let refresh_token = get_refresh_token(&request);
         let inner = request.into_inner();
         let meta = inner.meta.ok_or_else(required("meta"))?;
-        let org_id = Uuid::parse_str(inner.id.as_str()).map_err(ApiError::from)?;
+        let org_id = inner.id.parse().map_err(ApiError::from)?;
 
         let (limit, offset) = pagination_parameters(meta.pagination.clone())?;
         let mut conn = self.db.conn().await?;
-        let users = Org::find_all_member_users_paginated(org_id, limit, offset, &mut conn).await?;
+        let users =
+            models::Org::find_all_member_users_paginated(org_id, limit, offset, &mut conn).await?;
         let users: Result<_, ApiError> = users
             .into_iter()
             .map(blockjoy_ui::User::from_model)
@@ -247,25 +239,27 @@ impl OrganizationService for OrganizationServiceImpl {
         &self,
         request: Request<RemoveMemberRequest>,
     ) -> Result<Response<()>, Status> {
+        use models::OrgRole::*;
+
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let caller_id = token.id;
         let inner = request.into_inner();
-        let user_id = Uuid::parse_str(inner.user_id.as_str()).map_err(ApiError::from)?;
-        let org_id = Uuid::parse_str(inner.org_id.as_str()).map_err(ApiError::from)?;
+        let user_id = inner.user_id.parse().map_err(ApiError::from)?;
+        let org_id = inner.org_id.parse().map_err(ApiError::from)?;
         self.db
             .trx(|c| {
                 async move {
-                    let member = Org::find_org_user(caller_id, org_id, c).await?;
+                    let member = models::Org::find_org_user(caller_id, org_id, c).await?;
 
                     match member.role {
-                        OrgRole::Member => Err(Status::permission_denied(format!(
+                        Member => Err(Status::permission_denied(format!(
                             "User {caller_id} has insufficient privileges to remove other user \
-                        {user_id} from org {org_id}"
+                            {user_id} from org {org_id}"
                         ))
                         .into()),
-                        OrgRole::Owner | OrgRole::Admin => {
-                            Org::remove_org_user(user_id, org_id, c).await?;
+                        Owner | Admin => {
+                            models::Org::remove_org_user(user_id, org_id, c).await?;
                             Ok(())
                         }
                     }
@@ -284,9 +278,9 @@ impl OrganizationService for OrganizationServiceImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let user_id = token.id;
         let inner = request.into_inner();
-        let org_id = Uuid::parse_str(inner.org_id.as_str()).map_err(ApiError::from)?;
+        let org_id = inner.org_id.parse().map_err(ApiError::from)?;
         self.db
-            .trx(|c| Org::remove_org_user(user_id, org_id, c).scope_boxed())
+            .trx(|c| models::Org::remove_org_user(user_id, org_id, c).scope_boxed())
             .await?;
 
         response_with_refresh_token(refresh_token, ())

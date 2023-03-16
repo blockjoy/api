@@ -12,12 +12,10 @@ use crate::grpc::blockjoy_ui::{
 use crate::grpc::helpers::required;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::mail::MailClient;
-use crate::models;
 use crate::models::{Org, User};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 use super::blockjoy_ui::{
     ResetPasswordRequest, ResetPasswordResponse, ResponseMeta, UpdatePasswordRequest,
@@ -25,18 +23,8 @@ use super::blockjoy_ui::{
 };
 use super::helpers::try_get_token;
 
-pub struct AuthenticationServiceImpl {
-    db: models::DbPool,
-}
-
-impl AuthenticationServiceImpl {
-    pub fn new(db: models::DbPool) -> Self {
-        Self { db }
-    }
-}
-
 #[tonic::async_trait]
-impl AuthenticationService for AuthenticationServiceImpl {
+impl AuthenticationService for super::GrpcImpl {
     async fn login(
         &self,
         request: Request<LoginUserRequest>,
@@ -268,7 +256,7 @@ impl AuthenticationService for AuthenticationServiceImpl {
         let mut conn = self.db.conn().await?;
         let org_user = Org::find_org_user(
             user_id,
-            Uuid::parse_str(inner.org_id.as_str()).map_err(ApiError::from)?,
+            inner.org_id.parse().map_err(ApiError::from)?,
             &mut conn,
         )
         .await?;
