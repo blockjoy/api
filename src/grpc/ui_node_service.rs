@@ -215,15 +215,14 @@ impl NodeService for super::GrpcImpl {
         let mut conn = self.db.conn().await?;
         let node = models::Node::find_by_id(node_id, &mut conn).await?;
 
-        if node.org_id == token.try_org_id()? {
-            let response = GetNodeResponse {
-                meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
-                node: Some(blockjoy_ui::Node::from_model(node, &mut conn).await?),
-            };
-            response_with_refresh_token(refresh_token, response)
-        } else {
-            Err(Status::permission_denied("Access not allowed"))
+        if node.org_id != token.try_org_id()? {
+            super::bail_unauthorized!("Access not allowed")
         }
+        let response = GetNodeResponse {
+            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
+            node: Some(blockjoy_ui::Node::from_model(node, &mut conn).await?),
+        };
+        response_with_refresh_token(refresh_token, response)
     }
 
     async fn list(
@@ -407,7 +406,7 @@ impl NodeService for super::GrpcImpl {
                     let node = models::Node::find_by_id(node_id, c).await?;
 
                     if !models::Node::belongs_to_user_org(node.org_id, token.id, c).await? {
-                        return Err(Status::permission_denied("User cannot delete node").into());
+                        super::bail_unauthorized!("User cannot delete node");
                     }
                     // 1. Delete node, if the node belongs to the current user
                     // Key files are deleted automatically because of 'on delete cascade' in tables DDL

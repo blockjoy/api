@@ -110,10 +110,7 @@ impl UserService for super::GrpcImpl {
 
                     // Check if current user is the same as the one to be updated
                     if user_id.to_string() != user.id() {
-                        return Err(Status::permission_denied(
-                            "You are not allowed to update this user",
-                        )
-                        .into());
+                        super::bail_unauthorized!("You are not allowed to update this user");
                     }
                     let user = user.as_update()?.update(c).await?;
                     let response_meta =

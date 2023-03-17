@@ -103,8 +103,7 @@ impl Hosts for super::GrpcImpl {
             .as_update()?;
 
         if host_token_id != update_host.id {
-            let msg = format!("Not allowed to delete host '{}'", update_host.id);
-            return Err(Status::permission_denied(msg));
+            super::bail_unauthorized!("Not allowed to delete host '{}'", update_host.id);
         }
         self.db.trx(|c| update_host.update(c).scope_boxed()).await?;
         let result = HostInfoUpdateResponse {
@@ -122,8 +121,7 @@ impl Hosts for super::GrpcImpl {
         let inner = request.into_inner();
         let host_id = inner.host_id.parse().map_err(ApiError::from)?;
         if host_token_id != host_id {
-            let msg = format!("Not allowed to delete host '{host_id}'");
-            return Err(Status::permission_denied(msg));
+            super::bail_unauthorized!("Not allowed to delete host '{host_id}'");
         }
         self.db
             .trx(|c| Host::delete(host_id, c).scope_boxed())

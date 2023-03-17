@@ -19,9 +19,7 @@ impl DashboardService for super::GrpcImpl {
         let inner = request.into_inner();
         let org_id = inner.org_id.parse().map_err(ApiError::from)?;
         if token.try_org_id()? != org_id {
-            return Err(tonic::Status::permission_denied(
-                "Can't get metrics for this org",
-            ));
+            super::bail_unauthorized!("Can't get metrics for this org");
         }
 
         let mut conn = self.db.conn().await?;
