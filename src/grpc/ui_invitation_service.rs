@@ -198,7 +198,8 @@ impl InvitationService for super::GrpcImpl {
 
     async fn accept(&self, request: Request<InvitationRequest>) -> Result<Response<()>, Status> {
         let (refresh_token, invitation_id) = get_refresh_token_invitation_id_from_request(request)?;
-        self.db
+        let msg = self
+            .db
             .trx(|c| {
                 async move {
                     let invitation = models::Invitation::find_by_id(invitation_id, c).await?;
@@ -214,17 +215,21 @@ impl InvitationService for super::GrpcImpl {
                     let invitation = invitation.accept(c).await?;
                     // Only registered users can accept an invitation
                     let new_member = User::find_by_email(&invitation.invitee_email, c).await?;
-                    Org::add_member(
+                    let org_user = Org::add_member(
                         new_member.id,
                         invitation.created_for_org,
                         OrgRole::Member,
                         c,
                     )
-                    .await
+                    .await?;
+                    let org = models::Org::find_by_id(org_user.org_id, c).await?;
+                    let user = models::User::find_by_id(org_user.user_id, c).await?;
+                    blockjoy_ui::OrgMessage::updated(org, user)
                 }
                 .scope_boxed()
             })
             .await?;
+        self.notifier.ui_orgs_sender()?.send(&msg).await?;
 
         response_with_refresh_token(refresh_token, ())
     }

@@ -70,6 +70,21 @@ struct GrpcImpl {
     notifier: Notifier,
 }
 
+#[macro_export]
+macro_rules! bail_unauthorized {
+    ($msg:literal $(,)?) => {
+        return Err(tonic::Status::permission_denied(format!($msg)).into())
+    };
+    ($err:expr $(,)?) => {
+        return Err(tonic::Status::permission_denied(format!($err)).into())
+    };
+    ($fmt:expr, $($arg:tt)*) => {
+        return Err(tonic::Status::permission_denied(format!($fmt, $($arg)*)).into())
+    };
+}
+
+use bail_unauthorized;
+
 pub async fn server(
     db: models::DbPool,
 ) -> Router<

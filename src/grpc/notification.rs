@@ -3,7 +3,7 @@ use diesel_async::AsyncPgConnection;
 
 use super::{
     blockjoy,
-    blockjoy_ui::{self, node_message},
+    blockjoy_ui::{self, node_message, org_message},
 };
 use crate::{auth::key_provider::KeyProvider, errors::Result, models};
 
@@ -79,7 +79,7 @@ impl Notifier {
         MqttClient::new(self.client.clone())
     }
 
-    pub fn ui_orgs_sender(&self) -> Result<MqttClient<blockjoy_ui::Organization>> {
+    pub fn ui_orgs_sender(&self) -> Result<MqttClient<blockjoy_ui::OrgMessage>> {
         MqttClient::new(self.client.clone())
     }
 
@@ -196,9 +196,55 @@ impl Notify for blockjoy::Command {
     }
 }
 
-impl Notify for blockjoy_ui::Organization {
+impl blockjoy_ui::OrgMessage {
+    fn org_id(&self) -> Option<uuid::Uuid> {
+        use org_message::Message::*;
+        match self.message.as_ref()? {
+            Created(blockjoy_ui::OrgCreated { org, .. }) => org.as_ref()?.id.as_ref()?.parse().ok(),
+            Updated(blockjoy_ui::OrgUpdated { org, .. }) => org.as_ref()?.id.as_ref()?.parse().ok(),
+            Deleted(blockjoy_ui::OrgDeleted {
+                organization_id, ..
+            }) => organization_id.parse().ok(),
+        }
+    }
+
+    pub fn created(model: models::Org, user: models::User) -> crate::Result<Self> {
+        Ok(Self {
+            message: Some(org_message::Message::Created(blockjoy_ui::OrgCreated {
+                org: Some(blockjoy_ui::Organization::from_model(model)?),
+                created_by: user.id.to_string(),
+                created_by_name: format!("{} {}", user.first_name, user.last_name),
+                created_by_email: user.email,
+            })),
+        })
+    }
+
+    pub fn updated(model: models::Org, user: models::User) -> crate::Result<Self> {
+        Ok(Self {
+            message: Some(org_message::Message::Updated(blockjoy_ui::OrgUpdated {
+                org: Some(blockjoy_ui::Organization::from_model(model)?),
+                updated_by: user.id.to_string(),
+                updated_by_name: format!("{} {}", user.first_name, user.last_name),
+                updated_by_email: user.email,
+            })),
+        })
+    }
+
+    pub fn deleted(model: models::Org, user: models::User) -> Self {
+        Self {
+            message: Some(org_message::Message::Deleted(blockjoy_ui::OrgDeleted {
+                organization_id: model.id.to_string(),
+                deleted_by: user.id.to_string(),
+                deleted_by_name: format!("{} {}", user.first_name, user.last_name),
+                deleted_by_email: user.email,
+            })),
+        }
+    }
+}
+
+impl Notify for blockjoy_ui::OrgMessage {
     fn channels(&self) -> Vec<String> {
-        let org_id = self.id.as_ref().unwrap();
+        let org_id = self.org_id().unwrap();
 
         vec![format!("/orgs/{org_id}")]
     }

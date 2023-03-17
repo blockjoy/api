@@ -34,3 +34,32 @@ message NodeDeleted {
   string deleted_by_name = 5;
   string deleted_by_email = 6;
 }
+
+message OrgMessage {
+  oneof message {
+    OrgCreated created = 1;
+    OrgUpdated updated = 2;
+    OrgDeleted deleted = 3;
+  }
+}
+
+message OrgCreated {
+  Organization org = 1;
+  string created_by = 2;
+  string created_by_name = 3;
+  string created_by_email = 4;
+}
+
+message OrgUpdated {
+  Organization org = 1;
+  string updated_by = 2;
+  string updated_by_name = 3;
+  string updated_by_email = 4;
+}
+
+message OrgDeleted {
+  string organization_id = 1;
+  string deleted_by = 2;
+  string deleted_by_name = 3;
+  string deleted_by_email = 4;
+}
