@@ -1,0 +1,326 @@
+syntax = "proto3";
+
+package blockjoy.api.ui_v1;
+
+import "google/protobuf/timestamp.proto";
+
+/* API token representation
+ * As there's no specific token type, we use this one to indicate the value of
+ * the field will be an API token
+ */
+message ApiToken {
+  string value = 1;
+}
+
+/*
+ * Pagination information, used in the response type
+ */
+message Pagination {
+  /* Optional total number of items, may not be bigger than
+   * PAGINATION_MAX_COUNT
+   */
+  optional int32 total_items = 1;
+  int32 current_page = 2;
+  int32 items_per_page = 3;
+}
+
+/* General request metadata */
+message RequestMeta {
+  /* Request ID. Should be generated when constructing the request */
+  optional string id = 1;
+  /* The user issuing this request, identified by it's API token */
+  optional ApiToken token = 2;
+  /* Optionally pass in an array of field names expected to be returned. */
+  repeated string fields = 3;
+  /* Optionally pass in pagination */
+  optional Pagination pagination = 5;
+}
+
+/* General response metadata */
+message ResponseMeta {
+  /* Response status codes */
+  enum Status {
+    reserved 3 to 15;
+
+    STATUS_UNSPECIFIED = 0;
+    STATUS_SUCCESS = 1;
+    STATUS_GENERALERROR = 2;
+  }
+
+  /* Response status code */
+  Status status = 1;
+  /* Request ID which generated this response */
+  string origin_request_id = 2;
+  /* Optional array of additional messages */
+  repeated string messages = 3;
+  /* Optional pagination information */
+  optional Pagination pagination = 4;
+  /* Updated user token, if needed */
+  optional ApiToken token = 5;
+}
+
+message Host {
+  /* Possible states the container is described with */
+  enum HostStatus {
+    // Reserving values up to 15 for possible later use
+    // Up to 15 to ensure only 1 byte is used for the most common values
+    reserved 12 to 15;
+
+    HOST_STATUS_UNSPECIFIED = 0;
+    HOST_STATUS_CREATING = 1;
+    HOST_STATUS_RUNNING = 2;
+    HOST_STATUS_STARTING = 3;
+    HOST_STATUS_STOPPING = 4;
+    HOST_STATUS_STOPPED = 5;
+    HOST_STATUS_UPGRADING = 6;
+    HOST_STATUS_UPGRADED = 7;
+    HOST_STATUS_DELETING = 8;
+    HOST_STATUS_DELETED = 9;
+    HOST_STATUS_INSTALLING = 10;
+    HOST_STATUS_SNAPSHOTTING = 11;
+  }
+
+  optional string id = 1;
+  optional string name = 2;
+  optional string version = 3;
+  optional string location = 4;
+  optional int64 cpu_count = 5;
+  optional int64 mem_size = 6;
+  optional int64 disk_size = 7;
+  optional string os = 8;
+  optional string os_version = 9;
+  optional string ip = 10;
+  optional HostStatus status = 11;
+  repeated Node nodes = 12;
+  optional google.protobuf.Timestamp created_at = 13;
+  optional string ip_range_from = 14;
+  optional string ip_range_to = 15;
+  optional string ip_gateway = 16;
+  optional string org_id = 17;
+}
+
+/* HostProvision entity */
+message HostProvision {
+  optional string id = 1;
+  optional string host_id = 2;
+  optional google.protobuf.Timestamp created_at = 3;
+  optional google.protobuf.Timestamp claimed_at = 4;
+  optional string install_cmd = 5;
+  string ip_range_from = 6;
+  string ip_range_to = 7;
+  string ip_gateway = 8;
+  optional string org_id = 9;
+}
+
+/* Blockchain node representation */
+message Node {
+  /**
+   * Describe the node's chain related status
+   * Generic, NOT chain specific states. These states are used to describe the
+   * node's states as seen by the blockchain
+   */
+  enum NodeStatus {
+    NODE_STATUS_UNSPECIFIED = 0;
+    // General chain states
+    NODE_STATUS_PROVISIONING = 1;
+    NODE_STATUS_BROADCASTING = 2;
+    NODE_STATUS_CANCELLED = 3;
+    NODE_STATUS_DELEGATING = 4;
+    NODE_STATUS_DELINQUENT = 5;
+    NODE_STATUS_DISABLED = 6;
+    NODE_STATUS_EARNING = 7;
+    NODE_STATUS_ELECTING = 8;
+    NODE_STATUS_ELECTED = 9;
+    NODE_STATUS_EXPORTED = 10;
+    NODE_STATUS_INGESTING = 11;
+    NODE_STATUS_MINING = 12;
+    NODE_STATUS_MINTING = 13;
+    NODE_STATUS_PROCESSING = 14;
+    NODE_STATUS_RELAYING = 15;
+    NODE_STATUS_REMOVED = 16;
+    NODE_STATUS_REMOVING = 17;
+  }
+
+  // Describe the node's syncing status
+  enum SyncStatus {
+    // Reserving values up to 15 for possible later use
+    // Up to 15 to ensure only 1 byte is used for the most common values
+    reserved 3 to 15;
+
+    SYNC_STATUS_UNSPECIFIED = 0;
+    SYNC_STATUS_SYNCING = 1;
+    SYNC_STATUS_SYNCED = 2;
+  }
+
+  // Describe the node's staking status
+  enum StakingStatus {
+    // Reserving values up to 15 for possible later use
+    // Up to 15 to ensure only 1 byte is used for the most common values
+    reserved 7 to 15;
+
+    STAKING_STATUS_UNSPECIFIED = 0;
+    STAKING_STATUS_FOLLOWER = 1;
+    STAKING_STATUS_STAKED = 2;
+    STAKING_STATUS_STAKING = 3;
+    STAKING_STATUS_VALIDATING = 4;
+    STAKING_STATUS_CONSENSUS = 5;
+    STAKING_STATUS_UNSTAKED = 6;
+  }
+
+  optional string id = 1;
+  optional string org_id = 2;
+  optional string host_id = 3;
+  optional string host_name = 4;
+  optional string blockchain_id = 5;
+  optional string name = 6;
+  repeated string groups = 7;
+  optional string version = 8;
+  optional string ip = 9;
+  optional string type = 10;
+  optional string address = 11;
+  optional string wallet_address = 12;
+  optional int64 block_height = 13;
+  optional bytes node_data = 14;
+  optional google.protobuf.Timestamp created_at = 15;
+  optional google.protobuf.Timestamp updated_at = 16;
+  optional NodeStatus status = 17;
+  optional SyncStatus sync_status = 18;
+  optional StakingStatus staking_status = 19;
+  optional string ip_gateway = 20;
+  optional bool self_update = 21;
+  optional string network = 22;
+  optional string blockchain_name = 23;
+  // The id of the user that created this node. For the earliest nodes we
+  // created, this field was not tracked and is therefore not populated.
+  optional string created_by = 24;
+  // The name of the aforementioned user.
+  optional string created_by_name = 25;
+  // The email of said aforementioned user.
+  optional string created_by_email = 26;
+}
+
+message OrgUser {
+  enum OrgRole {
+    ORG_ROLE_UNSPECIFIED = 0;
+    ORG_ROLE_MEMBER = 1;
+    ORG_ROLE_OWNER = 2;
+    ORG_ROLE_ADMIN = 3;
+  }
+
+  string user_id = 1;
+  string org_id = 2;
+  OrgRole role = 3;
+}
+
+/* Organization representation */
+message Organization {
+  optional string id = 1;
+  optional string name = 2;
+  optional bool personal = 3;
+  optional int64 member_count = 4;
+  optional google.protobuf.Timestamp created_at = 13;
+  optional google.protobuf.Timestamp updated_at = 14;
+  optional OrgUser current_user = 15;
+}
+
+/* User representation */
+message User {
+  optional string id = 1;
+  optional string email = 2;
+  optional string first_name = 3;
+  optional string last_name = 4;
+  optional google.protobuf.Timestamp created_at = 5;
+  optional google.protobuf.Timestamp updated_at = 6;
+}
+
+/* Bill representation */
+message Bill {
+  optional string id = 1;
+  optional google.protobuf.Timestamp created_at = 2;
+  optional string tax_number = 3;
+  optional string receiver_name = 4;
+  optional string receiver_address = 5;
+  optional float tax_rate = 6;
+  optional float net_amount = 7;
+  optional float gross_amount = 8;
+  optional string pdf_url = 9;
+}
+
+/* Single metric value */
+message Metric {
+  enum Name {
+    NAME_UNSPECIFIED = 0;
+    NAME_NODES = 1;
+    NAME_HOSTS = 2;
+    NAME_ONLINE = 3;
+    NAME_OFFLINE = 4;
+  }
+
+  Name name = 1;
+  string value = 2;
+}
+
+/* UI configuration */
+message UserConfigurationParameter {
+  string name = 1;
+  string value = 2;
+}
+
+/* Generic parameter key/value pair */
+message Parameter {
+  string name = 1;
+  string value = 2;
+}
+
+message BlockchainNetwork {
+  enum NetworkType {
+    NETWORK_TYPE_UNSPECIFIED = 0;
+    NETWORK_TYPE_DEV = 1;
+    NETWORK_TYPE_TEST = 2;
+    NETWORK_TYPE_MAIN = 3;
+  }
+
+  string name = 1;
+  string url = 2;
+  NetworkType net_type = 3;
+}
+
+message Blockchain {
+  enum BlockchainStatus {
+    BLOCKCHAIN_STATUS_UNSPECIFIED = 0;
+    BLOCKCHAIN_STATUS_DEVELOPMENT = 1;
+    BLOCKCHAIN_STATUS_ALPHA = 2;
+    BLOCKCHAIN_STATUS_BETA = 3;
+    BLOCKCHAIN_STATUS_PRODUCTION = 4;
+    BLOCKCHAIN_STATUS_DELETED = 5;
+  }
+
+  optional string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  BlockchainStatus status = 4;
+  optional string project_url = 5;
+  optional string repo_url = 6;
+  optional string version = 7;
+  optional google.protobuf.Timestamp created_at = 8;
+  optional google.protobuf.Timestamp updated_at = 9;
+  bool supports_etl = 10;
+  bool supports_node = 11;
+  bool supports_staking = 12;
+  bool supports_broadcast = 13;
+  string supported_nodes_types = 14;
+  repeated BlockchainNetwork networks = 15;
+}
+
+/* User invitation */
+message Invitation {
+  optional string id = 1;
+  optional string created_by_id = 2;
+  optional string created_for_org_id = 3;
+  optional string invitee_email = 4;
+  optional google.protobuf.Timestamp created_at = 5;
+  optional google.protobuf.Timestamp accepted_at = 6;
+  optional google.protobuf.Timestamp declined_at = 7;
+  optional string created_by_user_name = 8;
+  optional string created_for_org_name = 9;
+}

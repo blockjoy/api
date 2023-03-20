@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package blockjoy.api.v1;
+
+import "google/protobuf/timestamp.proto";
+import "messages.proto";
+
+enum ConnectionStatus {
+  CONNECTION_STATUS_UNSPECIFIED = 0;
+  CONNECTION_STATUS_ONLINE = 1;
+  CONNECTION_STATUS_OFFLINE = 2;
+}
+
+message HostInfo {
+  optional string id = 1;
+  optional string name = 2;
+  optional string version = 3;
+  optional string location = 4;
+  optional int64 cpu_count = 5;
+  optional int64 mem_size = 6;
+  optional int64 disk_size = 7;
+  optional string os = 8;
+  optional string os_version = 9;
+  optional string ip = 10;
+  optional string ip_range_from = 11;
+  optional string ip_range_to = 12;
+  optional string ip_gateway = 13;
+}
+
+message DeleteHostRequest {
+  optional string request_id = 1;
+  string host_id = 2;
+}
+
+message DeleteHostResponse {
+  repeated string messages = 1;
+  optional string origin_request_id = 2;
+}
+
+message ProvisionHostRequest {
+  optional string request_id = 1;
+  string otp = 2;
+  HostInfo info = 3;
+  ConnectionStatus status = 4;
+}
+
+message ProvisionHostResponse {
+  string host_id = 1;
+  string token = 2;
+  repeated string messages = 3;
+  optional string origin_request_id = 4;
+}
+
+message HostInfoUpdateRequest {
+  optional string request_id = 1;
+  HostInfo info = 2;
+}
+
+message HostInfoUpdateResponse {
+  repeated string messages = 1;
+  optional string origin_request_id = 2;
+}
+
+message HostUpdateBVS {
+  string version = 1;
+}
+
+message HostRestartBVS {
+}
+
+message HostRemoveBVS {
+}
+
+message HostGenericCommand {
+  repeated Parameter params = 1;
+}
+
+message HostInfoGet {
+}
+
+message HostCommand {
+  string host_id = 1;
+  string api_command_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+
+  oneof command {
+    HostGenericCommand generic = 4;
+    HostInfoGet info_get = 5;
+    HostUpdateBVS update_bvs = 6;
+    HostRestartBVS restart_bvs = 7;
+    HostRemoveBVS remove_bvs = 8;
+  }
+}

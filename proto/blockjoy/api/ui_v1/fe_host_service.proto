@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package blockjoy.api.ui_v1;
+
+import "common.proto";
+
+message GetHostsRequest {
+  RequestMeta meta = 1;
+
+  oneof param {
+    string id = 2;
+    string token = 3;
+  }
+}
+
+message GetHostsResponse {
+  ResponseMeta meta = 1;
+  repeated Host hosts = 2;
+}
+
+message CreateHostRequest {
+  RequestMeta meta = 1;
+  Host host = 2;
+}
+
+message CreateHostResponse {
+  ResponseMeta meta = 1;
+}
+
+message UpdateHostRequest {
+  RequestMeta meta = 1;
+  Host host = 2;
+}
+
+message UpdateHostResponse {
+  ResponseMeta meta = 1;
+}
+
+message DeleteHostRequest {
+  RequestMeta meta = 1;
+  string id = 2;
+}
+
+message DeleteHostResponse {
+  ResponseMeta meta = 1;
+}
+
+/* Manage hosts */
+service HostService {
+  /* Get host(s) by id, org_id or token or just every host */
+  rpc Get(GetHostsRequest) returns (GetHostsResponse);
+  /* Create a single host */
+  rpc Create(CreateHostRequest) returns (CreateHostResponse);
+  /* Update a single host */
+  rpc Update(UpdateHostRequest) returns (UpdateHostResponse);
+  /* Delete a single host */
+  rpc Delete(DeleteHostRequest) returns (DeleteHostResponse);
+}
