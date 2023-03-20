@@ -261,9 +261,7 @@ impl blockjoy_ui::NodeMessage {
         use node_message::Message::*;
         match self.message.as_ref()? {
             Created(blockjoy_ui::NodeCreated { node })
-            | Updated(blockjoy_ui::NodeUpdated { node, .. }) => {
-                node.as_ref()?.id.as_ref()?.parse().ok()
-            }
+            | Updated(blockjoy_ui::NodeUpdated { node, .. }) => node.as_ref()?.id.parse().ok(),
             Deleted(blockjoy_ui::NodeDeleted { node_id, .. }) => node_id.parse().ok(),
         }
     }
@@ -272,9 +270,7 @@ impl blockjoy_ui::NodeMessage {
         use node_message::Message::*;
         match self.message.as_ref()? {
             Created(blockjoy_ui::NodeCreated { node })
-            | Updated(blockjoy_ui::NodeUpdated { node, .. }) => {
-                node.as_ref()?.org_id.as_ref()?.parse().ok()
-            }
+            | Updated(blockjoy_ui::NodeUpdated { node, .. }) => node.as_ref()?.org_id.parse().ok(),
             Deleted(blockjoy_ui::NodeDeleted {
                 organization_id, ..
             }) => organization_id.parse().ok(),
