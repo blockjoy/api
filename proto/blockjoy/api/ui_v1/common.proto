@@ -167,28 +167,24 @@ message Node {
     STAKING_STATUS_UNSTAKED = 6;
   }
 
-  optional string id = 1;
-  optional string org_id = 2;
-  optional string host_id = 3;
-  optional string host_name = 4;
-  optional string blockchain_id = 5;
-  optional string name = 6;
-  repeated string groups = 7;
+  string id = 1;
+  string org_id = 2;
+  string host_id = 3;
+  string host_name = 4;
+  string blockchain_id = 5;
+  string name = 6;
   optional string version = 8;
   optional string ip = 9;
-  optional string type = 10;
-  optional string address = 11;
-  optional string wallet_address = 12;
+  string type = 10;
   optional int64 block_height = 13;
-  optional bytes node_data = 14;
-  optional google.protobuf.Timestamp created_at = 15;
-  optional google.protobuf.Timestamp updated_at = 16;
-  optional NodeStatus status = 17;
-  optional SyncStatus sync_status = 18;
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
+  NodeStatus status = 17;
+  SyncStatus sync_status = 18;
   optional StakingStatus staking_status = 19;
-  optional string ip_gateway = 20;
-  optional bool self_update = 21;
-  optional string network = 22;
+  string ip_gateway = 20;
+  bool self_update = 21;
+  string network = 22;
   optional string blockchain_name = 23;
   // The id of the user that created this node. For the earliest nodes we
   // created, this field was not tracked and is therefore not populated.

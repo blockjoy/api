@@ -78,104 +78,80 @@ impl blockjoy_ui::Node {
             props: node.properties()?,
         };
         Ok(Self {
-            id: Some(node.id.to_string()),
-            org_id: Some(node.org_id.to_string()),
-            host_id: Some(node.host_id.to_string()),
-            host_name: Some(node.host_name),
-            blockchain_id: Some(node.blockchain_id.to_string()),
-            name: Some(node.name),
-            // TODO: get node groups
-            groups: vec![],
+            id: node.id.to_string(),
+            org_id: node.org_id.to_string(),
+            host_id: node.host_id.to_string(),
+            host_name: node.host_name,
+            blockchain_id: node.blockchain_id.to_string(),
+            name: node.name,
             version: node.version,
             ip: node.ip_addr,
-            ip_gateway: Some(node.ip_gateway),
-            r#type: Some(serde_json::to_string(&properties)?),
-            address: node.address,
-            wallet_address: node.wallet_address,
+            ip_gateway: node.ip_gateway,
+            r#type: serde_json::to_string(&properties)?,
             block_height: node.block_height.map(i64::from),
-            // TODO: Get node data
-            node_data: None,
             created_at: Some(convert::try_dt_to_ts(node.created_at)?),
             updated_at: Some(convert::try_dt_to_ts(node.updated_at)?),
-            status: Some(blockjoy_ui::node::NodeStatus::from(node.chain_status).into()),
+            status: blockjoy_ui::node::NodeStatus::from(node.chain_status).into(),
             staking_status: node
                 .staking_status
                 .map(blockjoy_ui::node::StakingStatus::from)
                 .map(Into::into),
-            sync_status: Some(blockjoy_ui::node::SyncStatus::from(node.sync_status).into()),
-            self_update: Some(node.self_update),
-            network: Some(node.network),
+            sync_status: blockjoy_ui::node::SyncStatus::from(node.sync_status).into(),
+            self_update: node.self_update,
+            network: node.network,
             blockchain_name: Some(blockchain.name.clone()),
             created_by: user.map(|u| u.id.to_string()),
             created_by_name: user.map(|u| format!("{} {}", u.first_name, u.last_name)),
             created_by_email: user.map(|u| u.email.clone()),
         })
     }
+}
 
+impl blockjoy_ui::CreateNodeRequest {
     pub fn as_new(&self, user_id: uuid::Uuid) -> Result<models::NewNode<'_>> {
-        let properties = self.r#type.as_ref().ok_or_else(required("node.type"))?;
-        let properties: models::NodePropertiesWithId = serde_json::from_str(properties)?;
+        let properties: models::NodePropertiesWithId = serde_json::from_str(&self.r#type)?;
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4(),
-            org_id: self
-                .org_id
-                .as_ref()
-                .ok_or_else(required("node.org_id"))?
-                .parse()?,
+            org_id: self.org_id.parse()?,
             name: petname::petname(3, "_"),
-            groups: self.groups.join(","),
+            groups: "".to_string(),
             version: self.version.as_deref(),
-            blockchain_id: self
-                .blockchain_id
-                .as_ref()
-                .ok_or_else(required("node.blockchain_id"))?
-                .parse()?,
+            blockchain_id: self.blockchain_id.parse()?,
             properties: serde_json::to_value(properties.props)?,
-            address: self.address.as_deref(),
-            wallet_address: self.wallet_address.as_deref(),
-            block_height: self.block_height,
-            node_data: self
-                .node_data
-                .as_deref()
-                .map(serde_json::from_slice)
-                .transpose()?,
-            chain_status: self
-                .status
-                .ok_or_else(required("node.status"))?
-                .try_into()?,
+            address: None,
+            wallet_address: None,
+            block_height: None,
+            node_data: None,
+            chain_status: models::NodeChainStatus::Provisioning,
             sync_status: models::NodeSyncStatus::Unknown,
             staking_status: models::NodeStakingStatus::Unknown,
             container_status: models::ContainerStatus::Unknown,
-            self_update: self.self_update.unwrap_or(false),
+            self_update: false,
             vcpu_count: 0,
             mem_size_mb: 0,
             disk_size_gb: 0,
-            network: self
-                .network
-                .as_deref()
-                .ok_or_else(required("node.network"))?,
+            network: &self.network,
             node_type: properties.id.try_into()?,
             created_by: user_id,
         })
     }
+}
 
+impl blockjoy_ui::UpdateNodeRequest {
     fn as_update(&self) -> Result<models::UpdateNode<'_>> {
         Ok(models::UpdateNode {
-            id: self.id.as_ref().ok_or_else(required("node.id"))?.parse()?,
-            name: self.name.as_deref(),
+            id: self.id.parse()?,
+            // Updating node names is not allowed, this would make Alexey extremely sad.
+            name: None,
             version: self.version.as_deref(),
-            ip_addr: self.ip.as_deref(),
+            ip_addr: None,
             block_height: None,
-            node_data: self
-                .node_data
-                .as_deref()
-                .map(serde_json::from_slice)
-                .transpose()?,
+            node_data: None,
             chain_status: None,
             sync_status: None,
             staking_status: None,
             container_status: None,
-            self_update: self.self_update,
+            self_update: None,
         })
     }
 }
@@ -291,12 +267,12 @@ impl NodeService for super::GrpcImpl {
         }
 
         let inner = request.into_inner();
+        let new_node = inner.as_new(user.id)?;
         let (node, ui_node, node_msg, create_msg, restart_msg) = self
             .db
             .trx(|c| {
                 async move {
-                    let node = inner.node.as_ref().ok_or_else(required("node"))?;
-                    let node = node.as_new(user.id)?.create(c).await?;
+                    let node = new_node.create(c).await?;
 
                     let node_msg = blockjoy_ui::NodeMessage::created(node.clone(), c).await?;
 
@@ -366,11 +342,7 @@ impl NodeService for super::GrpcImpl {
         let user_id = token.id;
         let token = token.try_into()?;
         let inner = request.into_inner();
-        let update_node = inner
-            .node
-            .as_ref()
-            .ok_or_else(required("node"))?
-            .as_update()?;
+        let update_node = inner.as_update()?;
 
         let msg = self
             .db
