@@ -93,22 +93,24 @@ impl OrganizationService for super::GrpcImpl {
             name: &name,
             is_personal: false,
         };
-        let (org_id, msg) = self
+        let (org, msg) = self
             .db
             .trx(|c| {
                 async move {
                     let org = new_org.create(user_id, c).await?;
                     let user = models::User::find_by_id(user_id, c).await?;
-                    Ok((org.id, blockjoy_ui::OrgMessage::created(org, user)?))
+                    let ui_org = blockjoy_ui::Organization::from_model(org.clone())?;
+                    Ok((ui_org, blockjoy_ui::OrgMessage::created(org, user)?))
                 }
                 .scope_boxed()
             })
             .await?;
         self.notifier.ui_orgs_sender()?.send(&msg).await?;
-        let response_meta =
-            ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(org_id);
+        let response_meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))
+            .with_message(org.id.as_deref().unwrap());
         let inner = CreateOrganizationResponse {
             meta: Some(response_meta),
+            organization: Some(org),
         };
         response_with_refresh_token(refresh_token, inner)
     }

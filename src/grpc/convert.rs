@@ -306,7 +306,7 @@ pub mod from {
     impl From<NodeChainStatus> for GrpcNodeStatus {
         fn from(ncs: NodeChainStatus) -> Self {
             match ncs {
-                NodeChainStatus::Unknown => GrpcNodeStatus::UndefinedApplicationStatus,
+                NodeChainStatus::Unknown => GrpcNodeStatus::Unspecified,
                 NodeChainStatus::Provisioning => GrpcNodeStatus::Provisioning,
                 NodeChainStatus::Broadcasting => GrpcNodeStatus::Broadcasting,
                 NodeChainStatus::Cancelled => GrpcNodeStatus::Cancelled,
@@ -331,7 +331,7 @@ pub mod from {
     impl From<NodeSyncStatus> for GrpcSyncStatus {
         fn from(nss: NodeSyncStatus) -> Self {
             match nss {
-                NodeSyncStatus::Unknown => GrpcSyncStatus::UndefinedSyncStatus,
+                NodeSyncStatus::Unknown => GrpcSyncStatus::Unspecified,
                 NodeSyncStatus::Synced => GrpcSyncStatus::Synced,
                 NodeSyncStatus::Syncing => GrpcSyncStatus::Syncing,
             }
@@ -341,7 +341,7 @@ pub mod from {
     impl From<NodeStakingStatus> for GrpcStakingStatus {
         fn from(nss: NodeStakingStatus) -> Self {
             match nss {
-                NodeStakingStatus::Unknown => GrpcStakingStatus::UndefinedStakingStatus,
+                NodeStakingStatus::Unknown => GrpcStakingStatus::Unspecified,
                 NodeStakingStatus::Staked => GrpcStakingStatus::Staked,
                 NodeStakingStatus::Staking => GrpcStakingStatus::Staking,
                 NodeStakingStatus::Validating => GrpcStakingStatus::Validating,
