@@ -9,13 +9,13 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
-#[derive(Debug, Queryable)]
+#[derive(Debug, Clone, Queryable)]
 pub struct Org {
     pub org: OrgWithoutMembers,
     pub members: i64,
 }
 
-#[derive(Debug, Queryable)]
+#[derive(Debug, Clone, Queryable)]
 pub struct OrgWithoutMembers {
     pub id: Uuid,
     pub name: String,

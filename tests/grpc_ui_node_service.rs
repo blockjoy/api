@@ -40,7 +40,7 @@ async fn responds_ok_with_valid_data_for_create() {
         host_id: Some(host.id.to_string()),
         org_id: Some(org.id.to_string()),
         blockchain_id: Some(blockchain.id.to_string()),
-        status: Some(node::NodeStatus::UndefinedApplicationStatus as i32),
+        status: Some(node::NodeStatus::Unspecified as i32),
         r#type: Some(
             serde_json::to_string(&serde_json::json!({
                 "id": 3,
@@ -71,7 +71,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
     let node = blockjoy_ui::Node {
         // This is required so the test should fail:
         org_id: None,
-        status: Some(node::NodeStatus::UndefinedApplicationStatus as i32),
+        status: Some(node::NodeStatus::Unspecified as i32),
         r#type: Some(
             serde_json::to_string(&models::NodePropertiesWithId {
                 id: models::NodeType::Api.into(),
