@@ -264,7 +264,7 @@ impl<'a> NewOrg<'a> {
 #[diesel(table_name = orgs)]
 pub struct UpdateOrg<'a> {
     pub id: uuid::Uuid,
-    pub name: &'a str,
+    pub name: Option<&'a str>,
 }
 
 impl<'a> UpdateOrg<'a> {

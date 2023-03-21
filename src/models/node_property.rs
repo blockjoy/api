@@ -3,11 +3,11 @@ use crate::errors::ApiError;
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NodePropertyValue {
     pub name: String,
-    label: String,
-    description: String,
-    ui_type: String,
-    disabled: bool,
-    required: bool,
+    pub label: String,
+    pub description: String,
+    pub ui_type: String,
+    pub disabled: bool,
+    pub required: bool,
     pub value: Option<String>,
 }
 

@@ -27,7 +27,6 @@ async fn responds_not_found_with_valid_token_for_delete() {
     assert_eq!(status.code(), tonic::Code::NotFound);
 }
 
-/// THOMAS: Why do we create a node before having the user delete themselves?
 #[tokio::test]
 async fn responds_ok_with_valid_token_for_delete() {
     let tester = setup::Tester::new().await;
@@ -56,19 +55,13 @@ async fn responds_unauthenticated_without_valid_token_for_get() {
 #[tokio::test]
 async fn responds_ok_without_token_for_create() {
     let tester = setup::Tester::new().await;
-    let user = blockjoy_ui::User {
-        id: None,
-        email: Some("hugo@boss.com".to_string()),
-        first_name: Some("Hugo".to_string()),
-        last_name: Some("The Bossman".to_string()),
-        created_at: None,
-        updated_at: None,
-    };
     let req = blockjoy_ui::CreateUserRequest {
         meta: Some(tester.meta()),
+        email: "hugo@boss.com".to_string(),
+        first_name: "Hugo".to_string(),
+        last_name: "The Bossman".to_string(),
         password: "abcde12345".to_string(),
         password_confirmation: "abcde12345".to_string(),
-        user: Some(user),
     };
     tester.send(Service::create, req).await.unwrap();
 }
@@ -77,17 +70,13 @@ async fn responds_ok_without_token_for_create() {
 async fn responds_error_with_existing_email_for_create() {
     let tester = setup::Tester::new().await;
     let user = tester.admin_user().await;
-    let grpc_user = blockjoy_ui::User {
-        email: Some(user.email),
-        first_name: Some(user.first_name),
-        last_name: Some(user.last_name),
-        ..Default::default()
-    };
     let req = blockjoy_ui::CreateUserRequest {
         meta: Some(tester.meta()),
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
         password: "abcde12345".to_string(),
         password_confirmation: "abcde12345".to_string(),
-        user: Some(grpc_user),
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
@@ -96,19 +85,13 @@ async fn responds_error_with_existing_email_for_create() {
 #[tokio::test]
 async fn responds_error_with_different_pwds_for_create() {
     let tester = setup::Tester::new().await;
-    let user = blockjoy_ui::User {
-        id: None,
-        email: Some("hugo@boss.com".to_string()),
-        first_name: Some("Hugo".to_string()),
-        last_name: Some("Boss".to_string()),
-        created_at: None,
-        updated_at: None,
-    };
     let req = blockjoy_ui::CreateUserRequest {
         meta: Some(tester.meta()),
+        email: "hugo@boss.com".to_string(),
+        first_name: "Hugo".to_string(),
+        last_name: "Boss".to_string(),
         password: "abcde12345".to_string(),
         password_confirmation: "54321edcba".to_string(),
-        user: Some(user),
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
@@ -117,17 +100,11 @@ async fn responds_error_with_different_pwds_for_create() {
 #[tokio::test]
 async fn responds_permission_denied_with_diff_users_for_update() {
     let tester = setup::Tester::new().await;
-    let grpc_user = blockjoy_ui::User {
-        id: Some(uuid::Uuid::new_v4().to_string()),
-        email: Some("hugo@boss.com".to_string()),
-        first_name: Some("Hugo".to_string()),
-        last_name: Some("Boss".to_string()),
-        created_at: None,
-        updated_at: None,
-    };
     let req = blockjoy_ui::UpdateUserRequest {
         meta: Some(tester.meta()),
-        user: Some(grpc_user),
+        id: uuid::Uuid::new_v4().to_string(),
+        first_name: Some("Hugo".to_string()),
+        last_name: Some("Boss".to_string()),
     };
     let status = tester.send_admin(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::PermissionDenied);
@@ -137,17 +114,11 @@ async fn responds_permission_denied_with_diff_users_for_update() {
 async fn responds_ok_with_equal_users_for_update() {
     let tester = setup::Tester::new().await;
     let user = tester.admin_user().await;
-    let grpc_user = blockjoy_ui::User {
-        id: Some(user.id.to_string()),
-        email: None,
-        first_name: Some("Hugo".to_string()),
-        last_name: Some("Boss".to_string()),
-        created_at: None,
-        updated_at: None,
-    };
     let req = blockjoy_ui::UpdateUserRequest {
         meta: Some(tester.meta()),
-        user: Some(grpc_user),
+        id: user.id.to_string(),
+        first_name: Some("Hugo".to_string()),
+        last_name: Some("Boss".to_string()),
     };
     tester.send_admin(Service::update, req).await.unwrap();
 }

@@ -17,6 +17,15 @@ pub enum ConnectionStatus {
     Offline,
 }
 
+impl From<ConnectionStatus> for i32 {
+    fn from(value: ConnectionStatus) -> Self {
+        match value {
+            ConnectionStatus::Online => 1,
+            ConnectionStatus::Offline => 2,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumHostType"]
 pub enum HostType {

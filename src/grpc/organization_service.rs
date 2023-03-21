@@ -21,10 +21,10 @@ impl blockjoy_ui::Organization {
     pub fn from_model(model: models::Org) -> crate::Result<Self> {
         let (model, member_count) = (model.org, model.members);
         let org = Self {
-            id: Some(model.id.to_string()),
-            name: Some(model.name),
-            personal: Some(model.is_personal),
-            member_count: Some(member_count),
+            id: model.id.to_string(),
+            name: model.name,
+            personal: model.is_personal,
+            member_count: member_count.try_into()?,
             created_at: Some(convert::try_dt_to_ts(model.created_at)?),
             updated_at: Some(convert::try_dt_to_ts(model.updated_at)?),
             current_user: None,
@@ -58,13 +58,8 @@ impl OrganizationService for super::GrpcImpl {
             .map(Organization::from_model)
             .collect::<crate::Result<Vec<_>>>()?;
 
-        for mut org in &mut organizations {
-            let org_id: Uuid = org
-                .id
-                .as_ref()
-                .ok_or_else(required("org.id"))?
-                .parse()
-                .map_err(ApiError::UuidParseError)?;
+        for org in &mut organizations {
+            let org_id: Uuid = org.id.parse().map_err(ApiError::UuidParseError)?;
             let user = models::Org::find_org_user(user_id, org_id, &mut conn)
                 .await?
                 .into();
@@ -87,18 +82,16 @@ impl OrganizationService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let user_id = token.id;
         let inner = request.into_inner();
-        let org = inner.organization.ok_or_else(required("organization"))?;
-        let name = org.name.ok_or_else(required("organization.name"))?;
         let new_org = models::NewOrg {
-            name: &name,
+            name: &inner.name,
             is_personal: false,
         };
         let (org, msg) = self
             .db
             .trx(|c| {
                 async move {
-                    let org = new_org.create(user_id, c).await?;
                     let user = models::User::find_by_id(user_id, c).await?;
+                    let org = new_org.create(user.id, c).await?;
                     let ui_org = blockjoy_ui::Organization::from_model(org.clone())?;
                     Ok((ui_org, blockjoy_ui::OrgMessage::created(org, user)?))
                 }
@@ -106,8 +99,8 @@ impl OrganizationService for super::GrpcImpl {
             })
             .await?;
         self.notifier.ui_orgs_sender()?.send(&msg).await?;
-        let response_meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))
-            .with_message(org.id.as_deref().unwrap());
+        let response_meta =
+            ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(&org.id);
         let inner = CreateOrganizationResponse {
             meta: Some(response_meta),
             organization: Some(org),
@@ -124,15 +117,10 @@ impl OrganizationService for super::GrpcImpl {
         let user_id = token.id;
         let token = token.try_into()?;
         let inner = request.into_inner();
-        let org = inner.organization.ok_or_else(required("organization"))?;
-        let org_id = org
-            .id
-            .ok_or_else(required("organization.id"))?
-            .parse()
-            .map_err(ApiError::from)?;
+        let org_id = inner.id.parse().map_err(ApiError::from)?;
         let update = models::UpdateOrg {
             id: org_id,
-            name: &org.name.ok_or_else(required("organization.name"))?,
+            name: inner.name.as_deref(),
         };
 
         let msg = self

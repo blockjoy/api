@@ -1,7 +1,6 @@
 mod setup;
 
 use api::grpc::blockjoy_ui::{self, node_service_client};
-use api::models;
 use tonic::transport;
 
 type Service = node_service_client::NodeServiceClient<transport::Channel>;
@@ -38,12 +37,8 @@ async fn responds_ok_with_valid_data_for_create() {
         meta: Some(tester.meta()),
         org_id: org.id.to_string(),
         blockchain_id: blockchain.id.to_string(),
-        r#type: serde_json::to_string(&serde_json::json!({
-            "id": 3,
-            "version": "3.3.0",
-            "properties": [],
-        }))
-        .unwrap(),
+        r#type: blockjoy_ui::node::NodeType::Validator.into(),
+        properties: vec![],
         version: Some("3.3.0".into()),
         network: "some network".to_string(),
     };
@@ -59,14 +54,8 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         // This is an invalid uuid so the api call should fail.
         org_id: "wowowowowow".to_string(),
         blockchain_id: blockchain.id.to_string(),
-        r#type: serde_json::to_string(&models::NodePropertiesWithId {
-            id: models::NodeType::Api.into(),
-            props: models::NodeProperties {
-                version: None,
-                properties: Some(vec![]),
-            },
-        })
-        .unwrap(),
+        r#type: blockjoy_ui::node::NodeType::Api.into(),
+        properties: vec![],
         version: Some("3.3.0".into()),
         network: "some network".to_string(),
     };

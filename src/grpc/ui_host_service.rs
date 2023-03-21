@@ -21,74 +21,60 @@ impl blockjoy_ui::Host {
         let nodes = models::Node::find_all_by_host(model.id, conn).await?;
         let nodes = blockjoy_ui::Node::from_models(nodes, conn).await?;
         let dto = Self {
-            id: Some(model.id.to_string()),
-            org_id: None,
-            name: Some(model.name),
+            id: model.id.to_string(),
+            name: model.name,
             version: model.version,
             location: model.location,
-            cpu_count: model.cpu_count,
-            mem_size: model.mem_size,
-            disk_size: model.disk_size,
+            cpu_count: model.cpu_count.map(|n| n.try_into()).transpose()?,
+            mem_size: model.mem_size.map(|n| n.try_into()).transpose()?,
+            disk_size: model.disk_size.map(|n| n.try_into()).transpose()?,
             os: model.os,
             os_version: model.os_version,
-            ip: Some(model.ip_addr),
-            status: None,
+            ip: model.ip_addr,
+            status: model.status.into(),
             nodes,
             created_at: Some(convert::try_dt_to_ts(model.created_at)?),
-            ip_range_from: model.ip_range_from.map(|ip| ip.to_string()),
-            ip_range_to: model.ip_range_to.map(|ip| ip.to_string()),
-            ip_gateway: model.ip_gateway.map(|ip| ip.to_string()),
+            ip_range_from: model.ip_range_from.map(|ip| ip.ip().to_string()),
+            ip_range_to: model.ip_range_to.map(|ip| ip.ip().to_string()),
+            ip_gateway: model.ip_gateway.map(|ip| ip.ip().to_string()),
         };
         Ok(dto)
     }
+}
 
+impl blockjoy_ui::CreateHostRequest {
     pub fn as_new(&self) -> crate::Result<models::NewHost<'_>> {
         Ok(models::NewHost {
-            name: self.name.as_deref().ok_or_else(required("host.name"))?,
+            name: &self.name,
             version: self.version.as_deref(),
             location: self.location.as_deref(),
-            cpu_count: self.cpu_count,
-            mem_size: self.mem_size,
-            disk_size: self.disk_size,
+            cpu_count: self.cpu_count.map(|n| n.try_into()).transpose()?,
+            mem_size: self.mem_size.map(|n| n.try_into()).transpose()?,
+            disk_size: self.disk_size.map(|n| n.try_into()).transpose()?,
             os: self.os.as_deref(),
             os_version: self.os_version.as_deref(),
-            ip_addr: self.ip.as_deref().ok_or_else(required("host.ip"))?,
+            ip_addr: &self.ip_addr,
             status: models::ConnectionStatus::Online,
-            ip_range_from: Some(
-                self.ip_range_from
-                    .as_ref()
-                    .ok_or_else(required("host.ip_range_from"))?
-                    .parse()?,
-            ),
-
-            ip_range_to: Some(
-                self.ip_range_to
-                    .as_ref()
-                    .ok_or_else(required("host.ip_range_to"))?
-                    .parse()?,
-            ),
-
-            ip_gateway: Some(
-                self.ip_gateway
-                    .as_ref()
-                    .ok_or_else(required("host.ip_gateway"))?
-                    .parse()?,
-            ),
+            ip_range_from: Some(self.ip_range_from.parse()?),
+            ip_range_to: Some(self.ip_range_to.parse()?),
+            ip_gateway: Some(self.ip_gateway.parse()?),
         })
     }
+}
 
+impl blockjoy_ui::UpdateHostRequest {
     pub fn as_update(&self) -> crate::Result<models::UpdateHost<'_>> {
         Ok(models::UpdateHost {
-            id: self.id.as_ref().ok_or_else(required("host.id"))?.parse()?,
+            id: self.id.parse()?,
             name: self.name.as_deref(),
             version: self.version.as_deref(),
             location: self.location.as_deref(),
-            cpu_count: self.cpu_count,
-            mem_size: self.mem_size,
-            disk_size: self.disk_size,
+            cpu_count: None,
+            mem_size: None,
+            disk_size: None,
             os: self.os.as_deref(),
             os_version: self.os_version.as_deref(),
-            ip_addr: self.ip.as_deref(),
+            ip_addr: None,
             status: None,
             ip_range_from: None,
             ip_range_to: None,
@@ -152,19 +138,8 @@ impl HostService for super::GrpcImpl {
     ) -> Result<Response<CreateHostResponse>, Status> {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
-        self.db
-            .trx(|c| {
-                async move {
-                    inner
-                        .host
-                        .ok_or_else(required("host"))?
-                        .as_new()?
-                        .create(c)
-                        .await
-                }
-                .scope_boxed()
-            })
-            .await?;
+        let new_host = inner.as_new()?;
+        self.db.trx(|c| new_host.create(c).scope_boxed()).await?;
         let response = CreateHostResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
@@ -178,19 +153,8 @@ impl HostService for super::GrpcImpl {
     ) -> Result<Response<UpdateHostResponse>, Status> {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
-        self.db
-            .trx(|c| {
-                async move {
-                    inner
-                        .host
-                        .ok_or_else(required("host"))?
-                        .as_update()?
-                        .update(c)
-                        .await
-                }
-                .scope_boxed()
-            })
-            .await?;
+        let updater = inner.as_update()?;
+        self.db.trx(|c| updater.update(c).scope_boxed()).await?;
         let response = UpdateHostResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };

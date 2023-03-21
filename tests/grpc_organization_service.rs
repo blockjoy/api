@@ -12,18 +12,9 @@ type Service = organization_service_client::OrganizationServiceClient<transport:
 #[tokio::test]
 async fn responds_ok_for_create() {
     let tester = setup::Tester::new().await;
-    let org = blockjoy_ui::Organization {
-        name: Some("new-org".to_string()),
-        id: None,
-        created_at: None,
-        updated_at: None,
-        member_count: None,
-        personal: None,
-        current_user: None,
-    };
     let req = blockjoy_ui::CreateOrganizationRequest {
         meta: Some(tester.meta()),
-        organization: Some(org),
+        name: "new-org".to_string(),
     };
     tester.send_admin(Service::create, req).await.unwrap();
 }
@@ -55,18 +46,10 @@ async fn responds_ok_for_update() {
     let tester = setup::Tester::new().await;
     let user = tester.admin_user().await;
     let org_id = tester.org_for(&user).await.id.to_string();
-    let org = blockjoy_ui::Organization {
-        name: Some("new-org-asdf".to_string()),
-        id: Some(org_id),
-        created_at: None,
-        updated_at: None,
-        member_count: None,
-        personal: None,
-        current_user: None,
-    };
     let req = blockjoy_ui::UpdateOrganizationRequest {
         meta: Some(tester.meta()),
-        organization: Some(org),
+        id: org_id,
+        name: Some("new-org-asdf".to_string()),
     };
     tester.send_admin(Service::update, req).await.unwrap();
 }
@@ -141,7 +124,7 @@ async fn member_count_works() {
         meta: Some(tester.meta()),
     };
     let mut resp = tester.send_admin(Service::get, req).await.unwrap();
-    let n_members = resp.organizations.pop().unwrap().member_count.unwrap();
+    let n_members = resp.organizations.pop().unwrap().member_count;
     assert_eq!(n_members, 1);
 
     // Now we invite someone new.
@@ -176,7 +159,7 @@ async fn member_count_works() {
         meta: Some(tester.meta()),
     };
     let mut resp = tester.send_admin(Service::get, req).await.unwrap();
-    let n_members = resp.organizations.pop().unwrap().member_count.unwrap();
+    let n_members = resp.organizations.pop().unwrap().member_count;
     assert_eq!(n_members, 2);
 
     // Now we perform the same assertion for querying in bulk:
@@ -188,8 +171,8 @@ async fn member_count_works() {
     let org_resp = resp
         .organizations
         .into_iter()
-        .find(|o| o.id.as_deref().unwrap() == org.id.to_string())
+        .find(|o| o.id == org.id.to_string())
         .unwrap();
-    let n_members = org_resp.member_count.unwrap();
+    let n_members = org_resp.member_count;
     assert_eq!(n_members, 2);
 }

@@ -174,21 +174,6 @@ pub mod from {
     use anyhow::anyhow;
     use tonic::{Code, Status};
 
-    // impl TryFrom<&blockjoy_ui::User> for UpdateUser<'_> {
-    //     type Error = ApiError;
-
-    //     fn try_from(user: &blockjoy_ui::User) -> crate::Result<Self> {
-    //         Ok(Self {
-    //             id: user.id.as_ref().ok_or_else(required("user.id"))?.parse()?,
-    //             first_name: user.first_name.as_deref(),
-    //             last_name: user.last_name.as_deref(),
-    //             fee_bps: None,
-    //             staking_quota: None,
-    //             refresh: None,
-    //         })
-    //     }
-    // }
-
     impl TryFrom<&UserAuthToken> for grpc::blockjoy_ui::ApiToken {
         type Error = ApiError;
 
@@ -233,33 +218,6 @@ pub mod from {
                 org_id: None,
             };
             Ok(hp)
-        }
-    }
-
-    impl TryFrom<models::Host> for blockjoy_ui::Host {
-        type Error = ApiError;
-
-        fn try_from(value: models::Host) -> Result<Self, Self::Error> {
-            let host = Self {
-                id: Some(value.id.to_string()),
-                name: Some(value.name),
-                version: value.version,
-                location: value.location,
-                cpu_count: value.cpu_count,
-                mem_size: value.mem_size,
-                disk_size: value.disk_size,
-                os: value.os,
-                os_version: value.os_version,
-                ip: Some(value.ip_addr),
-                status: Some(value.status as i32),
-                nodes: vec![],
-                created_at: Some(try_dt_to_ts(value.created_at)?),
-                ip_range_from: value.ip_range_from.map(|ip| ip.to_string()),
-                ip_range_to: value.ip_range_to.map(|ip| ip.to_string()),
-                ip_gateway: value.ip_gateway.map(|ip| ip.to_string()),
-                org_id: None, // TODO
-            };
-            Ok(host)
         }
     }
 

@@ -14,10 +14,21 @@ use crate::models::User;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 
-impl blockjoy_ui::User {
+impl blockjoy_ui::CreateUserRequest {
+    fn as_new(&self) -> crate::Result<models::NewUser> {
+        models::NewUser::new(
+            &self.email,
+            &self.first_name,
+            &self.last_name,
+            &self.password,
+        )
+    }
+}
+
+impl blockjoy_ui::UpdateUserRequest {
     pub fn as_update(&self) -> crate::Result<models::UpdateUser<'_>> {
         Ok(models::UpdateUser {
-            id: self.id.as_ref().ok_or_else(required("user.id"))?.parse()?,
+            id: self.id.parse()?,
             first_name: self.first_name.as_deref(),
             last_name: self.last_name.as_deref(),
 
@@ -27,13 +38,15 @@ impl blockjoy_ui::User {
             refresh: None,
         })
     }
+}
 
+impl blockjoy_ui::User {
     pub fn from_model(model: models::User) -> crate::Result<Self> {
         let user = Self {
-            id: Some(model.id.to_string()),
-            email: Some(model.email),
-            first_name: Some(model.first_name),
-            last_name: Some(model.last_name),
+            id: model.id.to_string(),
+            email: model.email,
+            first_name: model.first_name,
+            last_name: model.last_name,
             created_at: Some(convert::try_dt_to_ts(model.created_at)?),
             updated_at: None,
         };
@@ -65,20 +78,10 @@ impl UserService for super::GrpcImpl {
         request: Request<CreateUserRequest>,
     ) -> Result<Response<CreateUserResponse>, Status> {
         let inner = request.into_inner();
-        let user = inner.user.ok_or_else(required("user"))?;
         if inner.password != inner.password_confirmation {
             return Err(Status::invalid_argument("Passwords don't match"));
         }
-        let new_user = models::NewUser::new(
-            user.email.as_deref().ok_or_else(required("email"))?,
-            user.first_name
-                .as_deref()
-                .ok_or_else(required("first_name"))?,
-            user.last_name
-                .as_deref()
-                .ok_or_else(required("last_name"))?,
-            &inner.password,
-        )?;
+        let new_user = inner.as_new()?;
         let new_user = self.db.trx(|c| new_user.create(c).scope_boxed()).await?;
         let meta = ResponseMeta::from_meta(inner.meta, None).with_message(new_user.id);
         let response = CreateUserResponse { meta: Some(meta) };
@@ -106,13 +109,12 @@ impl UserService for super::GrpcImpl {
                 async move {
                     let user_id = token.try_get_user(token.id, c).await?.id;
                     let inner = request.into_inner();
-                    let user = inner.user.ok_or_else(required("user"))?;
 
                     // Check if current user is the same as the one to be updated
-                    if user_id.to_string() != user.id() {
+                    if user_id.to_string() != inner.id {
                         super::bail_unauthorized!("You are not allowed to update this user");
                     }
-                    let user = user.as_update()?.update(c).await?;
+                    let user = inner.as_update()?.update(c).await?;
                     let response_meta =
                         ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
                     Ok(UpdateUserResponse {

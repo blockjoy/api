@@ -73,10 +73,13 @@ impl blockjoy_ui::Node {
         blockchain: &models::Blockchain,
         user: Option<&models::User>,
     ) -> Result<Self> {
-        let properties = models::NodePropertiesWithId {
-            id: node.node_type.into(),
-            props: node.properties()?,
-        };
+        let properties = node
+            .properties()?
+            .properties
+            .into_iter()
+            .flatten()
+            .map(blockjoy_ui::node::NodeProperty::from_model)
+            .collect();
         Ok(Self {
             id: node.id.to_string(),
             org_id: node.org_id.to_string(),
@@ -87,7 +90,8 @@ impl blockjoy_ui::Node {
             version: node.version,
             ip: node.ip_addr,
             ip_gateway: node.ip_gateway,
-            r#type: serde_json::to_string(&properties)?,
+            r#type: node.node_type.into(),
+            properties,
             block_height: node.block_height.map(i64::from),
             created_at: Some(convert::try_dt_to_ts(node.created_at)?),
             updated_at: Some(convert::try_dt_to_ts(node.updated_at)?),
@@ -107,9 +111,46 @@ impl blockjoy_ui::Node {
     }
 }
 
+impl blockjoy_ui::node::NodeProperty {
+    fn from_model(model: models::NodePropertyValue) -> Self {
+        Self {
+            name: model.name,
+            label: model.label,
+            description: model.description,
+            ui_type: model.ui_type,
+            disabled: model.disabled,
+            required: model.required,
+            value: model.value,
+        }
+    }
+
+    fn into_model(self) -> models::NodePropertyValue {
+        models::NodePropertyValue {
+            name: self.name,
+            label: self.label,
+            description: self.description,
+            ui_type: self.ui_type,
+            disabled: self.disabled,
+            required: self.required,
+            value: self.value,
+        }
+    }
+}
+
 impl blockjoy_ui::CreateNodeRequest {
     pub fn as_new(&self, user_id: uuid::Uuid) -> Result<models::NewNode<'_>> {
-        let properties: models::NodePropertiesWithId = serde_json::from_str(&self.r#type)?;
+        let properties = models::NodePropertiesWithId {
+            id: self.r#type,
+            props: models::NodeProperties {
+                version: self.version.clone(),
+                properties: Some(
+                    self.properties
+                        .iter()
+                        .map(|p| blockjoy_ui::node::NodeProperty::into_model(p.clone()))
+                        .collect(),
+                ),
+            },
+        };
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4(),
             org_id: self.org_id.parse()?,

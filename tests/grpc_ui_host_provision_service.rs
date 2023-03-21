@@ -41,7 +41,9 @@ async fn responds_error_with_invalid_provision_for_create() {
     let tester = setup::Tester::new().await;
     let req = blockjoy_ui::CreateHostProvisionRequest {
         meta: Some(tester.meta()),
-        host_provision: None,
+        ip_range_from: "192.168.0.1".to_string(),
+        ip_range_to: "192.168.0.10".to_string(),
+        ip_gateway: "192.168.0.20".to_string(),
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
@@ -50,15 +52,11 @@ async fn responds_error_with_invalid_provision_for_create() {
 #[tokio::test]
 async fn responds_ok_with_valid_provision_for_create() {
     let tester = setup::Tester::new().await;
-    let provision = blockjoy_ui::HostProvision {
-        ip_gateway: "192.168.0.1".parse().unwrap(),
-        ip_range_from: "192.168.0.10".parse().unwrap(),
-        ip_range_to: "192.168.0.20".parse().unwrap(),
-        ..Default::default()
-    };
     let req = blockjoy_ui::CreateHostProvisionRequest {
         meta: Some(tester.meta()),
-        host_provision: Some(provision),
+        ip_range_from: "192.168.0.1".to_string(),
+        ip_range_to: "192.168.0.10".to_string(),
+        ip_gateway: "192.168.0.20".to_string(),
     };
     tester.send_admin(Service::create, req).await.unwrap();
 }

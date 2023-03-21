@@ -16,7 +16,9 @@ message GetHostProvisionResponse {
 
 message CreateHostProvisionRequest {
   RequestMeta meta = 1;
-  HostProvision host_provision = 2;
+  string ip_range_from = 2;
+  string ip_range_to = 3;
+  string ip_gateway = 4;
 }
 
 message CreateHostProvisionResponse {

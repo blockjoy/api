@@ -14,6 +14,17 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncPgConnection;
 use tonic::{Request, Response, Status};
 
+impl blockjoy_ui::CreateHostProvisionRequest {
+    fn as_new(&self) -> crate::Result<models::NewHostProvision> {
+        models::NewHostProvision::new(
+            None,
+            self.ip_range_from.parse()?,
+            self.ip_range_to.parse()?,
+            self.ip_gateway.parse()?,
+        )
+    }
+}
+
 impl blockjoy_ui::HostProvision {
     fn from_model(hp: models::HostProvision, _conn: &mut AsyncPgConnection) -> Result<Self> {
         let install_cmd = hp.install_cmd();
@@ -38,15 +49,6 @@ impl blockjoy_ui::HostProvision {
                 .ok_or_else(required("host_provision.ip_gateway"))?,
         };
         Ok(hp)
-    }
-
-    fn as_new(&self) -> crate::Result<models::NewHostProvision> {
-        models::NewHostProvision::new(
-            None,
-            self.ip_range_from.parse()?,
-            self.ip_range_to.parse()?,
-            self.ip_gateway.parse()?,
-        )
     }
 }
 
@@ -75,20 +77,11 @@ impl HostProvisionService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let refresh_token = get_refresh_token(&request);
         let inner = request.into_inner();
+        let new_provision = inner.as_new()?;
 
         let provision = self
             .db
-            .trx(|c| {
-                async move {
-                    inner
-                        .host_provision
-                        .ok_or_else(required("host_provision"))?
-                        .as_new()?
-                        .create(c)
-                        .await
-                }
-                .scope_boxed()
-            })
+            .trx(|c| new_provision.create(c).scope_boxed())
             .await?;
 
         let meta = ResponseMeta::from_meta(inner.meta, Some(token)).with_message(provision.id);

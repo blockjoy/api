@@ -23,29 +23,13 @@ message CreateNodeRequest {
   // The version of the node software that is ran. If this is not provided, the
   // latest version is used.
   optional string version = 4;
-  // A json string of the form:
-  // ```json
-  // {
-  //   "id": 3,
-  //   "version": "0.0.3",
-  //   "properties": [
-  //     {
-  //         "name": "keystore-file",
-  //         "label": "some-label",
-  //         "description": "please put your file here",
-  //         "ui_type": "key-upload",
-  //         "disabled": false,
-  //         "required": true,
-  //         "default": "wow!"
-  //     },
-  //   ]
-  // }
-  // ```
-  // 
-  string type = 5;
+  // The type of node that you want to create.
+  Node.NodeType type = 5;
+  // A list of properties.
+  repeated Node.NodeProperty properties = 6;
   // The network that the blockchain will be a part of. Many blockchains have a
   // dedicated test network, such as "goerli" for ethereum.
-  string network = 6;
+  string network = 7;
 }
 
 // Message returned when a node is created.
