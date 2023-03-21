@@ -20,7 +20,7 @@ impl blockjoy_ui::CreateHostProvisionRequest {
             None,
             self.ip_range_from.parse()?,
             self.ip_range_to.parse()?,
-            self.ip_gateway.parse()?,
+            dbg!(self.ip_gateway.parse())?,
         )
     }
 }
@@ -77,7 +77,7 @@ impl HostProvisionService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let refresh_token = get_refresh_token(&request);
         let inner = request.into_inner();
-        let new_provision = inner.as_new()?;
+        let new_provision = dbg!(inner.as_new())?;
 
         let provision = self
             .db

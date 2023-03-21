@@ -43,7 +43,7 @@ async fn responds_error_with_invalid_provision_for_create() {
         meta: Some(tester.meta()),
         ip_range_from: "192.168.0.1".to_string(),
         ip_range_to: "192.168.0.10".to_string(),
-        ip_gateway: "192.168.0.20".to_string(),
+        ip_gateway: "192.168.0.1000".to_string(),
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);

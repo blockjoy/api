@@ -97,28 +97,6 @@ impl std::fmt::Debug for ApiError {
     }
 }
 
-// impl From<sqlx::Error> for ApiError {
-//     fn from(e: sqlx::Error) -> Self {
-//         match e {
-//             sqlx::Error::RowNotFound => Self::NotFoundError(e),
-//             sqlx::Error::Database(dbe) if dbe.to_string().contains("duplicate key value") => {
-//                 Self::DuplicateResource {
-//                     // The string will look like:
-//                     // 'duplicate key blabla violation "node_key_files_name_node_id_key"'
-//                     // So we take the part after the first ", and before the second ".
-//                     constraint: dbe
-//                         .to_string()
-//                         .split('"')
-//                         .nth(1)
-//                         .unwrap_or("No contraint was given")
-//                         .to_owned(),
-//                 }
-//             }
-//             _ => Self::UnexpectedError(anyhow::Error::from(e)),
-//         }
-//     }
-// }
-
 impl From<RunError> for ApiError {
     fn from(value: RunError) -> Self {
         anyhow::anyhow!("Database pool is not behaving: {value}").into()

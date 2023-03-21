@@ -223,16 +223,18 @@ pub mod from {
 
     impl From<ApiError> for Status {
         fn from(e: ApiError) -> Self {
+            use ApiError::*;
+
             let msg = format!("{e:?}");
 
             match e {
-                ApiError::ValidationError(_) => Status::invalid_argument(msg),
-                ApiError::NotFoundError(_) => Status::not_found(msg),
-                ApiError::DuplicateResource { .. } => Status::invalid_argument(msg),
-                ApiError::InvalidAuthentication(_) => Status::unauthenticated(msg),
-                ApiError::InsufficientPermissionsError => Status::permission_denied(msg),
-                ApiError::UuidParseError(_) => Status::invalid_argument(msg),
-                ApiError::InvalidArgument(s) => s,
+                ValidationError(_) => Status::invalid_argument(msg),
+                NotFoundError(_) => Status::not_found(msg),
+                DuplicateResource { .. } => Status::invalid_argument(msg),
+                InvalidAuthentication(_) => Status::unauthenticated(msg),
+                InsufficientPermissionsError => Status::permission_denied(msg),
+                UuidParseError(_) | IpParseError(_) => Status::invalid_argument(msg),
+                InvalidArgument(s) => s,
                 _ => Status::internal(msg),
             }
         }
