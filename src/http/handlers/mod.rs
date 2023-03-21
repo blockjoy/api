@@ -32,7 +32,6 @@ pub async fn mqtt_acl(
 ) -> crate::Result<impl IntoResponse> {
     tracing::info!("Got acl payload: {payload:?}");
 
-    // TODO: Remove the unwraps, just for testing
     match determine_token_by_str(&payload.username) {
         Ok(TokenType::UserAuth) => {
             let policy = MqttUserPolicy { db };
@@ -47,7 +46,7 @@ pub async fn mqtt_acl(
             }
         }
         Ok(TokenType::HostAuth) => {
-            let policy = MqttHostPolicy;
+            let policy = MqttHostPolicy { db };
             if policy
                 .allow(&payload.username, &payload.topic)
                 .await

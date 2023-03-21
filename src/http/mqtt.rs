@@ -50,7 +50,9 @@ pub struct MqttUserPolicy {
     pub db: models::DbPool,
 }
 
-pub struct MqttHostPolicy;
+pub struct MqttHostPolicy {
+    pub db: models::DbPool,
+}
 
 #[tonic::async_trait]
 impl MqttAclPolicy for MqttUserPolicy {
@@ -92,15 +94,33 @@ impl MqttAclPolicy for MqttUserPolicy {
 impl MqttAclPolicy for MqttHostPolicy {
     async fn allow(&self, token: &str, topic: &str) -> MqttAclPolicyResult {
         let token = HostAuthToken::from_str(token)?;
-        let host_id = topic
-            .split('/')
-            .nth(3)
-            .ok_or("")
-            .map_err(|e| MqttPolicyError::Topic(anyhow!(e)))?;
-        let result = token.id.to_string().as_str() == host_id;
 
-        tracing::info!("MqttAclPolicy returns: {result}");
+        let is_allowed = if let Some(rest) = topic.strip_prefix("/bv/hosts/") {
+            let host_id: uuid::Uuid = rest
+                .get(..36)
+                .ok_or_else(|| anyhow!("`{rest}` is too short to contain a valid uuid"))?
+                .parse()?;
+            host_id == token.id
+        } else if let Some(rest) = topic.strip_prefix("/bv/nodes/") {
+            let node_id = rest
+                .get(..36)
+                .ok_or_else(|| anyhow!("`{rest}` is too short to contain a valid uuid"))?
+                .parse()?;
+            let mut conn = self
+                .db
+                .conn()
+                .await
+                .with_context(|| "Couldn't get database connection")?;
+            let node = models::Node::find_by_id(node_id, &mut conn)
+                .await
+                .with_context(|| "No such node")?;
+            node.host_id == token.id
+        } else {
+            false
+        };
 
-        Ok(result)
+        tracing::info!("MqttAclPolicy returns: {is_allowed}");
+
+        Ok(is_allowed)
     }
 }

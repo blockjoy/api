@@ -30,7 +30,7 @@ use crate::{auth::key_provider::KeyProvider, errors::Result, models};
 /// |---------------|----------------------------------------------|
 /// | hosts         | -                                            |
 /// |---------------|----------------------------------------------|
-/// | nodes         | /orgs/<org_id>/nodes/<node_id>               |
+/// | nodes         | /orgs/<org_id>/nodes                         |
 /// |               | /nodes/<node_id>                             |
 /// |---------------|----------------------------------------------|
 /// | commands      | /orgs/<org_id>/nodes/<node_id>/commands      |
