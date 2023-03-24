@@ -1,11 +1,16 @@
+use std::ops::Deref;
+
 use anyhow::anyhow;
 use diesel_async::AsyncPgConnection;
+use rumqttc::Packet;
 
 use super::{
     blockjoy,
     blockjoy_ui::{self, node_message, org_message},
 };
 use crate::{auth::key_provider::KeyProvider, errors::Result, models};
+const ONLINE: &[u8] = "online".as_bytes();
+const OFFLINE: &[u8] = "offline".as_bytes();
 
 /// Presents the following senders:
 ///
@@ -42,17 +47,22 @@ pub struct Notifier {
 }
 
 impl Notifier {
-    pub async fn new() -> Result<Self> {
+    /// The notifier needs a db pool in order to update the statuses of nodes to online and offline.
+    pub async fn new(db: models::DbPool) -> Result<Self> {
+        use rumqttc::Event::{Incoming, Outgoing};
+
         let options = Self::get_mqtt_options()?;
         let (client, mut event_loop) = rumqttc::AsyncClient::new(options, 10);
         client
-            .subscribe("/bv/hosts/#", rumqttc::QoS::AtLeastOnce)
+            .subscribe("/bv/hosts/+/status", rumqttc::QoS::AtLeastOnce)
             .await
             .unwrap();
         tokio::spawn(async move {
             loop {
                 match event_loop.poll().await {
-                    Ok(event) => println!("Successful polling event: {event:?}"),
+                    Ok(Incoming(Packet::Publish(p))) => Self::handle_packet(&db, p).await,
+                    Ok(Incoming(_)) => {}
+                    Ok(Outgoing(_)) => {}
                     Err(e) => {
                         tracing::warn!("MQTT failure, ignoring and continuing to poll: {e}");
                         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
@@ -108,6 +118,36 @@ impl Notifier {
         let mut options = rumqttc::MqttOptions::new(client_id, host, port);
         options.set_credentials(username, password);
         Ok(options)
+    }
+
+    async fn handle_packet(db: &models::DbPool, packet: rumqttc::Publish) {
+        let Some(topic) = packet.topic.strip_prefix("/bv/hosts/") else {
+            tracing::error!("Listening for status updates on wrong topic: {}", packet.topic);
+            return;
+        };
+        let Some(topic) = topic.get(..36) else {
+            tracing::error!("Topic does not contain a uuid: {}", packet.topic);
+            return;
+        };
+        let Ok(host_id) = topic.parse() else {
+            tracing::error!("Topic does not contain a valid uuid: {}", packet.topic);
+            return;
+        };
+        let Ok(mut conn) = db.conn().await else {
+            tracing::error!("Could not get a database connection");
+            return;
+        };
+        let update_res = match packet.payload.deref() {
+            ONLINE => models::Host::toggle_online(host_id, true, &mut conn).await,
+            OFFLINE => models::Host::toggle_online(host_id, false, &mut conn).await,
+            other => {
+                tracing::error!("Status is {other:?}, not on/offline");
+                return;
+            }
+        };
+        if let Err(e) = update_res {
+            tracing::error!("Could not set status of host {host_id}: `{e}`");
+        }
     }
 }
 
@@ -336,7 +376,7 @@ mod tests {
             id: Some(host.id.to_string()),
             ..Default::default()
         };
-        let notifier = Notifier::new().await.unwrap();
+        let notifier = Notifier::new(db.pool.clone()).await.unwrap();
         notifier
             .bv_hosts_sender()
             .unwrap()
@@ -350,7 +390,7 @@ mod tests {
         let db = crate::TestDb::setup().await;
         let node = db.node().await;
         let node = blockjoy::NodeInfo::from_model(node);
-        let notifier = Notifier::new().await.unwrap();
+        let notifier = Notifier::new(db.pool.clone()).await.unwrap();
         notifier
             .bv_nodes_sender()
             .unwrap()
@@ -367,7 +407,7 @@ mod tests {
         let command = convert::db_command_to_grpc_command(&command, &mut conn)
             .await
             .unwrap();
-        let notifier = Notifier::new().await.unwrap();
+        let notifier = Notifier::new(db.pool.clone()).await.unwrap();
         notifier
             .bv_commands_sender()
             .unwrap()
@@ -384,7 +424,7 @@ mod tests {
         let host = blockjoy_ui::Host::from_model(host, &mut conn)
             .await
             .unwrap();
-        let notifier = Notifier::new().await.unwrap();
+        let notifier = Notifier::new(db.pool.clone()).await.unwrap();
         notifier
             .ui_hosts_sender()
             .unwrap()
@@ -401,7 +441,7 @@ mod tests {
         let node = blockjoy_ui::NodeMessage::created(node, &mut conn)
             .await
             .unwrap();
-        let notifier = Notifier::new().await.unwrap();
+        let notifier = Notifier::new(db.pool.clone()).await.unwrap();
         notifier
             .ui_nodes_sender()
             .unwrap()

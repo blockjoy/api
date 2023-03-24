@@ -116,7 +116,7 @@ pub async fn server(
         .await
         .expect("Could not create Authorization!");
     let auth_service = AuthorizationService::new(enforcer);
-    let notifier = Notifier::new()
+    let notifier = Notifier::new(db.clone())
         .await
         .expect("Could not set up MQTT notifier!");
     let impler = GrpcImpl {
@@ -143,7 +143,7 @@ pub async fn server(
 
     let middleware = tower::ServiceBuilder::new()
         .layer(TraceLayer::new_for_grpc())
-        .layer(Extension(db.clone()))
+        .layer(Extension(db))
         .layer(Extension(unauthenticated))
         .layer(AsyncRequireAuthorizationLayer::new(auth_service))
         .layer(
