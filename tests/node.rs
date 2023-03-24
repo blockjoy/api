@@ -50,7 +50,6 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
 
     let nodes = models::Node::find_all_by_filter(org.id, filter, 0, 10, &mut conn).await?;
 
-    assert!(!nodes.is_empty());
     assert_eq!(nodes.len(), 1);
 
     Ok(())

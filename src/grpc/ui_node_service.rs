@@ -179,6 +179,8 @@ impl blockjoy_ui::CreateNodeRequest {
 }
 
 impl blockjoy_ui::UpdateNodeRequest {
+    /// This function is currently a stub, since the front end never updates nodes. We might need to
+    /// figure out which field we want to be updatable.
     fn as_update(&self) -> Result<models::UpdateNode<'_>> {
         Ok(models::UpdateNode {
             id: self.id.parse()?,
@@ -193,6 +195,7 @@ impl blockjoy_ui::UpdateNodeRequest {
             staking_status: None,
             container_status: None,
             self_update: None,
+            address: None,
         })
     }
 }

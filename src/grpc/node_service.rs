@@ -31,6 +31,7 @@ impl blockjoy::NodeInfo {
                 .map(models::ContainerStatus::try_from)
                 .transpose()?,
             self_update: self.self_update,
+            address: self.address.as_deref(),
         })
     }
 
