@@ -14,6 +14,13 @@ export MQTT_SERVER_PORT=1883
 export MQTT_USERNAME=blockvisor-api
 export MQTT_PASSWORD=PH*rE:\ZQlecB9/I?[#R$q3M;5yCb]Y+
 export KEY_SERVICE_URL=henk
+# Cloudflare
+export CF_BASE_URL=https://api.cloudflare.com/client/v4
+export CF_ZONE=89560cdd783e35f7a9d718755ea9c656
+export CF_DNS_BASE=n0des.xyz
+export CF_TTL=300
+# secret
+export CF_TOKEN=9QjEiXC4B26tgshHZjuZ57kJcjaChSSsDfzUvfYQ
 
 test: 
 	@docker-compose up -d

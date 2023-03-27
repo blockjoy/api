@@ -51,7 +51,7 @@ impl BlockchainService for super::GrpcImpl {
             .map_err(|_| tonic::Status::not_found("No such blockchain"))?;
         let response = blockjoy_ui::GetBlockchainResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
-            blockchain: Some(blockchain.try_into()?),
+            blockchain: Some(blockjoy_ui::Blockchain::from_model(blockchain)?),
         };
         response_with_refresh_token(refresh_token, response)
     }

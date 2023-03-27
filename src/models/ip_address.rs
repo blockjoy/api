@@ -10,7 +10,7 @@ use std::net::IpAddr;
 #[diesel(table_name = ip_addresses)]
 pub struct CreateIpAddress {
     pub ip: ipnetwork::IpNetwork,
-    pub host_id: Option<uuid::Uuid>,
+    pub host_id: uuid::Uuid,
 }
 
 impl CreateIpAddress {
@@ -24,17 +24,13 @@ impl CreateIpAddress {
 }
 
 pub struct NewIpAddressRange {
-    from: ipnetwork::IpNetwork,
-    to: ipnetwork::IpNetwork,
-    host_id: Option<uuid::Uuid>,
+    from: IpAddr,
+    to: IpAddr,
+    host_id: uuid::Uuid,
 }
 
 impl NewIpAddressRange {
-    pub fn try_new(
-        from: ipnetwork::IpNetwork,
-        to: ipnetwork::IpNetwork,
-        host_id: Option<uuid::Uuid>,
-    ) -> Result<Self> {
+    pub fn try_new(from: IpAddr, to: IpAddr, host_id: uuid::Uuid) -> Result<Self> {
         if to < from {
             Err(ApiError::UnexpectedError(anyhow!(
                 "TO IP can't be smaller as FROM IP"
@@ -64,8 +60,8 @@ impl NewIpAddressRange {
         Ok(ip_addrs)
     }
 
-    fn to_ipv4(addr: ipnetwork::IpNetwork) -> Result<std::net::Ipv4Addr> {
-        match addr.network() {
+    fn to_ipv4(addr: IpAddr) -> Result<std::net::Ipv4Addr> {
+        match addr {
             IpAddr::V4(v4) => Ok(v4),
             IpAddr::V6(v6) => Err(anyhow!("Found v6 ip addr in database: {v6}").into()),
         }

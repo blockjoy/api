@@ -4,9 +4,8 @@ use crate::auth::FindableById;
 use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
 use crate::errors::{ApiError, Result};
-use crate::grpc::blockjoy::NodeInfo as GrpcNodeInfo;
 use crate::grpc::helpers::required;
-use crate::models::{Blockchain, Host, IpAddress, UpdateInfo};
+use crate::models::{Blockchain, Host, IpAddress};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -387,12 +386,12 @@ impl Node {
     }
 }
 
-#[tonic::async_trait]
-impl UpdateInfo<GrpcNodeInfo, Node> for Node {
-    async fn update_info(info: GrpcNodeInfo, conn: &mut AsyncPgConnection) -> Result<Node> {
-        info.as_update()?.update(conn).await
-    }
-}
+// #[tonic::async_trait]
+// impl UpdateInfo<GrpcNodeInfo, Node> for Node {
+//     async fn update_info(info: GrpcNodeInfo, conn: &mut AsyncPgConnection) -> Result<Node> {
+//         info.as_update()?.update(conn).await
+//     }
+// }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NodeProvision {
@@ -410,8 +409,6 @@ pub struct NewNode<'a> {
     pub version: Option<&'a str>,
     pub blockchain_id: Uuid,
     pub properties: serde_json::Value,
-    pub address: Option<&'a str>,
-    pub wallet_address: Option<&'a str>,
     pub block_height: Option<i64>,
     pub node_data: Option<serde_json::Value>,
     pub chain_status: NodeChainStatus,

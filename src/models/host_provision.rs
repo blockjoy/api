@@ -1,5 +1,5 @@
 use super::schema::host_provisions;
-use crate::grpc::{blockjoy, helpers::required};
+use crate::grpc::blockjoy;
 use crate::Result;
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -26,8 +26,6 @@ impl HostProvision {
             .find(host_provision_id)
             .get_result(conn)
             .await?;
-        // host_provision.set_install_cmd();
-
         Ok(host_provision)
     }
 
@@ -36,32 +34,25 @@ impl HostProvision {
         request: &blockjoy::ProvisionHostRequest,
         conn: &mut AsyncPgConnection,
     ) -> Result<super::Host> {
-        let new_host = request
-            .info
-            .as_ref()
-            .ok_or_else(required("info"))?
-            .as_new()?;
-        let prov = HostProvision::claim(&request.otp, new_host, conn).await?;
-        Ok(prov)
-    }
-
-    pub async fn claim(
-        host_provision_id: &str,
-        mut new_host: super::NewHost<'_>,
-        conn: &mut AsyncPgConnection,
-    ) -> Result<super::Host> {
-        let host_provision = Self::find_by_id(host_provision_id, conn).await?;
+        let host_provision = Self::find_by_id(&request.otp, conn).await?;
 
         if host_provision.is_claimed() {
             return Err(anyhow::anyhow!("Host provision has already been claimed.").into());
         }
 
-        new_host.ip_range_from = host_provision.ip_range_from;
-        new_host.ip_range_to = host_provision.ip_range_to;
-        new_host.ip_gateway = host_provision.ip_gateway;
+        let new_host = request.as_new(host_provision)?;
+        let prov = HostProvision::claim(&request.otp, new_host, conn).await?;
+        Ok(prov)
+    }
+
+    async fn claim(
+        host_provision_id: &str,
+        new_host: super::NewHost<'_>,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<super::Host> {
         let host = new_host.create(conn).await?;
 
-        diesel::update(host_provisions::table.find(host_provision.id))
+        diesel::update(host_provisions::table.find(host_provision_id))
             .set((
                 host_provisions::claimed_at.eq(chrono::Utc::now()),
                 host_provisions::host_id.eq(host.id),

@@ -1,15 +1,14 @@
 use crate::grpc::blockjoy;
-use crate::grpc::blockjoy::nodes_server::Nodes;
-use crate::grpc::helpers::required;
+use crate::grpc::blockjoy::node_service_server::NodeService;
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 
-impl blockjoy::NodeInfo {
+impl blockjoy::NodeUpdateRequest {
     pub fn as_update(&self) -> crate::Result<models::UpdateNode> {
         Ok(models::UpdateNode {
             id: self.id.parse()?,
-            name: self.name.as_deref(),
+            name: None,
             version: None,
             ip_addr: self.ip.as_deref(),
             block_height: self.block_height,
@@ -33,13 +32,15 @@ impl blockjoy::NodeInfo {
             self_update: self.self_update,
         })
     }
+}
 
+impl blockjoy::Node {
     pub fn from_model(model: models::Node) -> Self {
         Self {
             id: model.id.to_string(),
-            name: Some(model.name),
+            name: model.name,
             ip: model.ip_addr,
-            self_update: Some(model.self_update),
+            self_update: model.self_update,
             block_height: model.block_height,
             onchain_name: None,
             app_status: Some(model.chain_status as i32),
@@ -47,31 +48,20 @@ impl blockjoy::NodeInfo {
             sync_status: Some(model.sync_status as i32),
             staking_status: model.staking_status.map(|ss| ss as i32),
             address: model.address,
-            host_id: Some(model.host_id.to_string()),
+            host_id: model.host_id.to_string(),
         }
     }
 }
 
 #[tonic::async_trait]
-impl Nodes for super::GrpcImpl {
-    async fn info_update(
+impl NodeService for super::GrpcImpl {
+    async fn update(
         &self,
-        request: Request<blockjoy::NodeInfoUpdateRequest>,
+        request: Request<blockjoy::NodeUpdateRequest>,
     ) -> Result<Response<()>, Status> {
-        self.db
-            .trx(|c| {
-                async move {
-                    request
-                        .into_inner()
-                        .info
-                        .ok_or_else(required("info"))?
-                        .as_update()?
-                        .update(c)
-                        .await
-                }
-                .scope_boxed()
-            })
-            .await?;
+        let request = request.into_inner();
+        let update = request.as_update()?;
+        self.db.trx(|c| update.update(c).scope_boxed()).await?;
 
         Ok(Response::new(()))
     }

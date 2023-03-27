@@ -66,11 +66,11 @@ impl Notifier {
 
     // bv_orgs_sender does not exist, blockvisor does not care about organizations.
 
-    pub fn bv_hosts_sender(&self) -> Result<MqttClient<blockjoy::HostInfo>> {
+    pub fn bv_hosts_sender(&self) -> Result<MqttClient<blockjoy::Host>> {
         MqttClient::new(self.client.clone())
     }
 
-    pub fn bv_nodes_sender(&self) -> Result<MqttClient<blockjoy::NodeInfo>> {
+    pub fn bv_nodes_sender(&self) -> Result<MqttClient<blockjoy::Node>> {
         tracing::info!("Making a sender for node messages");
         MqttClient::new(self.client.clone())
     }
@@ -152,16 +152,16 @@ pub trait Notify {
 // There is a couple of unwrap here below. This is because our messages have fields that are of the
 // type Option which are always Some.
 
-impl Notify for blockjoy::HostInfo {
+impl Notify for blockjoy::Host {
     fn channels(&self) -> Vec<String> {
-        let host_id = self.id.as_ref().unwrap();
+        let host_id = &self.id;
         vec![format!("/bv/hosts/{host_id}")]
     }
 }
 
-impl Notify for blockjoy::NodeInfo {
+impl Notify for blockjoy::Node {
     fn channels(&self) -> Vec<String> {
-        let host_id = self.host_id.as_ref().unwrap();
+        let host_id = &self.host_id;
         let node_id = &self.id;
         vec![format!("/bv/hosts/{host_id}/nodes/{node_id}")]
     }
@@ -332,8 +332,8 @@ mod tests {
     async fn test_bv_hosts_sender() {
         let db = crate::TestDb::setup().await;
         let host = db.host().await;
-        let host = blockjoy::HostInfo {
-            id: Some(host.id.to_string()),
+        let host = blockjoy::Host {
+            id: host.id.to_string(),
             ..Default::default()
         };
         let notifier = Notifier::new().await.unwrap();
@@ -349,7 +349,7 @@ mod tests {
     async fn test_bv_nodes_sender() {
         let db = crate::TestDb::setup().await;
         let node = db.node().await;
-        let node = blockjoy::NodeInfo::from_model(node);
+        let node = blockjoy::Node::from_model(node);
         let notifier = Notifier::new().await.unwrap();
         notifier
             .bv_nodes_sender()

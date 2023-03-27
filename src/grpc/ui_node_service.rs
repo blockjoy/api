@@ -159,8 +159,6 @@ impl blockjoy_ui::CreateNodeRequest {
             version: self.version.as_deref(),
             blockchain_id: self.blockchain_id.parse()?,
             properties: serde_json::to_value(properties.props)?,
-            address: None,
-            wallet_address: None,
             block_height: None,
             node_data: None,
             chain_status: models::NodeChainStatus::Provisioning,
@@ -353,7 +351,7 @@ impl NodeService for super::GrpcImpl {
 
         self.notifier
             .bv_nodes_sender()?
-            .send(&blockjoy::NodeInfo::from_model(node.clone()))
+            .send(&blockjoy::Node::from_model(node.clone()))
             .await?;
         self.notifier.ui_nodes_sender()?.send(&node_msg).await?;
         self.notifier

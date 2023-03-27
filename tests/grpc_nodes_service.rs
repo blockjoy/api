@@ -1,15 +1,14 @@
 use api::auth::FindableById;
-use api::grpc::blockjoy;
-use api::grpc::blockjoy::nodes_client::NodesClient;
+use api::grpc::blockjoy::{self, node_service_client};
 use api::models::Node;
 use tonic::transport::Channel;
 
 mod setup;
 
-type Service = NodesClient<Channel>;
+type Service = node_service_client::NodeServiceClient<Channel>;
 
 #[tokio::test]
-async fn responds_ok_for_info_update() {
+async fn responds_ok_for_update() {
     let tester = setup::Tester::new().await;
     let host = tester.host().await;
     let token = tester.host_token(&host);
@@ -17,10 +16,9 @@ async fn responds_ok_for_info_update() {
     let node = tester.node().await;
     let node_id = node.id.to_string();
     let block_height = 12123;
-    let node_info = blockjoy::NodeInfo {
+    let req = blockjoy::NodeUpdateRequest {
+        request_id: Some(uuid::Uuid::new_v4().to_string()),
         id: node_id.clone(),
-        host_id: Some(node.host_id.to_string()),
-        name: None,
         ip: None,
         self_update: None,
         block_height: Some(block_height),
@@ -31,13 +29,9 @@ async fn responds_ok_for_info_update() {
         staking_status: None,
         address: None,
     };
-    let req = blockjoy::NodeInfoUpdateRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
-        info: Some(node_info),
-    };
 
     tester
-        .send_with(Service::info_update, req, token, refresh)
+        .send_with(Service::update, req, token, refresh)
         .await
         .unwrap();
 

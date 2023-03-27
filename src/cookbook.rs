@@ -101,5 +101,5 @@ pub async fn get_networks(
     let response = client.net_configurations(request).await?;
     let inner = response.into_inner();
 
-    Ok(inner.configurations.iter().map(|c| c.into()).collect())
+    inner.configurations.iter().map(|c| c.try_into()).collect()
 }

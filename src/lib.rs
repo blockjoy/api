@@ -199,16 +199,16 @@ mod test {
                 os_version: None,
                 ip_addr: "192.168.1.1",
                 status: models::ConnectionStatus::Online,
-                ip_range_from: Some("192.168.0.10".parse().unwrap()),
-                ip_range_to: Some("192.168.0.100".parse().unwrap()),
-                ip_gateway: Some("192.168.0.1".parse().unwrap()),
+                ip_range_from: "192.168.0.10".parse().unwrap(),
+                ip_range_to: "192.168.0.100".parse().unwrap(),
+                ip_gateway: "192.168.0.1".parse().unwrap(),
             };
 
             let host1 = host1.create(conn).await.unwrap();
             models::NewIpAddressRange::try_new(
                 "127.0.0.1".parse().unwrap(),
                 "127.0.0.10".parse().unwrap(),
-                Some(host1.id),
+                host1.id,
             )
             .unwrap()
             .create(conn)
@@ -226,9 +226,9 @@ mod test {
                 os_version: None,
                 ip_addr: "192.168.2.1",
                 status: models::ConnectionStatus::Online,
-                ip_range_from: Some("192.12.0.10".parse().unwrap()),
-                ip_range_to: Some("192.12.0.20".parse().unwrap()),
-                ip_gateway: Some("192.12.0.1".parse().unwrap()),
+                ip_range_from: "192.12.0.10".parse().unwrap(),
+                ip_range_to: "192.12.0.20".parse().unwrap(),
+                ip_gateway: "192.12.0.1".parse().unwrap(),
             };
 
             host2.create(conn).await.unwrap();

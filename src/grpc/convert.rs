@@ -4,7 +4,7 @@ use crate::errors::{ApiError, Result as ApiResult};
 use crate::grpc::blockjoy::container_image::StatusName;
 use crate::grpc::blockjoy::{
     self, node_command, Command as GrpcCommand, ContainerImage, NodeCommand, NodeCreate,
-    NodeDelete, NodeInfoGet, NodeRestart, NodeStop,
+    NodeDelete, NodeRestart, NodeStop,
 };
 use crate::grpc::helpers::required;
 use crate::models::{self, Blockchain, Command, HostCmd, Node};
@@ -65,7 +65,7 @@ pub async fn db_command_to_grpc_command(
             let node = Node::find_by_id(node_id, conn).await?;
             let network = Parameter::new("network", &node.network);
             let properties = node.properties()?;
-            let cmd = Command::Update(blockjoy::NodeInfoUpdate {
+            let cmd = Command::Update(blockjoy::NodeUpdate {
                 name: Some(node.name),
                 self_update: Some(node.self_update),
                 properties: properties
@@ -85,7 +85,7 @@ pub async fn db_command_to_grpc_command(
         HostCmd::GetNodeVersion => {
             tracing::debug!("Using NodeInfoGet for GetNodeVersion");
             let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
-            let cmd = Command::InfoGet(NodeInfoGet {});
+            let cmd = Command::InfoGet(blockjoy::NodeGet {});
             node_cmd(cmd, node_id.to_string())
         }
         // The following should be HostCommands
@@ -150,14 +150,13 @@ pub fn try_dt_to_ts(datetime: chrono::DateTime<chrono::Utc>) -> ApiResult<Timest
     let timestamp = Timestamp {
         seconds: nanos / NANOS_PER_SEC,
         // This _should_ never fail because 1_000_000_000 fits into an i32, but using `as` was
-        // hiding this bug in the first place. Therefore I have left the `try_into` call here.
+        // hiding a bug here at first, therefore I have left the `try_into` call here.
         nanos: (nanos % NANOS_PER_SEC).try_into()?,
     };
     Ok(timestamp)
 }
 
 pub mod from {
-    use super::try_dt_to_ts;
     use crate::auth::{JwtToken, UserAuthToken};
     use crate::cookbook::cookbook_grpc::NetworkConfiguration;
     use crate::errors::ApiError;
@@ -166,10 +165,9 @@ pub mod from {
     use crate::grpc::blockjoy_ui::blockchain_network::NetworkType;
     use crate::grpc::blockjoy_ui::BlockchainNetwork;
     use crate::grpc::blockjoy_ui::{
-        self, node::NodeStatus as GrpcNodeStatus, node::StakingStatus as GrpcStakingStatus,
+        node::NodeStatus as GrpcNodeStatus, node::StakingStatus as GrpcStakingStatus,
         node::SyncStatus as GrpcSyncStatus,
     };
-    use crate::grpc::helpers::required;
     use crate::models::{self, NodeChainStatus, NodeKeyFile, NodeStakingStatus, NodeSyncStatus};
     use anyhow::anyhow;
     use tonic::{Code, Status};
@@ -189,35 +187,6 @@ pub mod from {
 
         fn try_from(value: UserAuthToken) -> Result<Self, Self::Error> {
             Self::try_from(&value)
-        }
-    }
-
-    impl TryFrom<models::HostProvision> for blockjoy_ui::HostProvision {
-        type Error = ApiError;
-
-        fn try_from(hp: models::HostProvision) -> Result<Self, Self::Error> {
-            let install_cmd = hp.install_cmd();
-            let hp = Self {
-                id: Some(hp.id),
-                host_id: hp.host_id.map(|id| id.to_string()),
-                created_at: Some(try_dt_to_ts(hp.created_at)?),
-                claimed_at: hp.claimed_at.map(try_dt_to_ts).transpose()?,
-                install_cmd: Some(install_cmd),
-                ip_range_from: hp
-                    .ip_range_from
-                    .map(|ip| ip.to_string())
-                    .ok_or_else(required("host_provision.ip_range_from"))?,
-                ip_range_to: hp
-                    .ip_range_to
-                    .map(|ip| ip.to_string())
-                    .ok_or_else(required("host_provision.ip_range_to"))?,
-                ip_gateway: hp
-                    .ip_gateway
-                    .map(|ip| ip.to_string())
-                    .ok_or_else(required("host_provision.ip_gateway"))?,
-                org_id: None,
-            };
-            Ok(hp)
         }
     }
 
@@ -315,23 +284,26 @@ pub mod from {
     impl TryFrom<BlockchainNetwork> for crate::cookbook::BlockchainNetwork {
         type Error = ApiError;
 
-        fn try_from(value: BlockchainNetwork) -> Result<Self, Self::Error> {
+        fn try_from(value: BlockchainNetwork) -> crate::Result<Self> {
             Ok(Self {
                 name: value.name,
                 url: value.url,
                 network_type: NetworkType::from_i32(value.net_type)
-                    .ok_or_else(|| ApiError::UnexpectedError(anyhow!("Unknown network type")))?,
+                    .ok_or_else(|| anyhow!("Unknown network type: {}", value.net_type))?,
             })
         }
     }
 
-    impl From<&NetworkConfiguration> for crate::cookbook::BlockchainNetwork {
-        fn from(value: &NetworkConfiguration) -> Self {
-            Self {
+    impl TryFrom<&NetworkConfiguration> for crate::cookbook::BlockchainNetwork {
+        type Error = ApiError;
+
+        fn try_from(value: &NetworkConfiguration) -> crate::Result<Self> {
+            Ok(Self {
                 name: value.name.clone(),
                 url: value.url.clone(),
-                network_type: NetworkType::from_i32(value.net_type).unwrap_or_default(),
-            }
+                network_type: NetworkType::from_i32(value.net_type)
+                    .ok_or_else(|| anyhow!("Unknown network type: {}", value.net_type))?,
+            })
         }
     }
 
@@ -345,43 +317,6 @@ pub mod from {
         }
     }
 
-    impl TryFrom<&models::Blockchain> for blockjoy_ui::Blockchain {
-        type Error = ApiError;
-
-        fn try_from(model: &models::Blockchain) -> Result<Self, Self::Error> {
-            let json = &model.supported_node_types()?;
-            let json = serde_json::to_string(&json)
-                .map_err(|e| anyhow!("Could not serialize supported node types: {e}"))?;
-
-            let blockchain = Self {
-                id: Some(model.id.to_string()),
-                name: Some(model.name.clone()),
-                description: model.description.clone(),
-                status: model.status as i32,
-                project_url: model.project_url.clone(),
-                repo_url: model.repo_url.clone(),
-                supports_etl: model.supports_etl,
-                supports_node: model.supports_node,
-                supports_staking: model.supports_staking,
-                supports_broadcast: model.supports_broadcast,
-                version: model.version.clone(),
-                supported_nodes_types: json,
-                created_at: Some(try_dt_to_ts(model.created_at)?),
-                updated_at: Some(try_dt_to_ts(model.updated_at)?),
-                networks: vec![],
-            };
-            Ok(blockchain)
-        }
-    }
-
-    impl TryFrom<models::Blockchain> for blockjoy_ui::Blockchain {
-        type Error = ApiError;
-
-        fn try_from(model: models::Blockchain) -> Result<Self, Self::Error> {
-            Self::try_from(&model)
-        }
-    }
-
     impl TryFrom<NodeKeyFile> for Keyfile {
         type Error = ApiError;
 
@@ -390,37 +325,6 @@ pub mod from {
                 name: value.name.clone(),
                 content: value.content.into_bytes(),
             })
-        }
-    }
-}
-
-pub mod into {
-    use crate::{
-        errors::ApiError,
-        grpc::{
-            blockjoy::{HostInfo, HostInfoUpdateRequest},
-            helpers::required,
-        },
-    };
-    use tonic::Request;
-
-    pub trait IntoData<R, T> {
-        type Error;
-
-        fn into_data(self) -> Result<T, Self::Error>;
-    }
-
-    impl IntoData<Request<HostInfoUpdateRequest>, (String, HostInfo)>
-        for Request<HostInfoUpdateRequest>
-    {
-        type Error = ApiError;
-
-        fn into_data(self) -> Result<(String, HostInfo), Self::Error> {
-            let inner = self.into_inner();
-            let id = inner.request_id.unwrap_or_default();
-            let info = inner.info.ok_or_else(required("info"))?;
-
-            Ok((id, info))
         }
     }
 }

@@ -22,8 +22,6 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         chain_status: models::NodeChainStatus::Unknown,
         sync_status: models::NodeSyncStatus::Syncing,
         container_status: models::ContainerStatus::Installing,
-        address: None,
-        wallet_address: None,
         block_height: None,
         groups: "".to_string(),
         node_data: None,

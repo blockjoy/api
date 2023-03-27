@@ -15,7 +15,7 @@ async fn responds_ok_with_invalid_node_id() {
     let auth = tester.host_token(&host);
     let refresh = tester.refresh_for(&auth);
     let req = KeyFilesGetRequest {
-        request_id: None,
+        request_id: uuid::Uuid::new_v4().to_string(),
         node_id: Uuid::new_v4().to_string(),
     };
     tester
@@ -40,7 +40,7 @@ async fn responds_ok_with_valid_node_id() {
     };
     new_node_key_file.create(&mut conn).await.unwrap();
     let req = KeyFilesGetRequest {
-        request_id: None,
+        request_id: uuid::Uuid::new_v4().to_string(),
         node_id: node.id.to_string(),
     };
     tester
@@ -60,7 +60,7 @@ async fn responds_not_found_with_invalid_node_id_for_save() {
         content: "üöäß@niesfiefasd".to_string().into_bytes(),
     };
     let req = blockjoy::KeyFilesSaveRequest {
-        request_id: None,
+        request_id: uuid::Uuid::new_v4().to_string(),
         node_id: Uuid::new_v4().to_string(),
         key_files: vec![key_file],
     };
@@ -83,7 +83,7 @@ async fn responds_ok_with_valid_node_id_for_save() {
         content: "üöäß@niesfiefasd".to_string().into_bytes(),
     };
     let req = blockjoy::KeyFilesSaveRequest {
-        request_id: None,
+        request_id: uuid::Uuid::new_v4().to_string(),
         node_id: node.id.to_string(),
         key_files: vec![key_file],
     };
@@ -105,7 +105,7 @@ async fn responds_error_with_same_node_id_name_twice_for_save() {
         content: "üöäß@niesfiefasd".to_string().into_bytes(),
     };
     let req = blockjoy::KeyFilesSaveRequest {
-        request_id: None,
+        request_id: uuid::Uuid::new_v4().to_string(),
         node_id: node.id.to_string(),
         key_files: vec![key_file.clone()],
     };
@@ -116,7 +116,7 @@ async fn responds_error_with_same_node_id_name_twice_for_save() {
         .unwrap();
 
     let req = blockjoy::KeyFilesSaveRequest {
-        request_id: None,
+        request_id: uuid::Uuid::new_v4().to_string(),
         node_id: node.id.to_string(),
         key_files: vec![key_file],
     };
