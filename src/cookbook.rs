@@ -3,7 +3,7 @@ use crate::auth::TokenType;
 use crate::cookbook::cookbook_grpc::cook_book_service_client;
 use crate::errors::{ApiError, Result as ApiResult};
 use crate::grpc::blockjoy_ui::blockchain_network::NetworkType;
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use tonic::Request;
 
 #[derive(Debug, Clone, Copy)]
@@ -67,6 +67,9 @@ pub async fn get_hw_requirements(
     })
 }
 
+/// Given a protocol/blockchain name (i.e. "ethereum"), node_type and node_version, returns a list
+/// of supported networks. These are things like "mainnet" and "goerli". If no version is provided,
+/// we default to using the latest version.
 pub async fn get_networks(
     protocol: String,
     node_type: String,
@@ -88,14 +91,14 @@ pub async fn get_networks(
     );
     let mut client = cook_book_service_client::CookBookServiceClient::connect(cb_url)
         .await
-        .map_err(|e| ApiError::UnexpectedError(anyhow!("Can't connect to cookbook: {e}")))?;
+        .with_context(|| "Can't connect to cookbook")?;
     let mut request = Request::new(id);
 
     request.metadata_mut().insert(
         "authorization",
-        format!("Bearer {cb_token}").parse().map_err(|e| {
-            ApiError::UnexpectedError(anyhow!("Can't set cookbook auth header: {e}"))
-        })?,
+        format!("Bearer {cb_token}")
+            .parse()
+            .with_context(|| "Can't set cookbook auth header")?,
     );
 
     let response = client.net_configurations(request).await?;
