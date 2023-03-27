@@ -87,6 +87,7 @@ impl blockjoy_ui::Node {
             host_name: node.host_name,
             blockchain_id: node.blockchain_id.to_string(),
             name: node.name,
+            address: node.address,
             version: node.version,
             ip: node.ip_addr,
             ip_gateway: node.ip_gateway,
