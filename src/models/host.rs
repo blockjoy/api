@@ -244,7 +244,9 @@ pub struct NewHost<'a> {
     pub version: Option<&'a str>,
     pub location: Option<&'a str>,
     pub cpu_count: Option<i64>,
+    /// The amount of memory in bytes that this host has.
     pub mem_size: Option<i64>,
+    /// The amount of disk space in bytes that this host has.
     pub disk_size: Option<i64>,
     pub os: Option<&'a str>,
     pub os_version: Option<&'a str>,

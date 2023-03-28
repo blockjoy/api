@@ -63,17 +63,8 @@ pub async fn db_command_to_grpc_command(
 
             let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
             let node = Node::find_by_id(node_id, conn).await?;
-            let network = Parameter::new("network", &node.network);
-            let properties = node.properties()?;
             let cmd = Command::Update(blockjoy::NodeUpdate {
-                name: Some(node.name),
                 self_update: Some(node.self_update),
-                properties: properties
-                    .iter_props()
-                    .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
-                    .map(|(name, value)| Parameter::new(name, value))
-                    .chain([network])
-                    .collect(),
             });
 
             node_cmd(cmd, node_id.to_string())

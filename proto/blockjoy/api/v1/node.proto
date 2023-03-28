@@ -94,6 +94,15 @@ message Node {
   string host_id = 13;
 }
 
+message NodeUpdateRequest {
+  string request_id = 1;
+  string id = 2;
+  optional string ip = 3;
+  optional bool self_update = 4;
+  optional Node.ContainerStatus container_status = 5;
+  optional string address = 6;
+}
+
 message NodeStart {
 }
 
@@ -109,9 +118,7 @@ message NodeUpgrade {
 }
 
 message NodeUpdate {
-  optional string name = 1;
-  optional bool self_update = 2;
-  repeated Parameter properties = 3;
+  optional bool self_update = 1;
 }
 
 message NodeGet {
@@ -169,9 +176,10 @@ enum Direction {
 }
 
 enum Protocol {
-  PROTOCOL_BOTH_UNSPECIFIED = 0;
+  PROTOCOL_UNSPECIFIED = 0;
   PROTOCOL_TCP = 1;
   PROTOCOL_UDP = 2;
+  PROTOCOL_BOTH = 3;
 }
 
 message Rule {

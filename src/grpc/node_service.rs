@@ -11,20 +11,11 @@ impl blockjoy::NodeUpdateRequest {
             name: None,
             version: None,
             ip_addr: self.ip.as_deref(),
-            block_height: self.block_height,
+            block_height: None,
             node_data: None,
-            chain_status: self
-                .app_status
-                .map(models::NodeChainStatus::try_from)
-                .transpose()?,
-            sync_status: self
-                .sync_status
-                .map(models::NodeSyncStatus::try_from)
-                .transpose()?,
-            staking_status: self
-                .staking_status
-                .map(models::NodeStakingStatus::try_from)
-                .transpose()?,
+            chain_status: None,
+            sync_status: None,
+            staking_status: None,
             container_status: self
                 .container_status
                 .map(models::ContainerStatus::try_from)

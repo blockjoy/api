@@ -15,18 +15,12 @@ async fn responds_ok_for_update() {
     let refresh = tester.refresh_for(&token);
     let node = tester.node().await;
     let node_id = node.id.to_string();
-    let block_height = 12123;
     let req = blockjoy::NodeUpdateRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
+        request_id: uuid::Uuid::new_v4().to_string(),
         id: node_id.clone(),
         ip: None,
-        self_update: None,
-        block_height: Some(block_height),
-        onchain_name: None,
-        app_status: None,
+        self_update: Some(true),
         container_status: None,
-        sync_status: None,
-        staking_status: None,
         address: None,
     };
 
@@ -40,5 +34,5 @@ async fn responds_ok_for_update() {
         .await
         .unwrap();
 
-    assert_eq!(node.block_height.unwrap(), block_height);
+    assert!(node.self_update);
 }

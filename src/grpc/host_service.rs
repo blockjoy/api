@@ -26,13 +26,9 @@ impl blockjoy::HostUpdateRequest {
             os_version: self.os_version.as_deref(),
             ip_addr: self.ip.as_deref(),
             status: None,
-            ip_range_from: self
-                .ip_range_from
-                .as_ref()
-                .map(|ip| ip.parse())
-                .transpose()?,
-            ip_range_to: self.ip_range_to.as_ref().map(|ip| ip.parse()).transpose()?,
-            ip_gateway: self.ip_gateway.as_ref().map(|ip| ip.parse()).transpose()?,
+            ip_range_from: None,
+            ip_range_to: None,
+            ip_gateway: None,
         })
     }
 }
@@ -44,8 +40,8 @@ impl blockjoy::ProvisionHostRequest {
             version: Some(&self.version),
             location: None,
             cpu_count: Some(self.cpu_count),
-            mem_size: Some(self.mem_size),
-            disk_size: Some(self.disk_size),
+            mem_size: Some(self.mem_size_bytes),
+            disk_size: Some(self.disk_size_bytes),
             os: Some(&self.os),
             os_version: Some(&self.os_version),
             ip_addr: &self.ip,

@@ -28,13 +28,13 @@ message Host {
 }
 
 message DeleteHostRequest {
-  optional string request_id = 1;
+  string request_id = 1;
   string host_id = 2;
 }
 
 message DeleteHostResponse {
   repeated string messages = 1;
-  optional string origin_request_id = 2;
+  string origin_request_id = 2;
 }
 
 message ProvisionHostRequest {
@@ -44,8 +44,10 @@ message ProvisionHostRequest {
   string name = 4;
   string version = 5;
   int64 cpu_count = 6;
-  int64 mem_size = 7;
-  int64 disk_size = 8;
+  // The amount of memory in bytes that the host has.
+  int64 mem_size_bytes = 7;
+  // The amount of disk space in bytes that the host has.
+  int64 disk_size_bytes = 8;
   string os = 9;
   string os_version = 10;
   string ip = 11;
@@ -65,9 +67,6 @@ message HostUpdateRequest {
   optional string os = 4;
   optional string os_version = 5;
   optional string ip = 6;
-  optional string ip_range_from = 7;
-  optional string ip_range_to = 8;
-  optional string ip_gateway = 9;
 }
 
 message HostUpdateResponse {

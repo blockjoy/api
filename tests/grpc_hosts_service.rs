@@ -16,9 +16,6 @@ async fn responds_unauthenticated_with_empty_token_for_update() {
         request_id: uuid::Uuid::new_v4().to_string(),
         id: host.id.to_string(),
         ip: Some("123.456.789.0".into()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
         os: None,
         os_version: None,
         version: None,
@@ -44,9 +41,6 @@ async fn responds_unauthenticated_without_token_for_update() {
         request_id: uuid::Uuid::new_v4().to_string(),
         id: host.id.to_string(),
         ip: Some("123.456.789.0".into()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
         os: None,
         os_version: None,
         version: None,
@@ -68,9 +62,6 @@ async fn responds_unauthenticated_with_bad_token_for_update() {
         os: None,
         os_version: None,
         ip: Some("123.456.789.0".into()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
     };
     let status = tester
         .send_with(
@@ -100,9 +91,6 @@ async fn responds_permission_denied_with_token_ownership_for_update() {
         os: Some("LuukOS".to_string()),
         os_version: Some("5".to_string()),
         ip: Some("123.456.789.0".to_string()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
     };
 
     let status = tester
@@ -123,8 +111,8 @@ async fn responds_not_found_for_wrong_otp() {
         version: "3".to_string(),
         ip: "123.456.789.0".to_string(),
         cpu_count: 2,
-        mem_size: 2,
-        disk_size: 2,
+        mem_size_bytes: 2,
+        disk_size_bytes: 2,
         os: "LuukOS".to_string(),
         os_version: "4".to_string(),
     };
@@ -152,8 +140,8 @@ async fn responds_ok_for_provision() {
         version: "3".to_string(),
         ip: "123.456.789.0".to_string(),
         cpu_count: 2,
-        mem_size: 2,
-        disk_size: 2,
+        mem_size_bytes: 2,
+        disk_size_bytes: 2,
         os: "LuukOS".to_string(),
         os_version: "4".to_string(),
     };
@@ -173,9 +161,6 @@ async fn responds_ok_for_update() {
         os: Some("LuukOS".to_string()),
         os_version: Some("5".to_string()),
         ip: Some("123.456.789.0".to_string()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
     };
     tester
         .send_with(Service::update, req, token, refresh)
@@ -190,7 +175,7 @@ async fn responds_ok_for_delete() {
     let token = tester.host_token(&host);
     let refresh = tester.refresh_for(&token);
     let req = blockjoy::DeleteHostRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
+        request_id: uuid::Uuid::new_v4().to_string(),
         host_id: host.id.to_string(),
     };
     tester
@@ -204,7 +189,7 @@ async fn responds_unauthenticated_without_token_for_delete() {
     let tester = setup::Tester::new().await;
     let host = tester.host().await;
     let req = blockjoy::DeleteHostRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
+        request_id: uuid::Uuid::new_v4().to_string(),
         host_id: host.id.to_string(),
     };
     let status = tester.send(Service::delete, req).await.unwrap_err();
@@ -217,7 +202,7 @@ async fn responds_permission_denied_for_delete() {
 
     let host = tester.host().await;
     let req = blockjoy::DeleteHostRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
+        request_id: uuid::Uuid::new_v4().to_string(),
         host_id: host.id.to_string(),
     };
 
