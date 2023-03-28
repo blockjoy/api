@@ -4,7 +4,6 @@ use crate::auth::FindableById;
 use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
 use crate::errors::{ApiError, Result};
-use crate::grpc::helpers::required;
 use crate::models::{Blockchain, Host, IpAddress};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
@@ -202,7 +201,7 @@ pub struct Node {
     pub name: String,                              // name -> Text,
     pub groups: Option<String>,                    // groups -> Nullable<Text>,
     pub version: Option<String>,                   // version -> Nullable<Text>,
-    pub ip_addr: Option<String>,                   // ip_addr -> Nullable<Text>,
+    pub ip_addr: String,                           // ip_addr -> Nullable<Text>,
     pub address: Option<String>,                   // address -> Nullable<Text>,
     pub wallet_address: Option<String>,            // wallet_address -> Nullable<Text>,
     pub block_height: Option<i64>,                 // block_height -> Nullable<Int8>,
@@ -372,7 +371,7 @@ impl Node {
 
     pub async fn delete(node_id: Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
         let node = Node::find_by_id(node_id, conn).await?;
-        let cf_api = CloudflareApi::new(node.ip_addr.ok_or_else(|| anyhow!("IP required"))?)?;
+        let cf_api = CloudflareApi::new(node.ip_addr)?;
 
         diesel::delete(nodes::table.find(node_id))
             .execute(conn)
@@ -435,11 +434,7 @@ impl NewNode<'_> {
             .ip()
             .to_string();
 
-        let ip_gateway = host
-            .ip_gateway
-            .ok_or_else(required("host.ip_gateway"))?
-            .ip()
-            .to_string();
+        let ip_gateway = host.ip_gateway.ip().to_string();
 
         let cf_api = CloudflareApi::new(ip_addr.clone())?;
         let dns_record_id = cf_api

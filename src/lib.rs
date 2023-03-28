@@ -234,7 +234,7 @@ mod test {
             host2.create(conn).await.unwrap();
             let node_id: uuid::Uuid = "cdbbc736-f399-42ab-86cf-617ce983011d".parse().unwrap();
 
-            let ip_gateway = host1.ip_gateway.unwrap().to_string();
+            let ip_gateway = host1.ip_gateway.ip().to_string();
             let ip_addr = models::IpAddress::next_for_host(host1.id, conn)
                 .await
                 .unwrap()

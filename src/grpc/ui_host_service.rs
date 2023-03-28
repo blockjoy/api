@@ -34,9 +34,9 @@ impl blockjoy_ui::Host {
             status: model.status.into(),
             nodes,
             created_at: Some(convert::try_dt_to_ts(model.created_at)?),
-            ip_range_from: model.ip_range_from.map(|ip| ip.ip().to_string()),
-            ip_range_to: model.ip_range_to.map(|ip| ip.ip().to_string()),
-            ip_gateway: model.ip_gateway.map(|ip| ip.ip().to_string()),
+            ip_range_from: Some(model.ip_range_from.ip().to_string()),
+            ip_range_to: Some(model.ip_range_to.ip().to_string()),
+            ip_gateway: Some(model.ip_gateway.ip().to_string()),
         };
         Ok(dto)
     }

@@ -107,7 +107,7 @@ pub async fn db_command_to_grpc_command(
                 blockchain: node.blockchain_id.to_string(),
                 image: Some(image),
                 r#type: serde_json::to_string(&r#type)?,
-                ip: node.ip_addr.ok_or_else(required("node.ip_addr"))?,
+                ip: node.ip_addr,
                 gateway: node.ip_gateway,
                 self_update: node.self_update,
                 properties,
