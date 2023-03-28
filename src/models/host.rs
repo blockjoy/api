@@ -229,14 +229,6 @@ impl Owned<Host, ()> for Host {
     }
 }
 
-// #[tonic::async_trait]
-// impl super::UpdateInfo<blockjoy::HostInfo, Host> for Host {
-//     async fn update_info(info: blockjoy::HostInfo, conn: &mut AsyncPgConnection) -> Result<Host> {
-//         let update = info.as_update()?;
-//         update.update(conn).await
-//     }
-// }
-
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = hosts)]
 pub struct NewHost<'a> {

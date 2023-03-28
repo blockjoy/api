@@ -386,13 +386,6 @@ impl Node {
     }
 }
 
-// #[tonic::async_trait]
-// impl UpdateInfo<GrpcNodeInfo, Node> for Node {
-//     async fn update_info(info: GrpcNodeInfo, conn: &mut AsyncPgConnection) -> Result<Node> {
-//         info.as_update()?.update(conn).await
-//     }
-// }
-
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NodeProvision {
     pub blockchain_id: Uuid,

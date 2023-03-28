@@ -34,7 +34,7 @@ impl blockjoy::Node {
             self_update: model.self_update,
             block_height: model.block_height,
             onchain_name: None,
-            app_status: Some(model.chain_status as i32),
+            app_status: model.chain_status as i32,
             container_status: Some(model.container_status as i32),
             sync_status: Some(model.sync_status as i32),
             staking_status: model.staking_status.map(|ss| ss as i32),
