@@ -84,6 +84,18 @@ impl Invitation {
             .await?;
         Ok(())
     }
+
+    pub async fn remove_by_org_user(
+        user_email: &str,
+        org_id: uuid::Uuid,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<()> {
+        let to_delete = invitations::table
+            .filter(invitations::invitee_email.eq(user_email))
+            .filter(invitations::created_for_org.eq(org_id));
+        diesel::delete(to_delete).execute(conn).await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Insertable)]
