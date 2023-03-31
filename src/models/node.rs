@@ -226,7 +226,7 @@ pub struct Node {
     pub host_name: String,
     pub network: String,
     pub created_by: Option<uuid::Uuid>,
-    pub dns_record_id: Option<String>,
+    pub dns_record_id: String,
     pub node_type: NodeType,
 }
 
@@ -379,8 +379,8 @@ impl Node {
             .execute(conn)
             .await?;
 
-        if let Some(id) = node.dns_record_id {
-            cf_api.remove_node_dns(id).await?;
+        if let Err(e) = cf_api.remove_node_dns(node.dns_record_id).await {
+            tracing::error!("Could not remove DNS for node! {e}");
         }
 
         Ok(())

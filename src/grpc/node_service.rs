@@ -59,20 +59,9 @@ impl Nodes for super::GrpcImpl {
         &self,
         request: Request<blockjoy::NodeInfoUpdateRequest>,
     ) -> Result<Response<()>, Status> {
-        self.db
-            .trx(|c| {
-                async move {
-                    request
-                        .into_inner()
-                        .info
-                        .ok_or_else(required("info"))?
-                        .as_update()?
-                        .update(c)
-                        .await
-                }
-                .scope_boxed()
-            })
-            .await?;
+        let info = request.into_inner().info.ok_or_else(required("info"))?;
+        let update = info.as_update()?;
+        self.db.trx(|c| update.update(c).scope_boxed()).await?;
 
         Ok(Response::new(()))
     }
