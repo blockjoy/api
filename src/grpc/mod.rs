@@ -69,6 +69,14 @@ struct GrpcImpl {
     notifier: Notifier,
 }
 
+impl std::ops::Deref for GrpcImpl {
+    type Target = models::DbPool;
+
+    fn deref(&self) -> &Self::Target {
+        &self.db
+    }
+}
+
 #[macro_export]
 macro_rules! bail_unauthorized {
     ($msg:literal $(,)?) => {

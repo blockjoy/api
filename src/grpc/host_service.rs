@@ -70,7 +70,6 @@ impl HostService for super::GrpcImpl {
         let request_id = inner.request_id.clone();
 
         let host = self
-            .db
             .trx(|c| HostProvision::claim_by_grpc_provision(&inner, c).scope_boxed())
             .await?;
         let token: HostAuthToken = JwtToken::create_token_for::<Host>(
@@ -101,7 +100,7 @@ impl HostService for super::GrpcImpl {
         if host_token_id != update_host.id {
             super::bail_unauthorized!("Not allowed to delete host '{}'", update_host.id);
         }
-        self.db.trx(|c| update_host.update(c).scope_boxed()).await?;
+        self.trx(|c| update_host.update(c).scope_boxed()).await?;
         let result = HostUpdateResponse {
             messages: vec![],
             origin_request_id: request_id,
@@ -119,9 +118,7 @@ impl HostService for super::GrpcImpl {
         if host_token_id != host_id {
             super::bail_unauthorized!("Not allowed to delete host '{host_id}'");
         }
-        self.db
-            .trx(|c| Host::delete(host_id, c).scope_boxed())
-            .await?;
+        self.trx(|c| Host::delete(host_id, c).scope_boxed()).await?;
         let response = DeleteHostResponse {
             messages: vec![],
             origin_request_id: inner.request_id,

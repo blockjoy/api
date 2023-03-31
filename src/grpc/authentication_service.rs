@@ -32,7 +32,6 @@ impl AuthenticationService for super::GrpcImpl {
         let inner = request.into_inner();
         // User::login checks if user is confirmed before testing for valid login credentials
         let resp = self
-            .db
             .trx(|c| {
                 {
                     async move {
@@ -87,7 +86,6 @@ impl AuthenticationService for super::GrpcImpl {
             .ok_or_else(required("Registration confirmation token extension"))?;
         let user_id = token.get_id();
         let resp = self
-            .db
             .trx(|c| {
                 async move {
                     let user = User::confirm(user_id, c).await?;
@@ -141,7 +139,6 @@ impl AuthenticationService for super::GrpcImpl {
         // us to the caller of the api, because this info may be sensitive and this endpoint is not
         // protected by any authentication.
         let response = self
-            .db
             .trx(|c| {
                 async move {
                     let user = User::find_by_email(&request.email, c).await;
@@ -164,7 +161,6 @@ impl AuthenticationService for super::GrpcImpl {
         request: Request<UpdatePasswordRequest>,
     ) -> Result<Response<UpdatePasswordResponse>, Status> {
         let (refresh_token, response) = self
-            .db
             .trx(|c| {
                 async move {
                     let token = request
@@ -208,7 +204,6 @@ impl AuthenticationService for super::GrpcImpl {
         request: Request<UpdateUiPasswordRequest>,
     ) -> Result<Response<UpdateUiPasswordResponse>, Status> {
         let (refresh_token, response) = self
-            .db
             .trx(|c| {
                 async move {
                     let refresh_token = get_refresh_token(&request);
@@ -253,7 +248,7 @@ impl AuthenticationService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let user_id = token.get_id();
         let inner = request.into_inner();
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let org_user = Org::find_org_user(
             user_id,
             inner.org_id.parse().map_err(ApiError::from)?,

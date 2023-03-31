@@ -52,7 +52,7 @@ impl NodeService for super::GrpcImpl {
     ) -> Result<Response<()>, Status> {
         let request = request.into_inner();
         let update = request.as_update()?;
-        self.db.trx(|c| update.update(c).scope_boxed()).await?;
+        self.trx(|c| update.update(c).scope_boxed()).await?;
 
         Ok(Response::new(()))
     }

@@ -228,7 +228,7 @@ impl NodeService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let inner = request.into_inner();
         let node_id = inner.id.parse().map_err(ApiError::from)?;
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let node = models::Node::find_by_id(node_id, &mut conn).await?;
 
         if node.org_id != token.try_org_id()? {
@@ -259,7 +259,7 @@ impl NodeService for super::GrpcImpl {
             .ok_or_else(|| Status::invalid_argument("Pagination missing"))?;
         let offset = pagination.items_per_page * (pagination.current_page - 1);
 
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let nodes = match filters {
             None => {
                 models::Node::find_all_by_org(
@@ -299,7 +299,7 @@ impl NodeService for super::GrpcImpl {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         // Check quota
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let user = models::User::find_by_id(token.id, &mut conn).await?;
 
         if user.staking_quota <= 0 {
@@ -309,7 +309,6 @@ impl NodeService for super::GrpcImpl {
         let inner = request.into_inner();
         let new_node = inner.as_new(user.id)?;
         let (node, ui_node, node_msg, create_msg, restart_msg) = self
-            .db
             .trx(|c| {
                 async move {
                     let node = new_node.create(c).await?;
@@ -385,7 +384,6 @@ impl NodeService for super::GrpcImpl {
         let update_node = inner.as_update()?;
 
         let msg = self
-            .db
             .trx(|c| {
                 async move {
                     let user = models::User::find_by_id(user_id, c).await?;
@@ -412,68 +410,67 @@ impl NodeService for super::GrpcImpl {
             .ok_or_else(required("User token"))?
             .clone();
         let inner = request.into_inner();
-        self.db
-            .trx(|c| {
-                async move {
-                    let node_id = inner.id.parse()?;
-                    let node = models::Node::find_by_id(node_id, c).await?;
+        self.trx(|c| {
+            async move {
+                let node_id = inner.id.parse()?;
+                let node = models::Node::find_by_id(node_id, c).await?;
 
-                    if !models::Node::belongs_to_user_org(node.org_id, token.id, c).await? {
-                        super::bail_unauthorized!("User cannot delete node");
-                    }
-                    // 1. Delete node, if the node belongs to the current user
-                    // Key files are deleted automatically because of 'on delete cascade' in tables DDL
-                    models::Node::delete(node_id, c).await?;
-
-                    let host_id = node.host_id;
-                    // 2. Do NOT delete reserved IP addresses, but set assigned to false
-                    let ip_addr = node
-                        .ip_addr
-                        .parse()
-                        .map_err(|_| Status::internal("invalid ip"))?;
-                    let ip = models::IpAddress::find_by_node(ip_addr, c).await?;
-
-                    models::IpAddress::unassign(ip.id, host_id, c).await?;
-
-                    // Delete all pending commands for this node: there are not useable anymore
-                    models::Command::delete_pending(node_id, c).await?;
-
-                    // Send delete node command
-                    let node_id = node_id.to_string();
-                    let new_command = models::NewCommand {
-                        host_id: node.host_id,
-                        cmd: models::HostCmd::DeleteNode,
-                        sub_cmd: Some(&node_id),
-                        // Note that the `node_id` goes into the `sub_cmd` field, not the node_id
-                        // field, because the node was just deleted.
-                        node_id: None,
-                    };
-                    let cmd = new_command.create(c).await?;
-
-                    let user_id = token.id;
-                    let user = models::User::find_by_id(user_id, c).await?;
-                    let update_user = models::UpdateUser {
-                        id: user.id,
-                        first_name: None,
-                        last_name: None,
-                        fee_bps: None,
-                        staking_quota: Some(user.staking_quota + 1),
-                        refresh: None,
-                    };
-                    update_user.update(c).await?;
-
-                    let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
-                    self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
-
-                    self.notifier
-                        .ui_nodes_sender()?
-                        .send(&blockjoy_ui::NodeMessage::deleted(node, user))
-                        .await?;
-                    Ok(())
+                if !models::Node::belongs_to_user_org(node.org_id, token.id, c).await? {
+                    super::bail_unauthorized!("User cannot delete node");
                 }
-                .scope_boxed()
-            })
-            .await?;
+                // 1. Delete node, if the node belongs to the current user
+                // Key files are deleted automatically because of 'on delete cascade' in tables DDL
+                models::Node::delete(node_id, c).await?;
+
+                let host_id = node.host_id;
+                // 2. Do NOT delete reserved IP addresses, but set assigned to false
+                let ip_addr = node
+                    .ip_addr
+                    .parse()
+                    .map_err(|_| Status::internal("invalid ip"))?;
+                let ip = models::IpAddress::find_by_node(ip_addr, c).await?;
+
+                models::IpAddress::unassign(ip.id, host_id, c).await?;
+
+                // Delete all pending commands for this node: there are not useable anymore
+                models::Command::delete_pending(node_id, c).await?;
+
+                // Send delete node command
+                let node_id = node_id.to_string();
+                let new_command = models::NewCommand {
+                    host_id: node.host_id,
+                    cmd: models::HostCmd::DeleteNode,
+                    sub_cmd: Some(&node_id),
+                    // Note that the `node_id` goes into the `sub_cmd` field, not the node_id
+                    // field, because the node was just deleted.
+                    node_id: None,
+                };
+                let cmd = new_command.create(c).await?;
+
+                let user_id = token.id;
+                let user = models::User::find_by_id(user_id, c).await?;
+                let update_user = models::UpdateUser {
+                    id: user.id,
+                    first_name: None,
+                    last_name: None,
+                    fee_bps: None,
+                    staking_quota: Some(user.staking_quota + 1),
+                    refresh: None,
+                };
+                update_user.update(c).await?;
+
+                let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
+                self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
+
+                self.notifier
+                    .ui_nodes_sender()?
+                    .send(&blockjoy_ui::NodeMessage::deleted(node, user))
+                    .await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await?;
         response_with_refresh_token(refresh_token, ())
     }
 }
