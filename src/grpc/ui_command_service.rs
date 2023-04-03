@@ -22,7 +22,6 @@ async fn handle_request(
     let notifier = impler.notifier.clone();
     let host_id = inner.id.parse()?;
     impler
-        .db
         .trx(|c| {
             async move {
                 let cmd = create_command(host_id, cmd_type, inner.params, notifier, c).await?;

@@ -17,7 +17,7 @@ impl KeyFiles for super::GrpcImpl {
         let inner = request.into_inner();
         let node_id = inner.node_id.parse().map_err(ApiError::from)?;
         let request_id = inner.request_id.clone();
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let key_files = models::NodeKeyFile::find_by_node(node_id, &mut conn).await?;
 
         // Ensure we return "Not found" if no key files could be found
@@ -44,30 +44,29 @@ impl KeyFiles for super::GrpcImpl {
         let node_id = inner.node_id.parse().map_err(ApiError::from)?;
         let request_id = inner.request_id.clone();
 
-        self.db
-            .trx(|c| {
-                async move {
-                    // Explicitly check, if node exists
-                    models::Node::find_by_id(node_id, c).await?;
+        self.trx(|c| {
+            async move {
+                // Explicitly check, if node exists
+                models::Node::find_by_id(node_id, c).await?;
 
-                    for file in inner.key_files {
-                        let new_node_key_file = models::NewNodeKeyFile {
-                            name: &file.name,
-                            content: std::str::from_utf8(&file.content).map_err(|e| {
-                                Status::invalid_argument(format!(
-                                    "Couldn't read key file contents: {e}"
-                                ))
-                            })?,
-                            node_id,
-                        };
+                for file in inner.key_files {
+                    let new_node_key_file = models::NewNodeKeyFile {
+                        name: &file.name,
+                        content: std::str::from_utf8(&file.content).map_err(|e| {
+                            Status::invalid_argument(format!(
+                                "Couldn't read key file contents: {e}"
+                            ))
+                        })?,
+                        node_id,
+                    };
 
-                        new_node_key_file.create(c).await?;
-                    }
-                    Ok(())
+                    new_node_key_file.create(c).await?;
                 }
-                .scope_boxed()
-            })
-            .await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await?;
 
         let response = KeyFilesSaveResponse {
             origin_request_id: request_id,

@@ -102,7 +102,7 @@ impl HostService for super::GrpcImpl {
         let meta = inner.meta.ok_or_else(required("meta"))?;
         let request_id = meta.id;
         let param = inner.param.ok_or_else(required("param"))?;
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let response_meta =
             ResponseMeta::new(request_id.unwrap_or_default(), Some(token.try_into()?));
         let hosts = match param {
@@ -139,7 +139,7 @@ impl HostService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let new_host = inner.as_new()?;
-        self.db.trx(|c| new_host.create(c).scope_boxed()).await?;
+        self.trx(|c| new_host.create(c).scope_boxed()).await?;
         let response = CreateHostResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
@@ -154,7 +154,7 @@ impl HostService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let updater = inner.as_update()?;
-        self.db.trx(|c| updater.update(c).scope_boxed()).await?;
+        self.trx(|c| updater.update(c).scope_boxed()).await?;
         let response = UpdateHostResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
         };
@@ -168,8 +168,7 @@ impl HostService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let host_id = inner.id.parse().map_err(ApiError::from)?;
-        self.db
-            .trx(|c| models::Host::delete(host_id, c).scope_boxed())
+        self.trx(|c| models::Host::delete(host_id, c).scope_boxed())
             .await?;
         let response = DeleteHostResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),

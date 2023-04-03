@@ -195,37 +195,37 @@ impl std::str::FromStr for NodeChainStatus {
 
 #[derive(Clone, Debug, Queryable, Identifiable)]
 pub struct Node {
-    pub id: Uuid,                                  // id -> Uuid,
-    pub org_id: Uuid,                              // org_id -> Uuid,
-    pub host_id: Uuid,                             // host_id -> Uuid,
-    pub name: String,                              // name -> Text,
-    pub groups: Option<String>,                    // groups -> Nullable<Text>,
-    pub version: Option<String>,                   // version -> Nullable<Text>,
-    pub ip_addr: String,                           // ip_addr -> Nullable<Text>,
-    pub address: Option<String>,                   // address -> Nullable<Text>,
-    pub wallet_address: Option<String>,            // wallet_address -> Nullable<Text>,
-    pub block_height: Option<i64>,                 // block_height -> Nullable<Int8>,
-    pub node_data: Option<serde_json::Value>,      // node_data -> Nullable<Jsonb>,
-    pub created_at: DateTime<Utc>,                 // created_at -> Timestamptz,
-    pub updated_at: DateTime<Utc>,                 // updated_at -> Timestamptz,
-    pub blockchain_id: Uuid,                       // blockchain_id -> Uuid,
-    pub sync_status: NodeSyncStatus,               // sync_status -> EnumNodeSyncStatus,
-    pub chain_status: NodeChainStatus,             // chain_status -> EnumNodeChainStatus,
-    pub staking_status: Option<NodeStakingStatus>, // staking_status -> Nullable<EnumNodeStakingStatus>,
-    pub container_status: ContainerStatus,         // container_status -> EnumContainerStatus,
-    properties: serde_json::Value,                 // properties -> Jsonb,
-    pub ip_gateway: String,                        // ip_gateway -> Text,
-    pub self_update: bool,                         // self_update -> Bool,
-    pub block_age: Option<i64>,                    // block_age -> Nullable<Int8>,
-    pub consensus: Option<bool>,                   // consensus -> Nullable<Bool>,
-    pub vcpu_count: i64,                           // vcpu_count -> Int8,
-    pub mem_size_mb: i64,                          // mem_size_mb -> Int8,
-    pub disk_size_gb: i64,                         // disk_size_gb -> Int8,
-    pub host_name: String,                         // host_name -> Text,
-    pub network: String,                           // network -> Text,
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub host_id: Uuid,
+    pub name: String,
+    pub groups: Option<String>,
+    pub version: Option<String>,
+    pub ip_addr: String,
+    pub address: Option<String>,
+    pub wallet_address: Option<String>,
+    pub block_height: Option<i64>,
+    pub node_data: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub blockchain_id: Uuid,
+    pub sync_status: NodeSyncStatus,
+    pub chain_status: NodeChainStatus,
+    pub staking_status: Option<NodeStakingStatus>,
+    pub container_status: ContainerStatus,
+    properties: serde_json::Value,
+    pub ip_gateway: String,
+    pub self_update: bool,
+    pub block_age: Option<i64>,
+    pub consensus: Option<bool>,
+    pub vcpu_count: i64,
+    pub mem_size_mb: i64,
+    pub disk_size_gb: i64,
+    pub host_name: String,
+    pub network: String,
     pub created_by: Option<uuid::Uuid>,
-    pub dns_record_id: Option<String>,
-    pub node_type: NodeType, // node_type -> EnumNodeType,
+    pub dns_record_id: String,
+    pub node_type: NodeType,
 }
 
 #[derive(Clone, Debug)]
@@ -377,8 +377,8 @@ impl Node {
             .execute(conn)
             .await?;
 
-        if let Some(id) = node.dns_record_id {
-            cf_api.remove_node_dns(id).await?;
+        if let Err(e) = cf_api.remove_node_dns(node.dns_record_id).await {
+            tracing::error!("Could not remove DNS for node! {e}");
         }
 
         Ok(())
@@ -412,8 +412,8 @@ pub struct NewNode<'a> {
     pub mem_size_mb: i64,
     pub disk_size_gb: i64,
     pub network: &'a str,
-    pub created_by: uuid::Uuid,
     pub node_type: NodeType,
+    pub created_by: uuid::Uuid,
 }
 
 impl NewNode<'_> {
@@ -473,6 +473,7 @@ pub struct UpdateNode<'a> {
     pub staking_status: Option<NodeStakingStatus>,
     pub container_status: Option<ContainerStatus>,
     pub self_update: Option<bool>,
+    pub address: Option<&'a str>,
 }
 
 impl UpdateNode<'_> {

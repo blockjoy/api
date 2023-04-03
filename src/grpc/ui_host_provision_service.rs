@@ -60,7 +60,7 @@ impl HostProvisionService for super::GrpcImpl {
     ) -> Result<Response<GetHostProvisionResponse>, Status> {
         let inner = request.into_inner();
         let host_provision_id = inner.id.ok_or_else(required("id"))?;
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let host_provision =
             models::HostProvision::find_by_id(&host_provision_id, &mut conn).await?;
         let response = GetHostProvisionResponse {
@@ -79,10 +79,7 @@ impl HostProvisionService for super::GrpcImpl {
         let inner = request.into_inner();
         let new_provision = dbg!(inner.as_new())?;
 
-        let provision = self
-            .db
-            .trx(|c| new_provision.create(c).scope_boxed())
-            .await?;
+        let provision = self.trx(|c| new_provision.create(c).scope_boxed()).await?;
 
         let meta = ResponseMeta::from_meta(inner.meta, Some(token)).with_message(provision.id);
         let response = CreateHostProvisionResponse { meta: Some(meta) };

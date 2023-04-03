@@ -45,7 +45,7 @@ impl OrganizationService for super::GrpcImpl {
         let inner = request.into_inner();
         let org_id = inner.org_id;
 
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let organizations: Vec<models::Org> = match org_id {
             Some(org_id) => {
                 let org_id = org_id.parse().map_err(ApiError::UuidParseError)?;
@@ -87,7 +87,6 @@ impl OrganizationService for super::GrpcImpl {
             is_personal: false,
         };
         let (org, msg) = self
-            .db
             .trx(|c| {
                 async move {
                     let user = models::User::find_by_id(user_id, c).await?;
@@ -124,7 +123,6 @@ impl OrganizationService for super::GrpcImpl {
         };
 
         let msg = self
-            .db
             .trx(|c| {
                 async move {
                     let org = update.update(c).await?;
@@ -152,7 +150,6 @@ impl OrganizationService for super::GrpcImpl {
         let inner = request.into_inner();
         let org_id = inner.id.parse().map_err(ApiError::from)?;
         let msg = self
-            .db
             .trx(|c| {
                 async move {
                     let org = models::Org::find_by_id(org_id, c).await?;
@@ -196,7 +193,6 @@ impl OrganizationService for super::GrpcImpl {
         let inner = request.into_inner();
         let org_id = inner.id.parse().map_err(ApiError::from)?;
         let resp = self
-            .db
             .trx(|c| {
                 async move {
                     let member = models::Org::find_org_user(user_id, org_id, c).await?;
@@ -235,7 +231,7 @@ impl OrganizationService for super::GrpcImpl {
         let org_id = inner.id.parse().map_err(ApiError::from)?;
 
         let (limit, offset) = pagination_parameters(meta.pagination.clone())?;
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let users =
             models::Org::find_all_member_users_paginated(org_id, limit, offset, &mut conn).await?;
         let users: Result<_, ApiError> = users
@@ -263,7 +259,6 @@ impl OrganizationService for super::GrpcImpl {
         let user_id = inner.user_id.parse().map_err(ApiError::from)?;
         let org_id = inner.org_id.parse().map_err(ApiError::from)?;
         let msg = self
-            .db
             .trx(|c| {
                 async move {
                     let member = models::Org::find_org_user(caller_id, org_id, c).await?;
@@ -305,7 +300,6 @@ impl OrganizationService for super::GrpcImpl {
         let inner = request.into_inner();
         let org_id = inner.org_id.parse().map_err(ApiError::from)?;
         let msg = self
-            .db
             .trx(|c| {
                 async move {
                     models::Org::remove_org_user(user_id, org_id, c).await?;

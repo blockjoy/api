@@ -62,7 +62,7 @@ impl UserService for super::GrpcImpl {
     ) -> Result<Response<GetUserResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let user = token.try_get_user(token.id, &mut conn).await?;
         let inner = request.into_inner();
         let response = GetUserResponse {
@@ -82,7 +82,7 @@ impl UserService for super::GrpcImpl {
             return Err(Status::invalid_argument("Passwords don't match"));
         }
         let new_user = inner.as_new()?;
-        let new_user = self.db.trx(|c| new_user.create(c).scope_boxed()).await?;
+        let new_user = self.trx(|c| new_user.create(c).scope_boxed()).await?;
         let meta = ResponseMeta::from_meta(inner.meta, None).with_message(new_user.id);
         let response = CreateUserResponse { meta: Some(meta) };
 
@@ -104,7 +104,6 @@ impl UserService for super::GrpcImpl {
             .ok_or_else(required("auth token"))?
             .clone();
         let response = self
-            .db
             .trx(|c| {
                 async move {
                     let user_id = token.try_get_user(token.id, c).await?.id;
@@ -135,15 +134,14 @@ impl UserService for super::GrpcImpl {
             .extensions()
             .get::<UserAuthToken>()
             .ok_or_else(required("auth token"))?;
-        self.db
-            .trx(|c| {
-                async move {
-                    let user_id = token.try_get_user(token.id, c).await?.id;
-                    User::delete(user_id, c).await
-                }
-                .scope_boxed()
-            })
-            .await?;
+        self.trx(|c| {
+            async move {
+                let user_id = token.try_get_user(token.id, c).await?.id;
+                User::delete(user_id, c).await
+            }
+            .scope_boxed()
+        })
+        .await?;
 
         response_with_refresh_token(refresh_token, ())
     }

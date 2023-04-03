@@ -24,7 +24,7 @@ impl Commands for super::GrpcImpl {
     async fn get(&self, request: Request<CommandInfo>) -> Result<Response<Command>, Status> {
         let inner = request.into_inner();
         let cmd_id = uuid::Uuid::from_str(inner.id.as_str()).map_err(ApiError::from)?;
-        let mut db_conn = self.db.conn().await?;
+        let mut db_conn = self.conn().await?;
         let cmd = models::Command::find_by_id(cmd_id, &mut db_conn).await?;
         let grpc_cmd = db_command_to_grpc_command(&cmd, &mut db_conn).await?;
         let response = Response::new(grpc_cmd);
@@ -34,16 +34,15 @@ impl Commands for super::GrpcImpl {
 
     async fn update(&self, request: Request<CommandInfo>) -> Result<Response<()>, Status> {
         let inner = request.into_inner();
-        self.db
-            .trx(|c| {
-                async move {
-                    let update_cmd = inner.as_update()?;
-                    update_cmd.update(c).await?;
-                    Ok(())
-                }
-                .scope_boxed()
-            })
-            .await?;
+        self.trx(|c| {
+            async move {
+                let update_cmd = inner.as_update()?;
+                update_cmd.update(c).await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await?;
 
         Ok(Response::new(()))
     }
@@ -54,7 +53,7 @@ impl Commands for super::GrpcImpl {
     ) -> Result<Response<CommandResponse>, Status> {
         let inner = request.into_inner();
         let host_id = inner.host_id.parse().map_err(ApiError::from)?;
-        let mut db_conn = self.db.conn().await?;
+        let mut db_conn = self.conn().await?;
         let cmds = models::Command::find_pending_by_host(host_id, &mut db_conn).await?;
         let mut response = CommandResponse { commands: vec![] };
 

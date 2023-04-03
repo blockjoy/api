@@ -49,7 +49,7 @@ impl BlockchainService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let id = inner.id.parse().map_err(ApiError::from)?;
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let blockchain = models::Blockchain::find_by_id(id, &mut conn)
             .await
             .map_err(|_| tonic::Status::not_found("No such blockchain"))?;
@@ -72,7 +72,7 @@ impl BlockchainService for super::GrpcImpl {
         let inner = request.into_inner();
 
         // We query the necessary blockchains from the database.
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let blockchains = models::Blockchain::find_all(&mut conn).await?;
 
         // This list will contain the dto's that are sent over gRPC after the information from

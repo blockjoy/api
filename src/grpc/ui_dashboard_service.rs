@@ -22,7 +22,7 @@ impl DashboardService for super::GrpcImpl {
             super::bail_unauthorized!("Can't get metrics for this org");
         }
 
-        let mut conn = self.db.conn().await?;
+        let mut conn = self.conn().await?;
         let mut metrics: Vec<Metric> = Vec::with_capacity(2);
         if let Ok(running_nodes) = models::Node::running_nodes_count(org_id, &mut conn).await {
             let running = Metric {

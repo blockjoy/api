@@ -59,8 +59,7 @@ impl MetricsService for super::GrpcImpl {
             .into_iter()
             .map(|(k, v)| v.as_metrics_update(&k))
             .collect::<Result<_, _>>()?;
-        self.db
-            .trx(|c| models::UpdateNodeMetrics::update_metrics(updates, c).scope_boxed())
+        self.trx(|c| models::UpdateNodeMetrics::update_metrics(updates, c).scope_boxed())
             .await?;
         Ok(tonic::Response::new(()))
     }
@@ -75,8 +74,7 @@ impl MetricsService for super::GrpcImpl {
             .into_iter()
             .map(|(k, v)| v.as_metrics_update(&k))
             .collect::<Result<_, _>>()?;
-        self.db
-            .trx(|c| models::UpdateHostMetrics::update_metrics(updates, c).scope_boxed())
+        self.trx(|c| models::UpdateHostMetrics::update_metrics(updates, c).scope_boxed())
             .await?;
         Ok(tonic::Response::new(()))
     }
