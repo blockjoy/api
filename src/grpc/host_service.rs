@@ -2,9 +2,9 @@ use super::blockjoy;
 use super::helpers::{required, try_get_token};
 use crate::auth::{HostAuthToken, JwtToken, TokenRole, TokenType};
 use crate::errors::ApiError;
-use crate::grpc::blockjoy::hosts_server::Hosts;
+use crate::grpc::blockjoy::host_service_server::HostService;
 use crate::grpc::blockjoy::{
-    DeleteHostRequest, DeleteHostResponse, HostInfoUpdateRequest, HostInfoUpdateResponse,
+    DeleteHostRequest, DeleteHostResponse, HostUpdateRequest, HostUpdateResponse,
     ProvisionHostRequest, ProvisionHostResponse,
 };
 use crate::models;
@@ -12,56 +12,56 @@ use crate::models::{Host, HostProvision};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 
-impl blockjoy::HostInfo {
+impl blockjoy::HostUpdateRequest {
     pub fn as_update(&self) -> crate::Result<models::UpdateHost> {
         Ok(models::UpdateHost {
-            id: self.id.as_ref().ok_or_else(required("host.id"))?.parse()?,
-            name: self.name.as_deref(),
+            id: self.id.parse()?,
+            name: None,
             version: self.version.as_deref(),
-            location: self.location.as_deref(),
-            cpu_count: self.cpu_count,
-            mem_size: self.mem_size,
-            disk_size: self.disk_size,
+            location: None,
+            cpu_count: None,
+            mem_size: None,
+            disk_size: None,
             os: self.os.as_deref(),
             os_version: self.os_version.as_deref(),
             ip_addr: self.ip.as_deref(),
-            status: Some(models::ConnectionStatus::Online),
-            ip_range_from: self
-                .ip_range_from
-                .as_ref()
-                .map(|ip| ip.parse())
-                .transpose()?,
-            ip_range_to: self.ip_range_to.as_ref().map(|ip| ip.parse()).transpose()?,
-            ip_gateway: self.ip_gateway.as_ref().map(|ip| ip.parse()).transpose()?,
+            status: None,
+            ip_range_from: None,
+            ip_range_to: None,
+            ip_gateway: None,
         })
     }
+}
 
-    pub fn as_new(&self) -> crate::Result<models::NewHost<'_>> {
+impl blockjoy::ProvisionHostRequest {
+    pub fn as_new(&self, provision: models::HostProvision) -> crate::Result<models::NewHost<'_>> {
         let new_host = models::NewHost {
-            name: self.name.as_deref().ok_or_else(required("info.name"))?,
-            version: self.version.as_deref(),
-            location: self.location.as_deref(),
-            cpu_count: self.cpu_count,
-            mem_size: self.mem_size,
-            disk_size: self.disk_size,
-            os: self.os.as_deref(),
-            os_version: self.os_version.as_deref(),
-            ip_addr: self.ip.as_deref().ok_or_else(required("info.ip"))?,
-            status: models::ConnectionStatus::Offline,
-            ip_range_from: self
+            name: &self.name,
+            version: Some(&self.version),
+            location: None,
+            cpu_count: Some(self.cpu_count),
+            mem_size: Some(self.mem_size_bytes),
+            disk_size: Some(self.disk_size_bytes),
+            os: Some(&self.os),
+            os_version: Some(&self.os_version),
+            ip_addr: &self.ip,
+            status: self.status.try_into()?,
+            ip_range_from: provision
                 .ip_range_from
-                .as_ref()
-                .map(|ip| ip.parse())
-                .transpose()?,
-            ip_range_to: self.ip_range_to.as_ref().map(|ip| ip.parse()).transpose()?,
-            ip_gateway: self.ip_gateway.as_ref().map(|ip| ip.parse()).transpose()?,
+                .ok_or_else(required("provision.ip_range_from"))?,
+            ip_range_to: provision
+                .ip_range_to
+                .ok_or_else(required("provision.ip_range_to"))?,
+            ip_gateway: provision
+                .ip_gateway
+                .ok_or_else(required("provision.ip_gateway"))?,
         };
         Ok(new_host)
     }
 }
 
 #[tonic::async_trait]
-impl Hosts for super::GrpcImpl {
+impl HostService for super::GrpcImpl {
     async fn provision(
         &self,
         request: Request<ProvisionHostRequest>,
@@ -89,24 +89,20 @@ impl Hosts for super::GrpcImpl {
         Ok(Response::new(result))
     }
 
-    async fn info_update(
+    async fn update(
         &self,
-        request: Request<HostInfoUpdateRequest>,
-    ) -> Result<Response<HostInfoUpdateResponse>, Status> {
+        request: Request<HostUpdateRequest>,
+    ) -> Result<Response<HostUpdateResponse>, Status> {
         let host_token_id = try_get_token::<_, HostAuthToken>(&request)?.id;
         let inner = request.into_inner();
         let request_id = inner.request_id.clone();
-        let update_host = inner
-            .info
-            .as_ref()
-            .ok_or_else(required("info"))?
-            .as_update()?;
+        let update_host = inner.as_update()?;
 
         if host_token_id != update_host.id {
             super::bail_unauthorized!("Not allowed to delete host '{}'", update_host.id);
         }
         self.db.trx(|c| update_host.update(c).scope_boxed()).await?;
-        let result = HostInfoUpdateResponse {
+        let result = HostUpdateResponse {
             messages: vec![],
             origin_request_id: request_id,
         };

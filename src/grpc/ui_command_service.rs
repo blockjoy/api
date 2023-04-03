@@ -72,7 +72,7 @@ async fn create_command(
             let node = models::Node::find_by_id(node_id, conn).await?;
             notifier
                 .bv_nodes_sender()?
-                .send(&blockjoy::NodeInfo::from_model(node.clone()))
+                .send(&blockjoy::Node::from_model(node.clone()))
                 .await?;
         }
         _ => {}

@@ -87,8 +87,9 @@ impl blockjoy_ui::Node {
             host_name: node.host_name,
             blockchain_id: node.blockchain_id.to_string(),
             name: node.name,
+            address: node.address,
             version: node.version,
-            ip: node.ip_addr,
+            ip: Some(node.ip_addr),
             ip_gateway: node.ip_gateway,
             r#type: node.node_type.into(),
             properties,
@@ -159,8 +160,6 @@ impl blockjoy_ui::CreateNodeRequest {
             version: self.version.as_deref(),
             blockchain_id: self.blockchain_id.parse()?,
             properties: serde_json::to_value(properties.props)?,
-            address: None,
-            wallet_address: None,
             block_height: None,
             node_data: None,
             chain_status: models::NodeChainStatus::Provisioning,
@@ -353,7 +352,7 @@ impl NodeService for super::GrpcImpl {
 
         self.notifier
             .bv_nodes_sender()?
-            .send(&blockjoy::NodeInfo::from_model(node.clone()))
+            .send(&blockjoy::Node::from_model(node.clone()))
             .await?;
         self.notifier.ui_nodes_sender()?.send(&node_msg).await?;
         self.notifier
@@ -430,8 +429,6 @@ impl NodeService for super::GrpcImpl {
                     // 2. Do NOT delete reserved IP addresses, but set assigned to false
                     let ip_addr = node
                         .ip_addr
-                        .as_ref()
-                        .ok_or_else(required("node.ip_addr"))?
                         .parse()
                         .map_err(|_| Status::internal("invalid ip"))?;
                     let ip = models::IpAddress::find_by_node(ip_addr, c).await?;

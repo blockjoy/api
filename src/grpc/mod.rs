@@ -50,7 +50,6 @@ use crate::grpc::blockjoy_ui::user_service_server::UserServiceServer;
 use crate::{grpc, models};
 use anyhow::anyhow;
 use axum::Extension;
-use blockjoy::hosts_server::HostsServer;
 use chrono::NaiveDateTime;
 use std::env;
 use tonic::metadata::errors::InvalidMetadataValue;
@@ -107,7 +106,11 @@ pub async fn server(
 > {
     // Add unauthenticated paths. TODO: Should this reside in some config file?
     let unauthenticated = UnauthenticatedPaths::new(vec![
-        "/blockjoy.api.v1.Hosts/Provision",
+        // This path is unauthenticated because you need to have the OTP to create a new host, and
+        // that is used instead of the normal machinery.
+        "/blockjoy.api.v1.HostService/Provision",
+        // The following paths are for users to create and manage their accounts, so should not
+        // require authentication either.
         "/blockjoy.api.ui_v1.AuthenticationService/Login",
         "/blockjoy.api.ui_v1.UserService/Create",
         "/blockjoy.api.ui_v1.AuthenticationService/ResetPassword",
@@ -126,8 +129,8 @@ pub async fn server(
 
     let discovery_service = grpc::blockjoy::discovery_server::DiscoveryServer::new(impler.clone());
     let command_service = grpc::blockjoy::commands_server::CommandsServer::new(impler.clone());
-    let node_service = grpc::blockjoy::nodes_server::NodesServer::new(impler.clone());
-    let h_service = HostsServer::new(impler.clone());
+    let node_service = grpc::blockjoy::node_service_server::NodeServiceServer::new(impler.clone());
+    let h_service = grpc::blockjoy::host_service_server::HostServiceServer::new(impler.clone());
     let k_service = KeyFilesServer::new(impler.clone());
     let m_service = MetricsServiceServer::new(impler.clone());
     let ui_auth_service = AuthenticationServiceServer::new(impler.clone());
