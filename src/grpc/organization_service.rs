@@ -277,7 +277,13 @@ impl OrganizationService for super::GrpcImpl {
                             {user_id} from org {org_id}"
                         )
                     }
+                    let user_to_remove = models::User::find_by_id(user_id, c).await?;
                     models::Org::remove_org_user(user_id, org_id, c).await?;
+                    // In case a user needs to be re-invited later, we also remove the (already
+                    // accepted) invites from the database. This is to prevent them from running
+                    // into a unique constraint when they are invited again.
+                    models::Invitation::remove_by_org_user(&user_to_remove.email, org_id, c)
+                        .await?;
                     let org = models::Org::find_by_id(org_id, c).await?;
                     let user = models::User::find_by_id(user_id, c).await?;
                     blockjoy_ui::OrgMessage::updated(org, user)

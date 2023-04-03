@@ -2,8 +2,6 @@ use super::schema::{hosts, nodes};
 use crate::auth::{FindableById, HostAuthToken, Identifiable, JwtToken, Owned, TokenError};
 use crate::cookbook::HardwareRequirements;
 use crate::errors::{ApiError, Result};
-use crate::grpc::blockjoy;
-use crate::grpc::helpers::required;
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -22,6 +20,18 @@ impl From<ConnectionStatus> for i32 {
         match value {
             ConnectionStatus::Online => 1,
             ConnectionStatus::Offline => 2,
+        }
+    }
+}
+
+impl TryFrom<i32> for ConnectionStatus {
+    type Error = ApiError;
+
+    fn try_from(value: i32) -> crate::Result<Self> {
+        match value {
+            1 => Ok(ConnectionStatus::Online),
+            2 => Ok(ConnectionStatus::Offline),
+            n => Err(anyhow!("Invalid ConnectionStatus: {n}").into()),
         }
     }
 }
@@ -48,9 +58,9 @@ pub struct Host {
     pub disk_size: Option<i64>,
     pub os: Option<String>,
     pub os_version: Option<String>,
-    pub ip_range_from: Option<ipnetwork::IpNetwork>,
-    pub ip_range_to: Option<ipnetwork::IpNetwork>,
-    pub ip_gateway: Option<ipnetwork::IpNetwork>,
+    pub ip_range_from: ipnetwork::IpNetwork,
+    pub ip_range_to: ipnetwork::IpNetwork,
+    pub ip_gateway: ipnetwork::IpNetwork,
     pub used_cpu: Option<i32>,
     pub used_memory: Option<i64>,
     pub used_disk_space: Option<i64>,
@@ -219,14 +229,6 @@ impl Owned<Host, ()> for Host {
     }
 }
 
-#[tonic::async_trait]
-impl super::UpdateInfo<blockjoy::HostInfo, Host> for Host {
-    async fn update_info(info: blockjoy::HostInfo, conn: &mut AsyncPgConnection) -> Result<Host> {
-        let update = info.as_update()?;
-        update.update(conn).await
-    }
-}
-
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = hosts)]
 pub struct NewHost<'a> {
@@ -234,32 +236,28 @@ pub struct NewHost<'a> {
     pub version: Option<&'a str>,
     pub location: Option<&'a str>,
     pub cpu_count: Option<i64>,
+    /// The amount of memory in bytes that this host has.
     pub mem_size: Option<i64>,
+    /// The amount of disk space in bytes that this host has.
     pub disk_size: Option<i64>,
     pub os: Option<&'a str>,
     pub os_version: Option<&'a str>,
     pub ip_addr: &'a str,
     pub status: ConnectionStatus,
-    pub ip_range_from: Option<ipnetwork::IpNetwork>,
-    pub ip_range_to: Option<ipnetwork::IpNetwork>,
-    pub ip_gateway: Option<ipnetwork::IpNetwork>,
+    pub ip_range_from: ipnetwork::IpNetwork,
+    pub ip_range_to: ipnetwork::IpNetwork,
+    pub ip_gateway: ipnetwork::IpNetwork,
 }
 
 impl NewHost<'_> {
     /// Creates a new `Host` in the db, including the necessary related rows.
     pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Host> {
-        let (ip_gateway, ip_range_from, ip_range_to) = (
-            self.ip_gateway.ok_or_else(required("ip_gateway"))?,
-            self.ip_range_from.ok_or_else(required("ip_range_from"))?,
-            self.ip_range_to.ok_or_else(required("ip_range_to"))?,
-        );
+        let ip_gateway = self.ip_gateway.ip();
+        let ip_range_from = self.ip_range_from.ip();
+        let ip_range_to = self.ip_range_to.ip();
 
         // Ensure gateway IP is not amongst the ones created in the IP range
-        if super::IpAddress::in_range(
-            ip_gateway.network(),
-            ip_range_from.network(),
-            ip_range_to.network(),
-        ) {
+        if super::IpAddress::in_range(ip_gateway, ip_range_from, ip_range_to) {
             return Err(ApiError::IpGatewayError(anyhow!(
                 "{ip_gateway} is in range {ip_range_from} - {ip_range_to}",
             )));
@@ -271,8 +269,7 @@ impl NewHost<'_> {
             .await?;
 
         // Create IP range for new host
-        let create_range =
-            super::NewIpAddressRange::try_new(ip_range_from, ip_range_to, Some(host.id))?;
+        let create_range = super::NewIpAddressRange::try_new(ip_range_from, ip_range_to, host.id)?;
         create_range.create(conn).await?;
 
         Ok(host)

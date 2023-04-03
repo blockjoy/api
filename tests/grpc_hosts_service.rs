@@ -1,34 +1,28 @@
 mod setup;
 
-use api::grpc::blockjoy::{self, hosts_client};
+use api::grpc::blockjoy::{self, host_service_client};
 use api::models;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use tonic::transport;
 
-type Service = hosts_client::HostsClient<transport::Channel>;
+type Service = host_service_client::HostServiceClient<transport::Channel>;
 
 #[tokio::test]
-async fn responds_unauthenticated_with_empty_token_for_info_update() {
+async fn responds_unauthenticated_with_empty_token_for_update() {
     let tester = setup::Tester::new().await;
     let host = tester.host().await;
-    let host_id = host.id.to_string();
-    let host_info = blockjoy::HostInfo {
-        id: Some(host_id.clone()),
-        name: Some("tester".into()),
+    let req = blockjoy::HostUpdateRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        id: host.id.to_string(),
         ip: Some("123.456.789.0".into()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
-        ..Default::default()
-    };
-    let req = blockjoy::HostInfoUpdateRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
-        info: Some(host_info),
+        os: None,
+        os_version: None,
+        version: None,
     };
     let status = tester
         .send_with(
-            Service::info_update,
+            Service::update,
             req,
             setup::DummyToken(""),
             setup::DummyRefresh,
@@ -39,62 +33,39 @@ async fn responds_unauthenticated_with_empty_token_for_info_update() {
 }
 
 #[tokio::test]
-async fn responds_unauthenticated_without_token_for_info_update() {
+async fn responds_unauthenticated_without_token_for_update() {
     let tester = setup::Tester::new().await;
     let host = tester.host().await;
-    let host_id = host.id.to_string();
 
-    let host_info = blockjoy::HostInfo {
-        id: Some(host_id),
-        name: Some("tester".into()),
-        version: None,
-        location: None,
-        cpu_count: None,
-        mem_size: None,
-        disk_size: None,
+    let req = blockjoy::HostUpdateRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        id: host.id.to_string(),
+        ip: Some("123.456.789.0".into()),
         os: None,
         os_version: None,
-        ip: Some("123.456.789.0".into()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
+        version: None,
     };
-    let req = blockjoy::HostInfoUpdateRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
-        info: Some(host_info),
-    };
-    let status = tester.send(Service::info_update, req).await.unwrap_err();
+    let status = tester.send(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
 }
 
 #[tokio::test]
-async fn responds_unauthenticated_with_bad_token_for_info_update() {
+async fn responds_unauthenticated_with_bad_token_for_update() {
     let tester = setup::Tester::new().await;
     let host = tester.host().await;
     let host_id = host.id.to_string();
 
-    let host_info = blockjoy::HostInfo {
-        id: Some(host_id),
-        name: Some("tester".into()),
+    let req = blockjoy::HostUpdateRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        id: host_id,
         version: None,
-        location: None,
-        cpu_count: None,
-        mem_size: None,
-        disk_size: None,
         os: None,
         os_version: None,
         ip: Some("123.456.789.0".into()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
-    };
-    let req = blockjoy::HostInfoUpdateRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
-        info: Some(host_info),
     };
     let status = tester
         .send_with(
-            Service::info_update,
+            Service::update,
             req,
             setup::DummyToken("923783"),
             setup::DummyRefresh,
@@ -105,7 +76,7 @@ async fn responds_unauthenticated_with_bad_token_for_info_update() {
 }
 
 #[tokio::test]
-async fn responds_permission_denied_with_token_ownership_for_info_update() {
+async fn responds_permission_denied_with_token_ownership_for_update() {
     let tester = setup::Tester::new().await;
 
     let host = tester.host().await;
@@ -113,51 +84,37 @@ async fn responds_permission_denied_with_token_ownership_for_info_update() {
     let refresh = tester.refresh_for(&token);
 
     let other_host = tester.host2().await;
-    let host_info = blockjoy::HostInfo {
-        id: Some(other_host.id.to_string()),
-        name: Some("tester".into()),
-        ip: Some("123.456.789.0".into()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
-        ..Default::default()
-    };
-    let req = blockjoy::HostInfoUpdateRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
-        info: Some(host_info),
+    let req = blockjoy::HostUpdateRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        id: other_host.id.to_string(),
+        version: Some("3".to_string()),
+        os: Some("LuukOS".to_string()),
+        os_version: Some("5".to_string()),
+        ip: Some("123.456.789.0".to_string()),
     };
 
     let status = tester
-        .send_with(Service::info_update, req, token, refresh)
+        .send_with(Service::update, req, token, refresh)
         .await
         .unwrap_err();
     assert_eq!(status.code(), tonic::Code::PermissionDenied);
 }
 
 #[tokio::test]
-async fn responds_not_found_for_provision() {
+async fn responds_not_found_for_wrong_otp() {
     let tester = setup::Tester::new().await;
-    let random_uuid = uuid::Uuid::new_v4().to_string();
-    let host_info = blockjoy::HostInfo {
-        id: Some(random_uuid), // does not exist
-        name: Some("tester".into()),
-        version: None,
-        location: None,
-        cpu_count: None,
-        mem_size: None,
-        disk_size: None,
-        os: None,
-        os_version: None,
-        ip: Some("123.456.789.0".into()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
-    };
     let req = blockjoy::ProvisionHostRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
+        request_id: uuid::Uuid::new_v4().to_string(),
         otp: "unknown-otp".into(),
-        info: Some(host_info),
-        status: 0,
+        status: blockjoy::ConnectionStatus::Online.into(),
+        name: "tester".to_string(),
+        version: "3".to_string(),
+        ip: "123.456.789.0".to_string(),
+        cpu_count: 2,
+        mem_size_bytes: 2,
+        disk_size_bytes: 2,
+        os: "LuukOS".to_string(),
+        os_version: "4".to_string(),
     };
     let status = tester.send(Service::provision, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::NotFound);
@@ -166,60 +123,47 @@ async fn responds_not_found_for_provision() {
 #[tokio::test]
 async fn responds_ok_for_provision() {
     let tester = setup::Tester::new().await;
-    let create_host_provision = models::NewHostProvision::new(
-        None,
-        "172.168.0.1".parse().unwrap(),
-        "172.168.0.10".parse().unwrap(),
-        "172.168.0.100".parse().unwrap(),
-    )
-    .unwrap();
+    let from = "172.168.0.1".parse().unwrap();
+    let to = "172.168.0.10".parse().unwrap();
+    let gateway = "172.168.0.100".parse().unwrap();
     let mut conn = tester.conn().await;
-    let host_provision = create_host_provision.create(&mut conn).await.unwrap();
-    let host_info = blockjoy::HostInfo {
-        id: Some(uuid::Uuid::new_v4().to_string()),
-        name: Some("tester".into()),
-        ip: Some("123.456.789.0".into()),
-        ip_gateway: Some("127.18.0.1".into()),
-        ip_range_from: Some("127.18.0.10".into()),
-        ip_range_to: Some("127.18.0.20".into()),
-        ..Default::default()
-    };
+    let host_provision = models::NewHostProvision::new(None, from, to, gateway)
+        .unwrap()
+        .create(&mut conn)
+        .await
+        .unwrap();
     let req = blockjoy::ProvisionHostRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
+        request_id: uuid::Uuid::new_v4().to_string(),
         otp: host_provision.id,
-        info: Some(host_info),
-        status: 0,
+        status: blockjoy::ConnectionStatus::Online.into(),
+        name: "tester".to_string(),
+        version: "3".to_string(),
+        ip: "123.456.789.0".to_string(),
+        cpu_count: 2,
+        mem_size_bytes: 2,
+        disk_size_bytes: 2,
+        os: "LuukOS".to_string(),
+        os_version: "4".to_string(),
     };
     tester.send(Service::provision, req).await.unwrap();
 }
 
 #[tokio::test]
-async fn responds_ok_for_info_update() {
+async fn responds_ok_for_update() {
     let tester = setup::Tester::new().await;
     let host = tester.host().await;
     let token = tester.host_token(&host);
     let refresh = tester.refresh_for(&token);
-    let host_info = blockjoy::HostInfo {
-        id: Some(host.id.to_string()),
-        name: Some("tester".into()),
-        version: None,
-        location: None,
-        cpu_count: None,
-        mem_size: None,
-        disk_size: None,
-        os: None,
-        os_version: None,
-        ip: Some("123.456.789.0".into()),
-        ip_gateway: Some("192.168.0.1".into()),
-        ip_range_from: Some("192.168.0.10".into()),
-        ip_range_to: Some("192.168.0.20".into()),
-    };
-    let req = blockjoy::HostInfoUpdateRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
-        info: Some(host_info),
+    let req = blockjoy::HostUpdateRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        id: host.id.to_string(),
+        version: Some("3".to_string()),
+        os: Some("LuukOS".to_string()),
+        os_version: Some("5".to_string()),
+        ip: Some("123.456.789.0".to_string()),
     };
     tester
-        .send_with(Service::info_update, req, token, refresh)
+        .send_with(Service::update, req, token, refresh)
         .await
         .unwrap();
 }
@@ -231,7 +175,7 @@ async fn responds_ok_for_delete() {
     let token = tester.host_token(&host);
     let refresh = tester.refresh_for(&token);
     let req = blockjoy::DeleteHostRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
+        request_id: uuid::Uuid::new_v4().to_string(),
         host_id: host.id.to_string(),
     };
     tester
@@ -245,7 +189,7 @@ async fn responds_unauthenticated_without_token_for_delete() {
     let tester = setup::Tester::new().await;
     let host = tester.host().await;
     let req = blockjoy::DeleteHostRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
+        request_id: uuid::Uuid::new_v4().to_string(),
         host_id: host.id.to_string(),
     };
     let status = tester.send(Service::delete, req).await.unwrap_err();
@@ -258,7 +202,7 @@ async fn responds_permission_denied_for_delete() {
 
     let host = tester.host().await;
     let req = blockjoy::DeleteHostRequest {
-        request_id: Some(uuid::Uuid::new_v4().to_string()),
+        request_id: uuid::Uuid::new_v4().to_string(),
         host_id: host.id.to_string(),
     };
 

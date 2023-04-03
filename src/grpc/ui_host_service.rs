@@ -34,9 +34,9 @@ impl blockjoy_ui::Host {
             status: model.status.into(),
             nodes,
             created_at: Some(convert::try_dt_to_ts(model.created_at)?),
-            ip_range_from: model.ip_range_from.map(|ip| ip.ip().to_string()),
-            ip_range_to: model.ip_range_to.map(|ip| ip.ip().to_string()),
-            ip_gateway: model.ip_gateway.map(|ip| ip.ip().to_string()),
+            ip_range_from: Some(model.ip_range_from.ip().to_string()),
+            ip_range_to: Some(model.ip_range_to.ip().to_string()),
+            ip_gateway: Some(model.ip_gateway.ip().to_string()),
         };
         Ok(dto)
     }
@@ -55,9 +55,9 @@ impl blockjoy_ui::CreateHostRequest {
             os_version: self.os_version.as_deref(),
             ip_addr: &self.ip_addr,
             status: models::ConnectionStatus::Online,
-            ip_range_from: Some(self.ip_range_from.parse()?),
-            ip_range_to: Some(self.ip_range_to.parse()?),
-            ip_gateway: Some(self.ip_gateway.parse()?),
+            ip_range_from: self.ip_range_from.parse()?,
+            ip_range_to: self.ip_range_to.parse()?,
+            ip_gateway: self.ip_gateway.parse()?,
         })
     }
 }
