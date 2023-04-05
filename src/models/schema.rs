@@ -26,6 +26,18 @@ pub mod sql_types {
     pub struct EnumNodeChainStatus;
 
     #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_node_deployment_action"))]
+    pub struct EnumNodeDeploymentAction;
+
+    #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_node_resource_affinity"))]
+    pub struct EnumNodeResourceAffinity;
+
+    #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_node_similarity_affinity"))]
+    pub struct EnumNodeSimilarityAffinity;
+
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_staking_status"))]
     pub struct EnumNodeStakingStatus;
 
@@ -137,17 +149,17 @@ diesel::table! {
 
     hosts (id) {
         id -> Uuid,
-        version -> Nullable<Text>,
+        version -> Text,
         name -> Text,
         location -> Nullable<Text>,
         ip_addr -> Text,
         status -> EnumConnStatus,
         created_at -> Timestamptz,
-        cpu_count -> Nullable<Int8>,
-        mem_size -> Nullable<Int8>,
-        disk_size -> Nullable<Int8>,
-        os -> Nullable<Text>,
-        os_version -> Nullable<Text>,
+        cpu_count -> Int8,
+        mem_size -> Int8,
+        disk_size -> Int8,
+        os -> Text,
+        os_version -> Text,
         ip_range_from -> Inet,
         ip_range_to -> Inet,
         ip_gateway -> Inet,
@@ -211,11 +223,41 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::EnumNodeDeploymentAction;
+    use super::sql_types::EnumNodeType;
+
+    node_deployment_logs (id) {
+        id -> Uuid,
+        host_id -> Uuid,
+        node_id -> Uuid,
+        action -> EnumNodeDeploymentAction,
+        blockchain_id -> Uuid,
+        node_type -> EnumNodeType,
+        version -> Varchar,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     node_key_files (id) {
         id -> Uuid,
         name -> Text,
         content -> Text,
         node_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::EnumNodeSimilarityAffinity;
+    use super::sql_types::EnumNodeResourceAffinity;
+
+    node_schedulers (id) {
+        id -> Uuid,
+        node_id -> Uuid,
+        similarity -> Nullable<EnumNodeSimilarityAffinity>,
+        resource -> EnumNodeResourceAffinity,
     }
 }
 
@@ -252,8 +294,8 @@ diesel::table! {
         block_age -> Nullable<Int8>,
         consensus -> Nullable<Bool>,
         vcpu_count -> Int8,
-        mem_size_mb -> Int8,
-        disk_size_gb -> Int8,
+        mem_size_bytes -> Int8,
+        disk_size_bytes -> Int8,
         host_name -> Text,
         network -> Text,
         created_by -> Nullable<Uuid>,
@@ -351,7 +393,9 @@ diesel::joinable!(invitations -> orgs (created_for_org));
 diesel::joinable!(invitations -> users (created_by_user));
 diesel::joinable!(invoices -> users (user_id));
 diesel::joinable!(ip_addresses -> hosts (host_id));
+diesel::joinable!(node_deployment_logs -> blockchains (blockchain_id));
 diesel::joinable!(node_key_files -> nodes (node_id));
+diesel::joinable!(node_schedulers -> nodes (node_id));
 diesel::joinable!(nodes -> blockchains (blockchain_id));
 diesel::joinable!(nodes -> hosts (host_id));
 diesel::joinable!(nodes -> orgs (org_id));
@@ -371,7 +415,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     invitations,
     invoices,
     ip_addresses,
+    node_deployment_logs,
     node_key_files,
+    node_schedulers,
     nodes,
     orgs,
     orgs_users,

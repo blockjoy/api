@@ -7,7 +7,7 @@ use crate::grpc::blockjoy::{
     NodeDelete, NodeRestart, NodeStop,
 };
 use crate::grpc::helpers::required;
-use crate::models::{self, Blockchain, Command, HostCmd, Node};
+use crate::models::{self, Blockchain, Command, CommandType, Node};
 use anyhow::anyhow;
 use diesel_async::AsyncPgConnection;
 use prost_types::Timestamp;
@@ -42,23 +42,23 @@ pub async fn db_command_to_grpc_command(
     };
 
     match cmd.cmd {
-        HostCmd::RestartNode => {
+        CommandType::RestartNode => {
             let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
             let cmd = Command::Restart(NodeRestart {});
             node_cmd(cmd, node_id.to_string())
         }
-        HostCmd::KillNode => {
+        CommandType::KillNode => {
             tracing::debug!("Using NodeStop for KillNode");
             let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
             let cmd = Command::Stop(NodeStop {});
             node_cmd(cmd, node_id.to_string())
         }
-        HostCmd::ShutdownNode => {
+        CommandType::ShutdownNode => {
             let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
             let cmd = Command::Stop(NodeStop {});
             node_cmd(cmd, node_id.to_string())
         }
-        HostCmd::UpdateNode => {
+        CommandType::UpdateNode => {
             tracing::debug!("Using NodeUpgrade for UpdateNode");
 
             let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
@@ -69,18 +69,18 @@ pub async fn db_command_to_grpc_command(
 
             node_cmd(cmd, node_id.to_string())
         }
-        HostCmd::MigrateNode => {
+        CommandType::MigrateNode => {
             tracing::error!("Using NodeGenericCommand for MigrateNode");
             Err(ApiError::UnexpectedError(anyhow!("Not implemented")))
         }
-        HostCmd::GetNodeVersion => {
+        CommandType::GetNodeVersion => {
             tracing::debug!("Using NodeInfoGet for GetNodeVersion");
             let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
             let cmd = Command::InfoGet(blockjoy::NodeGet {});
             node_cmd(cmd, node_id.to_string())
         }
         // The following should be HostCommands
-        HostCmd::CreateNode => {
+        CommandType::CreateNode => {
             let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
             let node = Node::find_by_id(node_id, conn).await?;
             let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
@@ -115,7 +115,7 @@ pub async fn db_command_to_grpc_command(
 
             node_cmd(cmd, node_id.to_string())
         }
-        HostCmd::DeleteNode => {
+        CommandType::DeleteNode => {
             let node_id = cmd
                 .sub_cmd
                 .clone()
@@ -123,12 +123,12 @@ pub async fn db_command_to_grpc_command(
             let cmd = Command::Delete(NodeDelete {});
             node_cmd(cmd, node_id)
         }
-        HostCmd::GetBVSVersion => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        HostCmd::UpdateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        HostCmd::RestartBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        HostCmd::RemoveBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        HostCmd::CreateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        HostCmd::StopBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        CommandType::GetBVSVersion => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        CommandType::UpdateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        CommandType::RestartBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        CommandType::RemoveBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        CommandType::CreateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        CommandType::StopBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
         // TODO: Missing
         // NodeStart, NodeUpgrade
     }

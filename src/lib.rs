@@ -190,13 +190,13 @@ mod test {
 
             let host1 = models::NewHost {
                 name: "Host-1",
-                version: Some("0.1.0"),
+                version: "0.1.0",
                 location: Some("Virginia"),
-                cpu_count: Some(16),
-                mem_size: Some(1612312312),
-                disk_size: Some(161212312),
-                os: None,
-                os_version: None,
+                cpu_count: 16,
+                mem_size: 1_612_312_312_000,   // 1.6 TB
+                disk_size: 16_121_231_200_000, // 16 TB
+                os: "LuukOS",
+                os_version: "3",
                 ip_addr: "192.168.1.1",
                 status: models::ConnectionStatus::Online,
                 ip_range_from: "192.168.0.10".parse().unwrap(),
@@ -217,13 +217,13 @@ mod test {
 
             let host2 = models::NewHost {
                 name: "Host-2",
-                version: Some("0.1.0"),
+                version: "0.1.0",
                 location: Some("Ohio"),
-                cpu_count: Some(16),
-                mem_size: Some(1612312312),
-                disk_size: Some(161212312),
-                os: None,
-                os_version: None,
+                cpu_count: 16,
+                mem_size: 1612312312,
+                disk_size: 161212312,
+                os: "LuukOS",
+                os_version: "3",
                 ip_addr: "192.168.2.1",
                 status: models::ConnectionStatus::Online,
                 ip_range_from: "192.12.0.10".parse().unwrap(),
@@ -257,6 +257,9 @@ mod test {
                     nodes::ip_addr.eq(ip_addr),
                     nodes::node_type.eq(models::NodeType::Validator),
                     nodes::dns_record_id.eq("The id"),
+                    nodes::vcpu_count.eq(2),
+                    nodes::disk_size_bytes.eq(8 * 1024 * 1024 * 1024),
+                    nodes::mem_size_bytes.eq(1024 * 1024 * 1024),
                 ))
                 .execute(conn)
                 .await
@@ -295,7 +298,7 @@ mod test {
                     commands::id.eq(id),
                     commands::host_id.eq(host.id),
                     commands::node_id.eq(node.id),
-                    commands::cmd.eq(models::HostCmd::RestartNode),
+                    commands::cmd.eq(models::CommandType::RestartNode),
                 ))
                 .get_result(&mut self.pool.conn().await.unwrap())
                 .await

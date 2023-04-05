@@ -148,13 +148,8 @@ impl Tester {
     }
 
     pub fn host_token(&self, host: &models::Host) -> impl JwtToken + Clone {
-        dbg!(auth::HostAuthToken::create_token_for(
-            host,
-            TokenType::HostAuth,
-            TokenRole::User,
-            None
-        )
-        .unwrap())
+        auth::HostAuthToken::create_token_for(host, TokenType::HostAuth, TokenRole::User, None)
+            .unwrap()
     }
 
     pub fn refresh_for(&self, token: &impl JwtToken) -> impl JwtToken + Clone {

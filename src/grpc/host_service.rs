@@ -37,13 +37,13 @@ impl blockjoy::ProvisionHostRequest {
     pub fn as_new(&self, provision: models::HostProvision) -> crate::Result<models::NewHost<'_>> {
         let new_host = models::NewHost {
             name: &self.name,
-            version: Some(&self.version),
+            version: &self.version,
             location: None,
-            cpu_count: Some(self.cpu_count),
-            mem_size: Some(self.mem_size_bytes),
-            disk_size: Some(self.disk_size_bytes),
-            os: Some(&self.os),
-            os_version: Some(&self.os_version),
+            cpu_count: self.cpu_count,
+            mem_size: self.mem_size_bytes,
+            disk_size: self.disk_size_bytes,
+            os: &self.os,
+            os_version: &self.os_version,
             ip_addr: &self.ip,
             status: self.status.try_into()?,
             ip_range_from: provision

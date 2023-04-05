@@ -1,6 +1,6 @@
 use super::blockjoy_ui::ResponseMeta;
 use super::convert;
-use crate::auth::{HostAuthToken, JwtToken, TokenType, UserAuthToken};
+use crate::auth::{FindableById, HostAuthToken, JwtToken, TokenType, UserAuthToken};
 use crate::errors::{self, ApiError};
 use crate::grpc::blockjoy_ui::host_service_server::HostService;
 use crate::grpc::blockjoy_ui::{
@@ -23,13 +23,13 @@ impl blockjoy_ui::Host {
         let dto = Self {
             id: model.id.to_string(),
             name: model.name,
-            version: model.version,
+            version: Some(model.version),
             location: model.location,
-            cpu_count: model.cpu_count.map(|n| n.try_into()).transpose()?,
-            mem_size: model.mem_size.map(|n| n.try_into()).transpose()?,
-            disk_size: model.disk_size.map(|n| n.try_into()).transpose()?,
-            os: model.os,
-            os_version: model.os_version,
+            cpu_count: Some(model.cpu_count.try_into()?),
+            mem_size: Some(model.mem_size.try_into()?),
+            disk_size: Some(model.disk_size.try_into()?),
+            os: Some(model.os),
+            os_version: Some(model.os_version),
             ip: model.ip_addr,
             status: model.status.into(),
             nodes,
@@ -46,13 +46,22 @@ impl blockjoy_ui::CreateHostRequest {
     pub fn as_new(&self) -> crate::Result<models::NewHost<'_>> {
         Ok(models::NewHost {
             name: &self.name,
-            version: self.version.as_deref(),
+            version: self.version.as_deref().ok_or_else(required("version"))?,
             location: self.location.as_deref(),
-            cpu_count: self.cpu_count.map(|n| n.try_into()).transpose()?,
-            mem_size: self.mem_size.map(|n| n.try_into()).transpose()?,
-            disk_size: self.disk_size.map(|n| n.try_into()).transpose()?,
-            os: self.os.as_deref(),
-            os_version: self.os_version.as_deref(),
+            cpu_count: self
+                .cpu_count
+                .ok_or_else(required("cpu_count"))?
+                .try_into()?,
+            mem_size: self.mem_size.ok_or_else(required("mem_size"))?.try_into()?,
+            disk_size: self
+                .disk_size
+                .ok_or_else(required("disk_size"))?
+                .try_into()?,
+            os: self.os.as_deref().ok_or_else(required("os"))?,
+            os_version: self
+                .os_version
+                .as_deref()
+                .ok_or_else(required("os_version"))?,
             ip_addr: &self.ip_addr,
             status: models::ConnectionStatus::Online,
             ip_range_from: self.ip_range_from.parse()?,

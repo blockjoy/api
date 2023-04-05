@@ -84,13 +84,13 @@ async fn responds_ok_with_host_for_create() {
         ip_gateway: "128.168.0.1".to_string(),
         ip_range_from: "128.168.0.10".to_string(),
         ip_range_to: "128.168.0.100".to_string(),
-        version: None,
+        version: Some("latest".to_string()),
         location: None,
-        cpu_count: None,
-        mem_size: None,
-        disk_size: None,
-        os: None,
-        os_version: None,
+        cpu_count: Some(16),
+        mem_size: Some(8 * 1024 * 1024 * 1024),
+        disk_size: Some(512 * 1024 * 1024 * 1024),
+        os: Some("Luuk OS".to_string()),
+        os_version: Some("10".to_string()),
     };
     tester.send_admin(Service::create, req).await.unwrap();
 }

@@ -41,6 +41,10 @@ async fn responds_ok_with_valid_data_for_create() {
         properties: vec![],
         version: Some("3.3.0".into()),
         network: "some network".to_string(),
+        scheduler: Some(blockjoy_ui::create_node_request::CreateNodeScheduler {
+            similarity: None,
+            resource: blockjoy_ui::node_scheduler::ResourceAffinity::MostResources.into(),
+        }),
     };
     tester.send_admin(Service::create, req).await.unwrap();
 }
@@ -58,6 +62,10 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         properties: vec![],
         version: Some("3.3.0".into()),
         network: "some network".to_string(),
+        scheduler: Some(blockjoy_ui::create_node_request::CreateNodeScheduler {
+            similarity: None,
+            resource: blockjoy_ui::node_scheduler::ResourceAffinity::MostResources.into(),
+        }),
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);

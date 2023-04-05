@@ -13,6 +13,19 @@ message FilterCriteria {
 
 // This message is used to create a new node.
 message CreateNodeRequest {
+  // A node scheduler controls the way that the node is placed onto an
+  // appropriate host. There are two fields, each representing a possible method
+  // of selecting a host for this node to be scheduled on. They are sorted by
+  // priority, meaning that `similarity` takes precedence over `resource`. The
+  // final field is required, in order to make sure that the way we schedule a
+  // node is always defined.
+  message CreateNodeScheduler {
+    // The way we want the node to react to similar nodes being on a host.
+    optional NodeScheduler.SimilarNodeAffinity similarity = 1;
+    // The way we want the node to react to hosts being full or empty.
+    NodeScheduler.ResourceAffinity resource = 2;
+  }
+
   // Metadata about the request.
   RequestMeta meta = 1;
 
@@ -30,6 +43,9 @@ message CreateNodeRequest {
   // The network that the blockchain will be a part of. Many blockchains have a
   // dedicated test network, such as "goerli" for ethereum.
   string network = 7;
+  // The scheduler decides where to place this node. Refer to the documentation
+  // of the `CreateNodeScheduler` message for more details.
+  CreateNodeScheduler scheduler = 8;
 }
 
 // Message returned when a node is created.

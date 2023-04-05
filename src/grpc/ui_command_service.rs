@@ -6,7 +6,7 @@ use crate::grpc::blockjoy_ui::command_service_server::CommandService;
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::notification::Notifier;
 use crate::models;
-use crate::models::HostCmd::*;
+use crate::models::CommandType::*;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -14,7 +14,7 @@ use uuid::Uuid;
 async fn handle_request(
     impler: &super::GrpcImpl,
     req: Request<blockjoy_ui::CommandRequest>,
-    cmd_type: models::HostCmd,
+    cmd_type: models::CommandType,
 ) -> Result<blockjoy_ui::CommandResponse> {
     let token = try_get_token::<_, UserAuthToken>(&req)?.try_into()?;
     let inner = req.into_inner();
@@ -43,7 +43,7 @@ async fn handle_request(
 
 async fn create_command(
     host_id: Uuid,
-    cmd: models::HostCmd,
+    cmd: models::CommandType,
     params: Vec<blockjoy_ui::Parameter>,
     notifier: Notifier,
     conn: &mut diesel_async::AsyncPgConnection,
@@ -60,7 +60,7 @@ async fn create_command(
 
     let db_cmd = new_command.create(conn).await?;
     match cmd {
-        models::HostCmd::RestartNode | models::HostCmd::KillNode => {
+        models::CommandType::RestartNode | models::CommandType::KillNode => {
             // RestartNode and KillNode are node-specific, so unwrap below is safe:
             let node_id = db_cmd
                 .node_id

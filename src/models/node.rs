@@ -193,7 +193,7 @@ impl std::str::FromStr for NodeChainStatus {
     }
 }
 
-#[derive(Clone, Debug, Queryable, Identifiable)]
+#[derive(Clone, Debug, Queryable, AsChangeset)]
 pub struct Node {
     pub id: Uuid,
     pub org_id: Uuid,
@@ -219,8 +219,8 @@ pub struct Node {
     pub block_age: Option<i64>,
     pub consensus: Option<bool>,
     pub vcpu_count: i64,
-    pub mem_size_mb: i64,
-    pub disk_size_gb: i64,
+    pub mem_size_bytes: i64,
+    pub disk_size_bytes: i64,
     pub host_name: String,
     pub network: String,
     pub created_by: Option<uuid::Uuid>,
@@ -369,6 +369,14 @@ impl Node {
         Ok(count)
     }
 
+    pub async fn update(self, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let node = diesel::update(nodes::table.find(self.id))
+            .set((self, nodes::updated_at.eq(chrono::Utc::now())))
+            .get_result(conn)
+            .await?;
+        Ok(node)
+    }
+
     pub async fn delete(node_id: Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
         let node = Node::find_by_id(node_id, conn).await?;
         let cf_api = CloudflareApi::new(node.ip_addr)?;
@@ -382,6 +390,47 @@ impl Node {
         }
 
         Ok(())
+    }
+
+    pub async fn find_host(&self, conn: &mut AsyncPgConnection) -> Result<Host> {
+        let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
+        let requirements = get_hw_requirements(
+            chain.name,
+            self.node_type.to_string(),
+            self.version.as_deref(),
+        )
+        .await?;
+        let scheduler = super::NodeScheduler::by_node(self, conn).await?;
+
+        let candidates = super::Host::host_candidates(
+            requirements,
+            self.blockchain_id,
+            self.node_type,
+            self.org_id,
+            &scheduler,
+            conn,
+        )
+        .await?;
+
+        // We now have a list of host candidates for our nodes. Now the only thing left to do is to
+        // make a decision about where to place the node.
+        let deployments = super::NodeDeploymentLog::by_node(self, conn).await?;
+        let n_hosts_tried = super::NodeDeploymentLog::n_hosts_tried(&deployments);
+        let n_last_host = super::NodeDeploymentLog::n_deploys_tried_on_last_host(&deployments);
+        let best = match (n_hosts_tried, n_last_host) {
+            // If we on the first host we tried, and we tried zero or one time so far, we try
+            // (again) on the first host.
+            (0, 0 | 1) => candidates[0].clone(),
+            // Otherwise if we are on the first host, we move on to the second host.
+            (0, _) => candidates[1].clone(),
+            // If we are on the second host we tried, and we tried zero or one time here, we try
+            // (again) on the second host.
+            (1, 1) => candidates[1].clone(),
+            // Otherwise we exhausted our our options and return an error.
+            (_, _) => return Err(anyhow!("No available hosts").into()),
+        };
+
+        Ok(best)
     }
 }
 
@@ -409,8 +458,8 @@ pub struct NewNode<'a> {
     pub container_status: ContainerStatus,
     pub self_update: bool,
     pub vcpu_count: i64,
-    pub mem_size_mb: i64,
-    pub disk_size_gb: i64,
+    pub mem_size_bytes: i64,
+    pub disk_size_bytes: i64,
     pub network: &'a str,
     pub node_type: NodeType,
     pub created_by: uuid::Uuid,
@@ -422,13 +471,13 @@ impl NewNode<'_> {
         Ok(res)
     }
 
-    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Node> {
-        let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
-        let node_type = self.node_type.to_string();
-        let requirements = get_hw_requirements(chain.name, node_type, self.version).await?;
-        let host_id = Host::get_next_available_host_id(requirements, conn).await?;
-        let host = Host::find_by_id(host_id, conn).await?;
-        let ip_addr = IpAddress::next_for_host(host_id, conn)
+    pub async fn create(
+        self,
+        scheduler: &super::NodeScheduler,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<Node> {
+        let host = self.find_host(scheduler, conn).await?;
+        let ip_addr = IpAddress::next_for_host(host.id, conn)
             .await?
             .ip
             .ip()
@@ -444,7 +493,7 @@ impl NewNode<'_> {
         diesel::insert_into(nodes::table)
             .values((
                 self,
-                nodes::host_id.eq(host_id),
+                nodes::host_id.eq(host.id),
                 nodes::ip_gateway.eq(ip_gateway),
                 nodes::ip_addr.eq(ip_addr),
                 nodes::host_name.eq(&host.name),
@@ -456,6 +505,34 @@ impl NewNode<'_> {
                 tracing::error!("Error creating node: {e}");
                 e.into()
             })
+    }
+
+    /// Finds the most suitable host to initially place the node on. Since this is a freshly created
+    /// node, we do not need to worry about logic regarding where the retry placing the node. We
+    /// simply ask for an ordered list of the most suitable hosts, and pick the first one.
+    pub async fn find_host(
+        &self,
+        scheduler: &super::NodeScheduler,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<super::Host> {
+        let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
+        let requirements =
+            get_hw_requirements(chain.name, self.node_type.to_string(), self.version).await?;
+        let candidates = super::Host::host_candidates(
+            requirements,
+            self.blockchain_id,
+            self.node_type,
+            self.org_id,
+            scheduler,
+            conn,
+        )
+        .await?;
+        // Jus take the first one if ther is one.
+        let best = candidates
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("No matching host found"))?;
+        Ok(best)
     }
 }
 

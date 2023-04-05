@@ -168,11 +168,35 @@ impl blockjoy_ui::CreateNodeRequest {
             container_status: models::ContainerStatus::Unknown,
             self_update: false,
             vcpu_count: 0,
-            mem_size_mb: 0,
-            disk_size_gb: 0,
+            mem_size_bytes: 0,
+            disk_size_bytes: 0,
             network: &self.network,
             node_type: properties.id.try_into()?,
             created_by: user_id,
+        })
+    }
+
+    fn scheduler(&self, node_id: uuid::Uuid) -> Result<models::NodeScheduler> {
+        let scheduler = self.scheduler.as_ref().ok_or_else(required("scheduler"))?;
+        Ok(models::NodeScheduler {
+            id: uuid::Uuid::new_v4(),
+            node_id,
+            similarity: scheduler
+                .similarity
+                .as_ref()
+                .map(|s| match s {
+                    0 => Err(ApiError::validation("Undefined scheduler.similarity: 0")),
+                    1 => Ok(models::SimilarNodeAffinity::Cluster),
+                    2 => Ok(models::SimilarNodeAffinity::Spread),
+                    n => Err(ApiError::validation(format!("Invalid similarity: {n}"))),
+                })
+                .transpose()?,
+            resource: match scheduler.resource {
+                0 => return Err(ApiError::validation("Undefined scheduler.resource: 0")),
+                1 => models::ResourceAffinity::MostResources,
+                2 => models::ResourceAffinity::LeastResources,
+                n => return Err(ApiError::validation(format!("Invalid resource: {n}"))),
+            },
         })
     }
 }
@@ -301,78 +325,57 @@ impl NodeService for super::GrpcImpl {
     ) -> Result<Response<CreateNodeResponse>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
-        // Check quota
-        let mut conn = self.conn().await?;
-        let user = models::User::find_by_id(token.id, &mut conn).await?;
-
-        if user.staking_quota <= 0 {
-            return Err(Status::resource_exhausted("User node quota exceeded"));
-        }
 
         let inner = request.into_inner();
-        let new_node = inner.as_new(user.id)?;
-        let (node, ui_node, node_msg, create_msg, restart_msg) = self
-            .trx(|c| {
-                async move {
-                    let node = new_node.create(c).await?;
+        self.trx(|c| {
+            async move {
+                let user = models::User::find_by_id(token.id, c).await?;
 
-                    let node_msg = blockjoy_ui::NodeMessage::created(node.clone(), c).await?;
-
-                    let new_command = models::NewCommand {
-                        host_id: node.host_id,
-                        cmd: models::HostCmd::CreateNode,
-                        sub_cmd: None,
-                        node_id: Some(node.id),
-                    };
-                    let cmd = new_command.create(c).await?;
-                    let create_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
-
-                    let update_user = models::UpdateUser {
-                        id: user.id,
-                        first_name: None,
-                        last_name: None,
-                        fee_bps: None,
-                        staking_quota: Some(user.staking_quota - 1),
-                        refresh: None,
-                    };
-                    update_user.update(c).await?;
-
-                    let new_command = models::NewCommand {
-                        host_id: node.host_id,
-                        cmd: models::HostCmd::RestartNode,
-                        sub_cmd: None,
-                        node_id: Some(node.id),
-                    };
-                    let cmd = new_command.create(c).await?;
-                    let restart_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
-                    let ui_node = blockjoy_ui::Node::from_model(node.clone(), c).await?;
-                    Ok((node, ui_node, node_msg, create_msg, restart_msg))
+                // Check quota
+                if user.staking_quota <= 0 {
+                    return Err(Status::resource_exhausted("User node quota exceeded").into());
                 }
-                .scope_boxed()
-            })
-            .await?;
+                let new_node = inner.as_new(user.id)?;
+                let scheduler = inner.scheduler(new_node.id)?;
+                let node = new_node.create(&scheduler, c).await?;
+                scheduler.create(c).await?;
+                let node_id = node.id;
+                self.notifier
+                    .ui_nodes_sender()?
+                    .send(&blockjoy_ui::NodeMessage::created(node.clone(), c).await?)
+                    .await?;
+                self.notifier
+                    .bv_nodes_sender()?
+                    .send(&blockjoy::Node::from_model(node.clone()))
+                    .await?;
 
-        self.notifier
-            .bv_nodes_sender()?
-            .send(&blockjoy::Node::from_model(node.clone()))
-            .await?;
-        self.notifier.ui_nodes_sender()?.send(&node_msg).await?;
-        self.notifier
-            .bv_commands_sender()?
-            .send(&create_msg)
-            .await?;
-        self.notifier
-            .bv_commands_sender()?
-            .send(&restart_msg)
-            .await?;
-        let response_meta =
-            ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(node.id);
-        let response = CreateNodeResponse {
-            meta: Some(response_meta),
-            node: Some(ui_node),
-        };
+                create_notification(self, &node, c).await?;
 
-        response_with_refresh_token(refresh_token, response)
+                let update_user = models::UpdateUser {
+                    id: user.id,
+                    first_name: None,
+                    last_name: None,
+                    fee_bps: None,
+                    staking_quota: Some(user.staking_quota - 1),
+                    refresh: None,
+                };
+                update_user.update(c).await?;
+
+                start_notification(self, &node, c).await?;
+
+                let response_meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))
+                    .with_message(node_id);
+                let response = CreateNodeResponse {
+                    meta: Some(response_meta),
+                    node: Some(blockjoy_ui::Node::from_model(node, c).await?),
+                };
+                Ok((refresh_token, response))
+            }
+            .scope_boxed()
+        })
+        .await
+        .map_err(Into::into)
+        .and_then(|(refresh, resp)| response_with_refresh_token(refresh, resp))
     }
 
     async fn update(
@@ -442,7 +445,7 @@ impl NodeService for super::GrpcImpl {
                 let node_id = node_id.to_string();
                 let new_command = models::NewCommand {
                     host_id: node.host_id,
-                    cmd: models::HostCmd::DeleteNode,
+                    cmd: models::CommandType::DeleteNode,
                     sub_cmd: Some(&node_id),
                     // Note that the `node_id` goes into the `sub_cmd` field, not the node_id
                     // field, because the node was just deleted.
@@ -476,4 +479,42 @@ impl NodeService for super::GrpcImpl {
         .await?;
         response_with_refresh_token(refresh_token, ())
     }
+}
+
+pub(super) async fn create_notification(
+    impler: &super::GrpcImpl,
+    node: &models::Node,
+    conn: &mut diesel_async::AsyncPgConnection,
+) -> crate::Result<()> {
+    let new_command = models::NewCommand {
+        host_id: node.host_id,
+        cmd: models::CommandType::CreateNode,
+        sub_cmd: None,
+        node_id: Some(node.id),
+    };
+    let cmd = new_command.create(conn).await?;
+    impler
+        .notifier
+        .bv_commands_sender()?
+        .send(&convert::db_command_to_grpc_command(&cmd, conn).await?)
+        .await
+}
+
+pub(super) async fn start_notification(
+    impler: &super::GrpcImpl,
+    node: &models::Node,
+    conn: &mut diesel_async::AsyncPgConnection,
+) -> crate::Result<()> {
+    let new_command = models::NewCommand {
+        host_id: node.host_id,
+        cmd: models::CommandType::RestartNode,
+        sub_cmd: None,
+        node_id: Some(node.id),
+    };
+    let cmd = new_command.create(conn).await?;
+    impler
+        .notifier
+        .bv_commands_sender()?
+        .send(&convert::db_command_to_grpc_command(&cmd, conn).await?)
+        .await
 }

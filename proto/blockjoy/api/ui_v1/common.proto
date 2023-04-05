@@ -241,6 +241,51 @@ message Node {
   optional string created_by_email = 26;
 }
 
+// A node scheduler controls the way that the node is placed onto an appropriate
+// host. There are two fields, each representing a possible method of selecting
+// a host for this node to be scheduled on. They are sorted by priority, meaning
+// that `similarity` takes precedence over `resource`. The final field is
+// required, in order to make sure that the way we schedule a node is always
+// defined.
+message NodeScheduler {
+  // Controls whether or not nodes of a similar type will be placed on the same
+  // host or, conversely, be spread out over many hosts. "Similar" is defined
+  // here as having the name `node_type`, `blockchain_id` and `org_id`. Note
+  // that `version` is ignored here, so that we don't interfere with clustering
+  // during when some of the nodes are upgraded, but others aren't yet.
+  enum SimilarNodeAffinity {
+    SIMILARY_NODE_AFFINITY_UNSPECIFIED = 0;
+    // Schedule nodes similar on the same host machine. This is useful for nodes
+    // that form groups with heavy intercommunication. Placing them on the same
+    // host machine will ensure the lowest possible network latency between
+    // them.
+    SIMILARY_NODE_AFFINITY_CLUSTER = 1;
+    // Avoid scheduling nodes on hosts that already have a similar node running
+    // on them. This is useful when multiple nodes are ran in parallel for the
+    // sake of redundancy. Spreading the nodes ensures that one host going down
+    // does not compromise other nodes.
+    SIMILARY_NODE_AFFINITY_SPREAD = 2;
+  }
+
+  // Controls whether nodes will prefer to be scheduled on the most utilized or
+  // the least utilized hosts first. This allows you to do breadth- or depth-
+  // first utilization of the available hosts.
+  enum ResourceAffinity {
+    RESOURCE_AFFINITY_UNSPECIFIED = 0;
+    // Prefer to utilize full hosts first.
+    RESOURCE_AFFINITY_MOST_RESOURCES = 1;
+    // Prefer to utilize empty hosts first.
+    RESOURCE_AFFINITY_LEAST_RESOURCES = 2;
+  }
+
+  // The UUID of the scheduler.
+  string id = 1;
+  // The way we want the node to react to similar nodes being on a host.
+  optional SimilarNodeAffinity similarity = 2;
+  // The way we want the node to react to hosts being full or empty.
+  ResourceAffinity resource = 3;
+}
+
 message OrgUser {
   enum OrgRole {
     ORG_ROLE_UNSPECIFIED = 0;

@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumHostCmd"]
-pub enum HostCmd {
+pub enum CommandType {
     CreateNode,
     RestartNode,
     KillNode,
@@ -28,9 +28,9 @@ pub enum HostCmd {
     StopBVS,
 }
 
-impl HostCmd {
+impl CommandType {
     pub fn is_node_specific(&self) -> bool {
-        use HostCmd::*;
+        use CommandType::*;
 
         matches!(
             self,
@@ -49,7 +49,7 @@ impl HostCmd {
 pub struct Command {
     pub id: Uuid,
     pub host_id: Uuid,
-    pub cmd: HostCmd,
+    pub cmd: CommandType,
     pub sub_cmd: Option<String>,
     pub response: Option<String>,
     pub exit_status: Option<i32>,
@@ -148,7 +148,7 @@ impl FindableById for Command {
 #[diesel(table_name = commands)]
 pub struct NewCommand<'a> {
     pub host_id: uuid::Uuid,
-    pub cmd: HostCmd,
+    pub cmd: CommandType,
     pub sub_cmd: Option<&'a str>,
     pub node_id: Option<Uuid>,
 }

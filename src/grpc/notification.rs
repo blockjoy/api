@@ -9,33 +9,23 @@ use crate::{auth::key_provider::KeyProvider, errors::Result, models};
 
 /// Presents the following senders:
 ///
-/// |---------------|----------------------------------------------|
-/// | private api   | topics                                       |
-/// |---------------|----------------------------------------------|
-/// | organizations | -                                            |
-/// |---------------|----------------------------------------------|
-/// | hosts         | /bv/hosts/<host_id>                          |
-/// |---------------|----------------------------------------------|
-/// | nodes         | /bv/hosts/<host_id>/nodes/<node_id>          |
-/// |               | /bv/nodes/<node_id>                          |
-/// |---------------|----------------------------------------------|
-/// | commands      | /bv/hosts/<host_id>/nodes/<node_id>/commands |
-/// |               | /bv/hosts/<host_id>/commands                 |
-/// |---------------|----------------------------------------------|
+/// | private api   | topics                                         |
+/// |---------------|------------------------------------------------|
+/// | organizations | -                                              |
+/// | hosts         | `/bv/hosts/<host_id>`                          |
+/// | nodes         | `/bv/hosts/<host_id>/nodes/<node_id>`          |
+/// |               | `/bv/nodes/<node_id>`                          |
+/// | commands      | `/bv/hosts/<host_id>/nodes/<node_id>/commands` |
+/// |               | `/bv/hosts/<host_id>/commands`                 |
 ///
-/// |---------------|----------------------------------------------|
-/// | public api    | topics                                       |
-/// |---------------|----------------------------------------------|
-/// | organizations | /orgs/<org_id>                               |
-/// |---------------|----------------------------------------------|
-/// | hosts         | -                                            |
-/// |---------------|----------------------------------------------|
-/// | nodes         | /orgs/<org_id>/nodes                         |
-/// |               | /nodes/<node_id>                             |
-/// |---------------|----------------------------------------------|
-/// | commands      | /orgs/<org_id>/nodes/<node_id>/commands      |
-/// |               | /nodes/<node_id>/commands                    |
-/// |---------------|----------------------------------------------|
+/// | public api    | topics                                         |
+/// |---------------|------------------------------------------------|
+/// | organizations | `/orgs/<org_id>`                               |
+/// | hosts         | -                                              |
+/// | nodes         | `/orgs/<org_id>/nodes`                         |
+/// |               | `/nodes/<node_id>`                             |
+/// | commands      | `/orgs/<org_id>/nodes/<node_id>/commands`      |
+/// |               | `/nodes/<node_id>/commands`                    |
 #[derive(Debug, Clone)]
 pub struct Notifier {
     client: rumqttc::AsyncClient,
