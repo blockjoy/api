@@ -423,10 +423,14 @@ impl NewNode<'_> {
     }
 
     pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Node> {
+        use ApiError::NoMatchingHostError;
+
         let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let node_type = self.node_type.to_string();
         let requirements = get_hw_requirements(chain.name, node_type, self.version).await?;
-        let host_id = Host::get_next_available_host_id(requirements, conn).await?;
+        let host_id = Host::get_next_available_host_id(requirements, conn)
+            .await
+            .map_err(|_| NoMatchingHostError("The system is out of resources".to_string()))?;
         let host = Host::find_by_id(host_id, conn).await?;
         let ip_addr = IpAddress::next_for_host(host_id, conn)
             .await?

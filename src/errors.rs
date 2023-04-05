@@ -42,8 +42,6 @@ pub enum ApiError {
     #[error("UUID parse error: {0}")]
     UuidParseError(#[from] uuid::Error),
 
-    // #[error("No free IP available: {0}")]
-    // IpAssignmentError(sqlx::Error),
     #[error("Gateway IP mustn't be within the provided range: {0}")]
     IpGatewayError(anyhow::Error),
 
@@ -79,6 +77,9 @@ pub enum ApiError {
 
     #[error("Cloudflare integration error: {0}")]
     DnsError(#[from] DnsError),
+
+    #[error("Could not select a matching host")]
+    NoMatchingHostError(String),
 }
 
 impl ApiError {

@@ -194,6 +194,7 @@ pub mod from {
                 InvalidAuthentication(_) => Status::unauthenticated(msg),
                 InsufficientPermissionsError => Status::permission_denied(msg),
                 UuidParseError(_) | IpParseError(_) => Status::invalid_argument(msg),
+                NoMatchingHostError(_) => Status::resource_exhausted(msg),
                 InvalidArgument(s) => s,
                 _ => Status::internal(msg),
             }
