@@ -1,12 +1,11 @@
+use super::blockjoy_ui::{ApiToken, RequestMeta};
 use crate::auth::JwtToken;
-use crate::errors::ApiError;
 use crate::grpc::blockjoy_ui::{response_meta, Pagination, ResponseMeta};
+use crate::Error;
 use prost_types::Timestamp;
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::Status;
-
-use super::blockjoy_ui::{ApiToken, RequestMeta};
 
 pub fn pb_current_timestamp() -> Timestamp {
     let start = SystemTime::now();
@@ -33,7 +32,7 @@ pub fn internal(error: impl std::fmt::Display) -> Status {
 
 pub fn try_get_token<T, R: JwtToken + Sync + Send + 'static>(
     req: &tonic::Request<T>,
-) -> Result<&R, ApiError> {
+) -> Result<&R, Error> {
     let tkn = req
         .extensions()
         .get::<R>()

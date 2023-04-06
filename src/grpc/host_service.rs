@@ -1,7 +1,6 @@
 use super::blockjoy;
 use super::helpers::{required, try_get_token};
 use crate::auth::{HostAuthToken, JwtToken, TokenRole, TokenType};
-use crate::errors::ApiError;
 use crate::grpc::blockjoy::host_service_server::HostService;
 use crate::grpc::blockjoy::{
     DeleteHostRequest, DeleteHostResponse, HostUpdateRequest, HostUpdateResponse,
@@ -114,7 +113,7 @@ impl HostService for super::GrpcImpl {
     ) -> Result<Response<DeleteHostResponse>, Status> {
         let host_token_id = try_get_token::<_, HostAuthToken>(&request)?.id;
         let inner = request.into_inner();
-        let host_id = inner.host_id.parse().map_err(ApiError::from)?;
+        let host_id = inner.host_id.parse().map_err(crate::Error::from)?;
         if host_token_id != host_id {
             super::bail_unauthorized!("Not allowed to delete host '{host_id}'");
         }

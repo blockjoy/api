@@ -2,7 +2,7 @@ use crate::auth::key_provider::KeyProvider;
 use crate::auth::{
     InvitationToken, JwtToken, PwdResetToken, RegistrationConfirmationToken, TokenRole, TokenType,
 };
-use crate::{errors, models};
+use crate::models;
 use anyhow::anyhow;
 use std::collections::HashMap;
 
@@ -27,7 +27,7 @@ impl MailClient {
     }
 
     /// Sends a notification if the user has updated his password
-    pub async fn update_password(&self, user: &models::User) -> errors::Result<()> {
+    pub async fn update_password(&self, user: &models::User) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/update_password.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
@@ -42,7 +42,7 @@ impl MailClient {
         .await
     }
 
-    pub async fn registration_confirmation(&self, user: &models::User) -> errors::Result<()> {
+    pub async fn registration_confirmation(&self, user: &models::User) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/register.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
@@ -78,7 +78,7 @@ impl MailClient {
         inviter: &models::User,
         invitee: &models::User,
         expiration: impl std::fmt::Display,
-    ) -> errors::Result<()> {
+    ) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/invite_registered_user.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
@@ -110,7 +110,7 @@ impl MailClient {
         inviter: &models::User,
         invitee: Recipient<'_>,
         expiration: impl std::fmt::Display,
-    ) -> errors::Result<()> {
+    ) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/invite_user.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
@@ -145,7 +145,7 @@ impl MailClient {
         &self,
         user: &models::User,
         _conn: &mut diesel_async::AsyncPgConnection,
-    ) -> errors::Result<()> {
+    ) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/reset_password.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
@@ -179,7 +179,7 @@ impl MailClient {
         // Can't use 'static str for the keys or the values here, see:
         // https://stackoverflow.com/questions/68591843
         context: Option<HashMap<String, String>>,
-    ) -> errors::Result<()> {
+    ) -> crate::Result<()> {
         let context = context.unwrap_or_default();
         let template = templates.by_lang(to.preferred_language());
         let (html, text) = template.render(context)?;
@@ -267,7 +267,7 @@ impl Template {
     /// Renders the contained templates to a tuple of strings. These are the rendered HTML email
     /// and the rendered plaintext email. The context argument is the list of parameters needed to
     /// render the email, imagine stuff like "first_name" => "Ebenezer".
-    fn render(&self, context: HashMap<String, String>) -> errors::Result<(String, String)> {
+    fn render(&self, context: HashMap<String, String>) -> crate::Result<(String, String)> {
         let renderer = Self::renderer();
         let html = renderer
             .render_template(&self.html, &context)

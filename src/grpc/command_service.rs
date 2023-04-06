@@ -2,7 +2,6 @@ use super::blockjoy::{self, commands_server::Commands};
 use super::convert;
 use super::helpers::required;
 use crate::auth::FindableById;
-use crate::errors::ApiError;
 use crate::models;
 use anyhow::anyhow;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -67,7 +66,7 @@ impl blockjoy::Command {
                 });
                 node_cmd_default_id(cmd)
             }
-            MigrateNode => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+            MigrateNode => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
             GetNodeVersion => node_cmd_default_id(Command::InfoGet(blockjoy::NodeGet {})),
 
             // The following should be HostCommands
@@ -113,12 +112,12 @@ impl blockjoy::Command {
                 let cmd = Command::Delete(blockjoy::NodeDelete {});
                 node_cmd(cmd, node_id)
             }
-            GetBVSVersion => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-            UpdateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-            RestartBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-            RemoveBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-            CreateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-            StopBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+            GetBVSVersion => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            UpdateBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            RestartBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            RemoveBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            CreateBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            StopBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
         }
     }
 }
@@ -130,7 +129,7 @@ impl Commands for super::GrpcImpl {
         request: Request<blockjoy::CommandInfo>,
     ) -> Result<Response<blockjoy::Command>, Status> {
         let inner = request.into_inner();
-        let cmd_id = uuid::Uuid::from_str(inner.id.as_str()).map_err(ApiError::from)?;
+        let cmd_id = uuid::Uuid::from_str(inner.id.as_str()).map_err(crate::Error::from)?;
         let mut db_conn = self.conn().await?;
         let cmd = models::Command::find_by_id(cmd_id, &mut db_conn).await?;
         let grpc_cmd = blockjoy::Command::from_model(&cmd, &mut db_conn).await?;
@@ -162,7 +161,7 @@ impl Commands for super::GrpcImpl {
         request: Request<blockjoy::PendingCommandsRequest>,
     ) -> Result<Response<blockjoy::CommandResponse>, Status> {
         let inner = request.into_inner();
-        let host_id = inner.host_id.parse().map_err(ApiError::from)?;
+        let host_id = inner.host_id.parse().map_err(crate::Error::from)?;
         let mut db_conn = self.conn().await?;
         let cmds = models::Command::find_pending_by_host(host_id, &mut db_conn).await?;
         let mut response = blockjoy::CommandResponse { commands: vec![] };

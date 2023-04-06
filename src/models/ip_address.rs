@@ -1,5 +1,5 @@
 use super::schema::ip_addresses;
-use crate::errors::{ApiError, Result};
+use crate::{Error, Result};
 use anyhow::anyhow;
 use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -32,7 +32,7 @@ pub struct NewIpAddressRange {
 impl NewIpAddressRange {
     pub fn try_new(from: IpAddr, to: IpAddr, host_id: uuid::Uuid) -> Result<Self> {
         if to < from {
-            Err(ApiError::UnexpectedError(anyhow!(
+            Err(Error::UnexpectedError(anyhow!(
                 "TO IP can't be smaller as FROM IP"
             )))
         } else {

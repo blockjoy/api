@@ -1,7 +1,6 @@
 use super::blockjoy_ui::ResponseMeta;
 use super::convert;
 use crate::auth::{HostAuthToken, JwtToken, TokenType, UserAuthToken};
-use crate::errors::{self, ApiError};
 use crate::grpc::blockjoy_ui::host_service_server::HostService;
 use crate::grpc::blockjoy_ui::{
     self, get_hosts_request, CreateHostRequest, CreateHostResponse, DeleteHostRequest,
@@ -17,7 +16,7 @@ impl blockjoy_ui::Host {
     pub async fn from_model(
         model: models::Host,
         conn: &mut diesel_async::AsyncPgConnection,
-    ) -> errors::Result<Self> {
+    ) -> crate::Result<Self> {
         let nodes = models::Node::find_all_by_host(model.id, conn).await?;
         let nodes = blockjoy_ui::Node::from_models(nodes, conn).await?;
         let dto = Self {
@@ -107,7 +106,7 @@ impl HostService for super::GrpcImpl {
             ResponseMeta::new(request_id.unwrap_or_default(), Some(token.try_into()?));
         let hosts = match param {
             Param::Id(id) => {
-                let host_id = id.parse().map_err(ApiError::from)?;
+                let host_id = id.parse().map_err(crate::Error::from)?;
                 let host = models::Host::find_by_id(host_id, &mut conn).await?;
                 let host = blockjoy_ui::Host::from_model(host, &mut conn).await?;
                 vec![host]
@@ -167,7 +166,7 @@ impl HostService for super::GrpcImpl {
     ) -> Result<Response<DeleteHostResponse>, Status> {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
-        let host_id = inner.id.parse().map_err(ApiError::from)?;
+        let host_id = inner.id.parse().map_err(crate::Error::from)?;
         self.trx(|c| models::Host::delete(host_id, c).scope_boxed())
             .await?;
         let response = DeleteHostResponse {

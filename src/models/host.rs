@@ -1,7 +1,7 @@
 use super::schema::{hosts, nodes};
 use crate::auth::{FindableById, HostAuthToken, Identifiable, JwtToken, Owned, TokenError};
 use crate::cookbook::HardwareRequirements;
-use crate::errors::{ApiError, Result};
+use crate::{Error, Result};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -25,7 +25,7 @@ impl From<ConnectionStatus> for i32 {
 }
 
 impl TryFrom<i32> for ConnectionStatus {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(value: i32) -> crate::Result<Self> {
         match value {
@@ -77,7 +77,7 @@ impl Host {
     /// Test if given `token` has expired and refresh it using the `refresh_token` if necessary
     pub fn verify_auth_token(token: HostAuthToken) -> Result<HostAuthToken> {
         if token.has_expired() {
-            Err(ApiError::from(TokenError::Expired))
+            Err(crate::Error::from(TokenError::Expired))
         } else {
             // Token is valid, just return what we got
             // If nothing was updated or changed, we don't even query for the user to save 1 query
@@ -258,7 +258,7 @@ impl NewHost<'_> {
 
         // Ensure gateway IP is not amongst the ones created in the IP range
         if super::IpAddress::in_range(ip_gateway, ip_range_from, ip_range_to) {
-            return Err(ApiError::IpGatewayError(anyhow!(
+            return Err(Error::IpGatewayError(anyhow!(
                 "{ip_gateway} is in range {ip_range_from} - {ip_range_to}",
             )));
         }

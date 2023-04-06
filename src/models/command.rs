@@ -1,8 +1,8 @@
 use crate::auth::FindableById;
-use crate::errors::Result;
 use crate::grpc::blockjoy;
 use crate::grpc::notification::Notifier;
 use crate::models::schema::commands;
+use crate::Result;
 use chrono::{DateTime, Utc};
 use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};

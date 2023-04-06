@@ -1,4 +1,4 @@
-use crate::errors::ApiError;
+use crate::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NodePropertyValue {
@@ -19,7 +19,7 @@ pub struct NodeProperties {
 }
 
 impl TryFrom<String> for NodeProperties {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(json: String) -> Result<Self, Self::Error> {
         let json = serde_json::from_str(&json)?;

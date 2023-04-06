@@ -3,9 +3,9 @@ use crate::auth::{
     token::TokenError, FindableById, Identifiable, JwtToken, TokenClaim, TokenRole, TokenType,
     UserAuthToken, UserRefreshToken,
 };
-use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy_ui::LoginUserRequest;
 use crate::mail::MailClient;
+use crate::{Error, Result};
 use anyhow::anyhow;
 use argon2::{
     password_hash::{PasswordHasher, SaltString},
@@ -47,7 +47,7 @@ impl User {
         conn: &mut AsyncPgConnection,
     ) -> Result<(Option<User>, UserAuthToken, UserRefreshToken)> {
         if token.has_expired() && refresh_token.has_expired() {
-            Err(ApiError::from(TokenError::Expired))
+            Err(crate::Error::from(TokenError::Expired))
         } else if token.has_expired() && !refresh_token.has_expired() {
             // Generate new auth token
             let claim = TokenClaim::new(
@@ -72,7 +72,7 @@ impl User {
 
             Ok((Some(user), token, refresh_token))
         } else if !token.has_expired() && refresh_token.has_expired() {
-            Err(ApiError::from(TokenError::RefreshTokenError(anyhow!(
+            Err(crate::Error::from(TokenError::RefreshTokenError(anyhow!(
                 "Refresh token expired"
             ))))
         } else {
@@ -92,7 +92,7 @@ impl User {
             }
         }
 
-        Err(ApiError::invalid_auth("Invalid email or password."))
+        Err(Error::invalid_auth("Invalid email or password."))
     }
 
     // pub async fn reset_password(_conn: &mut AsyncPgConnection, _req: &PwdResetInfo) -> Result<User> {
@@ -166,7 +166,7 @@ impl User {
                 .await?;
             Ok(user)
         } else {
-            Err(ApiError::ValidationError("Invalid password.".to_string()))
+            Err(Error::ValidationError("Invalid password.".to_string()))
         }
     }
 
@@ -174,7 +174,7 @@ impl User {
     pub async fn login(login: LoginUserRequest, conn: &mut AsyncPgConnection) -> Result<Self> {
         let user = Self::find_by_email(&login.email, conn)
             .await
-            .map_err(|_e| ApiError::invalid_auth("Email or password is invalid."))?;
+            .map_err(|_e| Error::invalid_auth("Email or password is invalid."))?;
 
         if User::is_confirmed(user.id, conn).await? {
             match user.verify_password(&login.password) {
@@ -182,7 +182,7 @@ impl User {
                 Err(e) => Err(e),
             }
         } else {
-            Err(ApiError::UserConfirmationError)
+            Err(Error::UserConfirmationError)
         }
     }
 
@@ -233,7 +233,7 @@ impl User {
         // .bind(id)
         // .fetch_one(tx)
         // .await
-        // .map_err(ApiError::from)
+        // .map_err(crate::Error::from)
 
         diesel::update(users::table.find(id))
             .set(users::deleted_at.eq(chrono::Utc::now()))
@@ -287,10 +287,10 @@ impl<'a> NewUser<'a> {
 
             create_user
                 .validate()
-                .map_err(|e| ApiError::ValidationError(e.to_string()))?;
+                .map_err(|e| Error::ValidationError(e.to_string()))?;
             Ok(create_user)
         } else {
-            Err(ApiError::ValidationError("Invalid password.".to_string()))
+            Err(Error::ValidationError("Invalid password.".to_string()))
         }
     }
 
