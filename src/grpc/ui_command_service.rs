@@ -1,4 +1,4 @@
-use super::{blockjoy, blockjoy_ui, convert};
+use super::{blockjoy, blockjoy_ui};
 use crate::auth::FindableById;
 use crate::auth::UserAuthToken;
 use crate::errors::Result;
@@ -31,7 +31,7 @@ async fn handle_request(
                             .with_message(cmd.id),
                     ),
                 };
-                let cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
+                let cmd = blockjoy::Command::from_model(&cmd, c).await?;
                 send_notification(cmd, &impler.notifier).await?;
 
                 Ok(response)
@@ -66,7 +66,7 @@ async fn create_command(
                 .node_id
                 .expect("RestartNode and KillNode must be node-specific!");
 
-            let grpc_cmd = convert::db_command_to_grpc_command(&db_cmd, conn).await?;
+            let grpc_cmd = blockjoy::Command::from_model(&db_cmd, conn).await?;
             notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
             let node = models::Node::find_by_id(node_id, conn).await?;
             notifier

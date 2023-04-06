@@ -325,7 +325,7 @@ impl NodeService for super::GrpcImpl {
                         node_id: Some(node.id),
                     };
                     let cmd = new_command.create(c).await?;
-                    let create_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
+                    let create_msg = blockjoy::Command::from_model(&cmd, c).await?;
 
                     let update_user = models::UpdateUser {
                         id: user.id,
@@ -344,7 +344,7 @@ impl NodeService for super::GrpcImpl {
                         node_id: Some(node.id),
                     };
                     let cmd = new_command.create(c).await?;
-                    let restart_msg = convert::db_command_to_grpc_command(&cmd, c).await?;
+                    let restart_msg = blockjoy::Command::from_model(&cmd, c).await?;
                     let ui_node = blockjoy_ui::Node::from_model(node.clone(), c).await?;
                     Ok((node, ui_node, node_msg, create_msg, restart_msg))
                 }
@@ -462,7 +462,7 @@ impl NodeService for super::GrpcImpl {
                 };
                 update_user.update(c).await?;
 
-                let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
+                let grpc_cmd = blockjoy::Command::from_model(&cmd, c).await?;
                 self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
 
                 self.notifier
