@@ -37,6 +37,10 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
         properties: vec![],
         version: Some("3.3.0".into()),
         network: "some network".to_string(),
+        scheduler: Some(blockjoy_ui::create_node_request::CreateNodeScheduler {
+            similarity: None,
+            resource: blockjoy_ui::node_scheduler::ResourceAffinity::MostResources.into(),
+        }),
     };
 
     tester.send_admin(Service::create, req).await.unwrap();

@@ -88,9 +88,8 @@ impl Commands for super::GrpcImpl {
 /// from blockvisord. For now this is limited to creating a node_deployment_logs entry when
 /// CreateNode has succeeded, but this may expand over time.
 async fn register_success(succeeded: models::Command, conn: &mut AsyncPgConnection) {
-    match succeeded.cmd {
-        models::CommandType::CreateNode => create_node_success(succeeded, conn).await,
-        _ => {}
+    if succeeded.cmd == models::CommandType::CreateNode {
+        create_node_success(succeeded, conn).await;
     }
 }
 
@@ -123,9 +122,8 @@ async fn create_node_success(succeeded: models::Command, conn: &mut AsyncPgConne
 /// make our best effort to recover. If a command won't send but it not essential for process, we
 /// ignore and continue.
 async fn recover(impler: &super::GrpcImpl, failed: models::Command, conn: &mut AsyncPgConnection) {
-    match failed.cmd {
-        models::CommandType::CreateNode => recover_created(impler, failed, conn).await,
-        _ => {}
+    if failed.cmd == models::CommandType::CreateNode {
+        recover_created(impler, failed, conn).await;
     }
 }
 
