@@ -38,11 +38,11 @@ impl Commands for super::GrpcImpl {
     /// emitted commands with the provided outcome.
     async fn update(&self, request: Request<CommandInfo>) -> Result<Response<()>, Status> {
         let inner = request.into_inner();
-        let update_cmd = dbg!(inner.as_update())?;
+        let update_cmd = inner.as_update()?;
         self.trx(|c| {
             async move {
-                let cmd = dbg!(update_cmd.update(c).await)?;
-                match dbg!(cmd.exit_status) {
+                let cmd = update_cmd.update(c).await?;
+                match cmd.exit_status {
                     Some(0) => {
                         // Some responses require us to register success.
                         register_success(cmd, c).await;
@@ -85,7 +85,7 @@ impl Commands for super::GrpcImpl {
 }
 
 /// Some endpoints require some additional action from us when we recieve a success message back
-/// from blockvisord. For now this is limited to creating a node_deployment_logs entry when
+/// from blockvisord. For now this is limited to creating a node_logs entry when
 /// CreateNode has succeeded, but this may expand over time.
 async fn register_success(succeeded: models::Command, conn: &mut AsyncPgConnection) {
     if succeeded.cmd == models::CommandType::CreateNode {
@@ -93,8 +93,8 @@ async fn register_success(succeeded: models::Command, conn: &mut AsyncPgConnecti
     }
 }
 
-/// In case of a successful node deployment, we are expected to write node_deployment_logs entry to
-/// the database. The `action` we pass in is `SuccessReceived`.
+/// In case of a successful node deployment, we are expected to write node_logs entry to
+/// the database. The `event` we pass in is `Succeeded`.
 async fn create_node_success(succeeded: models::Command, conn: &mut AsyncPgConnection) {
     let Some(node_id) = succeeded.node_id else {
         tracing::error!("`CreateNode` command has no node id!");
@@ -104,11 +104,16 @@ async fn create_node_success(succeeded: models::Command, conn: &mut AsyncPgConne
         tracing::error!("Could not get node for node_id {node_id}");
         return;
     };
-    let new_log = models::NewNodeDeploymentLog {
+    let Ok(blockchain) = models::Blockchain::find_by_id(node.blockchain_id, conn).await else {
+        tracing::error!("Could not get blockchain for node {node_id}");
+        return;
+    };
+
+    let new_log = models::NewNodeLog {
         host_id: node.host_id,
         node_id,
-        action: models::NodeDeploymentAction::SuccessReceived,
-        blockchain_id: node.blockchain_id,
+        event: models::NodeLogEvent::Succeeded,
+        blockchain_name: &blockchain.name,
         node_type: node.node_type,
         version: node.version.as_deref().unwrap_or("latest"),
         created_at: chrono::Utc::now(),
@@ -132,7 +137,7 @@ async fn recover_created(
     failed_cmd: models::Command,
     conn: &mut AsyncPgConnection,
 ) {
-    let Some(node_id) = dbg!(failed_cmd.node_id) else {
+    let Some(node_id) = failed_cmd.node_id else {
         tracing::error!("`CreateNode` command has no node id!");
         return;
     };
@@ -145,39 +150,58 @@ async fn recover_created(
     //    c. Otherwise, we cannot recover.
     // 4. Use the previous decision to send a new create message to the right instance of
     //    blockvisord, or mark the current node as failed and send an MQTT message to the front end.
-    let Ok(mut node) = dbg!(models::Node::find_by_id(node_id, conn).await) else {
+    let Ok(mut node) = models::Node::find_by_id(node_id, conn).await else {
         tracing::error!("Could not get node for node_id {node_id}");
+        return;
+    };
+    let Ok(blockchain) = models::Blockchain::find_by_id(node.blockchain_id, conn).await else {
+        tracing::error!("Could not get blockchain for node {node_id}");
         return;
     };
 
     // 1. We send a delete to blockvisord to help it with cleanup.
     send_delete(impler, &node, conn).await;
 
-    // 2. We make a note in the node_deployment_logs table that creating our node failed. This may
+    // 2. We make a note in the node_logs table that creating our node failed. This may
     //    be unexpected, but we abort here when we fail to create that log. This is because the logs
     //    table is used to decide whether or not to retry. If logging our result failed, we may end
     //    up in an infinite loop.
-    let new_log = models::NewNodeDeploymentLog {
+    let new_log = models::NewNodeLog {
         host_id: node.host_id,
         node_id,
-        action: models::NodeDeploymentAction::FailureReceived,
-        blockchain_id: node.blockchain_id,
+        event: models::NodeLogEvent::Failed,
+        blockchain_name: &blockchain.name,
         node_type: node.node_type,
         version: node.version.as_deref().unwrap_or("latest"),
         created_at: chrono::Utc::now(),
     };
-    let Ok(_) = dbg!(new_log.create(conn).await) else {
+    let Ok(_) = new_log.create(conn).await else {
         tracing::error!("Failed to create deployment log entry!");
         return;
     };
 
     // 3. We now find the host that is next in line, and assign our node to that host.
     let Ok(host) = node.find_host(conn).await else {
-        tracing::warn!("Could not reschedule node on a new host, system is out of resources");
+        // We were unable to find a new host. This may happen because the system is out of resources
+        // or because we have retried to many times. Either way we have to log that this retry was
+        // canceled.
+        let new_log = models::NewNodeLog {
+            host_id: node.host_id,
+            node_id,
+            event: models::NodeLogEvent::Canceled,
+            blockchain_name: &blockchain.name,
+            node_type: node.node_type,
+            version: node.version.as_deref().unwrap_or("latest"),
+            created_at: chrono::Utc::now(),
+        };
+        let Ok(_) = new_log.create(conn).await else {
+            tracing::error!("Failed to create cancelation log entry!");
+            return;
+        };
         return;
     };
     node.host_id = host.id;
-    let Ok(node) = dbg!(node.update(conn).await) else {
+    let Ok(node) = node.update(conn).await else {
         tracing::error!("Could not update node!");
         return;
     };

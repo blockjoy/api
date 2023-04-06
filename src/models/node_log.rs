@@ -1,40 +1,49 @@
-use super::schema::node_deployment_logs;
+use super::schema::node_logs;
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
-#[ExistingTypePath = "crate::models::schema::sql_types::EnumNodeDeploymentAction"]
-pub enum NodeDeploymentAction {
-    /// A NodeDeploymentLog with this variant is created whenever we send a `NodeCreateCommand` to
-    /// the
-    CreateSent,
-    SuccessReceived,
-    FailureReceived,
+#[ExistingTypePath = "crate::models::schema::sql_types::EnumNodeLogEvent"]
+pub enum NodeLogEvent {
+    /// This variant is used to note that a `NodeCreate` message has been sent to blockvisord. There
+    /// should be a `Succeeded` or a `Failed` noted afterwards.
+    Created,
+    /// This variant is used to note that node was successfully created, and that the create was
+    /// confirmed to be successful by blockvisord.
+    Succeeded,
+    /// This variant is used to note that a node was not created. When we receive this variant, we
+    /// will send a `NodeDelete` message to blockvisord to clean up, and this message should either
+    /// be followed by a `Created` or a `Canceled` log entry, depending on whether we dediced to
+    /// retry or to abort.
+    Failed,
+    /// This variant is used to note that we aborted from creating the node, because the failure we
+    /// ran into was endemic.
+    Canceled,
 }
 
-/// Records of this table indicate that some action related to node deployments has happened. Note
+/// Records of this table indicate that some event related to node deployments has happened. Note
 /// that there is some redundancy in this table, because we want to be able to keep this log
 /// meaningful as records are deleted from the `nodes` table.
 #[derive(Debug, Queryable)]
-pub struct NodeDeploymentLog {
+pub struct NodeLog {
     pub id: uuid::Uuid,
     pub host_id: uuid::Uuid,
     pub node_id: uuid::Uuid,
-    pub action: NodeDeploymentAction,
-    pub blockchain_id: uuid::Uuid,
+    pub event: NodeLogEvent,
+    pub blockchain_name: String,
     pub node_type: super::NodeType,
     pub version: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-impl NodeDeploymentLog {
+impl NodeLog {
     pub async fn by_node(
         node: &super::Node,
         conn: &mut AsyncPgConnection,
     ) -> crate::Result<Vec<Self>> {
-        let deployments = node_deployment_logs::table
-            .filter(node_deployment_logs::node_id.eq(node.id))
+        let deployments = node_logs::table
+            .filter(node_logs::node_id.eq(node.id))
             .get_results(conn)
             .await?;
         Ok(deployments)
@@ -47,20 +56,20 @@ impl NodeDeploymentLog {
         since: chrono::DateTime<chrono::Utc>,
         conn: &mut AsyncPgConnection,
     ) -> crate::Result<Self> {
-        let deployment = node_deployment_logs::table
-            .filter(node_deployment_logs::node_id.eq(node.id))
-            .filter(node_deployment_logs::created_at.gt(since))
+        let deployment = node_logs::table
+            .filter(node_logs::node_id.eq(node.id))
+            .filter(node_logs::created_at.gt(since))
             .get_result(conn)
             .await?;
         Ok(deployment)
     }
 
     /// Returns the number of distinct hosts we have tried to deploy a node on. To do this it counts
-    /// the number of `CreateSent` actions that were undertaken.
+    /// the number of `CreateSent` events that were undertaken.
     pub fn n_hosts_tried(deployments: &[Self]) -> usize {
         let set: HashSet<_> = deployments
             .iter()
-            .filter(|d| d.action == NodeDeploymentAction::CreateSent)
+            .filter(|d| d.event == NodeLogEvent::Created)
             .map(|d| d.host_id)
             .collect();
         set.len()
@@ -72,7 +81,7 @@ impl NodeDeploymentLog {
     pub fn n_deploys_tried_on_last_host(deployments: &[Self]) -> usize {
         let Some(last_host) = deployments
             .iter()
-            .filter(|d| d.action == NodeDeploymentAction::CreateSent)
+            .filter(|d| d.event == NodeLogEvent::Created)
             .max_by_key(|h| h.created_at) else { return 0 };
         deployments
             .iter()
@@ -84,20 +93,20 @@ impl NodeDeploymentLog {
 }
 
 #[derive(Insertable)]
-#[diesel(table_name = node_deployment_logs)]
-pub struct NewNodeDeploymentLog<'a> {
+#[diesel(table_name = node_logs)]
+pub struct NewNodeLog<'a> {
     pub host_id: uuid::Uuid,
     pub node_id: uuid::Uuid,
-    pub action: NodeDeploymentAction,
-    pub blockchain_id: uuid::Uuid,
+    pub event: NodeLogEvent,
+    pub blockchain_name: &'a str,
     pub node_type: super::NodeType,
     pub version: &'a str,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-impl NewNodeDeploymentLog<'_> {
-    pub async fn create(self, conn: &mut AsyncPgConnection) -> crate::Result<NodeDeploymentLog> {
-        let deployment = diesel::insert_into(node_deployment_logs::table)
+impl NewNodeLog<'_> {
+    pub async fn create(self, conn: &mut AsyncPgConnection) -> crate::Result<NodeLog> {
+        let deployment = diesel::insert_into(node_logs::table)
             .values(self)
             .get_result(conn)
             .await?;

@@ -26,8 +26,8 @@ pub mod sql_types {
     pub struct EnumNodeChainStatus;
 
     #[derive(diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "enum_node_deployment_action"))]
-    pub struct EnumNodeDeploymentAction;
+    #[diesel(postgres_type(name = "enum_node_log_event"))]
+    pub struct EnumNodeLogEvent;
 
     #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_resource_affinity"))]
@@ -223,28 +223,28 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::EnumNodeDeploymentAction;
-    use super::sql_types::EnumNodeType;
-
-    node_deployment_logs (id) {
-        id -> Uuid,
-        host_id -> Uuid,
-        node_id -> Uuid,
-        action -> EnumNodeDeploymentAction,
-        blockchain_id -> Uuid,
-        node_type -> EnumNodeType,
-        version -> Varchar,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
     node_key_files (id) {
         id -> Uuid,
         name -> Text,
         content -> Text,
         node_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::EnumNodeLogEvent;
+    use super::sql_types::EnumNodeType;
+
+    node_logs (id) {
+        id -> Uuid,
+        host_id -> Uuid,
+        node_id -> Uuid,
+        event -> EnumNodeLogEvent,
+        blockchain_name -> Text,
+        node_type -> EnumNodeType,
+        version -> Varchar,
+        created_at -> Timestamptz,
     }
 }
 
@@ -393,7 +393,6 @@ diesel::joinable!(invitations -> orgs (created_for_org));
 diesel::joinable!(invitations -> users (created_by_user));
 diesel::joinable!(invoices -> users (user_id));
 diesel::joinable!(ip_addresses -> hosts (host_id));
-diesel::joinable!(node_deployment_logs -> blockchains (blockchain_id));
 diesel::joinable!(node_key_files -> nodes (node_id));
 diesel::joinable!(node_schedulers -> nodes (node_id));
 diesel::joinable!(nodes -> blockchains (blockchain_id));
@@ -415,8 +414,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     invitations,
     invoices,
     ip_addresses,
-    node_deployment_logs,
     node_key_files,
+    node_logs,
     node_schedulers,
     nodes,
     orgs,

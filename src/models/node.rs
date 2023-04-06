@@ -414,9 +414,9 @@ impl Node {
 
         // We now have a list of host candidates for our nodes. Now the only thing left to do is to
         // make a decision about where to place the node.
-        let deployments = super::NodeDeploymentLog::by_node(self, conn).await?;
-        let n_hosts_tried = super::NodeDeploymentLog::n_hosts_tried(&deployments);
-        let n_last_host = super::NodeDeploymentLog::n_deploys_tried_on_last_host(&deployments);
+        let deployments = super::NodeLog::by_node(self, conn).await?;
+        let n_hosts_tried = super::NodeLog::n_hosts_tried(&deployments);
+        let n_last_host = super::NodeLog::n_deploys_tried_on_last_host(&deployments);
         let best = match (n_hosts_tried, n_last_host) {
             // If we on the first host we tried, and we tried zero or one time so far, we try
             // (again) on the first host.
