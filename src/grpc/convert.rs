@@ -1,141 +1,7 @@
-use super::blockjoy::Parameter;
-use crate::auth::FindableById;
-use crate::errors::{ApiError, Result as ApiResult};
-use crate::grpc::blockjoy::container_image::StatusName;
-use crate::grpc::blockjoy::{
-    self, node_command, Command as GrpcCommand, ContainerImage, NodeCommand, NodeCreate,
-    NodeDelete, NodeRestart, NodeStop,
-};
-use crate::grpc::helpers::required;
-use crate::models::{self, Blockchain, Command, CommandType, Node};
-use anyhow::anyhow;
-use diesel_async::AsyncPgConnection;
 use prost_types::Timestamp;
 
-impl Parameter {
-    fn new(name: &str, val: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            value: val.to_owned(),
-        }
-    }
-}
-
-pub async fn db_command_to_grpc_command(
-    cmd: &Command,
-    conn: &mut AsyncPgConnection,
-) -> ApiResult<GrpcCommand> {
-    use blockjoy::command::Type;
-    use node_command::Command;
-
-    // Closure to conveniently construct a NodeCommand from the data that we need to have.
-    let node_cmd = |command, node_id| {
-        Ok(GrpcCommand {
-            r#type: Some(Type::Node(NodeCommand {
-                node_id,
-                host_id: cmd.host_id.to_string(),
-                command: Some(command),
-                api_command_id: cmd.id.to_string(),
-                created_at: Some(try_dt_to_ts(cmd.created_at)?),
-            })),
-        })
-    };
-
-    match cmd.cmd {
-        CommandType::RestartNode => {
-            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
-            let cmd = Command::Restart(NodeRestart {});
-            node_cmd(cmd, node_id.to_string())
-        }
-        CommandType::KillNode => {
-            tracing::debug!("Using NodeStop for KillNode");
-            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
-            let cmd = Command::Stop(NodeStop {});
-            node_cmd(cmd, node_id.to_string())
-        }
-        CommandType::ShutdownNode => {
-            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
-            let cmd = Command::Stop(NodeStop {});
-            node_cmd(cmd, node_id.to_string())
-        }
-        CommandType::UpdateNode => {
-            tracing::debug!("Using NodeUpgrade for UpdateNode");
-
-            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
-            let node = Node::find_by_id(node_id, conn).await?;
-            let cmd = Command::Update(blockjoy::NodeUpdate {
-                self_update: Some(node.self_update),
-            });
-
-            node_cmd(cmd, node_id.to_string())
-        }
-        CommandType::MigrateNode => {
-            tracing::error!("Using NodeGenericCommand for MigrateNode");
-            Err(ApiError::UnexpectedError(anyhow!("Not implemented")))
-        }
-        CommandType::GetNodeVersion => {
-            tracing::debug!("Using NodeInfoGet for GetNodeVersion");
-            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
-            let cmd = Command::InfoGet(blockjoy::NodeGet {});
-            node_cmd(cmd, node_id.to_string())
-        }
-        // The following should be HostCommands
-        CommandType::CreateNode => {
-            let node_id = cmd.node_id.ok_or_else(required("command.node_id"))?;
-            let node = Node::find_by_id(node_id, conn).await?;
-            let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
-            let image = ContainerImage {
-                protocol: blockchain.name,
-                node_type: node.node_type.to_string().to_lowercase(),
-                node_version: node.version.as_deref().unwrap_or("latest").to_lowercase(),
-                status: StatusName::Development.into(),
-            };
-            let network = Parameter::new("network", &node.network);
-            let r#type = models::NodePropertiesWithId {
-                id: node.node_type.into(),
-                props: node.properties()?,
-            };
-            let properties = node
-                .properties()?
-                .iter_props()
-                .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
-                .map(|(name, value)| Parameter::new(name, value))
-                .chain([network])
-                .collect();
-            let cmd = Command::Create(NodeCreate {
-                name: node.name,
-                blockchain: node.blockchain_id.to_string(),
-                image: Some(image),
-                r#type: serde_json::to_string(&r#type)?,
-                ip: node.ip_addr,
-                gateway: node.ip_gateway,
-                self_update: node.self_update,
-                properties,
-            });
-
-            node_cmd(cmd, node_id.to_string())
-        }
-        CommandType::DeleteNode => {
-            let node_id = cmd
-                .sub_cmd
-                .clone()
-                .ok_or_else(required("command.node_id"))?;
-            let cmd = Command::Delete(NodeDelete {});
-            node_cmd(cmd, node_id)
-        }
-        CommandType::GetBVSVersion => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        CommandType::UpdateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        CommandType::RestartBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        CommandType::RemoveBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        CommandType::CreateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        CommandType::StopBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        // TODO: Missing
-        // NodeStart, NodeUpgrade
-    }
-}
-
 /// Function to convert the datetimes from the database into the API representation of a timestamp.
-pub fn try_dt_to_ts(datetime: chrono::DateTime<chrono::Utc>) -> ApiResult<Timestamp> {
+pub fn try_dt_to_ts(datetime: chrono::DateTime<chrono::Utc>) -> crate::Result<Timestamp> {
     const NANOS_PER_SEC: i64 = 1_000_000_000;
     let nanos = datetime.timestamp_nanos();
     let timestamp = Timestamp {
@@ -150,7 +16,6 @@ pub fn try_dt_to_ts(datetime: chrono::DateTime<chrono::Utc>) -> ApiResult<Timest
 pub mod from {
     use crate::auth::{JwtToken, UserAuthToken};
     use crate::cookbook::cookbook_grpc::NetworkConfiguration;
-    use crate::errors::ApiError;
     use crate::grpc;
     use crate::grpc::blockjoy::Keyfile;
     use crate::grpc::blockjoy_ui::blockchain_network::NetworkType;
@@ -160,11 +25,12 @@ pub mod from {
         node::SyncStatus as GrpcSyncStatus,
     };
     use crate::models::{self, NodeChainStatus, NodeKeyFile, NodeStakingStatus, NodeSyncStatus};
+    use crate::Error;
     use anyhow::anyhow;
     use tonic::{Code, Status};
 
     impl TryFrom<&UserAuthToken> for grpc::blockjoy_ui::ApiToken {
-        type Error = ApiError;
+        type Error = Error;
 
         fn try_from(value: &UserAuthToken) -> Result<Self, Self::Error> {
             Ok(Self {
@@ -174,16 +40,16 @@ pub mod from {
     }
 
     impl TryFrom<UserAuthToken> for grpc::blockjoy_ui::ApiToken {
-        type Error = ApiError;
+        type Error = Error;
 
         fn try_from(value: UserAuthToken) -> Result<Self, Self::Error> {
             Self::try_from(&value)
         }
     }
 
-    impl From<ApiError> for Status {
-        fn from(e: ApiError) -> Self {
-            use ApiError::*;
+    impl From<Error> for Status {
+        fn from(e: Error) -> Self {
+            use Error::*;
 
             let msg = format!("{e:?}");
 
@@ -201,15 +67,15 @@ pub mod from {
         }
     }
 
-    impl From<Status> for ApiError {
+    impl From<Status> for Error {
         fn from(status: Status) -> Self {
             let e = anyhow!(format!("{status:?}"));
 
             match status.code() {
-                Code::Unauthenticated => ApiError::InvalidAuthentication(e.to_string()),
-                Code::PermissionDenied => ApiError::InsufficientPermissionsError,
-                Code::InvalidArgument => ApiError::InvalidArgument(status),
-                _ => ApiError::UnexpectedError(e),
+                Code::Unauthenticated => Error::InvalidAuthentication(e.to_string()),
+                Code::PermissionDenied => Error::InsufficientPermissionsError,
+                Code::InvalidArgument => Error::InvalidArgument(status),
+                _ => Error::UnexpectedError(e),
             }
         }
     }
@@ -274,7 +140,7 @@ pub mod from {
     }
 
     impl TryFrom<BlockchainNetwork> for crate::cookbook::BlockchainNetwork {
-        type Error = ApiError;
+        type Error = Error;
 
         fn try_from(value: BlockchainNetwork) -> crate::Result<Self> {
             Ok(Self {
@@ -287,7 +153,7 @@ pub mod from {
     }
 
     impl TryFrom<&NetworkConfiguration> for crate::cookbook::BlockchainNetwork {
-        type Error = ApiError;
+        type Error = Error;
 
         fn try_from(value: &NetworkConfiguration) -> crate::Result<Self> {
             Ok(Self {
@@ -310,7 +176,7 @@ pub mod from {
     }
 
     impl TryFrom<NodeKeyFile> for Keyfile {
-        type Error = ApiError;
+        type Error = Error;
 
         fn try_from(value: NodeKeyFile) -> Result<Self, Self::Error> {
             Ok(Self {

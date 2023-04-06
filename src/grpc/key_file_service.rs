@@ -1,10 +1,10 @@
 use crate::auth::FindableById;
-use crate::errors::ApiError;
 use crate::grpc::blockjoy::key_files_server::KeyFiles;
 use crate::grpc::blockjoy::{
     KeyFilesGetRequest, KeyFilesGetResponse, KeyFilesSaveRequest, KeyFilesSaveResponse,
 };
 use crate::models;
+use crate::Error;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 
@@ -15,7 +15,7 @@ impl KeyFiles for super::GrpcImpl {
         request: Request<KeyFilesGetRequest>,
     ) -> Result<Response<KeyFilesGetResponse>, Status> {
         let inner = request.into_inner();
-        let node_id = inner.node_id.parse().map_err(ApiError::from)?;
+        let node_id = inner.node_id.parse().map_err(crate::Error::from)?;
         let request_id = inner.request_id.clone();
         let mut conn = self.conn().await?;
         let key_files = models::NodeKeyFile::find_by_node(node_id, &mut conn).await?;
@@ -30,7 +30,7 @@ impl KeyFiles for super::GrpcImpl {
             key_files: key_files
                 .into_iter()
                 .map(|f| f.try_into())
-                .collect::<Result<_, ApiError>>()?,
+                .collect::<Result<_, Error>>()?,
         };
 
         Ok(Response::new(response))
@@ -41,7 +41,7 @@ impl KeyFiles for super::GrpcImpl {
         request: Request<KeyFilesSaveRequest>,
     ) -> Result<Response<KeyFilesSaveResponse>, Status> {
         let inner = request.into_inner();
-        let node_id = inner.node_id.parse().map_err(ApiError::from)?;
+        let node_id = inner.node_id.parse().map_err(crate::Error::from)?;
         let request_id = inner.request_id.clone();
 
         self.trx(|c| {

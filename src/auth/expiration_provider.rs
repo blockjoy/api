@@ -1,5 +1,5 @@
 use crate::auth::TokenType;
-use crate::errors::{ApiError, Result as ApiResult};
+use crate::{Error, Result as ApiResult};
 use anyhow::anyhow;
 use chrono::{Duration, Utc};
 
@@ -33,10 +33,10 @@ impl ExpirationProvider {
         let now = Utc::now();
         let duration = Duration::minutes(
             dotenv::var(key)
-                .map_err(ApiError::EnvError)?
+                .map_err(Error::EnvError)?
                 .parse::<i64>()
                 .map_err(|e| {
-                    ApiError::UnexpectedError(anyhow!("Couldn't parse env var value: {e:?}"))
+                    Error::UnexpectedError(anyhow!("Couldn't parse env var value: {e:?}"))
                 })?,
         );
         let expiration = (now + duration).timestamp();
@@ -48,7 +48,7 @@ impl ExpirationProvider {
 #[cfg(test)]
 mod tests {
     use crate::auth::TokenType;
-    use crate::errors::ApiError;
+    use crate::Error;
     use anyhow::anyhow;
     use chrono::{Duration, Utc};
     use strum::IntoEnumIterator;
@@ -67,10 +67,10 @@ mod tests {
             let now = Utc::now();
             let duration = Duration::minutes(
                 dotenv::var("TOKEN_EXPIRATION_MINS_USER")
-                    .map_err(ApiError::EnvError)?
+                    .map_err(Error::EnvError)?
                     .parse::<i64>()
                     .map_err(|e| {
-                        ApiError::UnexpectedError(anyhow!("Couldn't parse env var value: {e:?}"))
+                        Error::UnexpectedError(anyhow!("Couldn't parse env var value: {e:?}"))
                     })?,
             );
             let expiration = (now + duration).timestamp();

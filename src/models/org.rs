@@ -1,7 +1,7 @@
 use super::schema::{orgs, orgs_users, users};
 use crate::auth::{FindableById, Identifiable};
-use crate::errors::Result;
 use crate::models::User;
+use crate::Result;
 use chrono::{DateTime, Utc};
 use diesel::query_source::{Alias, AliasedField};
 use diesel::{dsl, prelude::*};

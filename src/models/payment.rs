@@ -1,4 +1,4 @@
-use crate::errors::Result;
+use crate::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};

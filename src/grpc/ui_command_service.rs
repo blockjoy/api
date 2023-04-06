@@ -1,7 +1,6 @@
-use super::{blockjoy, blockjoy_ui, convert};
+use super::{blockjoy, blockjoy_ui};
 use crate::auth::FindableById;
 use crate::auth::UserAuthToken;
-use crate::errors::Result;
 use crate::grpc::blockjoy_ui::command_service_server::CommandService;
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::notification::Notifier;
@@ -15,7 +14,7 @@ async fn handle_request(
     impler: &super::GrpcImpl,
     req: Request<blockjoy_ui::CommandRequest>,
     cmd_type: models::CommandType,
-) -> Result<blockjoy_ui::CommandResponse> {
+) -> crate::Result<blockjoy_ui::CommandResponse> {
     let token = try_get_token::<_, UserAuthToken>(&req)?.try_into()?;
     let inner = req.into_inner();
 
@@ -31,7 +30,7 @@ async fn handle_request(
                             .with_message(cmd.id),
                     ),
                 };
-                let cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
+                let cmd = blockjoy::Command::from_model(&cmd, c).await?;
                 send_notification(cmd, &impler.notifier).await?;
 
                 Ok(response)
@@ -47,7 +46,7 @@ async fn create_command(
     params: Vec<blockjoy_ui::Parameter>,
     notifier: Notifier,
     conn: &mut diesel_async::AsyncPgConnection,
-) -> Result<models::Command> {
+) -> crate::Result<models::Command> {
     let new_command = models::NewCommand {
         host_id,
         cmd,
@@ -66,7 +65,7 @@ async fn create_command(
                 .node_id
                 .expect("RestartNode and KillNode must be node-specific!");
 
-            let grpc_cmd = convert::db_command_to_grpc_command(&db_cmd, conn).await?;
+            let grpc_cmd = blockjoy::Command::from_model(&db_cmd, conn).await?;
             notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
             let node = models::Node::find_by_id(node_id, conn).await?;
             notifier
@@ -79,7 +78,7 @@ async fn create_command(
     Ok(db_cmd)
 }
 
-async fn send_notification(command: blockjoy::Command, notifier: &Notifier) -> Result<()> {
+async fn send_notification(command: blockjoy::Command, notifier: &Notifier) -> crate::Result<()> {
     tracing::debug!("Sending notification: {:?}", command);
     notifier.bv_commands_sender()?.send(&command).await?;
     Ok(())

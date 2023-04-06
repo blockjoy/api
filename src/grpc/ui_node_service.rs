@@ -1,7 +1,6 @@
 use super::blockjoy;
 use super::helpers::required;
 use crate::auth::{FindableById, UserAuthToken};
-use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy_ui::node_service_server::NodeService;
 use crate::grpc::blockjoy_ui::{
     self, CreateNodeRequest, CreateNodeResponse, DeleteNodeRequest, GetNodeRequest,
@@ -11,6 +10,7 @@ use crate::grpc::blockjoy_ui::{
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::{convert, get_refresh_token, response_with_refresh_token};
 use crate::models;
+use crate::Result;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::OptionFuture;
 use std::collections::HashMap;
@@ -185,17 +185,19 @@ impl blockjoy_ui::CreateNodeRequest {
                 .similarity
                 .as_ref()
                 .map(|s| match s {
-                    0 => Err(ApiError::validation("Undefined scheduler.similarity: 0")),
+                    0 => Err(crate::Error::validation(
+                        "Undefined scheduler.similarity: 0",
+                    )),
                     1 => Ok(models::SimilarNodeAffinity::Cluster),
                     2 => Ok(models::SimilarNodeAffinity::Spread),
-                    n => Err(ApiError::validation(format!("Invalid similarity: {n}"))),
+                    n => Err(crate::Error::validation(format!("Invalid similarity: {n}"))),
                 })
                 .transpose()?,
             resource: match scheduler.resource {
-                0 => return Err(ApiError::validation("Undefined scheduler.resource: 0")),
+                0 => return Err(crate::Error::validation("Undefined scheduler.resource: 0")),
                 1 => models::ResourceAffinity::MostResources,
                 2 => models::ResourceAffinity::LeastResources,
-                n => return Err(ApiError::validation(format!("Invalid resource: {n}"))),
+                n => return Err(crate::Error::validation(format!("Invalid resource: {n}"))),
             },
         })
     }
@@ -254,7 +256,7 @@ impl NodeService for super::GrpcImpl {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let inner = request.into_inner();
-        let node_id = inner.id.parse().map_err(ApiError::from)?;
+        let node_id = inner.id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
         let node = models::Node::find_by_id(node_id, &mut conn).await?;
 
@@ -276,7 +278,7 @@ impl NodeService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
         let filters = inner.filter.clone();
-        let org_id = inner.org_id.parse().map_err(ApiError::from)?;
+        let org_id = inner.org_id.parse().map_err(crate::Error::from)?;
         let pagination = inner
             .meta
             .clone()
@@ -465,7 +467,7 @@ impl NodeService for super::GrpcImpl {
                 };
                 update_user.update(c).await?;
 
-                let grpc_cmd = convert::db_command_to_grpc_command(&cmd, c).await?;
+                let grpc_cmd = blockjoy::Command::from_model(&cmd, c).await?;
                 self.notifier.bv_commands_sender()?.send(&grpc_cmd).await?;
 
                 self.notifier
@@ -496,7 +498,7 @@ pub(super) async fn create_notification(
     impler
         .notifier
         .bv_commands_sender()?
-        .send(&convert::db_command_to_grpc_command(&cmd, conn).await?)
+        .send(&blockjoy::Command::from_model(&cmd, conn).await?)
         .await
 }
 
@@ -515,6 +517,6 @@ pub(super) async fn start_notification(
     impler
         .notifier
         .bv_commands_sender()?
-        .send(&convert::db_command_to_grpc_command(&cmd, conn).await?)
+        .send(&blockjoy::Command::from_model(&cmd, conn).await?)
         .await
 }

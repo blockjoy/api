@@ -77,7 +77,7 @@ fn should_panic_on_decode_expired_token() {
             &validation,
         ) {
             Err(e) => assert_eq!(format!("{e}"), "ExpiredSignature"),
-            // assert_eq!(e.into_kind().type_name(), jsonwebtoken::errors::ErrorKind::ExpiredSignature),
+            // assert_eq!(e.into_kind().type_name(), jsonwebtoken::error::ErrorKind::ExpiredSignature),
             _ => panic!("it worked, but it shouldn't"),
         };
     });

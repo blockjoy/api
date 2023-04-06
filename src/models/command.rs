@@ -1,9 +1,8 @@
 use crate::auth::FindableById;
-use crate::errors::Result;
 use crate::grpc::blockjoy;
-use crate::grpc::convert;
 use crate::grpc::notification::Notifier;
 use crate::models::schema::commands;
+use crate::Result;
 use chrono::{DateTime, Utc};
 use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -93,7 +92,7 @@ impl Command {
         for command in &commands {
             notifier
                 .bv_commands_sender()?
-                .send(&convert::db_command_to_grpc_command(command, conn).await?)
+                .send(&blockjoy::Command::from_model(command, conn).await?)
                 .await?;
             // notifier.ui_commands_sender().send(command).await?;
         }

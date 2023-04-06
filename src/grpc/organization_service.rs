@@ -1,7 +1,6 @@
 use super::helpers::{required, try_get_token};
 use super::{blockjoy_ui, convert};
 use crate::auth::{FindableById, UserAuthToken};
-use crate::errors::ApiError;
 use crate::grpc::blockjoy_ui::organization_service_server::OrganizationService;
 use crate::grpc::blockjoy_ui::{
     CreateOrganizationRequest, CreateOrganizationResponse, DeleteOrganizationRequest,
@@ -13,6 +12,7 @@ use crate::grpc::blockjoy_ui::{
 use crate::grpc::helpers::pagination_parameters;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;
+use crate::Error;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -48,7 +48,7 @@ impl OrganizationService for super::GrpcImpl {
         let mut conn = self.conn().await?;
         let organizations: Vec<models::Org> = match org_id {
             Some(org_id) => {
-                let org_id = org_id.parse().map_err(ApiError::UuidParseError)?;
+                let org_id = org_id.parse().map_err(Error::UuidParseError)?;
                 vec![models::Org::find_by_id(org_id, &mut conn).await?]
             }
             None => models::Org::find_all_by_user(user_id, &mut conn).await?,
@@ -59,7 +59,7 @@ impl OrganizationService for super::GrpcImpl {
             .collect::<crate::Result<Vec<_>>>()?;
 
         for org in &mut organizations {
-            let org_id: Uuid = org.id.parse().map_err(ApiError::UuidParseError)?;
+            let org_id: Uuid = org.id.parse().map_err(Error::UuidParseError)?;
             let user = models::Org::find_org_user(user_id, org_id, &mut conn)
                 .await?
                 .into();
@@ -116,7 +116,7 @@ impl OrganizationService for super::GrpcImpl {
         let user_id = token.id;
         let token = token.try_into()?;
         let inner = request.into_inner();
-        let org_id = inner.id.parse().map_err(ApiError::from)?;
+        let org_id = inner.id.parse().map_err(crate::Error::from)?;
         let update = models::UpdateOrg {
             id: org_id,
             name: inner.name.as_deref(),
@@ -148,7 +148,7 @@ impl OrganizationService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let user_id = token.id;
         let inner = request.into_inner();
-        let org_id = inner.id.parse().map_err(ApiError::from)?;
+        let org_id = inner.id.parse().map_err(crate::Error::from)?;
         let msg = self
             .trx(|c| {
                 async move {
@@ -191,7 +191,7 @@ impl OrganizationService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let user_id = token.id;
         let inner = request.into_inner();
-        let org_id = inner.id.parse().map_err(ApiError::from)?;
+        let org_id = inner.id.parse().map_err(crate::Error::from)?;
         let resp = self
             .trx(|c| {
                 async move {
@@ -228,13 +228,13 @@ impl OrganizationService for super::GrpcImpl {
         let refresh_token = get_refresh_token(&request);
         let inner = request.into_inner();
         let meta = inner.meta.ok_or_else(required("meta"))?;
-        let org_id = inner.id.parse().map_err(ApiError::from)?;
+        let org_id = inner.id.parse().map_err(crate::Error::from)?;
 
         let (limit, offset) = pagination_parameters(meta.pagination.clone())?;
         let mut conn = self.conn().await?;
         let users =
             models::Org::find_all_member_users_paginated(org_id, limit, offset, &mut conn).await?;
-        let users: Result<_, ApiError> = users
+        let users: Result<_, Error> = users
             .into_iter()
             .map(blockjoy_ui::User::from_model)
             .collect();
@@ -256,8 +256,8 @@ impl OrganizationService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let caller_id = token.id;
         let inner = request.into_inner();
-        let user_id = inner.user_id.parse().map_err(ApiError::from)?;
-        let org_id = inner.org_id.parse().map_err(ApiError::from)?;
+        let user_id = inner.user_id.parse().map_err(crate::Error::from)?;
+        let org_id = inner.org_id.parse().map_err(crate::Error::from)?;
         let msg = self
             .trx(|c| {
                 async move {
@@ -298,7 +298,7 @@ impl OrganizationService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let user_id = token.id;
         let inner = request.into_inner();
-        let org_id = inner.org_id.parse().map_err(ApiError::from)?;
+        let org_id = inner.org_id.parse().map_err(crate::Error::from)?;
         let msg = self
             .trx(|c| {
                 async move {

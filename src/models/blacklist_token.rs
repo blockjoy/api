@@ -1,6 +1,6 @@
 use super::schema::token_blacklist;
 use crate::auth;
-use crate::errors::Result;
+use crate::Result;
 use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
