@@ -155,7 +155,7 @@ impl blockjoy_ui::CreateNodeRequest {
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4(),
             org_id: self.org_id.parse()?,
-            name: petname::petname(3, "_"),
+            name: petname::Petnames::large().generate_one(3, "_"),
             groups: "".to_string(),
             version: self.version.as_deref(),
             blockchain_id: self.blockchain_id.parse()?,
