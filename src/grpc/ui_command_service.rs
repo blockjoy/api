@@ -1,12 +1,12 @@
 use super::{blockjoy, blockjoy_ui, convert};
 use crate::auth::FindableById;
 use crate::auth::UserAuthToken;
-use crate::errors::Result;
 use crate::grpc::blockjoy_ui::command_service_server::CommandService;
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::notification::Notifier;
 use crate::models;
 use crate::models::HostCmd::*;
+use crate::Result;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;

@@ -1,6 +1,6 @@
 use super::schema::{invoices, users};
-use crate::errors::Result;
 use crate::models::payment::PaymentDue;
+use crate::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};

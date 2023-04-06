@@ -1,6 +1,5 @@
 use super::blockjoy::Parameter;
 use crate::auth::FindableById;
-use crate::errors::{ApiError, Result as ApiResult};
 use crate::grpc::blockjoy::container_image::StatusName;
 use crate::grpc::blockjoy::{
     self, node_command, Command as GrpcCommand, ContainerImage, NodeCommand, NodeCreate,
@@ -8,6 +7,7 @@ use crate::grpc::blockjoy::{
 };
 use crate::grpc::helpers::required;
 use crate::models::{self, Blockchain, Command, HostCmd, Node};
+use crate::{Error, Result as ApiResult};
 use anyhow::anyhow;
 use diesel_async::AsyncPgConnection;
 use prost_types::Timestamp;
@@ -71,7 +71,7 @@ pub async fn db_command_to_grpc_command(
         }
         HostCmd::MigrateNode => {
             tracing::error!("Using NodeGenericCommand for MigrateNode");
-            Err(ApiError::UnexpectedError(anyhow!("Not implemented")))
+            Err(Error::UnexpectedError(anyhow!("Not implemented")))
         }
         HostCmd::GetNodeVersion => {
             tracing::debug!("Using NodeInfoGet for GetNodeVersion");
@@ -123,12 +123,12 @@ pub async fn db_command_to_grpc_command(
             let cmd = Command::Delete(NodeDelete {});
             node_cmd(cmd, node_id)
         }
-        HostCmd::GetBVSVersion => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        HostCmd::UpdateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        HostCmd::RestartBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        HostCmd::RemoveBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        HostCmd::CreateBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
-        HostCmd::StopBVS => Err(ApiError::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::GetBVSVersion => Err(Error::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::UpdateBVS => Err(Error::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::RestartBVS => Err(Error::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::RemoveBVS => Err(Error::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::CreateBVS => Err(Error::UnexpectedError(anyhow!("Not implemented"))),
+        HostCmd::StopBVS => Err(Error::UnexpectedError(anyhow!("Not implemented"))),
         // TODO: Missing
         // NodeStart, NodeUpgrade
     }
@@ -150,7 +150,6 @@ pub fn try_dt_to_ts(datetime: chrono::DateTime<chrono::Utc>) -> ApiResult<Timest
 pub mod from {
     use crate::auth::{JwtToken, UserAuthToken};
     use crate::cookbook::cookbook_grpc::NetworkConfiguration;
-    use crate::errors::ApiError;
     use crate::grpc;
     use crate::grpc::blockjoy::Keyfile;
     use crate::grpc::blockjoy_ui::blockchain_network::NetworkType;
@@ -160,11 +159,12 @@ pub mod from {
         node::SyncStatus as GrpcSyncStatus,
     };
     use crate::models::{self, NodeChainStatus, NodeKeyFile, NodeStakingStatus, NodeSyncStatus};
+    use crate::Error;
     use anyhow::anyhow;
     use tonic::{Code, Status};
 
     impl TryFrom<&UserAuthToken> for grpc::blockjoy_ui::ApiToken {
-        type Error = ApiError;
+        type Error = Error;
 
         fn try_from(value: &UserAuthToken) -> Result<Self, Self::Error> {
             Ok(Self {
@@ -174,16 +174,16 @@ pub mod from {
     }
 
     impl TryFrom<UserAuthToken> for grpc::blockjoy_ui::ApiToken {
-        type Error = ApiError;
+        type Error = Error;
 
         fn try_from(value: UserAuthToken) -> Result<Self, Self::Error> {
             Self::try_from(&value)
         }
     }
 
-    impl From<ApiError> for Status {
-        fn from(e: ApiError) -> Self {
-            use ApiError::*;
+    impl From<Error> for Status {
+        fn from(e: Error) -> Self {
+            use Error::*;
 
             let msg = format!("{e:?}");
 
@@ -201,15 +201,15 @@ pub mod from {
         }
     }
 
-    impl From<Status> for ApiError {
+    impl From<Status> for Error {
         fn from(status: Status) -> Self {
             let e = anyhow!(format!("{status:?}"));
 
             match status.code() {
-                Code::Unauthenticated => ApiError::InvalidAuthentication(e.to_string()),
-                Code::PermissionDenied => ApiError::InsufficientPermissionsError,
-                Code::InvalidArgument => ApiError::InvalidArgument(status),
-                _ => ApiError::UnexpectedError(e),
+                Code::Unauthenticated => Error::InvalidAuthentication(e.to_string()),
+                Code::PermissionDenied => Error::InsufficientPermissionsError,
+                Code::InvalidArgument => Error::InvalidArgument(status),
+                _ => Error::UnexpectedError(e),
             }
         }
     }
@@ -274,7 +274,7 @@ pub mod from {
     }
 
     impl TryFrom<BlockchainNetwork> for crate::cookbook::BlockchainNetwork {
-        type Error = ApiError;
+        type Error = Error;
 
         fn try_from(value: BlockchainNetwork) -> crate::Result<Self> {
             Ok(Self {
@@ -287,7 +287,7 @@ pub mod from {
     }
 
     impl TryFrom<&NetworkConfiguration> for crate::cookbook::BlockchainNetwork {
-        type Error = ApiError;
+        type Error = Error;
 
         fn try_from(value: &NetworkConfiguration) -> crate::Result<Self> {
             Ok(Self {
@@ -310,7 +310,7 @@ pub mod from {
     }
 
     impl TryFrom<NodeKeyFile> for Keyfile {
-        type Error = ApiError;
+        type Error = Error;
 
         fn try_from(value: NodeKeyFile) -> Result<Self, Self::Error> {
             Ok(Self {

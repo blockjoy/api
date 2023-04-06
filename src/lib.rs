@@ -1,7 +1,7 @@
 pub mod auth;
 pub mod cloudflare;
 pub mod cookbook;
-pub mod errors;
+pub mod error;
 pub mod grpc;
 pub mod http;
 pub mod hybrid_server;
@@ -9,14 +9,13 @@ pub mod mail;
 pub mod models;
 pub mod server;
 
-use errors::Result;
+use error::{Error, Result};
 
 pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
     diesel_migrations::embed_migrations!();
 
-// #[cfg(test)]
 pub use test::TestDb;
-// #[cfg(test)]
+
 mod test {
     use crate::auth::expiration_provider::ExpirationProvider;
     use crate::auth::{

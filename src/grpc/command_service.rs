@@ -1,5 +1,4 @@
 use crate::auth::FindableById;
-use crate::errors::ApiError;
 use crate::grpc::blockjoy::commands_server::Commands;
 use crate::grpc::blockjoy::{Command, CommandInfo, CommandResponse, PendingCommandsRequest};
 use crate::grpc::convert::db_command_to_grpc_command;
@@ -23,7 +22,7 @@ impl CommandInfo {
 impl Commands for super::GrpcImpl {
     async fn get(&self, request: Request<CommandInfo>) -> Result<Response<Command>, Status> {
         let inner = request.into_inner();
-        let cmd_id = uuid::Uuid::from_str(inner.id.as_str()).map_err(ApiError::from)?;
+        let cmd_id = uuid::Uuid::from_str(inner.id.as_str()).map_err(crate::Error::from)?;
         let mut db_conn = self.conn().await?;
         let cmd = models::Command::find_by_id(cmd_id, &mut db_conn).await?;
         let grpc_cmd = db_command_to_grpc_command(&cmd, &mut db_conn).await?;
@@ -52,7 +51,7 @@ impl Commands for super::GrpcImpl {
         request: Request<PendingCommandsRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
         let inner = request.into_inner();
-        let host_id = inner.host_id.parse().map_err(ApiError::from)?;
+        let host_id = inner.host_id.parse().map_err(crate::Error::from)?;
         let mut db_conn = self.conn().await?;
         let cmds = models::Command::find_pending_by_host(host_id, &mut db_conn).await?;
         let mut response = CommandResponse { commands: vec![] };

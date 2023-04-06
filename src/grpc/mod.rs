@@ -34,7 +34,7 @@ use crate::auth::{
     unauthenticated_paths::UnauthenticatedPaths, Authorization, JwtToken, TokenType,
     UserRefreshToken,
 };
-use crate::errors::{ApiError, Result as ApiResult};
+use crate::{Error, Result as ApiResult};
 // use crate::grpc::authentication_service::AuthenticationServiceImpl;
 use crate::grpc::blockjoy::key_files_server::KeyFilesServer;
 use crate::grpc::blockjoy_ui::authentication_service_server::AuthenticationServiceServer;
@@ -207,7 +207,7 @@ pub fn response_with_refresh_token<ResponseBody>(
             true,
         )?;
         let exp = NaiveDateTime::from_timestamp_opt(refresh_token.get_expiration(), 0).ok_or_else(
-            || ApiError::UnexpectedError(anyhow!("Invalid timestamp while creating refresh token")),
+            || Error::UnexpectedError(anyhow!("Invalid timestamp while creating refresh token")),
         )?;
         // let exp = "Fri, 09 Jan 2026 03:15:14 GMT";
         let exp = exp.format("%a, %d %b %Y %H:%M:%S GMT").to_string();

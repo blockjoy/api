@@ -3,8 +3,8 @@ use super::schema::{nodes, orgs_users};
 use crate::auth::FindableById;
 use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
-use crate::errors::{ApiError, Result};
 use crate::models::{Blockchain, Host, IpAddress};
+use crate::{Error, Result};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -30,7 +30,7 @@ pub enum ContainerStatus {
 }
 
 impl TryFrom<i32> for ContainerStatus {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(n: i32) -> Result<Self> {
         match n {
@@ -46,7 +46,7 @@ impl TryFrom<i32> for ContainerStatus {
             9 => Ok(Self::Deleted),
             10 => Ok(Self::Installing),
             11 => Ok(Self::Snapshotting),
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot convert {n} to ContainerStatus"
             ))),
         }
@@ -63,14 +63,14 @@ pub enum NodeSyncStatus {
 }
 
 impl TryFrom<i32> for NodeSyncStatus {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(n: i32) -> Result<Self> {
         match n {
             0 => Ok(Self::Unknown),
             1 => Ok(Self::Syncing),
             2 => Ok(Self::Synced),
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot convert {n} to NodeSyncStatus"
             ))),
         }
@@ -91,7 +91,7 @@ pub enum NodeStakingStatus {
 }
 
 impl TryFrom<i32> for NodeStakingStatus {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(n: i32) -> Result<Self> {
         match n {
@@ -102,7 +102,7 @@ impl TryFrom<i32> for NodeStakingStatus {
             4 => Ok(Self::Validating),
             5 => Ok(Self::Consensus),
             6 => Ok(Self::Unstaked),
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot convert {n} to NodeStakingStatus"
             ))),
         }
@@ -134,7 +134,7 @@ pub enum NodeChainStatus {
 }
 
 impl TryFrom<i32> for NodeChainStatus {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(n: i32) -> Result<Self> {
         match n {
@@ -156,7 +156,7 @@ impl TryFrom<i32> for NodeChainStatus {
             15 => Ok(Self::Relaying),
             16 => Ok(Self::Removed),
             17 => Ok(Self::Removing),
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot convert {n} to NodeChainStatus"
             ))),
         }
@@ -164,7 +164,7 @@ impl TryFrom<i32> for NodeChainStatus {
 }
 
 impl std::str::FromStr for NodeChainStatus {
-    type Err = ApiError;
+    type Err = Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
@@ -186,7 +186,7 @@ impl std::str::FromStr for NodeChainStatus {
             "relaying" => Ok(Self::Relaying),
             "removed" => Ok(Self::Removed),
             "removing" => Ok(Self::Removing),
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot convert `{s}` to NodeChainStatus"
             ))),
         }
@@ -250,7 +250,10 @@ impl Node {
     }
 
     pub async fn all(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
-        nodes::table.get_results(conn).await.map_err(ApiError::from)
+        nodes::table
+            .get_results(conn)
+            .await
+            .map_err(crate::Error::from)
     }
 
     pub async fn find_all_by_host(
@@ -423,7 +426,7 @@ impl NewNode<'_> {
     }
 
     pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Node> {
-        use ApiError::NoMatchingHostError;
+        use Error::NoMatchingHostError;
 
         let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let node_type = self.node_type.to_string();

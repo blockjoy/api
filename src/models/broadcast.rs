@@ -1,5 +1,5 @@
 use super::schema::broadcast_filters;
-use crate::errors::{ApiError, Result};
+use crate::{Error, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -77,7 +77,7 @@ pub struct CreateBroadcastFilter {
 impl CreateBroadcastFilter {
     pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<BroadcastFilter> {
         self.validate()
-            .map_err(|e| ApiError::ValidationError(e.to_string()))?;
+            .map_err(|e| Error::ValidationError(e.to_string()))?;
         let filter = diesel::insert_into(broadcast_filters::table)
             .values(self)
             .get_result(conn)
@@ -103,7 +103,7 @@ pub struct UpdateBroadcastFilter {
 impl UpdateBroadcastFilter {
     pub async fn update(self, conn: &mut AsyncPgConnection) -> Result<BroadcastFilter> {
         self.validate()
-            .map_err(|e| ApiError::ValidationError(e.to_string()))?;
+            .map_err(|e| Error::ValidationError(e.to_string()))?;
         let filter = diesel::update(broadcast_filters::table.find(self.id))
             .set((self, broadcast_filters::updated_at.eq(chrono::Utc::now())))
             .get_result(conn)

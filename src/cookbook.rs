@@ -1,8 +1,8 @@
 use crate::auth::key_provider::KeyProvider;
 use crate::auth::TokenType;
 use crate::cookbook::cookbook_grpc::cook_book_service_client;
-use crate::errors::{ApiError, Result as ApiResult};
 use crate::grpc::blockjoy_ui::blockchain_network::NetworkType;
+use crate::{Error, Result as ApiResult};
 use anyhow::{anyhow, Context};
 use tonic::Request;
 
@@ -38,23 +38,23 @@ pub async fn get_hw_requirements(
         status: 1,
     };
     let cb_url = KeyProvider::get_var("COOKBOOK_URL")
-        .map_err(ApiError::Key)?
+        .map_err(Error::Key)?
         .to_string();
     let cb_token = base64::encode(
         KeyProvider::get_secret(TokenType::Cookbook)
-            .map_err(ApiError::Key)?
+            .map_err(Error::Key)?
             .to_string(),
     );
     let mut client = cook_book_service_client::CookBookServiceClient::connect(cb_url)
         .await
-        .map_err(|e| ApiError::UnexpectedError(anyhow!("Can't connect to cookbook: {e}")))?;
+        .map_err(|e| Error::UnexpectedError(anyhow!("Can't connect to cookbook: {e}")))?;
     let mut request = Request::new(id);
 
     request.metadata_mut().insert(
         "authorization",
-        format!("Bearer {cb_token}").parse().map_err(|e| {
-            ApiError::UnexpectedError(anyhow!("Can't set cookbook auth header: {e}"))
-        })?,
+        format!("Bearer {cb_token}")
+            .parse()
+            .map_err(|e| Error::UnexpectedError(anyhow!("Can't set cookbook auth header: {e}")))?,
     );
 
     let response = client.requirements(request).await?;
@@ -82,11 +82,11 @@ pub async fn get_networks(
         status: 1,
     };
     let cb_url = KeyProvider::get_var("COOKBOOK_URL")
-        .map_err(ApiError::Key)?
+        .map_err(Error::Key)?
         .to_string();
     let cb_token = base64::encode(
         KeyProvider::get_secret(TokenType::Cookbook)
-            .map_err(ApiError::Key)?
+            .map_err(Error::Key)?
             .to_string(),
     );
     let mut client = cook_book_service_client::CookBookServiceClient::connect(cb_url)

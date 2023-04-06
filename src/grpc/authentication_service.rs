@@ -2,7 +2,6 @@ use crate::auth::{
     FindableById, JwtToken, PwdResetToken, RegistrationConfirmationToken, TokenRole, TokenType,
     UserAuthToken, UserRefreshToken,
 };
-use crate::errors::ApiError;
 use crate::grpc::blockjoy_ui::authentication_service_server::AuthenticationService;
 use crate::grpc::blockjoy_ui::{
     ApiToken, ConfirmRegistrationRequest, ConfirmRegistrationResponse, LoginUserRequest,
@@ -251,7 +250,7 @@ impl AuthenticationService for super::GrpcImpl {
         let mut conn = self.conn().await?;
         let org_user = Org::find_org_user(
             user_id,
-            inner.org_id.parse().map_err(ApiError::from)?,
+            inner.org_id.parse().map_err(crate::Error::from)?,
             &mut conn,
         )
         .await?;

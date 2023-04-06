@@ -27,8 +27,8 @@ mod user_refresh;
 use crate::auth::expiration_provider::ExpirationProvider;
 use crate::auth::key_provider::{KeyProvider, KeyProviderError};
 use crate::auth::{FindableById, Identifiable};
-use crate::errors::{ApiError, Result as ApiResult};
 use crate::models::{Host, User};
+use crate::{Error, Result as ApiResult};
 pub use {
     host_auth::HostAuthToken, host_refresh::HostRefreshToken, invitation::InvitationToken,
     pwd_reset::PwdResetToken, registration_confirmation::RegistrationConfirmationToken,
@@ -64,7 +64,7 @@ impl Display for TokenRole {
 }
 
 impl FromStr for TokenRole {
-    type Err = ApiError;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -73,7 +73,7 @@ impl FromStr for TokenRole {
             "guest" => Ok(TokenRole::Guest),
             "admin" => Ok(TokenRole::Admin),
             "pwd_reset" => Ok(TokenRole::PwdReset),
-            _ => Err(ApiError::UnexpectedError(anyhow!("Unknown role"))),
+            _ => Err(Error::UnexpectedError(anyhow!("Unknown role"))),
         }
     }
 }
@@ -214,7 +214,7 @@ pub trait JwtToken: Sized + serde::Serialize {
             | TokenType::UserRefresh
             | TokenType::RegistrationConfirmation
             | TokenType::PwdReset => User::find_by_id(id, conn).await,
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot retrieve user from token of type {}",
                 self.token_type().to_string()
             ))),
@@ -227,7 +227,7 @@ pub trait JwtToken: Sized + serde::Serialize {
             TokenType::HostAuth | TokenType::HostRefresh => {
                 Host::find_by_id(self.get_id(), conn).await
             }
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot retrieve host from token of type {}",
                 self.token_type().to_string()
             ))),
