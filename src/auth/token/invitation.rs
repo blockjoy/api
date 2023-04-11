@@ -2,8 +2,8 @@ use crate::auth::expiration_provider::ExpirationProvider;
 use crate::auth::{
     Blacklisted, JwtToken, TokenClaim, TokenError, TokenResult, TokenRole, TokenType,
 };
-use crate::errors::Result;
 use crate::models::{self, Invitation};
+use crate::Result;
 use anyhow::anyhow;
 use diesel_async::AsyncPgConnection;
 use std::collections::HashMap;

@@ -1,5 +1,5 @@
 use crate::auth::{JwtToken, TokenClaim, TokenResult, TokenRole, TokenType};
-use crate::errors::Result;
+use crate::Result;
 use std::str;
 use std::str::FromStr;
 use uuid::Uuid;

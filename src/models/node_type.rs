@@ -1,4 +1,4 @@
-use crate::errors::ApiError;
+use crate::Error;
 
 // TODO: This should not have to implement serialize anymore.
 #[derive(Debug, Clone, Copy, diesel_derive_enum::DbEnum, serde::Serialize, serde::Deserialize)]
@@ -48,7 +48,7 @@ impl std::fmt::Display for NodeType {
 }
 
 impl std::str::FromStr for NodeType {
-    type Err = ApiError;
+    type Err = Error;
 
     fn from_str(s: &str) -> crate::Result<Self> {
         let res = match s.to_lowercase().as_str() {
@@ -72,7 +72,7 @@ impl std::str::FromStr for NodeType {
 }
 
 impl TryFrom<i32> for NodeType {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(value: i32) -> crate::Result<Self> {
         let val = match value {

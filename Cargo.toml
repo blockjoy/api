@@ -18,7 +18,7 @@ axum = "0.6"
 base64 = "0.13.0"
 casbin = { version = "2.0.9", default-features = false, features = ["runtime-tokio", "logging", "incremental", "explain"] }
 chrono = { version = "0.4.19", features = ["serde"] }
-diesel = { version = "2.0.3", default-features = false, features = ["postgres", "without-deprecated", "uuid", "chrono", "32-column-tables", "serde_json", "network-address"] }
+diesel = { version = "2.0.3", default-features = false, features = ["postgres", "without-deprecated", "uuid", "chrono", "serde_json", "network-address", "64-column-tables"] }
 diesel-async = { version = "0.2.0", features = ["bb8", "postgres"] }
 diesel-derive-enum = { version = "2.0.1", features = ["postgres"] }
 diesel_migrations = { version = "2.0.0", features = ["postgres"] }

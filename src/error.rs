@@ -8,10 +8,10 @@ use diesel_async::pooled_connection::bb8::RunError;
 use std::num::TryFromIntError;
 use tonic::Status;
 
-pub type Result<T, E = ApiError> = std::result::Result<T, E>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(thiserror::Error)]
-pub enum ApiError {
+pub enum Error {
     #[error("{0}")]
     ValidationError(String),
 
@@ -42,8 +42,6 @@ pub enum ApiError {
     #[error("UUID parse error: {0}")]
     UuidParseError(#[from] uuid::Error),
 
-    // #[error("No free IP available: {0}")]
-    // IpAssignmentError(sqlx::Error),
     #[error("Gateway IP mustn't be within the provided range: {0}")]
     IpGatewayError(anyhow::Error),
 
@@ -79,9 +77,12 @@ pub enum ApiError {
 
     #[error("Cloudflare integration error: {0}")]
     DnsError(#[from] DnsError),
+
+    #[error("Could not select a matching host")]
+    NoMatchingHostError(String),
 }
 
-impl ApiError {
+impl Error {
     pub fn validation(msg: impl std::fmt::Display) -> Self {
         Self::ValidationError(msg.to_string())
     }
@@ -95,25 +96,25 @@ impl ApiError {
     }
 }
 
-impl std::fmt::Debug for ApiError {
+impl std::fmt::Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         error_chain_fmt(self, f)
     }
 }
 
-impl From<RunError> for ApiError {
+impl From<RunError> for Error {
     fn from(value: RunError) -> Self {
         anyhow::anyhow!("Database pool is not behaving: {value}").into()
     }
 }
 
-impl From<std::num::ParseIntError> for ApiError {
+impl From<std::num::ParseIntError> for Error {
     fn from(value: std::num::ParseIntError) -> Self {
         anyhow::anyhow!("Could not parse integer: {value}").into()
     }
 }
 
-impl From<diesel::result::Error> for ApiError {
+impl From<diesel::result::Error> for Error {
     fn from(value: diesel::result::Error) -> Self {
         use diesel::result::DatabaseErrorKind::*;
         use diesel::result::Error::*;
@@ -128,20 +129,20 @@ impl From<diesel::result::Error> for ApiError {
     }
 }
 
-impl From<argon2::password_hash::Error> for ApiError {
+impl From<argon2::password_hash::Error> for Error {
     fn from(e: argon2::password_hash::Error) -> Self {
         Self::InvalidAuthentication(e.to_string())
     }
 }
 
-impl IntoResponse for ApiError {
+impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let status_code = match self {
-            ApiError::ValidationError(_) => StatusCode::BAD_REQUEST,
-            ApiError::NotFoundError(_) => StatusCode::NOT_FOUND,
-            ApiError::DuplicateResource { .. } => StatusCode::CONFLICT,
-            ApiError::InvalidAuthentication(_) => StatusCode::UNAUTHORIZED,
-            ApiError::InsufficientPermissionsError => StatusCode::FORBIDDEN,
+            Error::ValidationError(_) => StatusCode::BAD_REQUEST,
+            Error::NotFoundError(_) => StatusCode::NOT_FOUND,
+            Error::DuplicateResource { .. } => StatusCode::CONFLICT,
+            Error::InvalidAuthentication(_) => StatusCode::UNAUTHORIZED,
+            Error::InsufficientPermissionsError => StatusCode::FORBIDDEN,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let response = (status_code, Json(self.to_string())).into_response();
@@ -156,9 +157,9 @@ impl From<TokenError> for Status {
     }
 }
 
-impl From<TokenError> for ApiError {
+impl From<TokenError> for Error {
     fn from(e: TokenError) -> Self {
-        ApiError::TokenError(e)
+        Error::TokenError(e)
     }
 }
 

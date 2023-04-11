@@ -239,6 +239,10 @@ message Node {
   optional string created_by_name = 25;
   // The email of said aforementioned user.
   optional string created_by_email = 26;
+  // Whitelisted IP address for firewall
+  repeated FilteredIpAddr allow_ips = 27;
+  // Blacklisted IP address for firewall
+  repeated FilteredIpAddr deny_ips = 28;
 }
 
 message OrgUser {
@@ -376,4 +380,10 @@ message Invitation {
   optional google.protobuf.Timestamp declined_at = 7;
   optional string created_by_user_name = 8;
   optional string created_for_org_name = 9;
+}
+
+// IP address used for node firewalls∆
+message FilteredIpAddr {
+  string ip = 1;
+  optional string description = 2;
 }

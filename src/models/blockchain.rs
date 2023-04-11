@@ -1,5 +1,5 @@
 use super::schema::blockchains;
-use crate::errors::Result;
+use crate::Result;
 use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 

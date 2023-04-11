@@ -1,6 +1,6 @@
 use crate::auth::{Blacklisted, JwtToken, TokenClaim, TokenResult, TokenRole, TokenType};
-use crate::errors::Result;
 use crate::models;
+use crate::Result;
 use std::str;
 use std::str::FromStr;
 use uuid::Uuid;

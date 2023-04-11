@@ -6,7 +6,7 @@ pub mod unauthenticated_paths;
 
 pub use token::*;
 
-use crate::errors::Result as ApiResult;
+use crate::Result as ApiResult;
 use casbin::prelude::*;
 use casbin::Adapter;
 use diesel_async::AsyncPgConnection;

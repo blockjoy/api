@@ -37,7 +37,7 @@ mod payment;
 pub mod schema;
 mod user;
 
-use crate::errors::Result;
+use crate::Result;
 use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
 use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
 use diesel_async::{AsyncConnection, AsyncPgConnection};
@@ -81,7 +81,7 @@ diesel::sql_function!(
 /// we create one. This means that we cannot use the `?`-operator in our controllers when we
 /// retrieve a connection or when we begin a transaction. Since we do this in virtually every
 /// controller, it is worth creating this wrapper type that also has the functions `begin` and
-/// `conn`, but altered such that they return a `Result<_, errors::Error>`. With this Err-variant
+/// `conn`, but altered such that they return a `Result<_, error::Error>`. With this Err-variant
 /// we _can_ use the `?`-operator in our controllers.
 #[derive(Debug, Clone)]
 pub struct DbPool {

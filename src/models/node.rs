@@ -3,8 +3,8 @@ use super::schema::{nodes, orgs_users};
 use crate::auth::FindableById;
 use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
-use crate::errors::{ApiError, Result};
 use crate::models::{Blockchain, Host, IpAddress};
+use crate::{Error, Result};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -30,7 +30,7 @@ pub enum ContainerStatus {
 }
 
 impl TryFrom<i32> for ContainerStatus {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(n: i32) -> Result<Self> {
         match n {
@@ -46,7 +46,7 @@ impl TryFrom<i32> for ContainerStatus {
             9 => Ok(Self::Deleted),
             10 => Ok(Self::Installing),
             11 => Ok(Self::Snapshotting),
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot convert {n} to ContainerStatus"
             ))),
         }
@@ -63,14 +63,14 @@ pub enum NodeSyncStatus {
 }
 
 impl TryFrom<i32> for NodeSyncStatus {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(n: i32) -> Result<Self> {
         match n {
             0 => Ok(Self::Unknown),
             1 => Ok(Self::Syncing),
             2 => Ok(Self::Synced),
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot convert {n} to NodeSyncStatus"
             ))),
         }
@@ -91,7 +91,7 @@ pub enum NodeStakingStatus {
 }
 
 impl TryFrom<i32> for NodeStakingStatus {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(n: i32) -> Result<Self> {
         match n {
@@ -102,7 +102,7 @@ impl TryFrom<i32> for NodeStakingStatus {
             4 => Ok(Self::Validating),
             5 => Ok(Self::Consensus),
             6 => Ok(Self::Unstaked),
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot convert {n} to NodeStakingStatus"
             ))),
         }
@@ -134,7 +134,7 @@ pub enum NodeChainStatus {
 }
 
 impl TryFrom<i32> for NodeChainStatus {
-    type Error = ApiError;
+    type Error = Error;
 
     fn try_from(n: i32) -> Result<Self> {
         match n {
@@ -156,7 +156,7 @@ impl TryFrom<i32> for NodeChainStatus {
             15 => Ok(Self::Relaying),
             16 => Ok(Self::Removed),
             17 => Ok(Self::Removing),
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot convert {n} to NodeChainStatus"
             ))),
         }
@@ -164,7 +164,7 @@ impl TryFrom<i32> for NodeChainStatus {
 }
 
 impl std::str::FromStr for NodeChainStatus {
-    type Err = ApiError;
+    type Err = Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
@@ -186,7 +186,7 @@ impl std::str::FromStr for NodeChainStatus {
             "relaying" => Ok(Self::Relaying),
             "removed" => Ok(Self::Removed),
             "removing" => Ok(Self::Removing),
-            _ => Err(ApiError::UnexpectedError(anyhow!(
+            _ => Err(Error::UnexpectedError(anyhow!(
                 "Cannot convert `{s}` to NodeChainStatus"
             ))),
         }
@@ -195,37 +195,39 @@ impl std::str::FromStr for NodeChainStatus {
 
 #[derive(Clone, Debug, Queryable, Identifiable)]
 pub struct Node {
-    pub id: Uuid,                                  // id -> Uuid,
-    pub org_id: Uuid,                              // org_id -> Uuid,
-    pub host_id: Uuid,                             // host_id -> Uuid,
-    pub name: String,                              // name -> Text,
-    pub groups: Option<String>,                    // groups -> Nullable<Text>,
-    pub version: Option<String>,                   // version -> Nullable<Text>,
-    pub ip_addr: String,                           // ip_addr -> Nullable<Text>,
-    pub address: Option<String>,                   // address -> Nullable<Text>,
-    pub wallet_address: Option<String>,            // wallet_address -> Nullable<Text>,
-    pub block_height: Option<i64>,                 // block_height -> Nullable<Int8>,
-    pub node_data: Option<serde_json::Value>,      // node_data -> Nullable<Jsonb>,
-    pub created_at: DateTime<Utc>,                 // created_at -> Timestamptz,
-    pub updated_at: DateTime<Utc>,                 // updated_at -> Timestamptz,
-    pub blockchain_id: Uuid,                       // blockchain_id -> Uuid,
-    pub sync_status: NodeSyncStatus,               // sync_status -> EnumNodeSyncStatus,
-    pub chain_status: NodeChainStatus,             // chain_status -> EnumNodeChainStatus,
-    pub staking_status: Option<NodeStakingStatus>, // staking_status -> Nullable<EnumNodeStakingStatus>,
-    pub container_status: ContainerStatus,         // container_status -> EnumContainerStatus,
-    properties: serde_json::Value,                 // properties -> Jsonb,
-    pub ip_gateway: String,                        // ip_gateway -> Text,
-    pub self_update: bool,                         // self_update -> Bool,
-    pub block_age: Option<i64>,                    // block_age -> Nullable<Int8>,
-    pub consensus: Option<bool>,                   // consensus -> Nullable<Bool>,
-    pub vcpu_count: i64,                           // vcpu_count -> Int8,
-    pub mem_size_mb: i64,                          // mem_size_mb -> Int8,
-    pub disk_size_gb: i64,                         // disk_size_gb -> Int8,
-    pub host_name: String,                         // host_name -> Text,
-    pub network: String,                           // network -> Text,
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub host_id: Uuid,
+    pub name: String,
+    pub groups: Option<String>,
+    pub version: Option<String>,
+    pub ip_addr: String,
+    pub address: Option<String>,
+    pub wallet_address: Option<String>,
+    pub block_height: Option<i64>,
+    pub node_data: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub blockchain_id: Uuid,
+    pub sync_status: NodeSyncStatus,
+    pub chain_status: NodeChainStatus,
+    pub staking_status: Option<NodeStakingStatus>,
+    pub container_status: ContainerStatus,
+    properties: serde_json::Value,
+    pub ip_gateway: String,
+    pub self_update: bool,
+    pub block_age: Option<i64>,
+    pub consensus: Option<bool>,
+    pub vcpu_count: i64,
+    pub mem_size_mb: i64,
+    pub disk_size_gb: i64,
+    pub host_name: String,
+    pub network: String,
     pub created_by: Option<uuid::Uuid>,
-    pub dns_record_id: Option<String>,
-    pub node_type: NodeType, // node_type -> EnumNodeType,
+    pub dns_record_id: String,
+    pub allow_ips: serde_json::Value,
+    pub deny_ips: serde_json::Value,
+    pub node_type: NodeType,
 }
 
 #[derive(Clone, Debug)]
@@ -250,7 +252,10 @@ impl Node {
     }
 
     pub async fn all(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
-        nodes::table.get_results(conn).await.map_err(ApiError::from)
+        nodes::table
+            .get_results(conn)
+            .await
+            .map_err(crate::Error::from)
     }
 
     pub async fn find_all_by_host(
@@ -377,8 +382,8 @@ impl Node {
             .execute(conn)
             .await?;
 
-        if let Some(id) = node.dns_record_id {
-            cf_api.remove_node_dns(id).await?;
+        if let Err(e) = cf_api.remove_node_dns(node.dns_record_id).await {
+            tracing::error!("Could not remove DNS for node! {e}");
         }
 
         Ok(())
@@ -412,8 +417,8 @@ pub struct NewNode<'a> {
     pub mem_size_mb: i64,
     pub disk_size_gb: i64,
     pub network: &'a str,
-    pub created_by: uuid::Uuid,
     pub node_type: NodeType,
+    pub created_by: uuid::Uuid,
 }
 
 impl NewNode<'_> {
@@ -423,10 +428,14 @@ impl NewNode<'_> {
     }
 
     pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Node> {
+        use Error::NoMatchingHostError;
+
         let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let node_type = self.node_type.to_string();
         let requirements = get_hw_requirements(chain.name, node_type, self.version).await?;
-        let host_id = Host::get_next_available_host_id(requirements, conn).await?;
+        let host_id = Host::get_next_available_host_id(requirements, conn)
+            .await
+            .map_err(|_| NoMatchingHostError("The system is out of resources".to_string()))?;
         let host = Host::find_by_id(host_id, conn).await?;
         let ip_addr = IpAddress::next_for_host(host_id, conn)
             .await?
@@ -473,6 +482,7 @@ pub struct UpdateNode<'a> {
     pub staking_status: Option<NodeStakingStatus>,
     pub container_status: Option<ContainerStatus>,
     pub self_update: Option<bool>,
+    pub address: Option<&'a str>,
 }
 
 impl UpdateNode<'_> {

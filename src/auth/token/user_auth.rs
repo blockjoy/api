@@ -1,6 +1,6 @@
 use crate::auth::{JwtToken, TokenClaim, TokenResult, TokenRole, TokenType};
-use crate::errors::Result;
 use crate::grpc::helpers::required;
+use crate::Result;
 use std::collections::HashMap;
 use std::str;
 use std::str::FromStr;

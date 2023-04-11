@@ -1,7 +1,6 @@
 use super::convert;
 use super::helpers::required;
 use crate::auth::UserAuthToken;
-use crate::errors::Result;
 use crate::grpc::blockjoy_ui::host_provision_service_server::HostProvisionService;
 use crate::grpc::blockjoy_ui::{
     self, CreateHostProvisionRequest, CreateHostProvisionResponse, GetHostProvisionRequest,
@@ -10,6 +9,7 @@ use crate::grpc::blockjoy_ui::{
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;
+use crate::Result;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncPgConnection;
 use tonic::{Request, Response, Status};

@@ -1,6 +1,5 @@
 use super::blockjoy_ui::ResponseMeta;
 use crate::auth::UserAuthToken;
-use crate::errors::ApiError;
 use crate::grpc::blockjoy_ui::dashboard_service_server::DashboardService;
 use crate::grpc::blockjoy_ui::{metric, DashboardMetricsRequest, DashboardMetricsResponse, Metric};
 use crate::grpc::helpers::try_get_token;
@@ -17,7 +16,7 @@ impl DashboardService for super::GrpcImpl {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let inner = request.into_inner();
-        let org_id = inner.org_id.parse().map_err(ApiError::from)?;
+        let org_id = inner.org_id.parse().map_err(crate::Error::from)?;
         if token.try_org_id()? != org_id {
             super::bail_unauthorized!("Can't get metrics for this org");
         }

@@ -5,7 +5,7 @@ use super::{
     blockjoy,
     blockjoy_ui::{self, node_message, org_message},
 };
-use crate::{auth::key_provider::KeyProvider, errors::Result, models};
+use crate::{auth::key_provider::KeyProvider, models, Result};
 
 /// Presents the following senders:
 ///
@@ -324,8 +324,6 @@ impl Notify for blockjoy_ui::NodeMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::grpc::convert;
-
     use super::*;
 
     #[tokio::test]
@@ -364,7 +362,7 @@ mod tests {
         let db = crate::TestDb::setup().await;
         let command = db.command().await;
         let mut conn = db.pool.conn().await.unwrap();
-        let command = convert::db_command_to_grpc_command(&command, &mut conn)
+        let command = blockjoy::Command::from_model(&command, &mut conn)
             .await
             .unwrap();
         let notifier = Notifier::new().await.unwrap();

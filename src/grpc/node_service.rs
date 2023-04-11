@@ -21,6 +21,7 @@ impl blockjoy::NodeUpdateRequest {
                 .map(models::ContainerStatus::try_from)
                 .transpose()?,
             self_update: self.self_update,
+            address: self.address.as_deref(),
         })
     }
 }
@@ -30,7 +31,7 @@ impl blockjoy::Node {
         Self {
             id: model.id.to_string(),
             name: model.name,
-            ip: model.ip_addr,
+            ip: Some(model.ip_addr),
             self_update: model.self_update,
             block_height: model.block_height,
             onchain_name: None,

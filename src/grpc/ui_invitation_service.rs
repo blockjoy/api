@@ -1,6 +1,5 @@
 use super::{blockjoy_ui, convert};
 use crate::auth::{FindableById, InvitationToken, JwtToken, UserAuthToken};
-use crate::errors::{ApiError, Result};
 use crate::grpc::blockjoy_ui::invitation_service_server::InvitationService;
 use crate::grpc::blockjoy_ui::{
     CreateInvitationRequest, CreateInvitationResponse, InvitationRequest, InvitationsResponse,
@@ -11,6 +10,7 @@ use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::mail::{MailClient, Recipient};
 use crate::models;
 use crate::models::{Invitation, Org, OrgRole, User};
+use crate::Result;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -35,7 +35,7 @@ fn get_refresh_token_invitation_id_from_request(
                 .id
                 .ok_or_else(|| Status::permission_denied("No valid invitation ID found"))?;
 
-            invitation_id.parse().map_err(ApiError::from)?
+            invitation_id.parse().map_err(crate::Error::from)?
         }
     };
 
@@ -147,7 +147,7 @@ impl InvitationService for super::GrpcImpl {
         let user_id = token.get_id();
         let token = token.try_into()?;
         let inner = request.into_inner();
-        let org_id = inner.org_id.parse().map_err(ApiError::from)?;
+        let org_id = inner.org_id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
         let org_user = Org::find_org_user(user_id, org_id, &mut conn).await?;
 

@@ -7,7 +7,6 @@ use super::blockjoy_ui::{self, ResponseMeta};
 use super::convert;
 use crate::auth::UserAuthToken;
 use crate::cookbook::get_networks;
-use crate::errors::ApiError;
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;
@@ -48,7 +47,7 @@ impl BlockchainService for super::GrpcImpl {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
-        let id = inner.id.parse().map_err(ApiError::from)?;
+        let id = inner.id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
         let blockchain = models::Blockchain::find_by_id(id, &mut conn)
             .await

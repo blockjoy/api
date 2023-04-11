@@ -44,6 +44,7 @@ async fn responds_ok_with_single_get() {
         staking_status: None,
         container_status: None,
         self_update: None,
+        address: None,
     };
     update.update(&mut conn).await.unwrap();
 
@@ -112,6 +113,7 @@ async fn responds_ok_for_pending() {
         staking_status: None,
         container_status: None,
         self_update: None,
+        address: None,
     };
     update.update(&mut conn).await.unwrap();
     let cmd = create_command(&tester, node.id, models::HostCmd::CreateNode).await;
