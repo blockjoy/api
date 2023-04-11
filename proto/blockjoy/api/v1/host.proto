@@ -22,9 +22,9 @@ message Host {
   string os = 8;
   string os_version = 9;
   string ip = 10;
-  string ip_range_from = 11;
-  string ip_range_to = 12;
-  string ip_gateway = 13;
+  optional string ip_range_from = 11;
+  optional string ip_range_to = 12;
+  optional string ip_gateway = 13;
 }
 
 message DeleteHostRequest {

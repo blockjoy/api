@@ -7,6 +7,7 @@ use crate::grpc::blockjoy_ui::{
     GetNodeResponse, ListNodesRequest, ListNodesResponse, ResponseMeta, UpdateNodeRequest,
     UpdateNodeResponse,
 };
+use crate::grpc::convert::json_value_to_vec;
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::{convert, get_refresh_token, response_with_refresh_token};
 use crate::models;
@@ -108,6 +109,8 @@ impl blockjoy_ui::Node {
             created_by: user.map(|u| u.id.to_string()),
             created_by_name: user.map(|u| format!("{} {}", u.first_name, u.last_name)),
             created_by_email: user.map(|u| u.email.clone()),
+            allow_ips: json_value_to_vec(&node.allow_ips)?,
+            deny_ips: json_value_to_vec(&node.deny_ips)?,
         })
     }
 }
@@ -371,13 +374,11 @@ impl NodeService for super::GrpcImpl {
                     meta: Some(response_meta),
                     node: Some(blockjoy_ui::Node::from_model(node, c).await?),
                 };
-                Ok((refresh_token, response))
+                Ok(response_with_refresh_token(refresh_token, response)?)
             }
             .scope_boxed()
         })
         .await
-        .map_err(Into::into)
-        .and_then(|(refresh, resp)| response_with_refresh_token(refresh, resp))
     }
 
     async fn update(
@@ -388,26 +389,25 @@ impl NodeService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let user_id = token.id;
         let token = token.try_into()?;
-        let inner = request.into_inner();
-        let update_node = inner.as_update()?;
 
-        let msg = self
-            .trx(|c| {
-                async move {
-                    let user = models::User::find_by_id(user_id, c).await?;
-                    let node = update_node.update(c).await?;
-                    blockjoy_ui::NodeMessage::updated(node, user, c).await
-                }
-                .scope_boxed()
-            })
-            .await?;
+        self.trx(|c| {
+            async move {
+                let inner = request.into_inner();
+                let update_node = inner.as_update()?;
+                let user = models::User::find_by_id(user_id, c).await?;
+                let node = update_node.update(c).await?;
+                let msg = blockjoy_ui::NodeMessage::updated(node, user, c).await?;
 
-        self.notifier.ui_nodes_sender()?.send(&msg).await?;
+                self.notifier.ui_nodes_sender()?.send(&msg).await?;
 
-        let response = UpdateNodeResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
-        };
-        response_with_refresh_token(refresh_token, response)
+                let response = UpdateNodeResponse {
+                    meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
+                };
+                Ok(response_with_refresh_token(refresh_token, response)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn delete(&self, request: Request<DeleteNodeRequest>) -> Result<Response<()>, Status> {
@@ -450,7 +450,8 @@ impl NodeService for super::GrpcImpl {
                     cmd: models::CommandType::DeleteNode,
                     sub_cmd: Some(&node_id),
                     // Note that the `node_id` goes into the `sub_cmd` field, not the node_id
-                    // field, because the node was just deleted.
+                    // field, because the node was just deleted. For this reason, using the node_id
+                    // field would result in a violated foreign key constraint.
                     node_id: None,
                 };
                 let cmd = new_command.create(c).await?;

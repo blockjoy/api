@@ -225,6 +225,8 @@ pub struct Node {
     pub network: String,
     pub created_by: Option<uuid::Uuid>,
     pub dns_record_id: String,
+    pub allow_ips: serde_json::Value,
+    pub deny_ips: serde_json::Value,
     pub node_type: NodeType,
 }
 

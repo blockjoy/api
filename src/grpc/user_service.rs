@@ -103,29 +103,27 @@ impl UserService for super::GrpcImpl {
             .get::<UserAuthToken>()
             .ok_or_else(required("auth token"))?
             .clone();
-        let response = self
-            .trx(|c| {
-                async move {
-                    let user_id = token.try_get_user(token.id, c).await?.id;
-                    let inner = request.into_inner();
+        self.trx(|c| {
+            async move {
+                let user_id = token.try_get_user(token.id, c).await?.id;
+                let inner = request.into_inner();
 
-                    // Check if current user is the same as the one to be updated
-                    if user_id.to_string() != inner.id {
-                        super::bail_unauthorized!("You are not allowed to update this user");
-                    }
-                    let user = inner.as_update()?.update(c).await?;
-                    let response_meta =
-                        ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
-                    Ok(UpdateUserResponse {
-                        meta: Some(response_meta),
-                        user: Some(blockjoy_ui::User::from_model(user)?),
-                    })
+                // Check if current user is the same as the one to be updated
+                if user_id.to_string() != inner.id {
+                    super::bail_unauthorized!("You are not allowed to update this user");
                 }
-                .scope_boxed()
-            })
-            .await?;
+                let user = inner.as_update()?.update(c).await?;
+                let response_meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
+                let resp = UpdateUserResponse {
+                    meta: Some(response_meta),
+                    user: Some(blockjoy_ui::User::from_model(user)?),
+                };
 
-        response_with_refresh_token(refresh_token, response)
+                Ok(response_with_refresh_token(refresh_token, resp)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn delete(&self, request: Request<DeleteUserRequest>) -> Result<Response<()>, Status> {

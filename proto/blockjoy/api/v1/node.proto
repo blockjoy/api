@@ -80,7 +80,7 @@ message Node {
 
   string id = 1;
   string name = 2;
-  string ip = 3;
+  optional string ip = 3;
   bool self_update = 4;
   optional int64 block_height = 6;
   optional string onchain_name = 7;
