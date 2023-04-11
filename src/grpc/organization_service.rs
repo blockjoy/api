@@ -86,25 +86,24 @@ impl OrganizationService for super::GrpcImpl {
             name: &inner.name,
             is_personal: false,
         };
-        let (org, msg) = self
-            .trx(|c| {
-                async move {
-                    let user = models::User::find_by_id(user_id, c).await?;
-                    let org = new_org.create(user.id, c).await?;
-                    let ui_org = blockjoy_ui::Organization::from_model(org.clone())?;
-                    Ok((ui_org, blockjoy_ui::OrgMessage::created(org, user)?))
-                }
-                .scope_boxed()
-            })
-            .await?;
-        self.notifier.ui_orgs_sender()?.send(&msg).await?;
-        let response_meta =
-            ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(&org.id);
-        let inner = CreateOrganizationResponse {
-            meta: Some(response_meta),
-            organization: Some(org),
-        };
-        response_with_refresh_token(refresh_token, inner)
+        self.trx(|c| {
+            async move {
+                let user = models::User::find_by_id(user_id, c).await?;
+                let org = new_org.create(user.id, c).await?;
+                let msg = blockjoy_ui::OrgMessage::created(org.clone(), user)?;
+                let org = blockjoy_ui::Organization::from_model(org)?;
+                self.notifier.ui_orgs_sender()?.send(&msg).await?;
+                let response_meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))
+                    .with_message(&org.id);
+                let resp = CreateOrganizationResponse {
+                    meta: Some(response_meta),
+                    organization: Some(org),
+                };
+                Ok(response_with_refresh_token(refresh_token, resp)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn update(
@@ -122,20 +121,19 @@ impl OrganizationService for super::GrpcImpl {
             name: inner.name.as_deref(),
         };
 
-        let msg = self
-            .trx(|c| {
-                async move {
-                    let org = update.update(c).await?;
-                    let user = models::User::find_by_id(user_id, c).await?;
-                    blockjoy_ui::OrgMessage::updated(org, user)
-                }
-                .scope_boxed()
-            })
-            .await?;
-        self.notifier.ui_orgs_sender()?.send(&msg).await?;
-        let meta = ResponseMeta::from_meta(inner.meta, Some(token));
-        let inner = UpdateOrganizationResponse { meta: Some(meta) };
-        response_with_refresh_token(refresh_token, inner)
+        self.trx(|c| {
+            async move {
+                let org = update.update(c).await?;
+                let user = models::User::find_by_id(user_id, c).await?;
+                let msg = blockjoy_ui::OrgMessage::updated(org, user)?;
+                self.notifier.ui_orgs_sender()?.send(&msg).await?;
+                let meta = ResponseMeta::from_meta(inner.meta, Some(token));
+                let resp = UpdateOrganizationResponse { meta: Some(meta) };
+                Ok(response_with_refresh_token(refresh_token, resp)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn delete(
@@ -149,37 +147,36 @@ impl OrganizationService for super::GrpcImpl {
         let user_id = token.id;
         let inner = request.into_inner();
         let org_id = inner.id.parse().map_err(crate::Error::from)?;
-        let msg = self
-            .trx(|c| {
-                async move {
-                    let org = models::Org::find_by_id(org_id, c).await?;
-                    if org.is_personal {
-                        super::bail_unauthorized!("Can't deleted personal org");
-                    }
-                    let member = models::Org::find_org_user(user_id, org_id, c).await?;
-
-                    // Only owner or admins may delete orgs
-                    let is_allowed = match member.role {
-                        Member => false,
-                        Owner | Admin => true,
-                    };
-                    if !is_allowed {
-                        super::bail_unauthorized!(
-                            "User {user_id} has insufficient privileges to delete org {org_id}"
-                        );
-                    }
-                    tracing::debug!("Deleting org: {}", org_id);
-                    models::Org::delete(org_id, c).await?;
-                    let user = models::User::find_by_id(user_id, c).await?;
-                    Ok(blockjoy_ui::OrgMessage::deleted(org, user))
+        self.trx(|c| {
+            async move {
+                let org = models::Org::find_by_id(org_id, c).await?;
+                if org.is_personal {
+                    super::bail_unauthorized!("Can't deleted personal org");
                 }
-                .scope_boxed()
-            })
-            .await?;
-        self.notifier.ui_orgs_sender()?.send(&msg).await?;
-        let meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
-        let resp = DeleteOrganizationResponse { meta: Some(meta) };
-        response_with_refresh_token(refresh_token, resp)
+                let member = models::Org::find_org_user(user_id, org_id, c).await?;
+
+                // Only owner or admins may delete orgs
+                let is_allowed = match member.role {
+                    Member => false,
+                    Owner | Admin => true,
+                };
+                if !is_allowed {
+                    super::bail_unauthorized!(
+                        "User {user_id} has insufficient privileges to delete org {org_id}"
+                    );
+                }
+                tracing::debug!("Deleting org: {}", org_id);
+                models::Org::delete(org_id, c).await?;
+                let user = models::User::find_by_id(user_id, c).await?;
+                let msg = blockjoy_ui::OrgMessage::deleted(org, user);
+                self.notifier.ui_orgs_sender()?.send(&msg).await?;
+                let meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
+                let resp = DeleteOrganizationResponse { meta: Some(meta) };
+                Ok(response_with_refresh_token(refresh_token, resp)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn restore(
@@ -192,32 +189,30 @@ impl OrganizationService for super::GrpcImpl {
         let user_id = token.id;
         let inner = request.into_inner();
         let org_id = inner.id.parse().map_err(crate::Error::from)?;
-        let resp = self
-            .trx(|c| {
-                async move {
-                    let member = models::Org::find_org_user(user_id, org_id, c).await?;
-                    let is_allowed = match member.role {
-                        Member => false,
-                        // Only owner or admins may restore orgs
-                        Owner | Admin => true,
-                    };
-                    if !is_allowed {
-                        super::bail_unauthorized!(
-                            "User {user_id} has no sufficient privileges to restore org {org_id}"
-                        );
-                    }
-                    let org = models::Org::restore(org_id, c).await?;
-                    let meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
-                    let inner = RestoreOrganizationResponse {
-                        meta: Some(meta),
-                        organization: Some(blockjoy_ui::Organization::from_model(org)?),
-                    };
-                    Ok(inner)
+        self.trx(|c| {
+            async move {
+                let member = models::Org::find_org_user(user_id, org_id, c).await?;
+                let is_allowed = match member.role {
+                    Member => false,
+                    // Only owner or admins may restore orgs
+                    Owner | Admin => true,
+                };
+                if !is_allowed {
+                    super::bail_unauthorized!(
+                        "User {user_id} has no sufficient privileges to restore org {org_id}"
+                    );
                 }
-                .scope_boxed()
-            })
-            .await?;
-        Ok(Response::new(resp))
+                let org = models::Org::restore(org_id, c).await?;
+                let meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
+                let resp = RestoreOrganizationResponse {
+                    meta: Some(meta),
+                    organization: Some(blockjoy_ui::Organization::from_model(org)?),
+                };
+                Ok(Response::new(resp))
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn members(
@@ -258,36 +253,34 @@ impl OrganizationService for super::GrpcImpl {
         let inner = request.into_inner();
         let user_id = inner.user_id.parse().map_err(crate::Error::from)?;
         let org_id = inner.org_id.parse().map_err(crate::Error::from)?;
-        let msg = self
-            .trx(|c| {
-                async move {
-                    let member = models::Org::find_org_user(caller_id, org_id, c).await?;
-                    let is_allowed = match member.role {
-                        Member => false,
-                        Owner | Admin => true,
-                    };
-                    if !is_allowed {
-                        super::bail_unauthorized!(
-                            "User {caller_id} has insufficient privileges to remove other user \
+        self.trx(|c| {
+            async move {
+                let member = models::Org::find_org_user(caller_id, org_id, c).await?;
+                let is_allowed = match member.role {
+                    Member => false,
+                    Owner | Admin => true,
+                };
+                if !is_allowed {
+                    super::bail_unauthorized!(
+                        "User {caller_id} has insufficient privileges to remove other user \
                             {user_id} from org {org_id}"
-                        )
-                    }
-                    let user_to_remove = models::User::find_by_id(user_id, c).await?;
-                    models::Org::remove_org_user(user_id, org_id, c).await?;
-                    // In case a user needs to be re-invited later, we also remove the (already
-                    // accepted) invites from the database. This is to prevent them from running
-                    // into a unique constraint when they are invited again.
-                    models::Invitation::remove_by_org_user(&user_to_remove.email, org_id, c)
-                        .await?;
-                    let org = models::Org::find_by_id(org_id, c).await?;
-                    let user = models::User::find_by_id(caller_id, c).await?;
-                    blockjoy_ui::OrgMessage::updated(org, user)
+                    )
                 }
-                .scope_boxed()
-            })
-            .await?;
-        self.notifier.ui_orgs_sender()?.send(&msg).await?;
-        response_with_refresh_token(refresh_token, ())
+                let user_to_remove = models::User::find_by_id(user_id, c).await?;
+                models::Org::remove_org_user(user_id, org_id, c).await?;
+                // In case a user needs to be re-invited later, we also remove the (already
+                // accepted) invites from the database. This is to prevent them from running
+                // into a unique constraint when they are invited again.
+                models::Invitation::remove_by_org_user(&user_to_remove.email, org_id, c).await?;
+                let org = models::Org::find_by_id(org_id, c).await?;
+                let user = models::User::find_by_id(caller_id, c).await?;
+                let msg = blockjoy_ui::OrgMessage::updated(org, user)?;
+                self.notifier.ui_orgs_sender()?.send(&msg).await?;
+                Ok(response_with_refresh_token(refresh_token, ())?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn leave(
@@ -299,19 +292,17 @@ impl OrganizationService for super::GrpcImpl {
         let user_id = token.id;
         let inner = request.into_inner();
         let org_id = inner.org_id.parse().map_err(crate::Error::from)?;
-        let msg = self
-            .trx(|c| {
-                async move {
-                    models::Org::remove_org_user(user_id, org_id, c).await?;
-                    let org = models::Org::find_by_id(org_id, c).await?;
-                    let user = models::User::find_by_id(user_id, c).await?;
-                    blockjoy_ui::OrgMessage::updated(org, user)
-                }
-                .scope_boxed()
-            })
-            .await?;
-        self.notifier.ui_orgs_sender()?.send(&msg).await?;
-
-        response_with_refresh_token(refresh_token, ())
+        self.trx(|c| {
+            async move {
+                models::Org::remove_org_user(user_id, org_id, c).await?;
+                let org = models::Org::find_by_id(org_id, c).await?;
+                let user = models::User::find_by_id(user_id, c).await?;
+                let msg = blockjoy_ui::OrgMessage::updated(org, user)?;
+                self.notifier.ui_orgs_sender()?.send(&msg).await?;
+                Ok(response_with_refresh_token(refresh_token, ())?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 }

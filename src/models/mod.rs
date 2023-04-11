@@ -97,7 +97,7 @@ impl DbPool {
         Self { pool }
     }
 
-    pub async fn trx<'a, F, T>(&self, f: F) -> Result<T>
+    pub async fn trx<'a, F, T>(&self, f: F) -> Result<T, tonic::Status>
     where
         F: for<'r> FnOnce(
                 &'r mut diesel_async::AsyncPgConnection,
@@ -106,17 +106,14 @@ impl DbPool {
             + 'a,
         T: Send + 'a,
     {
-        self.pool
+        let res = self
+            .pool
             .get()
-            .await?
-            .transaction(|c| {
-                async move {
-                    let ok = f(c).await?;
-                    Ok(ok)
-                }
-                .scope_boxed()
-            })
             .await
+            .map_err(crate::Error::from)?
+            .transaction(|c| f(c).scope_boxed())
+            .await?;
+        Ok(res)
     }
 
     /// Returns a database connection that is not in a transition state. Use this for read-only

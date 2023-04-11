@@ -92,49 +92,45 @@ impl InvitationService for super::GrpcImpl {
         let refresh_token = get_refresh_token(&request);
         let creator_id = try_get_token::<_, UserAuthToken>(&request)?.get_id();
 
-        let response = self
-            .trx(|c| {
-                async move {
-                    let creator = User::find_by_id(creator_id, c).await?;
-                    let inner = request.into_inner();
-                    let invitation = inner.as_new(creator_id, c).await?.create(c).await?;
+        self.trx(|c| {
+            async move {
+                let creator = User::find_by_id(creator_id, c).await?;
+                let inner = request.into_inner();
+                let invitation = inner.as_new(creator_id, c).await?.create(c).await?;
 
-                    let response_meta = ResponseMeta::from_meta(inner.meta, Some(token));
-                    let response = CreateInvitationResponse {
-                        meta: Some(response_meta),
-                    };
+                let response_meta = ResponseMeta::from_meta(inner.meta, Some(token));
+                let response = CreateInvitationResponse {
+                    meta: Some(response_meta),
+                };
 
-                    match User::find_by_email(&invitation.invitee_email, c).await {
-                        Ok(user) => {
-                            // Note that here we abort the transaction if sending the email failed.
-                            // This way we do not get users in the db that we cannot send emails to.
-                            // The existence of such a user would prevent them from trying to recreate
-                            // again at a later point.
-                            MailClient::new()
-                                .invitation_for_registered(&creator, &user, "1 week")
-                                .await?;
-                        }
-                        Err(_) => {
-                            let invitee = Recipient {
-                                email: &invitation.invitee_email,
-                                first_name: "",
-                                last_name: "",
-                                preferred_language: None,
-                            };
-
-                            MailClient::new()
-                                .invitation(&invitation, &creator, invitee, "1 week")
-                                .await?;
-                        }
+                match User::find_by_email(&invitation.invitee_email, c).await {
+                    Ok(user) => {
+                        // Note that here we abort the transaction if sending the email failed.
+                        // This way we do not get users in the db that we cannot send emails to.
+                        // The existence of such a user would prevent them from trying to recreate
+                        // again at a later point.
+                        MailClient::new()
+                            .invitation_for_registered(&creator, &user, "1 week")
+                            .await?;
                     }
+                    Err(_) => {
+                        let invitee = Recipient {
+                            email: &invitation.invitee_email,
+                            first_name: "",
+                            last_name: "",
+                            preferred_language: None,
+                        };
 
-                    Ok(response)
+                        MailClient::new()
+                            .invitation(&invitation, &creator, invitee, "1 week")
+                            .await?;
+                    }
                 }
-                .scope_boxed()
-            })
-            .await?;
-
-        response_with_refresh_token(refresh_token, response)
+                Ok(response_with_refresh_token(refresh_token, response)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     /// TODO: Role should be checked by policies
@@ -200,39 +196,37 @@ impl InvitationService for super::GrpcImpl {
 
     async fn accept(&self, request: Request<InvitationRequest>) -> Result<Response<()>, Status> {
         let (refresh_token, invitation_id) = get_refresh_token_invitation_id_from_request(request)?;
-        let msg = self
-            .trx(|c| {
-                async move {
-                    let invitation = models::Invitation::find_by_id(invitation_id, c).await?;
-                    if invitation.accepted_at.is_some() {
-                        return Err(
-                            Status::failed_precondition("Invitation is already accepted").into(),
-                        );
-                    }
-                    if invitation.declined_at.is_some() {
-                        return Err(Status::failed_precondition("Invitation is declined").into());
-                    }
-
-                    let invitation = invitation.accept(c).await?;
-                    // Only registered users can accept an invitation
-                    let new_member = User::find_by_email(&invitation.invitee_email, c).await?;
-                    let org_user = Org::add_member(
-                        new_member.id,
-                        invitation.created_for_org,
-                        OrgRole::Member,
-                        c,
-                    )
-                    .await?;
-                    let org = models::Org::find_by_id(org_user.org_id, c).await?;
-                    let user = models::User::find_by_id(org_user.user_id, c).await?;
-                    blockjoy_ui::OrgMessage::updated(org, user)
+        self.trx(|c| {
+            async move {
+                let invitation = models::Invitation::find_by_id(invitation_id, c).await?;
+                if invitation.accepted_at.is_some() {
+                    return Err(
+                        Status::failed_precondition("Invitation is already accepted").into(),
+                    );
                 }
-                .scope_boxed()
-            })
-            .await?;
-        self.notifier.ui_orgs_sender()?.send(&msg).await?;
+                if invitation.declined_at.is_some() {
+                    return Err(Status::failed_precondition("Invitation is declined").into());
+                }
 
-        response_with_refresh_token(refresh_token, ())
+                let invitation = invitation.accept(c).await?;
+                // Only registered users can accept an invitation
+                let new_member = User::find_by_email(&invitation.invitee_email, c).await?;
+                let org_user = Org::add_member(
+                    new_member.id,
+                    invitation.created_for_org,
+                    OrgRole::Member,
+                    c,
+                )
+                .await?;
+                let org = models::Org::find_by_id(org_user.org_id, c).await?;
+                let user = models::User::find_by_id(org_user.user_id, c).await?;
+                let msg = blockjoy_ui::OrgMessage::updated(org, user)?;
+                self.notifier.ui_orgs_sender()?.send(&msg).await?;
+                Ok(response_with_refresh_token(refresh_token, ())?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn decline(&self, request: Request<InvitationRequest>) -> Result<Response<()>, Status> {

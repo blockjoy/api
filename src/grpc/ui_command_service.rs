@@ -12,33 +12,32 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 async fn handle_request(
-    impler: &super::GrpcImpl,
+    grpc: &super::GrpcImpl,
     req: Request<blockjoy_ui::CommandRequest>,
     cmd_type: models::HostCmd,
-) -> Result<blockjoy_ui::CommandResponse> {
+) -> Result<Response<blockjoy_ui::CommandResponse>, tonic::Status> {
     let token = try_get_token::<_, UserAuthToken>(&req)?.try_into()?;
     let inner = req.into_inner();
 
-    let notifier = impler.notifier.clone();
-    let host_id = inner.id.parse()?;
-    impler
-        .trx(|c| {
-            async move {
-                let cmd = create_command(host_id, cmd_type, inner.params, notifier, c).await?;
-                let response = blockjoy_ui::CommandResponse {
-                    meta: Some(
-                        blockjoy_ui::ResponseMeta::from_meta(inner.meta, Some(token))
-                            .with_message(cmd.id),
-                    ),
-                };
-                let cmd = blockjoy::Command::from_model(&cmd, c).await?;
-                send_notification(cmd, &impler.notifier).await?;
+    let notifier = grpc.notifier.clone();
+    let host_id = inner.id.parse().map_err(crate::Error::from)?;
+    grpc.trx(|c| {
+        async move {
+            let cmd = create_command(host_id, cmd_type, inner.params, notifier, c).await?;
+            let response = blockjoy_ui::CommandResponse {
+                meta: Some(
+                    blockjoy_ui::ResponseMeta::from_meta(inner.meta, Some(token))
+                        .with_message(cmd.id),
+                ),
+            };
+            let cmd = blockjoy::Command::from_model(&cmd, c).await?;
+            send_notification(cmd, &grpc.notifier).await?;
 
-                Ok(response)
-            }
-            .scope_boxed()
-        })
-        .await
+            Ok(Response::new(response))
+        }
+        .scope_boxed()
+    })
+    .await
 }
 
 async fn create_command(
@@ -100,80 +99,70 @@ impl CommandService for super::GrpcImpl {
         &self,
         request: Request<blockjoy_ui::CommandRequest>,
     ) -> Result<Response<blockjoy_ui::CommandResponse>, Status> {
-        let cmd = handle_request(self, request, CreateNode).await?;
-        Ok(Response::new(cmd))
+        handle_request(self, request, CreateNode).await
     }
 
     async fn delete_node(
         &self,
         request: Request<blockjoy_ui::CommandRequest>,
     ) -> Result<Response<blockjoy_ui::CommandResponse>, Status> {
-        let cmd = handle_request(self, request, DeleteNode).await?;
-        Ok(Response::new(cmd))
+        handle_request(self, request, DeleteNode).await
     }
 
     async fn start_node(
         &self,
         request: Request<blockjoy_ui::CommandRequest>,
     ) -> Result<Response<blockjoy_ui::CommandResponse>, Status> {
-        let cmd = handle_request(self, request, RestartNode).await?;
-        Ok(Response::new(cmd))
+        handle_request(self, request, RestartNode).await
     }
 
     async fn stop_node(
         &self,
         request: Request<blockjoy_ui::CommandRequest>,
     ) -> Result<Response<blockjoy_ui::CommandResponse>, Status> {
-        let cmd = handle_request(self, request, ShutdownNode).await?;
-        Ok(Response::new(cmd))
+        handle_request(self, request, ShutdownNode).await
     }
 
     async fn restart_node(
         &self,
         request: Request<blockjoy_ui::CommandRequest>,
     ) -> Result<Response<blockjoy_ui::CommandResponse>, Status> {
-        let cmd = handle_request(self, request, RestartNode).await?;
-        Ok(Response::new(cmd))
+        handle_request(self, request, RestartNode).await
     }
 
     async fn create_host(
         &self,
         request: Request<blockjoy_ui::CommandRequest>,
     ) -> Result<Response<blockjoy_ui::CommandResponse>, Status> {
-        let cmd = handle_request(self, request, CreateBVS).await?;
-        Ok(Response::new(cmd))
+        handle_request(self, request, CreateBVS).await
     }
 
     async fn delete_host(
         &self,
         request: Request<blockjoy_ui::CommandRequest>,
     ) -> Result<Response<blockjoy_ui::CommandResponse>, Status> {
-        let cmd = handle_request(self, request, RemoveBVS).await?;
-        Ok(Response::new(cmd))
+        handle_request(self, request, RemoveBVS).await
     }
 
     async fn start_host(
         &self,
         request: Request<blockjoy_ui::CommandRequest>,
     ) -> Result<Response<blockjoy_ui::CommandResponse>, Status> {
-        let cmd = handle_request(self, request, RestartBVS).await?;
-        Ok(Response::new(cmd))
+        handle_request(self, request, RestartBVS).await
     }
 
     async fn stop_host(
         &self,
         request: Request<blockjoy_ui::CommandRequest>,
     ) -> Result<Response<blockjoy_ui::CommandResponse>, Status> {
-        let cmd = handle_request(self, request, StopBVS).await?;
-        Ok(Response::new(cmd))
+        handle_request(self, request, StopBVS).await
     }
 
     async fn restart_host(
         &self,
         request: Request<blockjoy_ui::CommandRequest>,
     ) -> Result<Response<blockjoy_ui::CommandResponse>, Status> {
-        let cmd = handle_request(self, request, RestartBVS).await?;
-        Ok(Response::new(cmd))
+        handle_request(self, request, RestartBVS).await
     }
 
     async fn execute_generic(

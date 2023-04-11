@@ -20,7 +20,7 @@ impl blockjoy_ui::CreateHostProvisionRequest {
             None,
             self.ip_range_from.parse()?,
             self.ip_range_to.parse()?,
-            dbg!(self.ip_gateway.parse())?,
+            self.ip_gateway.parse()?,
         )
     }
 }

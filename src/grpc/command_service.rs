@@ -143,16 +143,8 @@ impl Commands for super::GrpcImpl {
         request: Request<blockjoy::CommandInfo>,
     ) -> Result<Response<()>, Status> {
         let inner = request.into_inner();
-        self.trx(|c| {
-            async move {
-                let update_cmd = inner.as_update()?;
-                update_cmd.update(c).await?;
-                Ok(())
-            }
-            .scope_boxed()
-        })
-        .await?;
-
+        let update_cmd = inner.as_update()?;
+        self.trx(|c| update_cmd.update(c).scope_boxed()).await?;
         Ok(Response::new(()))
     }
 
@@ -164,13 +156,12 @@ impl Commands for super::GrpcImpl {
         let host_id = inner.host_id.parse().map_err(crate::Error::from)?;
         let mut db_conn = self.conn().await?;
         let cmds = models::Command::find_pending_by_host(host_id, &mut db_conn).await?;
-        let mut response = blockjoy::CommandResponse { commands: vec![] };
-
+        let mut commands = Vec::with_capacity(cmds.len());
         for cmd in cmds {
             let grpc_cmd = blockjoy::Command::from_model(&cmd, &mut db_conn).await?;
-            response.commands.push(grpc_cmd);
+            commands.push(grpc_cmd);
         }
-
+        let response = blockjoy::CommandResponse { commands };
         Ok(Response::new(response))
     }
 }

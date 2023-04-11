@@ -313,69 +313,67 @@ impl NodeService for super::GrpcImpl {
         }
 
         let inner = request.into_inner();
-        let new_node = inner.as_new(user.id)?;
-        let (node, ui_node, node_msg, create_msg, restart_msg) = self
-            .trx(|c| {
-                async move {
-                    let node = new_node.create(c).await?;
+        self.trx(|c| {
+            async move {
+                let new_node = inner.as_new(user.id)?;
+                let node = new_node.create(c).await?;
 
-                    let node_msg = blockjoy_ui::NodeMessage::created(node.clone(), c).await?;
+                let node_msg = blockjoy_ui::NodeMessage::created(node.clone(), c).await?;
 
-                    let new_command = models::NewCommand {
-                        host_id: node.host_id,
-                        cmd: models::HostCmd::CreateNode,
-                        sub_cmd: None,
-                        node_id: Some(node.id),
-                    };
-                    let cmd = new_command.create(c).await?;
-                    let create_msg = blockjoy::Command::from_model(&cmd, c).await?;
+                let new_command = models::NewCommand {
+                    host_id: node.host_id,
+                    cmd: models::HostCmd::CreateNode,
+                    sub_cmd: None,
+                    node_id: Some(node.id),
+                };
+                let cmd = new_command.create(c).await?;
+                let create_msg = blockjoy::Command::from_model(&cmd, c).await?;
 
-                    let update_user = models::UpdateUser {
-                        id: user.id,
-                        first_name: None,
-                        last_name: None,
-                        fee_bps: None,
-                        staking_quota: Some(user.staking_quota - 1),
-                        refresh: None,
-                    };
-                    update_user.update(c).await?;
+                let update_user = models::UpdateUser {
+                    id: user.id,
+                    first_name: None,
+                    last_name: None,
+                    fee_bps: None,
+                    staking_quota: Some(user.staking_quota - 1),
+                    refresh: None,
+                };
+                update_user.update(c).await?;
 
-                    let new_command = models::NewCommand {
-                        host_id: node.host_id,
-                        cmd: models::HostCmd::RestartNode,
-                        sub_cmd: None,
-                        node_id: Some(node.id),
-                    };
-                    let cmd = new_command.create(c).await?;
-                    let restart_msg = blockjoy::Command::from_model(&cmd, c).await?;
-                    let ui_node = blockjoy_ui::Node::from_model(node.clone(), c).await?;
-                    Ok((node, ui_node, node_msg, create_msg, restart_msg))
-                }
-                .scope_boxed()
-            })
-            .await?;
+                let new_command = models::NewCommand {
+                    host_id: node.host_id,
+                    cmd: models::HostCmd::RestartNode,
+                    sub_cmd: None,
+                    node_id: Some(node.id),
+                };
+                let cmd = new_command.create(c).await?;
+                let restart_msg = blockjoy::Command::from_model(&cmd, c).await?;
+                let ui_node = blockjoy_ui::Node::from_model(node.clone(), c).await?;
 
-        self.notifier
-            .bv_nodes_sender()?
-            .send(&blockjoy::Node::from_model(node.clone()))
-            .await?;
-        self.notifier.ui_nodes_sender()?.send(&node_msg).await?;
-        self.notifier
-            .bv_commands_sender()?
-            .send(&create_msg)
-            .await?;
-        self.notifier
-            .bv_commands_sender()?
-            .send(&restart_msg)
-            .await?;
-        let response_meta =
-            ResponseMeta::from_meta(inner.meta, Some(token.try_into()?)).with_message(node.id);
-        let response = CreateNodeResponse {
-            meta: Some(response_meta),
-            node: Some(ui_node),
-        };
+                self.notifier
+                    .bv_nodes_sender()?
+                    .send(&blockjoy::Node::from_model(node.clone()))
+                    .await?;
+                self.notifier.ui_nodes_sender()?.send(&node_msg).await?;
+                self.notifier
+                    .bv_commands_sender()?
+                    .send(&create_msg)
+                    .await?;
+                self.notifier
+                    .bv_commands_sender()?
+                    .send(&restart_msg)
+                    .await?;
+                let response_meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))
+                    .with_message(node.id);
+                let response = CreateNodeResponse {
+                    meta: Some(response_meta),
+                    node: Some(ui_node),
+                };
 
-        response_with_refresh_token(refresh_token, response)
+                Ok(response_with_refresh_token(refresh_token, response)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn update(
@@ -386,26 +384,25 @@ impl NodeService for super::GrpcImpl {
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let user_id = token.id;
         let token = token.try_into()?;
-        let inner = request.into_inner();
-        let update_node = inner.as_update()?;
 
-        let msg = self
-            .trx(|c| {
-                async move {
-                    let user = models::User::find_by_id(user_id, c).await?;
-                    let node = update_node.update(c).await?;
-                    blockjoy_ui::NodeMessage::updated(node, user, c).await
-                }
-                .scope_boxed()
-            })
-            .await?;
+        self.trx(|c| {
+            async move {
+                let inner = request.into_inner();
+                let update_node = inner.as_update()?;
+                let user = models::User::find_by_id(user_id, c).await?;
+                let node = update_node.update(c).await?;
+                let msg = blockjoy_ui::NodeMessage::updated(node, user, c).await?;
 
-        self.notifier.ui_nodes_sender()?.send(&msg).await?;
+                self.notifier.ui_nodes_sender()?.send(&msg).await?;
 
-        let response = UpdateNodeResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
-        };
-        response_with_refresh_token(refresh_token, response)
+                let response = UpdateNodeResponse {
+                    meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
+                };
+                Ok(response_with_refresh_token(refresh_token, response)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn delete(&self, request: Request<DeleteNodeRequest>) -> Result<Response<()>, Status> {
