@@ -280,7 +280,7 @@ impl OrganizationService for super::GrpcImpl {
                     models::Invitation::remove_by_org_user(&user_to_remove.email, org_id, c)
                         .await?;
                     let org = models::Org::find_by_id(org_id, c).await?;
-                    let user = models::User::find_by_id(user_id, c).await?;
+                    let user = models::User::find_by_id(caller_id, c).await?;
                     blockjoy_ui::OrgMessage::updated(org, user)
                 }
                 .scope_boxed()
