@@ -155,6 +155,7 @@ impl blockjoy_ui::CreateNodeRequest {
                 ),
             },
         };
+        let scheduler = self.scheduler.as_ref().ok_or_else(required("scheduler"))?;
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4(),
             org_id: self.org_id.parse()?,
@@ -176,15 +177,7 @@ impl blockjoy_ui::CreateNodeRequest {
             network: &self.network,
             node_type: properties.id.try_into()?,
             created_by: user_id,
-        })
-    }
-
-    fn scheduler(&self, node_id: uuid::Uuid) -> Result<models::NodeScheduler> {
-        let scheduler = self.scheduler.as_ref().ok_or_else(required("scheduler"))?;
-        Ok(models::NodeScheduler {
-            id: uuid::Uuid::new_v4(),
-            node_id,
-            similarity: scheduler
+            scheduler_similarity: scheduler
                 .similarity
                 .as_ref()
                 .map(|s| match s {
@@ -196,7 +189,7 @@ impl blockjoy_ui::CreateNodeRequest {
                     n => Err(crate::Error::validation(format!("Invalid similarity: {n}"))),
                 })
                 .transpose()?,
-            resource: match scheduler.resource {
+            scheduler_resource: match scheduler.resource {
                 0 => return Err(crate::Error::validation("Undefined scheduler.resource: 0")),
                 1 => models::ResourceAffinity::MostResources,
                 2 => models::ResourceAffinity::LeastResources,
@@ -341,9 +334,7 @@ impl NodeService for super::GrpcImpl {
                     return Err(Status::resource_exhausted("User node quota exceeded").into());
                 }
                 let new_node = inner.as_new(user.id)?;
-                let scheduler = inner.scheduler(new_node.id)?;
-                let node = new_node.create(&scheduler, c).await?;
-                scheduler.create(c).await?;
+                let node = new_node.create(c).await?;
                 let node_id = node.id;
                 self.notifier
                     .ui_nodes_sender()?

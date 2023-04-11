@@ -228,6 +228,8 @@ pub struct Node {
     pub allow_ips: serde_json::Value,
     pub deny_ips: serde_json::Value,
     pub node_type: NodeType,
+    pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
+    pub scheduler_resource: super::ResourceAffinity,
 }
 
 #[derive(Clone, Debug)]
@@ -405,14 +407,13 @@ impl Node {
             self.version.as_deref(),
         )
         .await?;
-        let scheduler = super::NodeScheduler::by_node(self, conn).await?;
 
         let candidates = super::Host::host_candidates(
             requirements,
             self.blockchain_id,
             self.node_type,
             self.org_id,
-            &scheduler,
+            self.scheduler(),
             conn,
         )
         .await?;
@@ -436,6 +437,13 @@ impl Node {
         };
 
         Ok(best)
+    }
+
+    fn scheduler(&self) -> super::NodeScheduler {
+        super::NodeScheduler {
+            similarity: self.scheduler_similarity,
+            resource: self.scheduler_resource,
+        }
     }
 }
 
@@ -468,6 +476,8 @@ pub struct NewNode<'a> {
     pub network: &'a str,
     pub node_type: NodeType,
     pub created_by: uuid::Uuid,
+    pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
+    pub scheduler_resource: super::ResourceAffinity,
 }
 
 impl NewNode<'_> {
@@ -476,15 +486,11 @@ impl NewNode<'_> {
         Ok(res)
     }
 
-    pub async fn create(
-        self,
-        scheduler: &super::NodeScheduler,
-        conn: &mut AsyncPgConnection,
-    ) -> Result<Node> {
+    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Node> {
         use crate::Error::NoMatchingHostError;
 
         let host = self
-            .find_host(scheduler, conn)
+            .find_host(conn)
             .await
             .map_err(|_| NoMatchingHostError("The system is out of resources".to_string()))?;
         let ip_addr = IpAddress::next_for_host(host.id, conn)
@@ -520,11 +526,7 @@ impl NewNode<'_> {
     /// Finds the most suitable host to initially place the node on. Since this is a freshly created
     /// node, we do not need to worry about logic regarding where the retry placing the node. We
     /// simply ask for an ordered list of the most suitable hosts, and pick the first one.
-    pub async fn find_host(
-        &self,
-        scheduler: &super::NodeScheduler,
-        conn: &mut AsyncPgConnection,
-    ) -> crate::Result<super::Host> {
+    pub async fn find_host(&self, conn: &mut AsyncPgConnection) -> crate::Result<super::Host> {
         let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let requirements =
             get_hw_requirements(chain.name, self.node_type.to_string(), self.version).await?;
@@ -533,7 +535,7 @@ impl NewNode<'_> {
             self.blockchain_id,
             self.node_type,
             self.org_id,
-            scheduler,
+            self.scheduler(),
             conn,
         )
         .await?;
@@ -543,6 +545,13 @@ impl NewNode<'_> {
             .next()
             .ok_or_else(|| anyhow!("No matching host found"))?;
         Ok(best)
+    }
+
+    fn scheduler(&self) -> super::NodeScheduler {
+        super::NodeScheduler {
+            similarity: self.scheduler_similarity,
+            resource: self.scheduler_resource,
+        }
     }
 }
 

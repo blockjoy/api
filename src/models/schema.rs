@@ -250,24 +250,13 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::EnumNodeSimilarityAffinity;
-    use super::sql_types::EnumNodeResourceAffinity;
-
-    node_schedulers (id) {
-        id -> Uuid,
-        node_id -> Uuid,
-        similarity -> Nullable<EnumNodeSimilarityAffinity>,
-        resource -> EnumNodeResourceAffinity,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
     use super::sql_types::EnumNodeSyncStatus;
     use super::sql_types::EnumNodeChainStatus;
     use super::sql_types::EnumNodeStakingStatus;
     use super::sql_types::EnumContainerStatus;
     use super::sql_types::EnumNodeType;
+    use super::sql_types::EnumNodeSimilarityAffinity;
+    use super::sql_types::EnumNodeResourceAffinity;
 
     nodes (id) {
         id -> Uuid,
@@ -303,6 +292,8 @@ diesel::table! {
         allow_ips -> Jsonb,
         deny_ips -> Jsonb,
         node_type -> EnumNodeType,
+        scheduler_similarity -> Nullable<EnumNodeSimilarityAffinity>,
+        scheduler_resource -> EnumNodeResourceAffinity,
     }
 }
 
@@ -396,7 +387,6 @@ diesel::joinable!(invitations -> users (created_by_user));
 diesel::joinable!(invoices -> users (user_id));
 diesel::joinable!(ip_addresses -> hosts (host_id));
 diesel::joinable!(node_key_files -> nodes (node_id));
-diesel::joinable!(node_schedulers -> nodes (node_id));
 diesel::joinable!(nodes -> blockchains (blockchain_id));
 diesel::joinable!(nodes -> hosts (host_id));
 diesel::joinable!(nodes -> orgs (org_id));
@@ -418,7 +408,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     ip_addresses,
     node_key_files,
     node_logs,
-    node_schedulers,
     nodes,
     orgs,
     orgs_users,

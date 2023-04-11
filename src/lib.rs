@@ -259,6 +259,7 @@ mod test {
                     nodes::vcpu_count.eq(2),
                     nodes::disk_size_bytes.eq(8 * 1024 * 1024 * 1024),
                     nodes::mem_size_bytes.eq(1024 * 1024 * 1024),
+                    nodes::scheduler_resource.eq(models::ResourceAffinity::LeastResources),
                 ))
                 .execute(conn)
                 .await

@@ -1,16 +1,9 @@
-use super::schema::node_schedulers;
-use diesel::prelude::*;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
-
 /// This struct contains fields by which we can customize which host to pick when starting a new
 /// node. The fields are sorted by precendence from top to bottom, i.e. if the `similarity` field
 /// and the `resource` field are both set, then `similarity` takes precedence over `resource`. Note
 /// that the final field of this struct is required, in order to make sure that the affinity of
 /// nodes is always defined.
-#[derive(Insertable, Queryable)]
 pub struct NodeScheduler {
-    pub id: uuid::Uuid,
-    pub node_id: uuid::Uuid,
     /// Controls whether we want to group nodes of the same kind together or spread them out over
     /// multiple hosts.
     pub similarity: Option<SimilarNodeAffinity>,
@@ -22,7 +15,7 @@ pub struct NodeScheduler {
 /// Controls whether nodes should first be deployed onto hosts that have another node of the same
 /// kind running on it. "The same kind" is defined as having the same blockchain_id and node_type,
 /// but the version field is _not_ used here.
-#[derive(Debug, diesel_derive_enum::DbEnum)]
+#[derive(Clone, Copy, Debug, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumNodeSimilarityAffinity"]
 pub enum SimilarNodeAffinity {
     /// Prefer to deploy new nodes onto hosts that have a similar node running. This is desired when
@@ -36,7 +29,7 @@ pub enum SimilarNodeAffinity {
 
 /// This enum indicates whether we should prefer to fill hosts that have the most resources or the
 /// least resources first.
-#[derive(Debug, diesel_derive_enum::DbEnum)]
+#[derive(Clone, Copy, Debug, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumNodeResourceAffinity"]
 pub enum ResourceAffinity {
     /// Prefer to fill out hosts that have the most availably resources.
@@ -59,22 +52,6 @@ impl NodeScheduler {
             clause += similarity.order_clause();
         }
         clause + self.resource.order_clause()
-    }
-
-    pub async fn create(self, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
-        let scheduler = diesel::insert_into(node_schedulers::table)
-            .values(self)
-            .get_result(conn)
-            .await?;
-        Ok(scheduler)
-    }
-
-    pub async fn by_node(node: &super::Node, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
-        let scheduler = node_schedulers::table
-            .filter(node_schedulers::node_id.eq(node.id))
-            .get_result(conn)
-            .await?;
-        Ok(scheduler)
     }
 }
 

@@ -167,7 +167,7 @@ impl Host {
         blockchain_id: uuid::Uuid,
         node_type: super::NodeType,
         org_id: uuid::Uuid,
-        scheduler: &super::NodeScheduler,
+        scheduler: super::NodeScheduler,
         conn: &mut AsyncPgConnection,
     ) -> crate::Result<Vec<Host>> {
         use super::schema::sql_types::EnumNodeType;

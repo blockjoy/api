@@ -35,16 +35,12 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         network: "some network",
         node_type: models::NodeType::Validator,
         created_by: user.id,
+        scheduler_similarity: None,
+        scheduler_resource: models::ResourceAffinity::MostResources,
     };
 
     let mut conn = tester.conn().await;
-    let scheduler = models::NodeScheduler {
-        id: uuid::Uuid::new_v4(),
-        node_id: req.id,
-        similarity: None,
-        resource: models::ResourceAffinity::MostResources,
-    };
-    req.create(&scheduler, &mut conn).await.unwrap();
+    req.create(&mut conn).await.unwrap();
 
     let filter = models::NodeFilter {
         status: vec![models::NodeChainStatus::Unknown],
