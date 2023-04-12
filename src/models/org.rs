@@ -3,20 +3,14 @@ use crate::auth::{FindableById, Identifiable};
 use crate::models::User;
 use crate::Result;
 use chrono::{DateTime, Utc};
-use diesel::query_source::{Alias, AliasedField};
 use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Queryable)]
+#[derive(Debug, Clone, Queryable, Selectable)]
 pub struct Org {
-    pub org: OrgWithoutMembers,
-    pub members: i64,
-}
-
-#[derive(Debug, Clone, Queryable)]
-pub struct OrgWithoutMembers {
     pub id: Uuid,
     pub name: String,
     pub is_personal: bool,
@@ -28,24 +22,12 @@ pub struct OrgWithoutMembers {
 #[tonic::async_trait]
 impl FindableById for Org {
     async fn find_by_id(org_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let org = Org::not_deleted()
-            .find(org_id)
-            .select((orgs::all_columns, Self::n_members()))
-            .get_result(conn)
-            .await?;
+        let org = Org::not_deleted().find(org_id).get_result(conn).await?;
         Ok(org)
     }
 }
 
-diesel::alias! {
-    pub const ORGS_USERS_ALIAS: Alias<OrgsUserAlias> = orgs_users as orgs_users_alias;
-}
 type NotDeleted = dsl::Filter<orgs::table, dsl::IsNull<orgs::deleted_at>>;
-type _BelongingOrgs = dsl::Filter<
-    Alias<OrgsUserAlias>,
-    dsl::Eq<AliasedField<OrgsUserAlias, orgs_users::org_id>, orgs::id>,
->;
-type NMembers = dsl::AssumeNotNull<dsl::SingleValue<dsl::Select<_BelongingOrgs, dsl::CountStar>>>;
 
 impl Org {
     pub async fn find_by_user(
@@ -57,7 +39,7 @@ impl Org {
             .find(org_id)
             .inner_join(orgs_users::table)
             .filter(orgs_users::user_id.eq(user_id))
-            .select((orgs::all_columns, Self::n_members()))
+            .select(Org::as_select())
             .get_result(conn)
             .await?;
         Ok(org)
@@ -67,7 +49,7 @@ impl Org {
         let orgs = Self::not_deleted()
             .inner_join(orgs_users::table)
             .filter(orgs_users::user_id.eq(user_id))
-            .select((orgs::all_columns, Self::n_members()))
+            .select(Org::as_select())
             .get_results(conn)
             .await?;
 
@@ -106,7 +88,7 @@ impl Org {
             .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::role.eq(OrgRole::Owner))
             .inner_join(orgs_users::table)
-            .select((orgs::all_columns, Self::n_members()))
+            .select(Org::as_select())
             .get_result(conn)
             .await?;
         Ok(org)
@@ -200,41 +182,15 @@ impl Org {
             .filter(orgs::id.eq(org_id))
             .filter(orgs::is_personal.eq(false));
         let none: Option<chrono::DateTime<chrono::Utc>> = None;
-        let org: OrgWithoutMembers = diesel::update(to_restore)
+        let org = diesel::update(to_restore)
             .set(orgs::deleted_at.eq(none))
             .get_result(conn)
             .await?;
-
-        let members = orgs_users::table
-            .filter(orgs_users::org_id.eq(org_id))
-            .count()
-            .get_result(conn)
-            .await?;
-
-        Ok(Self { org, members })
+        Ok(org)
     }
 
     fn not_deleted() -> NotDeleted {
         orgs::table.filter(orgs::deleted_at.is_null())
-    }
-
-    /// Returns a query that can be used as a subquery to select the number of users from an
-    /// organization.
-    fn n_members() -> NMembers {
-        ORGS_USERS_ALIAS
-            .filter(ORGS_USERS_ALIAS.field(orgs_users::org_id).eq(orgs::id))
-            .count()
-            .single_value()
-            // A COUNT query always returns a value.
-            .assume_not_null()
-    }
-}
-
-impl std::ops::Deref for Org {
-    type Target = OrgWithoutMembers;
-
-    fn deref(&self) -> &Self::Target {
-        &self.org
     }
 }
 
@@ -248,7 +204,7 @@ pub struct NewOrg<'a> {
 impl<'a> NewOrg<'a> {
     /// Creates a new organization
     pub async fn create(self, user_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Org> {
-        let org: OrgWithoutMembers = diesel::insert_into(orgs::table)
+        let org: Org = diesel::insert_into(orgs::table)
             .values(self)
             .get_result(conn)
             .await?;
@@ -256,7 +212,7 @@ impl<'a> NewOrg<'a> {
             .create(conn)
             .await?;
 
-        Ok(Org { org, members: 1 })
+        Ok(org)
     }
 }
 
@@ -270,18 +226,12 @@ pub struct UpdateOrg<'a> {
 impl<'a> UpdateOrg<'a> {
     /// Updates an organization
     pub async fn update(self, conn: &mut AsyncPgConnection) -> Result<Org> {
-        let org: OrgWithoutMembers = diesel::update(orgs::table.find(self.id))
+        let org = diesel::update(orgs::table.find(self.id))
             .set((self, orgs::updated_at.eq(chrono::Utc::now())))
             .get_result(conn)
             .await?;
 
-        let members = orgs_users::table
-            .filter(orgs_users::org_id.eq(org.id))
-            .count()
-            .get_result(conn)
-            .await?;
-
-        Ok(Org { org, members })
+        Ok(org)
     }
 }
 
@@ -293,6 +243,26 @@ pub struct OrgUser {
     pub role: OrgRole,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl OrgUser {
+    /// For a given list of orgs, returns a map from org id to all the orgs_users entries belonging
+    /// to that org.
+    pub async fn by_orgs(
+        orgs: &[super::Org],
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<HashMap<uuid::Uuid, Vec<Self>>> {
+        let org_ids: Vec<uuid::Uuid> = orgs.iter().map(|o| o.id).collect();
+        let org_users: Vec<Self> = orgs_users::table
+            .filter(orgs_users::org_id.eq_any(org_ids))
+            .get_results(conn)
+            .await?;
+        let mut res: HashMap<Uuid, Vec<Self>> = HashMap::new();
+        for org_user in org_users {
+            res.entry(org_user.org_id).or_default().push(org_user)
+        }
+        Ok(res)
+    }
 }
 
 #[derive(Debug, Insertable)]

@@ -16,7 +16,7 @@ async fn create_invitation(tester: &Tester) -> anyhow::Result<models::Invitation
         created_by_user: user.id,
         created_by_user_name: user.last_name,
         created_for_org: org.id,
-        created_for_org_name: org.org.name,
+        created_for_org_name: org.name,
         invitee_email: "test@here.com",
     };
     let mut conn = tester.conn().await;

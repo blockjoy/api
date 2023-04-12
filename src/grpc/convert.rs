@@ -51,7 +51,7 @@ pub mod from {
         node::NodeStatus as GrpcNodeStatus, node::StakingStatus as GrpcStakingStatus,
         node::SyncStatus as GrpcSyncStatus,
     };
-    use crate::models::{self, NodeChainStatus, NodeKeyFile, NodeStakingStatus, NodeSyncStatus};
+    use crate::models::{NodeChainStatus, NodeKeyFile, NodeStakingStatus, NodeSyncStatus};
     use crate::Error;
     use anyhow::anyhow;
     use tonic::{Code, Status};

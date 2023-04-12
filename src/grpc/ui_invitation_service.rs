@@ -60,7 +60,7 @@ impl blockjoy_ui::CreateInvitationRequest {
             created_by_user,
             created_by_user_name: name,
             created_for_org: for_org.id,
-            created_for_org_name: for_org.org.name,
+            created_for_org_name: for_org.name,
             invitee_email: &self.invitee_email,
         })
     }
@@ -220,7 +220,7 @@ impl InvitationService for super::GrpcImpl {
                 .await?;
                 let org = models::Org::find_by_id(org_user.org_id, c).await?;
                 let user = models::User::find_by_id(org_user.user_id, c).await?;
-                let msg = blockjoy_ui::OrgMessage::updated(org, user)?;
+                let msg = blockjoy_ui::OrgMessage::updated(org, user, c).await?;
                 self.notifier.ui_orgs_sender()?.send(&msg).await?;
                 Ok(response_with_refresh_token(refresh_token, ())?)
             }
