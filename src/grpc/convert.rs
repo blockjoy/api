@@ -107,16 +107,6 @@ pub mod from {
         }
     }
 
-    impl From<models::OrgUser> for grpc::blockjoy_ui::OrgUser {
-        fn from(value: models::OrgUser) -> Self {
-            Self {
-                user_id: value.user_id.to_string(),
-                org_id: value.org_id.to_string(),
-                role: value.role as i32,
-            }
-        }
-    }
-
     impl From<NodeChainStatus> for GrpcNodeStatus {
         fn from(ncs: NodeChainStatus) -> Self {
             match ncs {

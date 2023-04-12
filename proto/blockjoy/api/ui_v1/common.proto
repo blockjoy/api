@@ -240,9 +240,9 @@ message Node {
   // The email of said aforementioned user.
   optional string created_by_email = 26;
   // Whitelisted IP address for firewall
-  repeated string allow_ips = 27;
+  repeated FilteredIpAddr allow_ips = 27;
   // Blacklisted IP address for firewall
-  repeated string deny_ips = 28;
+  repeated FilteredIpAddr deny_ips = 28;
 }
 
 message OrgUser {
@@ -277,7 +277,9 @@ message Organization {
   // The moment which this organization was last updated.
   google.protobuf.Timestamp updated_at = 14;
   // This field contains the users of this organization.
-  repeated User members = 15;
+  repeated OrgUser members = 15;
+  // This is the currently logged in user.
+  optional OrgUser current_user = 16;
 }
 
 /* User representation */
