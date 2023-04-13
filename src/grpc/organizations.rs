@@ -4,21 +4,67 @@ use super::helpers;
 use crate::auth::{FindableById, UserAuthToken};
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_async::AsyncPgConnection;
+use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 
 impl api::Org {
-    pub fn from_model(model: models::Org) -> crate::Result<Self> {
-        let (model, member_count) = (model.org, model.members);
-        let org = Self {
-            id: model.id.to_string(),
-            name: model.name,
-            personal: model.is_personal,
-            member_count: member_count.try_into()?,
-            created_at: Some(convert::try_dt_to_ts(model.created_at)?),
-            updated_at: Some(convert::try_dt_to_ts(model.updated_at)?),
-            current_user: None,
-        };
-        Ok(org)
+    /// Converts a list of `models::Org` into a list of `api::Org`. We take care to perform O(1)
+    /// queries, no matter the length of `models`. For this we need to find all users belonging to
+    /// this each org.
+    pub async fn from_models(
+        models: Vec<models::Org>,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Vec<Self>> {
+        // We find all OrgUsers belonging to each model. This gives us a map from `org_id` to
+        // `Vec<OrgUser>`.
+        let org_users = models::OrgUser::by_orgs(&models, conn).await?;
+
+        // Now we get the actual users for each `OrgUser`, because we also need to provide the name
+        // and email of each user.
+        let user_ids: Vec<uuid::Uuid> = org_users.values().flatten().map(|ou| ou.user_id).collect();
+        let users: HashMap<uuid::Uuid, models::User> = models::User::find_by_ids(&user_ids, conn)
+            .await?
+            .into_iter()
+            .map(|u| (u.id, u))
+            .collect();
+
+        // Finally we can loop over the models to construct the final list of messages we set out to
+        // create.
+        models
+            .into_iter()
+            .map(|model| {
+                let org_users = &org_users[&model.id];
+                Ok(Self {
+                    id: model.id.to_string(),
+                    name: model.name.clone(),
+                    personal: model.is_personal,
+                    member_count: org_users.len().try_into()?,
+                    created_at: Some(convert::try_dt_to_ts(model.created_at)?),
+                    updated_at: Some(convert::try_dt_to_ts(model.updated_at)?),
+                    members: org_users
+                        .iter()
+                        .map(|ou| {
+                            let user = &users[&ou.user_id];
+                            api::OrgUser {
+                                user_id: ou.user_id.to_string(),
+                                org_id: ou.org_id.to_string(),
+                                role: ou.role as i32,
+                                name: format!("{} {}", user.first_name, user.last_name),
+                                email: user.email.clone(),
+                            }
+                        })
+                        .collect(),
+                })
+            })
+            .collect()
+    }
+
+    pub async fn from_model(
+        model: models::Org,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Self> {
+        Ok(Self::from_models(vec![model], conn).await?[0].clone())
     }
 }
 
@@ -29,12 +75,11 @@ impl orgs_server::Orgs for super::GrpcImpl {
         request: Request<api::GetOrgRequest>,
     ) -> super::Result<api::GetOrgResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, UserAuthToken>(&request)?;
         let request = request.into_inner();
         let mut conn = self.db.conn().await?;
         let org_id = request.org_id.parse().map_err(crate::Error::from)?;
         let org = models::Org::find_by_id(org_id, &mut conn).await?;
-        let org = api::Org::from_model(org)?;
+        let org = api::Org::from_model(org, &mut conn).await?;
         let resp = api::GetOrgResponse { org: Some(org) };
         super::response_with_refresh_token(refresh_token, resp)
     }
@@ -44,7 +89,6 @@ impl orgs_server::Orgs for super::GrpcImpl {
         request: Request<api::ListOrgsRequest>,
     ) -> super::Result<api::ListOrgsResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, UserAuthToken>(&request)?;
         let request = request.into_inner();
 
         let mut conn = self.db.conn().await?;
@@ -54,10 +98,7 @@ impl orgs_server::Orgs for super::GrpcImpl {
             .transpose()
             .map_err(crate::Error::from)?;
         let orgs = models::Org::filter(member_id, &mut conn).await?;
-        let orgs = orgs
-            .into_iter()
-            .map(api::Org::from_model)
-            .collect::<crate::Result<Vec<_>>>()?;
+        let orgs = api::Org::from_models(orgs, &mut conn).await?;
         let resp = api::ListOrgsResponse { orgs };
         super::response_with_refresh_token(refresh_token, resp)
     }
@@ -67,8 +108,7 @@ impl orgs_server::Orgs for super::GrpcImpl {
         request: Request<api::CreateOrgRequest>,
     ) -> super::Result<api::CreateOrgResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, UserAuthToken>(&request)?;
-        let user_id = token.id;
+        let user_id = helpers::try_get_token::<_, UserAuthToken>(&request)?.id;
         let inner = request.into_inner();
         let new_org = models::NewOrg {
             name: &inner.name,
@@ -78,8 +118,8 @@ impl orgs_server::Orgs for super::GrpcImpl {
             async move {
                 let user = models::User::find_by_id(user_id, c).await?;
                 let org = new_org.create(user.id, c).await?;
-                let msg = api::OrgMessage::created(org.clone(), user)?;
-                let org = api::Org::from_model(org)?;
+                let msg = api::OrgMessage::created(org.clone(), user, c).await?;
+                let org = api::Org::from_model(org, c).await?;
                 self.notifier.orgs_sender().send(&msg).await?;
                 let resp = api::CreateOrgResponse { org: Some(org) };
                 Ok(super::response_with_refresh_token(refresh_token, resp)?)
@@ -107,7 +147,7 @@ impl orgs_server::Orgs for super::GrpcImpl {
             async move {
                 let org = update.update(c).await?;
                 let user = models::User::find_by_id(user_id, c).await?;
-                let msg = api::OrgMessage::updated(org, user)?;
+                let msg = api::OrgMessage::updated(org, user, c).await?;
                 self.notifier.orgs_sender().send(&msg).await?;
                 let resp = api::UpdateOrgResponse {};
                 Ok(super::response_with_refresh_token(refresh_token, resp)?)
@@ -184,7 +224,7 @@ impl orgs_server::Orgs for super::GrpcImpl {
                 }
                 let org = models::Org::restore(org_id, c).await?;
                 let resp = api::RestoreOrgResponse {
-                    org: Some(api::Org::from_model(org)?),
+                    org: Some(api::Org::from_model(org, c).await?),
                 };
                 Ok(Response::new(resp))
             }
@@ -197,7 +237,6 @@ impl orgs_server::Orgs for super::GrpcImpl {
         &self,
         request: Request<api::OrgMemberRequest>,
     ) -> super::Result<api::OrgMemberResponse> {
-        let token = helpers::try_get_token::<_, UserAuthToken>(&request)?;
         let refresh_token = super::get_refresh_token(&request);
         let request = request.into_inner();
         let org_id = request.id.parse().map_err(crate::Error::from)?;
@@ -215,13 +254,12 @@ impl orgs_server::Orgs for super::GrpcImpl {
         use models::OrgRole::*;
 
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, UserAuthToken>(&request)?;
-        let caller_id = token.id;
+        let caller_id = helpers::try_get_token::<_, UserAuthToken>(&request)?.id;
         let inner = request.into_inner();
-        let user_id = inner.user_id.parse().map_err(crate::Error::from)?;
-        let org_id = inner.org_id.parse().map_err(crate::Error::from)?;
         self.trx(|c| {
             async move {
+                let user_id = inner.user_id.parse()?;
+                let org_id = inner.org_id.parse()?;
                 let member = models::Org::find_org_user(caller_id, org_id, c).await?;
                 let is_allowed = match member.role {
                     Member => false,
@@ -241,7 +279,7 @@ impl orgs_server::Orgs for super::GrpcImpl {
                 models::Invitation::remove_by_org_user(&user_to_remove.email, org_id, c).await?;
                 let org = models::Org::find_by_id(org_id, c).await?;
                 let user = models::User::find_by_id(caller_id, c).await?;
-                let msg = api::OrgMessage::updated(org, user)?;
+                let msg = api::OrgMessage::updated(org, user, c).await?;
                 self.notifier.orgs_sender().send(&msg).await?;
                 Ok(super::response_with_refresh_token(refresh_token, ())?)
             }
@@ -261,7 +299,7 @@ impl orgs_server::Orgs for super::GrpcImpl {
                 models::Org::remove_org_user(user_id, org_id, c).await?;
                 let org = models::Org::find_by_id(org_id, c).await?;
                 let user = models::User::find_by_id(user_id, c).await?;
-                let msg = api::OrgMessage::updated(org, user)?;
+                let msg = api::OrgMessage::updated(org, user, c).await?;
                 self.notifier.orgs_sender().send(&msg).await?;
                 Ok(super::response_with_refresh_token(refresh_token, ())?)
             }

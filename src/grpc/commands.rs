@@ -1,7 +1,7 @@
 use super::api::{self, commands_server};
+use super::convert;
 use super::helpers::required;
-use super::{convert, helpers};
-use crate::auth::{self, FindableById};
+use crate::auth::FindableById;
 use crate::models;
 use anyhow::anyhow;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -129,7 +129,6 @@ impl commands_server::Commands for super::GrpcImpl {
         req: Request<api::CreateCommandRequest>,
     ) -> super::Result<api::CreateCommandResponse> {
         let refresh_token = super::get_refresh_token(&req);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&req)?;
         let inner = req.into_inner();
 
         todo!()
@@ -140,7 +139,6 @@ impl commands_server::Commands for super::GrpcImpl {
         request: Request<api::GetCommandRequest>,
     ) -> super::Result<api::GetCommandResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?;
         let inner = request.into_inner();
         let cmd_id = uuid::Uuid::from_str(inner.id.as_str()).map_err(crate::Error::from)?;
         let mut db_conn = self.conn().await?;
@@ -157,7 +155,6 @@ impl commands_server::Commands for super::GrpcImpl {
         request: Request<api::UpdateCommandRequest>,
     ) -> super::Result<api::UpdateCommandResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?;
         let inner = request.into_inner();
         let update_cmd = inner.as_update()?;
         self.trx(|c| {
@@ -179,7 +176,6 @@ impl commands_server::Commands for super::GrpcImpl {
         request: Request<api::PendingCommandsRequest>,
     ) -> super::Result<api::PendingCommandsResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?;
         let inner = request.into_inner();
         let host_id = inner.host_id.parse().map_err(crate::Error::from)?;
         let mut db_conn = self.conn().await?;

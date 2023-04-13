@@ -1,7 +1,5 @@
 use super::api::{self, blockchains_server};
 use super::convert;
-use super::helpers;
-use crate::auth;
 use crate::cookbook::get_networks;
 use crate::models;
 use futures_util::future::join_all;
@@ -40,7 +38,6 @@ impl blockchains_server::Blockchains for super::GrpcImpl {
         request: tonic::Request<api::GetBlockchainRequest>,
     ) -> super::Result<api::GetBlockchainResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?;
         let inner = request.into_inner();
         let id = inner.id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
@@ -59,10 +56,7 @@ impl blockchains_server::Blockchains for super::GrpcImpl {
     ) -> super::Result<api::ListBlockchainsResponse> {
         // We need to combine info from two seperate sources: the database and cookbook. Since
         // cookbook is slow, the step where we call it is parallelized.
-
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?;
-        let inner = request.into_inner();
 
         // We query the necessary blockchains from the database.
         let mut conn = self.conn().await?;

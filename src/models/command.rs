@@ -116,13 +116,6 @@ impl Command {
     }
 }
 
-#[tonic::async_trait]
-impl super::UpdateInfo<UpdateCommand<'_>, Command> for Command {
-    async fn update_info(info: UpdateCommand, conn: &mut AsyncPgConnection) -> Result<Command> {
-        info.update(conn).await
-    }
-}
-
 #[axum::async_trait]
 impl FindableById for Command {
     async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {

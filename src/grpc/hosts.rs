@@ -1,7 +1,7 @@
 use super::api::{self, hosts_server};
 use super::convert;
-use super::helpers::{required, try_get_token};
-use crate::auth::{self, HostAuthToken, JwtToken, TokenRole, TokenType};
+use super::helpers;
+use crate::auth::{HostAuthToken, JwtToken, TokenRole, TokenType};
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response};
@@ -42,13 +42,13 @@ impl api::ProvisionHostRequest {
             status: self.status.try_into()?,
             ip_range_from: provision
                 .ip_range_from
-                .ok_or_else(required("provision.ip_range_from"))?,
+                .ok_or_else(helpers::required("provision.ip_range_from"))?,
             ip_range_to: provision
                 .ip_range_to
-                .ok_or_else(required("provision.ip_range_to"))?,
+                .ok_or_else(helpers::required("provision.ip_range_to"))?,
             ip_gateway: provision
                 .ip_gateway
-                .ok_or_else(required("provision.ip_gateway"))?,
+                .ok_or_else(helpers::required("provision.ip_gateway"))?,
         };
         Ok(new_host)
     }
@@ -134,7 +134,6 @@ impl hosts_server::Hosts for super::GrpcImpl {
         &self,
         request: Request<api::GetHostRequest>,
     ) -> super::Result<api::GetHostResponse> {
-        let token = try_get_token::<_, auth::UserAuthToken>(&request)?;
         let refresh_token = super::get_refresh_token(&request);
         let request = request.into_inner();
         let host_id = request.id.parse().map_err(crate::Error::from)?;
@@ -149,9 +148,7 @@ impl hosts_server::Hosts for super::GrpcImpl {
         &self,
         request: Request<api::ListHostsRequest>,
     ) -> super::Result<api::ListHostsResponse> {
-        let token = try_get_token::<_, auth::UserAuthToken>(&request)?;
         let refresh_token = super::get_refresh_token(&request);
-        let request = request.into_inner();
         let mut conn = self.conn().await?;
         let hosts = models::Host::filter(&mut conn).await?;
         let hosts = api::Host::from_models(hosts).await?;
@@ -163,7 +160,6 @@ impl hosts_server::Hosts for super::GrpcImpl {
         &self,
         request: Request<api::CreateHostRequest>,
     ) -> super::Result<api::CreateHostResponse> {
-        let token = try_get_token::<_, auth::UserAuthToken>(&request)?;
         let request = request.into_inner();
         let new_host = request.as_new()?;
         self.trx(|c| new_host.create(c).scope_boxed()).await?;
@@ -176,7 +172,6 @@ impl hosts_server::Hosts for super::GrpcImpl {
         &self,
         request: Request<api::UpdateHostRequest>,
     ) -> super::Result<api::UpdateHostResponse> {
-        let token = try_get_token::<_, auth::UserAuthToken>(&request)?;
         let request = request.into_inner();
         let updater = request.as_update()?;
         self.trx(|c| updater.update(c).scope_boxed()).await?;
@@ -188,7 +183,6 @@ impl hosts_server::Hosts for super::GrpcImpl {
         &self,
         request: Request<api::DeleteHostRequest>,
     ) -> super::Result<api::DeleteHostResponse> {
-        let token = try_get_token::<_, auth::UserAuthToken>(&request)?;
         let request = request.into_inner();
         let host_id = request.id.parse().map_err(crate::Error::from)?;
         self.trx(|c| models::Host::delete(host_id, c).scope_boxed())

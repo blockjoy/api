@@ -31,12 +31,6 @@ service Users {
   rpc Update(UpdateUserRequest) returns (UpdateUserResponse);
   // Delete a single user.
   rpc Delete(DeleteUserRequest) returns (google.protobuf.Empty);
-  // Create/update configuration parameters.
-  rpc UpsertConfiguration(UpsertConfigurationRequest)
-    returns (UpsertConfigurationResponse);
-  // Retrieve all configuration parameters.
-  rpc GetConfiguration(GetConfigurationRequest)
-    returns (GetConfigurationResponse);
 }
 
 message GetUserRequest {
@@ -65,20 +59,6 @@ message UpdateUserRequest {
 
 message UpdateUserResponse {
   User user = 1;
-}
-
-message UpsertConfigurationRequest {
-  repeated UserConfigurationParameter params = 1;
-}
-
-message UpsertConfigurationResponse {
-}
-
-message GetConfigurationRequest {
-}
-
-message GetConfigurationResponse {
-  repeated UserConfigurationParameter params = 1;
 }
 
 // Users can only delete themselves, so no need for any further params

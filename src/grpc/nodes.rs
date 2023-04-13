@@ -35,7 +35,6 @@ impl nodes_server::Nodes for super::GrpcImpl {
         request: Request<api::ListNodesRequest>,
     ) -> super::Result<api::ListNodesResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?;
         let request = request.into_inner();
         let mut conn = self.conn().await?;
         let nodes = models::Node::filter(request.as_filter()?, &mut conn).await?;
@@ -70,7 +69,7 @@ impl nodes_server::Nodes for super::GrpcImpl {
                     sub_cmd: None,
                     node_id: Some(node.id),
                 };
-                let cmd = new_command.create(c).await?;
+                let create_cmd = new_command.create(c).await?;
 
                 let update_user = models::UpdateUser {
                     id: user.id,
@@ -88,11 +87,11 @@ impl nodes_server::Nodes for super::GrpcImpl {
                     sub_cmd: None,
                     node_id: Some(node.id),
                 };
-                let cmd = new_command.create(c).await?;
+                let restart_cmd = new_command.create(c).await?;
 
                 let created = api::NodeMessage::created(node.clone(), user.clone(), c).await?;
-                let create_msg = api::Command::from_model(&cmd, c).await?;
-                let restart_msg = api::Command::from_model(&cmd, c).await?;
+                let create_msg = api::Command::from_model(&create_cmd, c).await?;
+                let restart_msg = api::Command::from_model(&restart_cmd, c).await?;
                 self.notifier.nodes_sender().send(&created).await?;
                 self.notifier.commands_sender().send(&create_msg).await?;
                 self.notifier.commands_sender().send(&restart_msg).await?;
@@ -136,14 +135,14 @@ impl nodes_server::Nodes for super::GrpcImpl {
 
     async fn delete(&self, request: Request<api::DeleteNodeRequest>) -> super::Result<()> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?;
+        let user_id = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?.id;
         let inner = request.into_inner();
         self.trx(|c| {
             async move {
                 let node_id = inner.id.parse()?;
                 let node = models::Node::find_by_id(node_id, c).await?;
 
-                if !models::Node::belongs_to_user_org(node.org_id, token.id, c).await? {
+                if !models::Node::belongs_to_user_org(node.org_id, user_id, c).await? {
                     super::bail_unauthorized!("User cannot delete node");
                 }
                 // 1. Delete node, if the node belongs to the current user
@@ -175,7 +174,6 @@ impl nodes_server::Nodes for super::GrpcImpl {
                 };
                 let cmd = new_command.create(c).await?;
 
-                let user_id = token.id;
                 let user = models::User::find_by_id(user_id, c).await?;
                 let update_user = models::UpdateUser {
                     id: user.id,

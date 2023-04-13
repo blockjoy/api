@@ -62,10 +62,10 @@ pub use user::*;
 pub const STAKE_QUOTA_DEFAULT: i64 = 3;
 pub const FEE_BPS_DEFAULT: i64 = 300;
 
-#[tonic::async_trait]
-pub trait UpdateInfo<T, R> {
-    async fn update_info(info: T, conn: &mut AsyncPgConnection) -> Result<R>;
-}
+// #[tonic::async_trait]
+// pub trait UpdateInfo<T, R> {
+//     async fn update_info(info: T, conn: &mut AsyncPgConnection) -> Result<R>;
+// }
 
 diesel::sql_function!(fn lower(x: diesel::sql_types::Text) -> diesel::sql_types::Text);
 diesel::sql_function!(

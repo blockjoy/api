@@ -12,7 +12,7 @@ pub mod metrics;
 pub mod nodes;
 pub mod notification;
 pub mod organizations;
-pub mod user_service;
+pub mod users;
 
 #[allow(clippy::large_enum_variant)]
 pub mod api {

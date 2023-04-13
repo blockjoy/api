@@ -177,10 +177,15 @@ impl api::OrgMessage {
         }
     }
 
-    pub fn created(model: models::Org, user: models::User) -> crate::Result<Self> {
+    pub async fn created(
+        model: models::Org,
+        user: models::User,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Self> {
         Ok(Self {
             message: Some(org_message::Message::Created(api::OrgCreated {
-                org: Some(api::Org::from_model(model)?),
+                // Over MQTT, there is no current user so we pass None as a second argument.
+                org: Some(api::Org::from_model(model, conn).await?),
                 created_by: user.id.to_string(),
                 created_by_name: format!("{} {}", user.first_name, user.last_name),
                 created_by_email: user.email,
@@ -188,10 +193,15 @@ impl api::OrgMessage {
         })
     }
 
-    pub fn updated(model: models::Org, user: models::User) -> crate::Result<Self> {
+    pub async fn updated(
+        model: models::Org,
+        user: models::User,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Self> {
         Ok(Self {
             message: Some(org_message::Message::Updated(api::OrgUpdated {
-                org: Some(api::Org::from_model(model)?),
+                // Over MQTT, there is no current user so we pass None as a second argument.
+                org: Some(api::Org::from_model(model, conn).await?),
                 updated_by: user.id.to_string(),
                 updated_by_name: format!("{} {}", user.first_name, user.last_name),
                 updated_by_email: user.email,
@@ -353,11 +363,15 @@ mod tests {
         let host = db.host().await;
         let user = db.admin_user().await;
 
-        let msg = api::HostMessage::created(host, user).await.unwrap();
+        let msg = api::HostMessage::created(host.clone(), user.clone())
+            .await
+            .unwrap();
         let notifier = Notifier::new().await.unwrap();
         notifier.hosts_sender().send(&msg).await.unwrap();
 
-        let msg = api::HostMessage::updated(host, user).await.unwrap();
+        let msg = api::HostMessage::updated(host.clone(), user.clone())
+            .await
+            .unwrap();
         let notifier = Notifier::new().await.unwrap();
         notifier.hosts_sender().send(&msg).await.unwrap();
 
@@ -373,13 +387,13 @@ mod tests {
         let node = db.node().await;
         let user = db.admin_user().await;
 
-        let msg = api::NodeMessage::created(node, user, &mut conn)
+        let msg = api::NodeMessage::created(node.clone(), user.clone(), &mut conn)
             .await
             .unwrap();
         let notifier = Notifier::new().await.unwrap();
         notifier.nodes_sender().send(&msg).await.unwrap();
 
-        let msg = api::NodeMessage::updated(node, user, &mut conn)
+        let msg = api::NodeMessage::updated(node.clone(), user.clone(), &mut conn)
             .await
             .unwrap();
         let notifier = Notifier::new().await.unwrap();

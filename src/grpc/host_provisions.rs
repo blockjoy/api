@@ -1,9 +1,6 @@
 use super::api::{self, host_provisions_server};
 use super::convert;
 use super::helpers::required;
-use crate::auth::UserAuthToken;
-use crate::grpc::helpers::try_get_token;
-use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;
 use crate::Result;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -69,15 +66,14 @@ impl host_provisions_server::HostProvisions for super::GrpcImpl {
         &self,
         request: Request<api::CreateHostProvisionRequest>,
     ) -> super::Result<api::CreateHostProvisionResponse> {
-        let token = try_get_token::<_, UserAuthToken>(&request)?;
-        let refresh_token = get_refresh_token(&request);
-        let inner = request.into_inner();
-        let new_provision = dbg!(inner.as_new())?;
+        let refresh_token = super::get_refresh_token(&request);
+        let request = request.into_inner();
+        let new_provision = request.as_new()?;
 
-        let provision = self.trx(|c| new_provision.create(c).scope_boxed()).await?;
+        self.trx(|c| new_provision.create(c).scope_boxed()).await?;
 
         let response = api::CreateHostProvisionResponse {};
 
-        response_with_refresh_token(refresh_token, response)
+        super::response_with_refresh_token(refresh_token, response)
     }
 }
