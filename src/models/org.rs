@@ -63,6 +63,24 @@ impl Org {
         Ok(org)
     }
 
+    pub async fn filter(
+        member_id: Option<uuid::Uuid>,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Vec<Self>> {
+        let mut query = orgs::table.inner_join(orgs_users::table).into_boxed();
+
+        if let Some(member_id) = member_id {
+            query = query.filter(orgs_users::user_id.eq(member_id));
+        }
+
+        let orgs = query
+            .select(Self::as_select())
+            .distinct()
+            .get_results(conn)
+            .await?;
+        Ok(orgs)
+    }
+
     pub async fn find_all_by_user(user_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Vec<Org>> {
         let orgs = Self::not_deleted()
             .inner_join(orgs_users::table)

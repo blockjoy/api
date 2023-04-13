@@ -1,7 +1,7 @@
+use super::api_ui::dashboard_service_server::DashboardService;
+use super::api_ui::{metric, DashboardMetricsRequest, DashboardMetricsResponse, Metric};
 use super::blockjoy_ui::ResponseMeta;
 use crate::auth::UserAuthToken;
-use crate::grpc::blockjoy_ui::dashboard_service_server::DashboardService;
-use crate::grpc::blockjoy_ui::{metric, DashboardMetricsRequest, DashboardMetricsResponse, Metric};
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::models;

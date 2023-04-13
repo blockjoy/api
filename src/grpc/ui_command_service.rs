@@ -1,7 +1,7 @@
+use super::api_ui::command_service_server::CommandService;
 use super::{blockjoy, blockjoy_ui};
 use crate::auth::FindableById;
 use crate::auth::UserAuthToken;
-use crate::grpc::blockjoy_ui::command_service_server::CommandService;
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::notification::Notifier;
 use crate::models;

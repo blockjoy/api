@@ -1,12 +1,6 @@
-use super::blockjoy;
+use super::api::{self, nodes_server};
 use super::helpers::required;
 use crate::auth::{FindableById, UserAuthToken};
-use crate::grpc::blockjoy_ui::node_service_server::NodeService;
-use crate::grpc::blockjoy_ui::{
-    self, CreateNodeRequest, CreateNodeResponse, DeleteNodeRequest, GetNodeRequest,
-    GetNodeResponse, ListNodesRequest, ListNodesResponse, ResponseMeta, UpdateNodeRequest,
-    UpdateNodeResponse,
-};
 use crate::grpc::convert::json_value_to_vec;
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::{convert, get_refresh_token, response_with_refresh_token};
@@ -17,105 +11,7 @@ use futures_util::future::OptionFuture;
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 
-impl blockjoy_ui::Node {
-    /// This function is used to create a ui node from a database node. We want to include the
-    /// `database_name` in the ui representation, but it is not in the node model. Therefore we
-    /// perform a seperate query to the blockchains table.
-    pub async fn from_model(
-        node: models::Node,
-        conn: &mut diesel_async::AsyncPgConnection,
-    ) -> Result<Self> {
-        let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
-        let user = OptionFuture::from(
-            node.created_by
-                .map(|u_id| models::User::find_by_id(u_id, conn)),
-        )
-        .await
-        .transpose()?;
-        Self::new(node, &blockchain, user.as_ref())
-    }
-
-    /// This function is used to create many ui nodes from many database nodes. The same
-    /// justification as above applies. Note that this function does not simply defer to the
-    /// function above, but rather it performs 1 query for n nodes. We like it this way :)
-    pub async fn from_models(
-        nodes: Vec<models::Node>,
-        conn: &mut diesel_async::AsyncPgConnection,
-    ) -> Result<Vec<Self>> {
-        let blockchain_ids: Vec<_> = nodes.iter().map(|n| n.blockchain_id).collect();
-        let blockchains: HashMap<_, _> = models::Blockchain::find_by_ids(&blockchain_ids, conn)
-            .await?
-            .into_iter()
-            .map(|b| (b.id, b))
-            .collect();
-        let user_ids: Vec<_> = nodes.iter().flat_map(|n| n.created_by).collect();
-        let users: HashMap<_, _> = models::User::find_by_ids(&user_ids, conn)
-            .await?
-            .into_iter()
-            .map(|u| (u.id, u))
-            .collect();
-
-        nodes
-            .into_iter()
-            .map(|n| (n.blockchain_id, n.created_by, n))
-            .map(|(b_id, u_id, n)| {
-                Self::new(
-                    n,
-                    &blockchains[&b_id],
-                    u_id.and_then(|u_id| users.get(&u_id)),
-                )
-            })
-            .collect()
-    }
-
-    /// Construct a new ui node from the queried parts.
-    fn new(
-        node: models::Node,
-        blockchain: &models::Blockchain,
-        user: Option<&models::User>,
-    ) -> Result<Self> {
-        let properties = node
-            .properties()?
-            .properties
-            .into_iter()
-            .flatten()
-            .map(blockjoy_ui::node::NodeProperty::from_model)
-            .collect();
-        Ok(Self {
-            id: node.id.to_string(),
-            org_id: node.org_id.to_string(),
-            host_id: node.host_id.to_string(),
-            host_name: node.host_name,
-            blockchain_id: node.blockchain_id.to_string(),
-            name: node.name,
-            address: node.address,
-            version: node.version,
-            ip: Some(node.ip_addr),
-            ip_gateway: node.ip_gateway,
-            r#type: node.node_type.into(),
-            properties,
-            block_height: node.block_height.map(i64::from),
-            created_at: Some(convert::try_dt_to_ts(node.created_at)?),
-            updated_at: Some(convert::try_dt_to_ts(node.updated_at)?),
-            status: blockjoy_ui::node::NodeStatus::from(node.chain_status).into(),
-            staking_status: node
-                .staking_status
-                .map(blockjoy_ui::node::StakingStatus::from)
-                .map(Into::into),
-            sync_status: blockjoy_ui::node::SyncStatus::from(node.sync_status).into(),
-            self_update: node.self_update,
-            network: node.network,
-            blockchain_name: Some(blockchain.name.clone()),
-            created_by: user.map(|u| u.id.to_string()),
-            created_by_name: user.map(|u| format!("{} {}", u.first_name, u.last_name)),
-            created_by_email: user.map(|u| u.email.clone()),
-            allow_ips: json_value_to_vec(&node.allow_ips)?,
-            deny_ips: json_value_to_vec(&node.deny_ips)?,
-        })
-    }
-}
-
-impl blockjoy_ui::node::NodeProperty {
+impl api::node::NodeProperty {
     fn from_model(model: models::NodePropertyValue) -> Self {
         Self {
             name: model.name,
@@ -141,7 +37,7 @@ impl blockjoy_ui::node::NodeProperty {
     }
 }
 
-impl blockjoy_ui::CreateNodeRequest {
+impl api::CreateNodeRequest {
     pub fn as_new(&self, user_id: uuid::Uuid) -> Result<models::NewNode<'_>> {
         let properties = models::NodePropertiesWithId {
             id: self.r#type,
@@ -150,7 +46,7 @@ impl blockjoy_ui::CreateNodeRequest {
                 properties: Some(
                     self.properties
                         .iter()
-                        .map(|p| blockjoy_ui::node::NodeProperty::into_model(p.clone()))
+                        .map(|p| api::node::NodeProperty::into_model(p.clone()))
                         .collect(),
                 ),
             },
@@ -180,29 +76,7 @@ impl blockjoy_ui::CreateNodeRequest {
     }
 }
 
-impl blockjoy_ui::UpdateNodeRequest {
-    /// This function is currently a stub, since the front end never updates nodes. We might need to
-    /// figure out which field we want to be updatable.
-    fn as_update(&self) -> Result<models::UpdateNode<'_>> {
-        Ok(models::UpdateNode {
-            id: self.id.parse()?,
-            // Updating node names is not allowed, this would make Alexey extremely sad.
-            name: None,
-            version: self.version.as_deref(),
-            ip_addr: None,
-            block_height: None,
-            node_data: None,
-            chain_status: None,
-            sync_status: None,
-            staking_status: None,
-            container_status: None,
-            self_update: None,
-            address: None,
-        })
-    }
-}
-
-impl blockjoy_ui::FilterCriteria {
+impl api::FilterCriteria {
     fn as_model(&self) -> Result<models::NodeFilter> {
         Ok(models::NodeFilter {
             status: self
@@ -228,8 +102,8 @@ impl blockjoy_ui::FilterCriteria {
 impl NodeService for super::GrpcImpl {
     async fn get(
         &self,
-        request: Request<GetNodeRequest>,
-    ) -> Result<Response<GetNodeResponse>, Status> {
+        request: Request<api::GetNodeRequest>,
+    ) -> super::Result<api::GetNodeResponse> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let inner = request.into_inner();
@@ -240,17 +114,16 @@ impl NodeService for super::GrpcImpl {
         if node.org_id != token.try_org_id()? {
             super::bail_unauthorized!("Access not allowed")
         }
-        let response = GetNodeResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
-            node: Some(blockjoy_ui::Node::from_model(node, &mut conn).await?),
+        let response = api::GetNodeResponse {
+            node: Some(api::Node::from_model(node, &mut conn).await?),
         };
         response_with_refresh_token(refresh_token, response)
     }
 
     async fn list(
         &self,
-        request: Request<ListNodesRequest>,
-    ) -> Result<Response<ListNodesResponse>, Status> {
+        request: Request<api::ListNodesRequest>,
+    ) -> super::Result<api::ListNodesResponse> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.try_into()?;
         let inner = request.into_inner();
@@ -290,8 +163,8 @@ impl NodeService for super::GrpcImpl {
             }
         };
 
-        let nodes = blockjoy_ui::Node::from_models(nodes, &mut conn).await?;
-        let response = ListNodesResponse {
+        let nodes = api::Node::from_models(nodes, &mut conn).await?;
+        let response = api::ListNodesResponse {
             meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
             nodes,
         };
@@ -300,8 +173,8 @@ impl NodeService for super::GrpcImpl {
 
     async fn create(
         &self,
-        request: Request<CreateNodeRequest>,
-    ) -> Result<Response<CreateNodeResponse>, Status> {
+        request: Request<api::CreateNodeRequest>,
+    ) -> super::Result<api::CreateNodeResponse> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         // Check quota
@@ -318,7 +191,7 @@ impl NodeService for super::GrpcImpl {
                 let new_node = inner.as_new(user.id)?;
                 let node = new_node.create(c).await?;
 
-                let node_msg = blockjoy_ui::NodeMessage::created(node.clone(), c).await?;
+                let node_msg = api::NodeMessage::created(node.clone(), c).await?;
 
                 let new_command = models::NewCommand {
                     host_id: node.host_id,
@@ -347,7 +220,7 @@ impl NodeService for super::GrpcImpl {
                 };
                 let cmd = new_command.create(c).await?;
                 let restart_msg = blockjoy::Command::from_model(&cmd, c).await?;
-                let ui_node = blockjoy_ui::Node::from_model(node.clone(), c).await?;
+                let ui_node = api::Node::from_model(node.clone(), c).await?;
 
                 self.notifier
                     .bv_nodes_sender()?
@@ -364,7 +237,7 @@ impl NodeService for super::GrpcImpl {
                     .await?;
                 let response_meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))
                     .with_message(node.id);
-                let response = CreateNodeResponse {
+                let response = api::CreateNodeResponse {
                     meta: Some(response_meta),
                     node: Some(ui_node),
                 };
@@ -378,8 +251,8 @@ impl NodeService for super::GrpcImpl {
 
     async fn update(
         &self,
-        request: Request<UpdateNodeRequest>,
-    ) -> Result<Response<UpdateNodeResponse>, Status> {
+        request: Request<api::UpdateNodeRequest>,
+    ) -> super::Result<api::UpdateNodeResponse> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let user_id = token.id;
@@ -391,11 +264,11 @@ impl NodeService for super::GrpcImpl {
                 let update_node = inner.as_update()?;
                 let user = models::User::find_by_id(user_id, c).await?;
                 let node = update_node.update(c).await?;
-                let msg = blockjoy_ui::NodeMessage::updated(node, user, c).await?;
+                let msg = api::NodeMessage::updated(node, user, c).await?;
 
                 self.notifier.ui_nodes_sender()?.send(&msg).await?;
 
-                let response = UpdateNodeResponse {
+                let response = api::UpdateNodeResponse {
                     meta: Some(ResponseMeta::from_meta(inner.meta, Some(token))),
                 };
                 Ok(response_with_refresh_token(refresh_token, response)?)
@@ -405,7 +278,7 @@ impl NodeService for super::GrpcImpl {
         .await
     }
 
-    async fn delete(&self, request: Request<DeleteNodeRequest>) -> Result<Response<()>, Status> {
+    async fn delete(&self, request: Request<api::DeleteNodeRequest>) -> super::Result<()> {
         let refresh_token = get_refresh_token(&request);
         let token = request
             .extensions()
@@ -467,7 +340,7 @@ impl NodeService for super::GrpcImpl {
 
                 self.notifier
                     .ui_nodes_sender()?
-                    .send(&blockjoy_ui::NodeMessage::deleted(node, user))
+                    .send(&api::NodeMessage::deleted(node, user))
                     .await?;
                 Ok(())
             }

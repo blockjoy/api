@@ -1,0 +1,163 @@
+syntax = "proto3";
+
+package v1;
+
+import "google/protobuf/timestamp.proto";
+
+message Host {
+  /* Possible states the container is described with */
+  enum HostStatus {
+    // Reserving values up to 15 for possible later use
+    // Up to 15 to ensure only 1 byte is used for the most common values
+    reserved 12 to 15;
+
+    HOST_STATUS_UNSPECIFIED = 0;
+    HOST_STATUS_CREATING = 1;
+    HOST_STATUS_RUNNING = 2;
+    HOST_STATUS_STARTING = 3;
+    HOST_STATUS_STOPPING = 4;
+    HOST_STATUS_STOPPED = 5;
+    HOST_STATUS_UPGRADING = 6;
+    HOST_STATUS_UPGRADED = 7;
+    HOST_STATUS_DELETING = 8;
+    HOST_STATUS_DELETED = 9;
+    HOST_STATUS_INSTALLING = 10;
+    HOST_STATUS_SNAPSHOTTING = 11;
+  }
+
+  // This is the id of the host.
+  string id = 1;
+  // This is the randomly generated name of the host.
+  string name = 2;
+  // The version of the blockjoy control software running on the host.
+  optional string version = 3;
+  // The physical location of the server.
+  optional string location = 4;
+  // The number of logical cores the machine has.
+  optional uint64 cpu_count = 5;
+  // The amount of physical memory the machine has in megabytes.
+  optional uint64 mem_size = 6;
+  // The size of the physical disks the machine has, in gigabytes.
+  optional uint64 disk_size = 7;
+  // The operating system running on the machine, i.e. "BSD" or "Linux".
+  optional string os = 8;
+  // The version of said operating system running on the host.
+  optional string os_version = 9;
+  // The ip address on which the machine is reachable.
+  string ip = 10;
+  // Current status of the machine, or `UNSPECIFIED`.
+  HostStatus status = 11;
+  // The moment this host was created. Corresponds to the moment that the
+  // host_provision was 
+  google.protobuf.Timestamp created_at = 12;
+  // The lowest ip address that this host may assign to a node.
+  optional string ip_range_from = 13;
+  // The highest ip address that this host may assign to a node.
+  optional string ip_range_to = 14;
+  // The ip gateway of this host.
+  optional string ip_gateway = 15;
+}
+
+// Manage hosts
+service Hosts {
+  // Create a single host
+  rpc Create(CreateHostRequest) returns (CreateHostResponse);
+  // Get a host by id.
+  rpc Get(GetHostRequest) returns (GetHostResponse);
+  // Returns a list of hosts filtered according to the parameters specified in
+  // the request.
+  rpc List(ListHostsRequest) returns (ListHostsResponse);
+  // Update a single host
+  rpc Update(UpdateHostRequest) returns (UpdateHostResponse);
+  // Delete a single host
+  rpc Delete(DeleteHostRequest) returns (DeleteHostResponse);
+  // This endpoint creates a new host from an already created host provision.
+  rpc Provision(ProvisionHostRequest) returns (ProvisionHostResponse);
+}
+
+message CreateHostRequest {
+  string name = 1;
+  optional string version = 2;
+  optional string location = 3;
+  optional uint64 cpu_count = 4;
+  optional uint64 mem_size = 5;
+  optional uint64 disk_size = 6;
+  optional string os = 7;
+  optional string os_version = 8;
+  string ip_addr = 9;
+  string ip_range_from = 10;
+  string ip_range_to = 11;
+  string ip_gateway = 12;
+}
+
+message CreateHostResponse {
+}
+
+message GetHostRequest {
+  string id = 1;
+}
+
+message GetHostResponse {
+  Host host = 1;
+}
+
+// This request contains parameters that can be used to filter the returned
+// hosts.
+message ListHostsRequest {
+  // If this parameter is specified, only hosts that belong to the specified org
+  // will be returned. This requires the user to be a member of that
+  // organization.
+  optional string org_id = 1;
+}
+
+message ListHostsResponse {
+  repeated Host hosts = 1;
+}
+
+message UpdateHostRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string version = 3;
+  optional string location = 4;
+  optional string os = 5;
+  optional string os_version = 6;
+}
+
+message UpdateHostResponse {
+}
+
+message DeleteHostRequest {
+  string id = 1;
+}
+
+message DeleteHostResponse {
+}
+
+message ProvisionHostRequest {
+  enum ConnectionStatus {
+    CONNECTION_STATUS_UNSPECIFIED = 0;
+    CONNECTION_STATUS_ONLINE = 1;
+    CONNECTION_STATUS_OFFLINE = 2;
+  }
+
+  string request_id = 1;
+  string otp = 2;
+  ConnectionStatus status = 3;
+  string name = 4;
+  string version = 5;
+  int64 cpu_count = 6;
+  // The amount of memory in bytes that the host has.
+  int64 mem_size_bytes = 7;
+  // The amount of disk space in bytes that the host has.
+  int64 disk_size_bytes = 8;
+  string os = 9;
+  string os_version = 10;
+  string ip = 11;
+}
+
+message ProvisionHostResponse {
+  string host_id = 1;
+  string token = 2;
+  repeated string messages = 3;
+  string origin_request_id = 4;
+}

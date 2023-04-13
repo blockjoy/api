@@ -119,6 +119,12 @@ impl Host {
         Ok(host)
     }
 
+    pub async fn filter(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
+        let query = hosts::table.into_boxed();
+        let hosts = query.get_results(conn).await?;
+        Ok(hosts)
+    }
+
     pub async fn find_by_id(host_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
         let host = hosts::table.find(host_id).get_result(conn).await?;
         Ok(host)

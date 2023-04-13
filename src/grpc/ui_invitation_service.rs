@@ -1,10 +1,10 @@
-use super::{blockjoy_ui, convert};
-use crate::auth::{FindableById, InvitationToken, JwtToken, UserAuthToken};
-use crate::grpc::blockjoy_ui::invitation_service_server::InvitationService;
-use crate::grpc::blockjoy_ui::{
+use super::api_ui::invitation_service_server::InvitationService;
+use super::api_ui::{
     CreateInvitationRequest, CreateInvitationResponse, InvitationRequest, InvitationsResponse,
     ListPendingInvitationRequest, ListReceivedInvitationRequest, ResponseMeta,
 };
+use super::{blockjoy_ui, convert};
+use crate::auth::{FindableById, InvitationToken, JwtToken, UserAuthToken};
 use crate::grpc::helpers::try_get_token;
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::mail::{MailClient, Recipient};

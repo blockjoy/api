@@ -1,56 +1,32 @@
-pub mod authentication_service;
-pub mod command_service;
+pub mod authentication;
+pub mod blockchains;
+pub mod commands;
 pub mod convert;
+pub mod discovery;
 pub mod helpers;
-pub mod host_service;
-pub mod key_file_service;
-pub mod metrics_service;
-pub mod node_service;
+pub mod host_provisions;
+pub mod hosts;
+pub mod invitations;
+pub mod key_files;
+pub mod metrics;
+pub mod nodes;
 pub mod notification;
-pub mod organization_service;
-pub mod service_discovery;
-pub mod ui_blockchain_service;
-pub mod ui_command_service;
-pub mod ui_dashboard_service;
-pub mod ui_host_provision_service;
-pub mod ui_host_service;
-pub mod ui_invitation_service;
-pub mod ui_node_service;
+pub mod organizations;
 pub mod user_service;
 
 #[allow(clippy::large_enum_variant)]
-pub mod blockjoy {
-    tonic::include_proto!("blockjoy.api.v1");
+pub mod api {
+    tonic::include_proto!("v1");
 }
 
-pub mod blockjoy_ui {
-    tonic::include_proto!("blockjoy.api.ui_v1");
-}
-
-use self::blockjoy::metrics_service_server::MetricsServiceServer;
-use self::notification::Notifier;
-use crate::auth::middleware::AuthorizationService;
 use crate::auth::{
-    unauthenticated_paths::UnauthenticatedPaths, Authorization, JwtToken, TokenType,
-    UserRefreshToken,
+    middleware::AuthorizationService, unauthenticated_paths::UnauthenticatedPaths, Authorization,
+    JwtToken, TokenType, UserRefreshToken,
 };
-use crate::{Error, Result as ApiResult};
-// use crate::grpc::authentication_service::AuthenticationServiceImpl;
-use crate::grpc::blockjoy::key_files_server::KeyFilesServer;
-use crate::grpc::blockjoy_ui::authentication_service_server::AuthenticationServiceServer;
-use crate::grpc::blockjoy_ui::blockchain_service_server::BlockchainServiceServer;
-use crate::grpc::blockjoy_ui::command_service_server::CommandServiceServer;
-use crate::grpc::blockjoy_ui::dashboard_service_server::DashboardServiceServer;
-use crate::grpc::blockjoy_ui::host_provision_service_server::HostProvisionServiceServer;
-use crate::grpc::blockjoy_ui::host_service_server::HostServiceServer;
-use crate::grpc::blockjoy_ui::invitation_service_server::InvitationServiceServer;
-use crate::grpc::blockjoy_ui::node_service_server::NodeServiceServer;
-use crate::grpc::blockjoy_ui::organization_service_server::OrganizationServiceServer;
-use crate::grpc::blockjoy_ui::user_service_server::UserServiceServer;
-use crate::{grpc, models};
-use anyhow::anyhow;
+use crate::models;
 use axum::Extension;
 use chrono::NaiveDateTime;
+use notification::Notifier;
 use std::env;
 use tonic::metadata::errors::InvalidMetadataValue;
 use tonic::transport::server::Router;
@@ -76,6 +52,8 @@ impl std::ops::Deref for GrpcImpl {
         &self.db
     }
 }
+
+type Result<T, E = tonic::Status> = std::result::Result<tonic::Response<T>, E>;
 
 #[macro_export]
 macro_rules! bail_unauthorized {
@@ -135,22 +113,19 @@ pub async fn server(
         notifier,
     };
 
-    let discovery_service = grpc::blockjoy::discovery_server::DiscoveryServer::new(impler.clone());
-    let command_service = grpc::blockjoy::commands_server::CommandsServer::new(impler.clone());
-    let node_service = grpc::blockjoy::node_service_server::NodeServiceServer::new(impler.clone());
-    let h_service = grpc::blockjoy::host_service_server::HostServiceServer::new(impler.clone());
-    let k_service = KeyFilesServer::new(impler.clone());
-    let m_service = MetricsServiceServer::new(impler.clone());
-    let ui_auth_service = AuthenticationServiceServer::new(impler.clone());
-    let ui_org_service = OrganizationServiceServer::new(impler.clone());
-    let ui_user_service = UserServiceServer::new(impler.clone());
-    let ui_host_service = HostServiceServer::new(impler.clone());
-    let ui_hostprovision_service = HostProvisionServiceServer::new(impler.clone());
-    let ui_command_service = CommandServiceServer::new(impler.clone());
-    let ui_node_service = NodeServiceServer::new(impler.clone());
-    let ui_dashboard_service = DashboardServiceServer::new(impler.clone());
-    let ui_blockchain_service = BlockchainServiceServer::new(impler.clone());
-    let ui_invitation_service = InvitationServiceServer::new(impler);
+    let authentication = api::authentication_server::AuthenticationServer::new(impler.clone());
+    // let billing = api::billings_server::BillingsServer::new(impler.clone());
+    let blockchain = api::blockchains_server::BlockchainsServer::new(impler.clone());
+    let command = api::commands_server::CommandsServer::new(impler.clone());
+    let discovery = api::discovery_server::DiscoveryServer::new(impler.clone());
+    let host_provision = api::host_provisions_server::HostProvisionsServer::new(impler.clone());
+    let host = api::hosts_server::HostsServer::new(impler.clone());
+    let invitation = api::invitations_server::InvitationsServer::new(impler.clone());
+    let key_file = api::key_files_server::KeyFilesServer::new(impler.clone());
+    let metrics = api::metrics_server::MetricsServer::new(impler.clone());
+    let node = api::nodes_server::NodesServer::new(impler.clone());
+    let organization = api::orgs_server::OrgsServer::new(impler.clone());
+    let user = api::users_server::UsersServer::new(impler.clone());
 
     let middleware = tower::ServiceBuilder::new()
         .layer(TraceLayer::new_for_grpc())
@@ -168,22 +143,19 @@ pub async fn server(
     Server::builder()
         .layer(middleware)
         .concurrency_limit_per_connection(rate_limiting_settings())
-        .add_service(h_service)
-        .add_service(discovery_service)
-        .add_service(command_service)
-        .add_service(node_service)
-        .add_service(k_service)
-        .add_service(m_service)
-        .add_service(ui_auth_service)
-        .add_service(ui_org_service)
-        .add_service(ui_user_service)
-        .add_service(ui_host_service)
-        .add_service(ui_hostprovision_service)
-        .add_service(ui_node_service)
-        .add_service(ui_command_service)
-        .add_service(ui_dashboard_service)
-        .add_service(ui_blockchain_service)
-        .add_service(ui_invitation_service)
+        .add_service(authentication)
+        // .add_service(billing)
+        .add_service(blockchain)
+        .add_service(command)
+        .add_service(discovery)
+        .add_service(host_provision)
+        .add_service(host)
+        .add_service(invitation)
+        .add_service(key_file)
+        .add_service(metrics)
+        .add_service(node)
+        .add_service(organization)
+        .add_service(user)
 }
 
 fn rate_limiting_settings() -> usize {
@@ -196,7 +168,7 @@ fn rate_limiting_settings() -> usize {
 pub fn response_with_refresh_token<ResponseBody>(
     token: Option<String>,
     inner: ResponseBody,
-) -> ApiResult<tonic::Response<ResponseBody>, tonic::Status> {
+) -> Result<ResponseBody> {
     let mut response = tonic::Response::new(inner);
 
     if let Some(token) = token {
@@ -207,7 +179,7 @@ pub fn response_with_refresh_token<ResponseBody>(
             true,
         )?;
         let exp = NaiveDateTime::from_timestamp_opt(refresh_token.get_expiration(), 0).ok_or_else(
-            || Error::UnexpectedError(anyhow!("Invalid timestamp while creating refresh token")),
+            || crate::Error::unexpected("Invalid timestamp while creating refresh token"),
         )?;
         // let exp = "Fri, 09 Jan 2026 03:15:14 GMT";
         let exp = exp.format("%a, %d %b %Y %H:%M:%S GMT").to_string();

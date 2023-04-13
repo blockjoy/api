@@ -232,8 +232,11 @@ pub struct Node {
 
 #[derive(Clone, Debug)]
 pub struct NodeFilter {
+    pub org_id: uuid::Uuid,
+    pub offset: u64,
+    pub limit: u64,
     pub status: Vec<NodeChainStatus>,
-    pub node_types: Vec<i32>,
+    pub node_types: Vec<NodeType>,
     pub blockchains: Vec<uuid::Uuid>,
 }
 
@@ -299,25 +302,15 @@ impl Node {
         Ok(exists)
     }
 
-    pub async fn find_all_by_filter(
-        org_id: Uuid,
-        filter: NodeFilter,
-        offset: i64,
-        limit: i64,
-        conn: &mut AsyncPgConnection,
-    ) -> Result<Vec<Self>> {
+    pub async fn filter(filter: NodeFilter, conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
         let mut query = nodes::table
-            .filter(nodes::org_id.eq(org_id))
-            .offset(offset)
-            .limit(limit)
+            .filter(nodes::org_id.eq(filter.org_id))
+            .offset(filter.offset.try_into()?)
+            .limit(filter.limit.try_into()?)
             .into_boxed();
 
         // Apply filters if present
         if !filter.blockchains.is_empty() {
-            tracing::debug!("Applying blockchain filter: {:?}", filter.blockchains);
-
-            // If a list of blockchains was given, we interpret them as ids, and require that each
-            // node's blockchain is in the provided list.
             query = query.filter(nodes::blockchain_id.eq_any(&filter.blockchains));
         }
 
@@ -325,11 +318,11 @@ impl Node {
             query = query.filter(nodes::chain_status.eq_any(&filter.status));
         }
 
-        let mut nodes: Vec<Node> = query.get_results(conn).await?;
-
         if !filter.node_types.is_empty() {
-            nodes.retain(|n| filter.node_types.contains(&n.node_type.into()));
+            query = query.filter(nodes::node_type.eq_any(&filter.node_types));
         }
+
+        let nodes = query.get_results(conn).await?;
         Ok(nodes)
     }
 

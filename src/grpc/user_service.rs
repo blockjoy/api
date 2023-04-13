@@ -1,12 +1,7 @@
+use super::api::{self, users_server};
 use super::convert;
 use super::helpers::{required, try_get_token};
 use crate::auth::{JwtToken, UserAuthToken};
-use crate::grpc::blockjoy_ui::user_service_server::UserService;
-use crate::grpc::blockjoy_ui::{
-    self, CreateUserRequest, CreateUserResponse, DeleteUserRequest, GetConfigurationRequest,
-    GetConfigurationResponse, GetUserRequest, GetUserResponse, ResponseMeta, UpdateUserRequest,
-    UpdateUserResponse, UpsertConfigurationRequest, UpsertConfigurationResponse,
-};
 use crate::grpc::{get_refresh_token, response_with_refresh_token};
 use crate::mail::MailClient;
 use crate::models;
@@ -14,7 +9,7 @@ use crate::models::User;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 
-impl blockjoy_ui::CreateUserRequest {
+impl api::CreateUserRequest {
     fn as_new(&self) -> crate::Result<models::NewUser> {
         models::NewUser::new(
             &self.email,
@@ -25,7 +20,7 @@ impl blockjoy_ui::CreateUserRequest {
     }
 }
 
-impl blockjoy_ui::UpdateUserRequest {
+impl api::UpdateUserRequest {
     pub fn as_update(&self) -> crate::Result<models::UpdateUser<'_>> {
         Ok(models::UpdateUser {
             id: self.id.parse()?,
@@ -40,7 +35,7 @@ impl blockjoy_ui::UpdateUserRequest {
     }
 }
 
-impl blockjoy_ui::User {
+impl api::User {
     pub fn from_model(model: models::User) -> crate::Result<Self> {
         let user = Self {
             id: model.id.to_string(),
@@ -55,19 +50,18 @@ impl blockjoy_ui::User {
 }
 
 #[tonic::async_trait]
-impl UserService for super::GrpcImpl {
+impl users_server::Users for super::GrpcImpl {
     async fn get(
         &self,
-        request: Request<GetUserRequest>,
-    ) -> Result<Response<GetUserResponse>, Status> {
+        request: Request<api::GetUserRequest>,
+    ) -> super::Result<api::GetUserResponse> {
         let refresh_token = get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let mut conn = self.conn().await?;
         let user = token.try_get_user(token.id, &mut conn).await?;
         let inner = request.into_inner();
-        let response = GetUserResponse {
-            meta: Some(ResponseMeta::from_meta(inner.meta, Some(token.try_into()?))),
-            user: Some(blockjoy_ui::User::from_model(user)?),
+        let response = api::GetUserResponse {
+            user: Some(api::User::from_model(user)?),
         };
 
         response_with_refresh_token(refresh_token, response)
@@ -75,16 +69,15 @@ impl UserService for super::GrpcImpl {
 
     async fn create(
         &self,
-        request: Request<CreateUserRequest>,
-    ) -> Result<Response<CreateUserResponse>, Status> {
+        request: Request<api::CreateUserRequest>,
+    ) -> super::Result<api::CreateUserResponse> {
         let inner = request.into_inner();
         if inner.password != inner.password_confirmation {
             return Err(Status::invalid_argument("Passwords don't match"));
         }
         let new_user = inner.as_new()?;
         let new_user = self.trx(|c| new_user.create(c).scope_boxed()).await?;
-        let meta = ResponseMeta::from_meta(inner.meta, None).with_message(new_user.id);
-        let response = CreateUserResponse { meta: Some(meta) };
+        let response = api::CreateUserResponse {};
 
         MailClient::new()
             .registration_confirmation(&new_user)
@@ -95,8 +88,8 @@ impl UserService for super::GrpcImpl {
 
     async fn update(
         &self,
-        request: Request<UpdateUserRequest>,
-    ) -> Result<Response<UpdateUserResponse>, Status> {
+        request: Request<api::UpdateUserRequest>,
+    ) -> super::Result<api::UpdateUserResponse> {
         let refresh_token = get_refresh_token(&request);
         let token = request
             .extensions()
@@ -113,10 +106,8 @@ impl UserService for super::GrpcImpl {
                     super::bail_unauthorized!("You are not allowed to update this user");
                 }
                 let user = inner.as_update()?.update(c).await?;
-                let response_meta = ResponseMeta::from_meta(inner.meta, Some(token.try_into()?));
-                let resp = UpdateUserResponse {
-                    meta: Some(response_meta),
-                    user: Some(blockjoy_ui::User::from_model(user)?),
+                let resp = api::UpdateUserResponse {
+                    user: Some(api::User::from_model(user)?),
                 };
 
                 Ok(response_with_refresh_token(refresh_token, resp)?)
@@ -126,7 +117,10 @@ impl UserService for super::GrpcImpl {
         .await
     }
 
-    async fn delete(&self, request: Request<DeleteUserRequest>) -> Result<Response<()>, Status> {
+    async fn delete(
+        &self,
+        request: Request<api::DeleteUserRequest>,
+    ) -> Result<Response<()>, Status> {
         let refresh_token = get_refresh_token(&request);
         let token = request
             .extensions()
@@ -146,15 +140,15 @@ impl UserService for super::GrpcImpl {
 
     async fn upsert_configuration(
         &self,
-        _request: Request<UpsertConfigurationRequest>,
-    ) -> Result<Response<UpsertConfigurationResponse>, Status> {
+        _request: Request<api::UpsertConfigurationRequest>,
+    ) -> super::Result<api::UpsertConfigurationResponse> {
         Err(Status::unimplemented(""))
     }
 
     async fn get_configuration(
         &self,
-        _request: Request<GetConfigurationRequest>,
-    ) -> Result<Response<GetConfigurationResponse>, Status> {
+        _request: Request<api::GetConfigurationRequest>,
+    ) -> super::Result<api::GetConfigurationResponse> {
         Err(Status::unimplemented(""))
     }
 }
