@@ -1,5 +1,4 @@
 use super::api::{self, users_server};
-use super::convert;
 use super::helpers::{required, try_get_token};
 use crate::auth::{JwtToken, UserAuthToken};
 use crate::mail::MailClient;
@@ -104,7 +103,7 @@ impl api::User {
             email: model.email,
             first_name: model.first_name,
             last_name: model.last_name,
-            created_at: Some(convert::try_dt_to_ts(model.created_at)?),
+            created_at: Some(super::try_dt_to_ts(model.created_at)?),
             updated_at: None,
         };
         Ok(user)

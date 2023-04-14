@@ -1,7 +1,6 @@
 pub mod authentication;
 pub mod blockchains;
 pub mod commands;
-pub mod convert;
 pub mod discovery;
 pub mod helpers;
 pub mod host_provisions;
@@ -125,7 +124,7 @@ pub async fn server(
     let metrics = api::metrics_server::MetricsServer::new(impler.clone());
     let node = api::nodes_server::NodesServer::new(impler.clone());
     let organization = api::orgs_server::OrgsServer::new(impler.clone());
-    let user = api::users_server::UsersServer::new(impler.clone());
+    let user = api::users_server::UsersServer::new(impler);
 
     let middleware = tower::ServiceBuilder::new()
         .layer(TraceLayer::new_for_grpc())
@@ -206,4 +205,42 @@ pub fn get_refresh_token<B>(request: &tonic::Request<B>) -> Option<String> {
         .extensions()
         .get::<UserRefreshToken>()
         .and_then(|t| t.encode().ok())
+}
+
+/// Function to convert the datetimes from the database into the API representation of a timestamp.
+pub fn try_dt_to_ts(
+    datetime: chrono::DateTime<chrono::Utc>,
+) -> crate::Result<prost_types::Timestamp> {
+    const NANOS_PER_SEC: i64 = 1_000_000_000;
+    let nanos = datetime.timestamp_nanos();
+    let timestamp = prost_types::Timestamp {
+        seconds: nanos / NANOS_PER_SEC,
+        // This _should_ never fail because 1_000_000_000 fits into an i32, but using `as` was
+        // hiding a bug here at first, therefore I have left the `try_into` call here.
+        nanos: (nanos % NANOS_PER_SEC).try_into()?,
+    };
+    Ok(timestamp)
+}
+
+pub fn json_value_to_vec(json: &serde_json::Value) -> crate::Result<Vec<api::FilteredIpAddr>> {
+    let arr = json
+        .as_array()
+        .ok_or_else(|| crate::Error::unexpected("Error deserializing JSON object"))?;
+    let mut result = vec![];
+
+    for value in arr {
+        let tmp = value
+            .as_object()
+            .ok_or_else(|| crate::Error::unexpected("Error deserializing JSON array"))?;
+        let ip = tmp
+            .get("ip")
+            .map(|e| e.to_string())
+            .ok_or_else(|| crate::Error::unexpected("Can't read IP"))?
+            .to_string();
+        let description = tmp.get("description").map(|e| e.to_string());
+
+        result.push(api::FilteredIpAddr { ip, description });
+    }
+
+    Ok(result)
 }

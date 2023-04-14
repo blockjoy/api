@@ -339,16 +339,16 @@ impl api::NodeMessage {
 
 impl api::Command {
     fn host_id(&self) -> Option<&str> {
-        match self.r#type.as_ref()? {
-            api::command::Type::Node(cmd) => Some(&cmd.host_id),
-            api::command::Type::Host(cmd) => Some(&cmd.host_id),
+        match self.command.as_ref()? {
+            api::command::Command::Node(cmd) => Some(&cmd.host_id),
+            api::command::Command::Host(cmd) => Some(&cmd.host_id),
         }
     }
 
     fn node_id(&self) -> Option<&str> {
-        match self.r#type.as_ref()? {
-            api::command::Type::Node(cmd) => Some(&cmd.node_id),
-            api::command::Type::Host(_) => None,
+        match self.command.as_ref()? {
+            api::command::Command::Node(cmd) => Some(&cmd.node_id),
+            api::command::Command::Host(_) => None,
         }
     }
 }

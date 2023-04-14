@@ -1,126 +1,12 @@
 use super::api::{self, commands_server};
-use super::convert;
 use super::helpers::required;
 use crate::auth::FindableById;
 use crate::models;
 use anyhow::anyhow;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_async::AsyncPgConnection;
 use std::str::FromStr;
 use tonic::Request;
-
-impl api::UpdateCommandRequest {
-    fn as_update(&self) -> crate::Result<models::UpdateCommand<'_>> {
-        Ok(models::UpdateCommand {
-            id: self.id.parse()?,
-            response: self.response.as_deref(),
-            exit_status: self.exit_code,
-            completed_at: chrono::Utc::now(),
-        })
-    }
-}
-
-impl api::Parameter {
-    fn new(name: &str, val: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            value: val.to_owned(),
-        }
-    }
-}
-
-impl api::Command {
-    pub async fn from_model(
-        model: &models::Command,
-        conn: &mut diesel_async::AsyncPgConnection,
-    ) -> crate::Result<api::Command> {
-        use api::command::Type;
-        use api::node_command::Command;
-        use models::HostCmd::*;
-
-        // Extract the node id from the model, if there is one.
-        let node_id = || model.node_id.ok_or_else(required("command.node_id"));
-        // Closure to conveniently construct a api:: from the data that we need to have.
-        let node_cmd = |command, node_id| {
-            Ok(api::Command {
-                r#type: Some(Type::Node(api::NodeCommand {
-                    node_id,
-                    host_id: model.host_id.to_string(),
-                    command: Some(command),
-                    api_command_id: model.id.to_string(),
-                    created_at: Some(convert::try_dt_to_ts(model.created_at)?),
-                })),
-            })
-        };
-        // Construct a api::Command with the node id extracted from the `node.node_id` field.
-        // Only `DeleteNode` does not use this method.
-        let node_cmd_default_id = |command| node_cmd(command, node_id()?.to_string());
-
-        match model.cmd {
-            RestartNode => node_cmd_default_id(Command::Restart(api::NodeRestart {})),
-            KillNode => node_cmd_default_id(Command::Stop(api::NodeStop {})),
-            ShutdownNode => node_cmd_default_id(Command::Stop(api::NodeStop {})),
-            UpdateNode => {
-                let node = models::Node::find_by_id(node_id()?, conn).await?;
-                let cmd = Command::Update(api::NodeUpdate {
-                    self_update: Some(node.self_update),
-                });
-                node_cmd_default_id(cmd)
-            }
-            MigrateNode => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            GetNodeVersion => node_cmd_default_id(Command::InfoGet(api::NodeGet {})),
-
-            // The following should be HostCommands
-            CreateNode => {
-                let node = models::Node::find_by_id(node_id()?, conn).await?;
-                let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
-                let image = api::ContainerImage {
-                    protocol: blockchain.name,
-                    node_type: node.node_type.to_string().to_lowercase(),
-                    node_version: node.version.as_deref().unwrap_or("latest").to_lowercase(),
-                    status: api::container_image::StatusName::Development.into(),
-                };
-                let network = api::Parameter::new("network", &node.network);
-                let r#type = models::NodePropertiesWithId {
-                    id: node.node_type.into(),
-                    props: node.properties()?,
-                };
-                let properties = node
-                    .properties()?
-                    .iter_props()
-                    .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
-                    .map(|(name, value)| api::Parameter::new(name, value))
-                    .chain([network])
-                    .collect();
-                let cmd = Command::Create(api::NodeCreate {
-                    name: node.name,
-                    blockchain: node.blockchain_id.to_string(),
-                    image: Some(image),
-                    r#type: serde_json::to_string(&r#type)?,
-                    ip: node.ip_addr,
-                    gateway: node.ip_gateway,
-                    self_update: node.self_update,
-                    properties,
-                });
-
-                node_cmd_default_id(cmd)
-            }
-            DeleteNode => {
-                let node_id = model
-                    .sub_cmd
-                    .clone()
-                    .ok_or_else(required("command.node_id"))?;
-                let cmd = Command::Delete(api::NodeDelete {});
-                node_cmd(cmd, node_id)
-            }
-            GetBVSVersion => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            UpdateBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            RestartBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            RemoveBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            CreateBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            StopBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-        }
-    }
-}
 
 #[tonic::async_trait]
 impl commands_server::Commands for super::GrpcImpl {
@@ -129,9 +15,26 @@ impl commands_server::Commands for super::GrpcImpl {
         req: Request<api::CreateCommandRequest>,
     ) -> super::Result<api::CreateCommandResponse> {
         let refresh_token = super::get_refresh_token(&req);
-        let inner = req.into_inner();
+        let req = req.into_inner();
+        self.trx(|c| {
+            async move {
+                let host_id = req.host_id(c).await?;
+                let node_id = req.node_id()?;
+                let command_type = req.command_type()?;
+                let command = req
+                    .as_new(host_id, node_id, command_type)?
+                    .create(c)
+                    .await?;
+                let command = api::Command::from_model(&command, c).await?;
+                let response = api::CreateCommandResponse {
+                    command: Some(command),
+                };
 
-        todo!()
+                Ok(super::response_with_refresh_token(refresh_token, response)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn get(
@@ -187,5 +90,176 @@ impl commands_server::Commands for super::GrpcImpl {
         }
         let response = api::PendingCommandsResponse { commands };
         super::response_with_refresh_token(refresh_token, response)
+    }
+}
+
+impl api::Command {
+    pub async fn from_model(
+        model: &models::Command,
+        conn: &mut diesel_async::AsyncPgConnection,
+    ) -> crate::Result<api::Command> {
+        use api::command;
+        use api::node_command::Command;
+        use models::HostCmd::*;
+
+        // Extract the node id from the model, if there is one.
+        let node_id = || model.node_id.ok_or_else(required("command.node_id"));
+        // Closure to conveniently construct a api:: from the data that we need to have.
+        let node_cmd = |command, node_id| {
+            Ok(api::Command {
+                command: Some(command::Command::Node(api::NodeCommand {
+                    node_id,
+                    host_id: model.host_id.to_string(),
+                    command: Some(command),
+                    api_command_id: model.id.to_string(),
+                    created_at: Some(super::try_dt_to_ts(model.created_at)?),
+                })),
+            })
+        };
+        // Construct a api::Command with the node id extracted from the `node.node_id` field.
+        // Only `DeleteNode` does not use this method.
+        let node_cmd_default_id = |command| node_cmd(command, node_id()?.to_string());
+
+        match model.cmd {
+            RestartNode => node_cmd_default_id(Command::Restart(api::NodeRestart {})),
+            KillNode => node_cmd_default_id(Command::Stop(api::NodeStop {})),
+            ShutdownNode => node_cmd_default_id(Command::Stop(api::NodeStop {})),
+            UpdateNode => {
+                let node = models::Node::find_by_id(node_id()?, conn).await?;
+                let cmd = Command::Update(api::NodeUpdate {
+                    self_update: Some(node.self_update),
+                });
+                node_cmd_default_id(cmd)
+            }
+            MigrateNode => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            GetNodeVersion => node_cmd_default_id(Command::InfoGet(api::NodeGet {})),
+
+            // The following should be HostCommands
+            CreateNode => {
+                let node = models::Node::find_by_id(node_id()?, conn).await?;
+                let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
+                let image = api::ContainerImage {
+                    protocol: blockchain.name,
+                    node_type: node.node_type.to_string().to_lowercase(),
+                    node_version: node.version.as_deref().unwrap_or("latest").to_lowercase(),
+                    status: api::container_image::StatusName::Development.into(),
+                };
+                let network = api::Parameter::new("network", &node.network);
+                let properties = node
+                    .properties()?
+                    .iter_props()
+                    .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
+                    .map(|(name, value)| api::Parameter::new(name, value))
+                    .chain([network])
+                    .collect();
+                let cmd = Command::Create(api::NodeCreate {
+                    name: node.name,
+                    blockchain: node.blockchain_id.to_string(),
+                    image: Some(image),
+                    node_type: node.node_type.into(),
+                    ip: node.ip_addr,
+                    gateway: node.ip_gateway,
+                    self_update: node.self_update,
+                    properties,
+                });
+
+                node_cmd_default_id(cmd)
+            }
+            DeleteNode => {
+                let node_id = model
+                    .sub_cmd
+                    .clone()
+                    .ok_or_else(required("command.node_id"))?;
+                let cmd = Command::Delete(api::NodeDelete {});
+                node_cmd(cmd, node_id)
+            }
+            GetBVSVersion => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            UpdateBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            RestartBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            RemoveBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            CreateBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            StopBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+        }
+    }
+}
+
+impl api::CreateCommandRequest {
+    fn as_new(
+        &self,
+        host_id: uuid::Uuid,
+        node_id: Option<uuid::Uuid>,
+        command_type: models::HostCmd,
+    ) -> crate::Result<models::NewCommand<'_>> {
+        Ok(models::NewCommand {
+            host_id,
+            cmd: command_type,
+            sub_cmd: None,
+            node_id,
+        })
+    }
+
+    async fn host_id(&self, conn: &mut AsyncPgConnection) -> crate::Result<uuid::Uuid> {
+        use api::create_command_request::Command::*;
+
+        let command = self.command.as_ref().ok_or_else(required("command"))?;
+        let node_id = match command {
+            StartNode(start) => start.node_id.parse()?,
+            StopNode(stop) => stop.node_id.parse()?,
+            RestartNode(restart) => restart.node_id.parse()?,
+            StartHost(start) => return Ok(start.host_id.parse()?),
+            StopHost(stop) => return Ok(stop.host_id.parse()?),
+            RestartHost(restart) => return Ok(restart.host_id.parse()?),
+        };
+        let node = models::Node::find_by_id(node_id, conn).await?;
+        Ok(node.host_id)
+    }
+
+    fn node_id(&self) -> crate::Result<Option<uuid::Uuid>> {
+        use api::create_command_request::Command::*;
+
+        let command = self.command.as_ref().ok_or_else(required("command"))?;
+        match command {
+            StartNode(start) => Ok(Some(start.node_id.parse()?)),
+            StopNode(stop) => Ok(Some(stop.node_id.parse()?)),
+            RestartNode(restart) => Ok(Some(restart.node_id.parse()?)),
+            StartHost(_) => Ok(None),
+            StopHost(_) => Ok(None),
+            RestartHost(_) => Ok(None),
+        }
+    }
+
+    fn command_type(&self) -> crate::Result<models::HostCmd> {
+        use api::create_command_request::Command::*;
+
+        let command = self.command.as_ref().ok_or_else(required("command"))?;
+        let command_type = match command {
+            StartNode(_) => models::HostCmd::RestartNode,
+            StopNode(_) => models::HostCmd::KillNode,
+            RestartNode(_) => models::HostCmd::RestartNode,
+            StartHost(_) => models::HostCmd::RestartBVS,
+            StopHost(_) => models::HostCmd::StopBVS,
+            RestartHost(_) => models::HostCmd::RestartBVS,
+        };
+        Ok(command_type)
+    }
+}
+
+impl api::UpdateCommandRequest {
+    fn as_update(&self) -> crate::Result<models::UpdateCommand<'_>> {
+        Ok(models::UpdateCommand {
+            id: self.id.parse()?,
+            response: self.response.as_deref(),
+            exit_status: self.exit_code,
+            completed_at: chrono::Utc::now(),
+        })
+    }
+}
+
+impl api::Parameter {
+    fn new(name: &str, val: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            value: val.to_owned(),
+        }
     }
 }

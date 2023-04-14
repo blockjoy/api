@@ -1,5 +1,4 @@
 use super::api::{self, nodes_server};
-use super::convert;
 use super::helpers;
 use crate::auth::FindableById;
 use crate::{auth, models};
@@ -10,39 +9,6 @@ use tonic::{Request, Status};
 
 #[tonic::async_trait]
 impl nodes_server::Nodes for super::GrpcImpl {
-    async fn get(
-        &self,
-        request: Request<api::GetNodeRequest>,
-    ) -> super::Result<api::GetNodeResponse> {
-        let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?.clone();
-        let inner = request.into_inner();
-        let node_id = inner.id.parse().map_err(crate::Error::from)?;
-        let mut conn = self.conn().await?;
-        let node = models::Node::find_by_id(node_id, &mut conn).await?;
-
-        if node.org_id != token.try_org_id()? {
-            super::bail_unauthorized!("Access not allowed")
-        }
-        let response = api::GetNodeResponse {
-            node: Some(api::Node::from_model(node, &mut conn).await?),
-        };
-        super::response_with_refresh_token(refresh_token, response)
-    }
-
-    async fn list(
-        &self,
-        request: Request<api::ListNodesRequest>,
-    ) -> super::Result<api::ListNodesResponse> {
-        let refresh_token = super::get_refresh_token(&request);
-        let request = request.into_inner();
-        let mut conn = self.conn().await?;
-        let nodes = models::Node::filter(request.as_filter()?, &mut conn).await?;
-        let nodes = api::Node::from_models(nodes, &mut conn).await?;
-        let response = api::ListNodesResponse { nodes };
-        super::response_with_refresh_token(refresh_token, response)
-    }
-
     async fn create(
         &self,
         request: Request<api::CreateNodeRequest>,
@@ -105,6 +71,39 @@ impl nodes_server::Nodes for super::GrpcImpl {
             .scope_boxed()
         })
         .await
+    }
+
+    async fn get(
+        &self,
+        request: Request<api::GetNodeRequest>,
+    ) -> super::Result<api::GetNodeResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?.clone();
+        let inner = request.into_inner();
+        let node_id = inner.id.parse().map_err(crate::Error::from)?;
+        let mut conn = self.conn().await?;
+        let node = models::Node::find_by_id(node_id, &mut conn).await?;
+
+        if node.org_id != token.try_org_id()? {
+            super::bail_unauthorized!("Access not allowed")
+        }
+        let response = api::GetNodeResponse {
+            node: Some(api::Node::from_model(node, &mut conn).await?),
+        };
+        super::response_with_refresh_token(refresh_token, response)
+    }
+
+    async fn list(
+        &self,
+        request: Request<api::ListNodesRequest>,
+    ) -> super::Result<api::ListNodesResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let request = request.into_inner();
+        let mut conn = self.conn().await?;
+        let nodes = models::Node::filter(request.as_filter()?, &mut conn).await?;
+        let nodes = api::Node::from_models(nodes, &mut conn).await?;
+        let response = api::ListNodesResponse { nodes };
+        super::response_with_refresh_token(refresh_token, response)
     }
 
     async fn update(
@@ -272,11 +271,11 @@ impl api::Node {
             version: node.version,
             ip: Some(node.ip_addr),
             ip_gateway: node.ip_gateway,
-            r#type: node.node_type.into(),
+            node_type: node.node_type.into(),
             properties,
             block_height: node.block_height.map(i64::from),
-            created_at: Some(convert::try_dt_to_ts(node.created_at)?),
-            updated_at: Some(convert::try_dt_to_ts(node.updated_at)?),
+            created_at: Some(super::try_dt_to_ts(node.created_at)?),
+            updated_at: Some(super::try_dt_to_ts(node.updated_at)?),
             status: api::node::NodeStatus::from_model(node.chain_status).into(),
             staking_status: node
                 .staking_status
@@ -290,35 +289,8 @@ impl api::Node {
             created_by: user.map(|u| u.id.to_string()),
             created_by_name: user.map(|u| format!("{} {}", u.first_name, u.last_name)),
             created_by_email: user.map(|u| u.email.clone()),
-            allow_ips: convert::json_value_to_vec(&node.allow_ips)?,
-            deny_ips: convert::json_value_to_vec(&node.deny_ips)?,
-        })
-    }
-}
-
-impl api::ListNodesRequest {
-    fn as_filter(&self) -> crate::Result<models::NodeFilter> {
-        Ok(models::NodeFilter {
-            org_id: self.org_id.parse()?,
-            offset: self.offset,
-            limit: self.limit,
-            status: self
-                .status
-                .iter()
-                .copied()
-                .map(models::NodeChainStatus::try_from)
-                .collect::<crate::Result<_>>()?,
-            node_types: self
-                .status
-                .iter()
-                .copied()
-                .map(models::NodeType::try_from)
-                .collect::<crate::Result<_>>()?,
-            blockchains: self
-                .blockchain_id
-                .iter()
-                .map(|id| id.parse())
-                .collect::<Result<_, _>>()?,
+            allow_ips: super::json_value_to_vec(&node.allow_ips)?,
+            deny_ips: super::json_value_to_vec(&node.deny_ips)?,
         })
     }
 }
@@ -326,7 +298,7 @@ impl api::ListNodesRequest {
 impl api::CreateNodeRequest {
     pub fn as_new(&self, user_id: uuid::Uuid) -> crate::Result<models::NewNode<'_>> {
         let properties = models::NodePropertiesWithId {
-            id: self.r#type,
+            id: self.node_type,
             props: models::NodeProperties {
                 version: self.version.clone(),
                 properties: Some(
@@ -358,6 +330,33 @@ impl api::CreateNodeRequest {
             network: &self.network,
             node_type: properties.id.try_into()?,
             created_by: user_id,
+        })
+    }
+}
+
+impl api::ListNodesRequest {
+    fn as_filter(&self) -> crate::Result<models::NodeFilter> {
+        Ok(models::NodeFilter {
+            org_id: self.org_id.parse()?,
+            offset: self.offset,
+            limit: self.limit,
+            status: self
+                .status
+                .iter()
+                .copied()
+                .map(models::NodeChainStatus::try_from)
+                .collect::<crate::Result<_>>()?,
+            node_types: self
+                .status
+                .iter()
+                .copied()
+                .map(models::NodeType::try_from)
+                .collect::<crate::Result<_>>()?,
+            blockchains: self
+                .blockchain_id
+                .iter()
+                .map(|id| id.parse())
+                .collect::<Result<_, _>>()?,
         })
     }
 }

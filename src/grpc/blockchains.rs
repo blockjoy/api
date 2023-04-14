@@ -1,35 +1,8 @@
 use super::api::{self, blockchains_server};
-use super::convert;
 use crate::cookbook::get_networks;
 use crate::models;
 use futures_util::future::join_all;
 use std::collections::HashMap;
-
-impl api::Blockchain {
-    fn from_model(model: models::Blockchain) -> crate::Result<Self> {
-        let supported_nodes_types = serde_json::to_string(&model.supported_node_types()?)?;
-
-        let blockchain = Self {
-            id: model.id.to_string(),
-            name: model.name,
-            // TODO: make this column mandatory
-            description: model.description.unwrap_or_default(),
-            status: model.status as i32,
-            project_url: model.project_url,
-            repo_url: model.repo_url,
-            supports_etl: model.supports_etl,
-            supports_node: model.supports_node,
-            supports_staking: model.supports_staking,
-            supports_broadcast: model.supports_broadcast,
-            version: model.version,
-            supported_nodes_types,
-            created_at: Some(convert::try_dt_to_ts(model.created_at)?),
-            updated_at: Some(convert::try_dt_to_ts(model.updated_at)?),
-            networks: vec![],
-        };
-        Ok(blockchain)
-    }
-}
 
 #[tonic::async_trait]
 impl blockchains_server::Blockchains for super::GrpcImpl {
@@ -130,4 +103,30 @@ async fn try_get_networks(
         }
     };
     (blockchain_id, networks)
+}
+
+impl api::Blockchain {
+    fn from_model(model: models::Blockchain) -> crate::Result<Self> {
+        let supported_nodes_types = serde_json::to_string(&model.supported_node_types()?)?;
+
+        let blockchain = Self {
+            id: model.id.to_string(),
+            name: model.name,
+            // TODO: make this column mandatory
+            description: model.description.unwrap_or_default(),
+            status: model.status as i32,
+            project_url: model.project_url,
+            repo_url: model.repo_url,
+            supports_etl: model.supports_etl,
+            supports_node: model.supports_node,
+            supports_staking: model.supports_staking,
+            supports_broadcast: model.supports_broadcast,
+            version: model.version,
+            supported_nodes_types,
+            created_at: Some(super::try_dt_to_ts(model.created_at)?),
+            updated_at: Some(super::try_dt_to_ts(model.updated_at)?),
+            networks: vec![],
+        };
+        Ok(blockchain)
+    }
 }

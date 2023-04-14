@@ -117,7 +117,7 @@ message Node {
   optional string address = 7;
   optional string version = 8;
   optional string ip = 9;
-  NodeType type = 10;
+  NodeType node_type = 10;
   repeated NodeProperty properties = 11;
   optional int64 block_height = 13;
   google.protobuf.Timestamp created_at = 15;
@@ -174,7 +174,7 @@ message CreateNodeRequest {
   // latest version is used.
   optional string version = 4;
   // The type of node that you want to create.
-  Node.NodeType type = 5;
+  Node.NodeType node_type = 5;
   // A list of properties.
   repeated Node.NodeProperty properties = 6;
   // The network that the blockchain will be a part of. Many blockchains have a

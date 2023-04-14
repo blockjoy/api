@@ -3,9 +3,10 @@ syntax = "proto3";
 package v1;
 
 import "google/protobuf/timestamp.proto";
+import "v1/node.proto";
 
 message Command {
-  oneof type {
+  oneof command {
     NodeCommand node = 1;
     HostCommand host = 2;
   }
@@ -24,9 +25,51 @@ service Commands {
   rpc Pending(PendingCommandsRequest) returns (PendingCommandsResponse);
 }
 
+// Implies that the node identified by `node_id` should be started. If the node
+// is already running, this message should be ignored.
+message StartNodeCommand {
+  // The node to be started.
+  string node_id = 1;
+}
+
+// Implies that the node identified by `node_id` should be stopped. If the node
+// is already stopped, this message should be ignored.
+message StopNodeCommand {
+  // The node to be stopped.
+  string node_id = 1;
+}
+
+// Implies that the node identified by `node_id` should be restarted. If the
+// node is already stopped, it should just be started.
+message RestartNodeCommand {
+  // The node to be restarted.
+  string node_id = 1;
+}
+
+message StartHostCommand {
+  string host_id = 1;
+}
+
+message StopHostCommand {
+  string host_id = 1;
+}
+
+message RestartHostCommand {
+  string host_id = 1;
+}
 
 message CreateCommandRequest {
-  Command command = 1;
+  oneof command {
+    // This variant will cause a new `StartNodeCommand` to be created.
+    StartNodeCommand start_node = 1;
+    // This variant will cause a new `StopNodeCommand` to be created.
+    StopNodeCommand stop_node = 2;
+    // This variant will cause a new `RestartNodeCommand` to be created.
+    RestartNodeCommand restart_node = 3;
+    StartHostCommand start_host = 4;
+    StopHostCommand stop_host = 5;
+    RestartHostCommand restart_host = 6;
+  }
 }
 
 message CreateCommandResponse {
@@ -113,7 +156,7 @@ message NodeCreate {
   string name = 1;
   string blockchain = 2;
   ContainerImage image = 3;
-  string type = 4;
+  Node.NodeType node_type = 4;
   string ip = 5;
   string gateway = 6;
   bool self_update = 7;

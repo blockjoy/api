@@ -37,22 +37,3 @@ pub fn try_get_token<T, R: JwtToken + Sync + Send + 'static>(
 
     Ok(tkn)
 }
-
-// pub fn pagination_parameters(pagination: Option<api::Pagination>) -> Result<(i64, i64), Status> {
-//     if let Some(pagination) = pagination {
-//         let items_per_page = pagination.items_per_page.into();
-//         let current_page: i64 = pagination.current_page.into();
-//         let max_items = env::var("PAGINATION_MAX_ITEMS")
-//             .ok()
-//             .and_then(|s| s.parse().ok())
-//             .unwrap_or(10);
-
-//         if items_per_page > max_items {
-//             return Err(Status::cancelled("Max items exceeded"));
-//         }
-
-//         Ok((items_per_page, current_page * items_per_page))
-//     } else {
-//         Ok((10, 0))
-//     }
-// }

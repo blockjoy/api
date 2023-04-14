@@ -1,5 +1,4 @@
 use super::api::{self, orgs_server};
-use super::convert;
 use super::helpers;
 use crate::auth::{FindableById, UserAuthToken};
 use crate::models;
@@ -7,66 +6,6 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncPgConnection;
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
-
-impl api::Org {
-    /// Converts a list of `models::Org` into a list of `api::Org`. We take care to perform O(1)
-    /// queries, no matter the length of `models`. For this we need to find all users belonging to
-    /// this each org.
-    pub async fn from_models(
-        models: Vec<models::Org>,
-        conn: &mut AsyncPgConnection,
-    ) -> crate::Result<Vec<Self>> {
-        // We find all OrgUsers belonging to each model. This gives us a map from `org_id` to
-        // `Vec<OrgUser>`.
-        let org_users = models::OrgUser::by_orgs(&models, conn).await?;
-
-        // Now we get the actual users for each `OrgUser`, because we also need to provide the name
-        // and email of each user.
-        let user_ids: Vec<uuid::Uuid> = org_users.values().flatten().map(|ou| ou.user_id).collect();
-        let users: HashMap<uuid::Uuid, models::User> = models::User::find_by_ids(&user_ids, conn)
-            .await?
-            .into_iter()
-            .map(|u| (u.id, u))
-            .collect();
-
-        // Finally we can loop over the models to construct the final list of messages we set out to
-        // create.
-        models
-            .into_iter()
-            .map(|model| {
-                let org_users = &org_users[&model.id];
-                Ok(Self {
-                    id: model.id.to_string(),
-                    name: model.name.clone(),
-                    personal: model.is_personal,
-                    member_count: org_users.len().try_into()?,
-                    created_at: Some(convert::try_dt_to_ts(model.created_at)?),
-                    updated_at: Some(convert::try_dt_to_ts(model.updated_at)?),
-                    members: org_users
-                        .iter()
-                        .map(|ou| {
-                            let user = &users[&ou.user_id];
-                            api::OrgUser {
-                                user_id: ou.user_id.to_string(),
-                                org_id: ou.org_id.to_string(),
-                                role: ou.role as i32,
-                                name: format!("{} {}", user.first_name, user.last_name),
-                                email: user.email.clone(),
-                            }
-                        })
-                        .collect(),
-                })
-            })
-            .collect()
-    }
-
-    pub async fn from_model(
-        model: models::Org,
-        conn: &mut AsyncPgConnection,
-    ) -> crate::Result<Self> {
-        Ok(Self::from_models(vec![model], conn).await?[0].clone())
-    }
-}
 
 #[tonic::async_trait]
 impl orgs_server::Orgs for super::GrpcImpl {
@@ -306,5 +245,65 @@ impl orgs_server::Orgs for super::GrpcImpl {
             .scope_boxed()
         })
         .await
+    }
+}
+
+impl api::Org {
+    /// Converts a list of `models::Org` into a list of `api::Org`. We take care to perform O(1)
+    /// queries, no matter the length of `models`. For this we need to find all users belonging to
+    /// this each org.
+    pub async fn from_models(
+        models: Vec<models::Org>,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Vec<Self>> {
+        // We find all OrgUsers belonging to each model. This gives us a map from `org_id` to
+        // `Vec<OrgUser>`.
+        let org_users = models::OrgUser::by_orgs(&models, conn).await?;
+
+        // Now we get the actual users for each `OrgUser`, because we also need to provide the name
+        // and email of each user.
+        let user_ids: Vec<uuid::Uuid> = org_users.values().flatten().map(|ou| ou.user_id).collect();
+        let users: HashMap<uuid::Uuid, models::User> = models::User::find_by_ids(&user_ids, conn)
+            .await?
+            .into_iter()
+            .map(|u| (u.id, u))
+            .collect();
+
+        // Finally we can loop over the models to construct the final list of messages we set out to
+        // create.
+        models
+            .into_iter()
+            .map(|model| {
+                let org_users = &org_users[&model.id];
+                Ok(Self {
+                    id: model.id.to_string(),
+                    name: model.name.clone(),
+                    personal: model.is_personal,
+                    member_count: org_users.len().try_into()?,
+                    created_at: Some(super::try_dt_to_ts(model.created_at)?),
+                    updated_at: Some(super::try_dt_to_ts(model.updated_at)?),
+                    members: org_users
+                        .iter()
+                        .map(|ou| {
+                            let user = &users[&ou.user_id];
+                            api::OrgUser {
+                                user_id: ou.user_id.to_string(),
+                                org_id: ou.org_id.to_string(),
+                                role: ou.role as i32,
+                                name: format!("{} {}", user.first_name, user.last_name),
+                                email: user.email.clone(),
+                            }
+                        })
+                        .collect(),
+                })
+            })
+            .collect()
+    }
+
+    pub async fn from_model(
+        model: models::Org,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Self> {
+        Ok(Self::from_models(vec![model], conn).await?[0].clone())
     }
 }

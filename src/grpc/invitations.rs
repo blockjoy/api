@@ -1,5 +1,5 @@
 use super::api::{self, invitations_server};
-use super::{convert, helpers};
+use super::helpers;
 use crate::auth::{self, FindableById, JwtToken};
 use crate::mail;
 use crate::models;
@@ -256,9 +256,9 @@ impl api::Invitation {
             created_for_org_id: model.created_for_org.to_string(),
             created_for_org_name: model.created_for_org_name,
             invitee_email: model.invitee_email,
-            created_at: Some(convert::try_dt_to_ts(model.created_at)?),
-            accepted_at: model.accepted_at.map(convert::try_dt_to_ts).transpose()?,
-            declined_at: model.declined_at.map(convert::try_dt_to_ts).transpose()?,
+            created_at: Some(super::try_dt_to_ts(model.created_at)?),
+            accepted_at: model.accepted_at.map(super::try_dt_to_ts).transpose()?,
+            declined_at: model.declined_at.map(super::try_dt_to_ts).transpose()?,
         })
     }
 }

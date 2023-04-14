@@ -1,131 +1,9 @@
 use super::api::{self, hosts_server};
-use super::convert;
 use super::helpers;
 use crate::auth::{HostAuthToken, JwtToken, TokenRole, TokenType};
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response};
-
-// impl api::UpdateHostRequest {
-//     pub fn as_update(&self) -> crate::Result<models::UpdateHost> {
-//         Ok(models::UpdateHost {
-//             id: self.id.parse()?,
-//             name: None,
-//             version: self.version.as_deref(),
-//             location: None,
-//             cpu_count: None,
-//             mem_size: None,
-//             disk_size: None,
-//             os: self.os.as_deref(),
-//             os_version: self.os_version.as_deref(),
-//             ip_addr: self.ip.as_deref(),
-//             status: None,
-//             ip_range_from: None,
-//             ip_range_to: None,
-//             ip_gateway: None,
-//         })
-//     }
-// }
-
-impl api::ProvisionHostRequest {
-    pub fn as_new(&self, provision: models::HostProvision) -> crate::Result<models::NewHost<'_>> {
-        let new_host = models::NewHost {
-            name: &self.name,
-            version: Some(&self.version),
-            location: None,
-            cpu_count: Some(self.cpu_count),
-            mem_size: Some(self.mem_size_bytes),
-            disk_size: Some(self.disk_size_bytes),
-            os: Some(&self.os),
-            os_version: Some(&self.os_version),
-            ip_addr: &self.ip,
-            status: self.status.try_into()?,
-            ip_range_from: provision
-                .ip_range_from
-                .ok_or_else(helpers::required("provision.ip_range_from"))?,
-            ip_range_to: provision
-                .ip_range_to
-                .ok_or_else(helpers::required("provision.ip_range_to"))?,
-            ip_gateway: provision
-                .ip_gateway
-                .ok_or_else(helpers::required("provision.ip_gateway"))?,
-        };
-        Ok(new_host)
-    }
-}
-
-impl api::Host {
-    pub async fn from_models(models: Vec<models::Host>) -> crate::Result<Vec<Self>> {
-        models
-            .into_iter()
-            .map(|model| {
-                let dto = Self {
-                    id: model.id.to_string(),
-                    name: model.name,
-                    version: model.version,
-                    location: model.location,
-                    cpu_count: model.cpu_count.map(|n| n.try_into()).transpose()?,
-                    mem_size: model.mem_size.map(|n| n.try_into()).transpose()?,
-                    disk_size: model.disk_size.map(|n| n.try_into()).transpose()?,
-                    os: model.os,
-                    os_version: model.os_version,
-                    ip: model.ip_addr,
-                    status: model.status.into(),
-                    created_at: Some(convert::try_dt_to_ts(model.created_at)?),
-                    ip_range_from: Some(model.ip_range_from.ip().to_string()),
-                    ip_range_to: Some(model.ip_range_to.ip().to_string()),
-                    ip_gateway: Some(model.ip_gateway.ip().to_string()),
-                };
-                Ok(dto)
-            })
-            .collect()
-    }
-
-    pub async fn from_model(model: models::Host) -> crate::Result<Self> {
-        Ok(Self::from_models(vec![model]).await?[0].clone())
-    }
-}
-
-impl api::CreateHostRequest {
-    pub fn as_new(&self) -> crate::Result<models::NewHost<'_>> {
-        Ok(models::NewHost {
-            name: &self.name,
-            version: self.version.as_deref(),
-            location: self.location.as_deref(),
-            cpu_count: self.cpu_count.map(|n| n.try_into()).transpose()?,
-            mem_size: self.mem_size.map(|n| n.try_into()).transpose()?,
-            disk_size: self.disk_size.map(|n| n.try_into()).transpose()?,
-            os: self.os.as_deref(),
-            os_version: self.os_version.as_deref(),
-            ip_addr: &self.ip_addr,
-            status: models::ConnectionStatus::Online,
-            ip_range_from: self.ip_range_from.parse()?,
-            ip_range_to: self.ip_range_to.parse()?,
-            ip_gateway: self.ip_gateway.parse()?,
-        })
-    }
-}
-
-impl api::UpdateHostRequest {
-    pub fn as_update(&self) -> crate::Result<models::UpdateHost<'_>> {
-        Ok(models::UpdateHost {
-            id: self.id.parse()?,
-            name: self.name.as_deref(),
-            version: self.version.as_deref(),
-            location: self.location.as_deref(),
-            cpu_count: None,
-            mem_size: None,
-            disk_size: None,
-            os: self.os.as_deref(),
-            os_version: self.os_version.as_deref(),
-            ip_addr: None,
-            status: None,
-            ip_range_from: None,
-            ip_range_to: None,
-            ip_gateway: None,
-        })
-    }
-}
 
 #[tonic::async_trait]
 impl hosts_server::Hosts for super::GrpcImpl {
@@ -216,5 +94,105 @@ impl hosts_server::Hosts for super::GrpcImpl {
             origin_request_id: request_id,
         };
         Ok(Response::new(result))
+    }
+}
+
+impl api::Host {
+    pub async fn from_models(models: Vec<models::Host>) -> crate::Result<Vec<Self>> {
+        models
+            .into_iter()
+            .map(|model| {
+                let dto = Self {
+                    id: model.id.to_string(),
+                    name: model.name,
+                    version: model.version,
+                    location: model.location,
+                    cpu_count: model.cpu_count.map(|n| n.try_into()).transpose()?,
+                    mem_size: model.mem_size.map(|n| n.try_into()).transpose()?,
+                    disk_size: model.disk_size.map(|n| n.try_into()).transpose()?,
+                    os: model.os,
+                    os_version: model.os_version,
+                    ip: model.ip_addr,
+                    status: model.status.into(),
+                    created_at: Some(super::try_dt_to_ts(model.created_at)?),
+                    ip_range_from: Some(model.ip_range_from.ip().to_string()),
+                    ip_range_to: Some(model.ip_range_to.ip().to_string()),
+                    ip_gateway: Some(model.ip_gateway.ip().to_string()),
+                };
+                Ok(dto)
+            })
+            .collect()
+    }
+
+    pub async fn from_model(model: models::Host) -> crate::Result<Self> {
+        Ok(Self::from_models(vec![model]).await?[0].clone())
+    }
+}
+
+impl api::CreateHostRequest {
+    pub fn as_new(&self) -> crate::Result<models::NewHost<'_>> {
+        Ok(models::NewHost {
+            name: &self.name,
+            version: self.version.as_deref(),
+            location: self.location.as_deref(),
+            cpu_count: self.cpu_count.map(|n| n.try_into()).transpose()?,
+            mem_size: self.mem_size.map(|n| n.try_into()).transpose()?,
+            disk_size: self.disk_size.map(|n| n.try_into()).transpose()?,
+            os: self.os.as_deref(),
+            os_version: self.os_version.as_deref(),
+            ip_addr: &self.ip_addr,
+            status: models::ConnectionStatus::Online,
+            ip_range_from: self.ip_range_from.parse()?,
+            ip_range_to: self.ip_range_to.parse()?,
+            ip_gateway: self.ip_gateway.parse()?,
+        })
+    }
+}
+
+impl api::UpdateHostRequest {
+    pub fn as_update(&self) -> crate::Result<models::UpdateHost<'_>> {
+        Ok(models::UpdateHost {
+            id: self.id.parse()?,
+            name: self.name.as_deref(),
+            version: self.version.as_deref(),
+            location: self.location.as_deref(),
+            cpu_count: None,
+            mem_size: None,
+            disk_size: None,
+            os: self.os.as_deref(),
+            os_version: self.os_version.as_deref(),
+            ip_addr: None,
+            status: None,
+            ip_range_from: None,
+            ip_range_to: None,
+            ip_gateway: None,
+        })
+    }
+}
+
+impl api::ProvisionHostRequest {
+    pub fn as_new(&self, provision: models::HostProvision) -> crate::Result<models::NewHost<'_>> {
+        let new_host = models::NewHost {
+            name: &self.name,
+            version: Some(&self.version),
+            location: None,
+            cpu_count: Some(self.cpu_count),
+            mem_size: Some(self.mem_size_bytes),
+            disk_size: Some(self.disk_size_bytes),
+            os: Some(&self.os),
+            os_version: Some(&self.os_version),
+            ip_addr: &self.ip,
+            status: self.status.try_into()?,
+            ip_range_from: provision
+                .ip_range_from
+                .ok_or_else(helpers::required("provision.ip_range_from"))?,
+            ip_range_to: provision
+                .ip_range_to
+                .ok_or_else(helpers::required("provision.ip_range_to"))?,
+            ip_gateway: provision
+                .ip_gateway
+                .ok_or_else(helpers::required("provision.ip_gateway"))?,
+        };
+        Ok(new_host)
     }
 }
