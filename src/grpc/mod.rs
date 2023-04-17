@@ -69,26 +69,13 @@ macro_rules! bail_unauthorized {
 
 use bail_unauthorized;
 
-pub async fn server(
-    db: models::DbPool,
-) -> Router<
-    Stack<
-        Stack<
-            CorsLayer,
-            Stack<
-                AsyncRequireAuthorizationLayer<AuthorizationService>,
-                Stack<
-                    Extension<UnauthenticatedPaths>,
-                    Stack<
-                        Extension<models::DbPool>,
-                        Stack<TraceLayer<SharedClassifier<GrpcErrorsAsFailures>>, Identity>,
-                    >,
-                >,
-            >,
-        >,
-        Identity,
-    >,
-> {
+type TracedServer = Stack<TraceLayer<SharedClassifier<GrpcErrorsAsFailures>>, Identity>;
+type DbServer = Stack<Extension<models::DbPool>, TracedServer>;
+type UnauthServer = Stack<Extension<UnauthenticatedPaths>, DbServer>;
+type AuthServer = Stack<AsyncRequireAuthorizationLayer<AuthorizationService>, UnauthServer>;
+type CorsServer = Stack<Stack<CorsLayer, AuthServer>, Identity>;
+
+pub async fn server(db: models::DbPool) -> Router<CorsServer> {
     // Add unauthenticated paths. TODO: Should this reside in some config file?
     let unauthenticated = UnauthenticatedPaths::new(vec![
         // This path is unauthenticated because you need to have the OTP to create a new host, and
@@ -126,24 +113,23 @@ pub async fn server(
     let organization = api::orgs_server::OrgsServer::new(impler.clone());
     let user = api::users_server::UsersServer::new(impler);
 
+    let cors_rules = CorsLayer::new()
+        .allow_headers(tower_http::cors::Any)
+        .allow_methods(tower_http::cors::Any)
+        .allow_origin(tower_http::cors::Any);
+
     let middleware = tower::ServiceBuilder::new()
         .layer(TraceLayer::new_for_grpc())
-        .layer(Extension(db.clone()))
+        .layer(Extension(db))
         .layer(Extension(unauthenticated))
         .layer(AsyncRequireAuthorizationLayer::new(auth_service))
-        .layer(
-            CorsLayer::new()
-                .allow_headers(tower_http::cors::Any)
-                .allow_methods(tower_http::cors::Any)
-                .allow_origin(tower_http::cors::Any),
-        )
+        .layer(cors_rules)
         .into_inner();
 
     Server::builder()
         .layer(middleware)
         .concurrency_limit_per_connection(rate_limiting_settings())
         .add_service(authentication)
-        // .add_service(billing)
         .add_service(blockchain)
         .add_service(command)
         .add_service(discovery)

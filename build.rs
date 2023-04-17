@@ -11,7 +11,6 @@ fn main() {
                 "service.proto",
                 // Blockjoy API
                 "v1/authentication.proto",
-                "v1/billing.proto",
                 "v1/blockchain.proto",
                 "v1/command.proto",
                 "v1/discovery.proto",

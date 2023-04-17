@@ -1,5 +1,4 @@
 use blockvisor_api::grpc::api::authentication_client;
-use blockvisor_api::grpc::api::billings_client;
 use blockvisor_api::grpc::api::blockchains_client;
 use blockvisor_api::grpc::api::commands_client;
 use blockvisor_api::grpc::api::discovery_client;
@@ -18,12 +17,6 @@ pub trait GrpcClient<T> {
 }
 
 impl GrpcClient<Channel> for authentication_client::AuthenticationClient<Channel> {
-    fn create(channel: Channel) -> Self {
-        Self::new(channel)
-    }
-}
-
-impl GrpcClient<Channel> for billings_client::BillingsClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
