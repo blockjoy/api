@@ -384,10 +384,10 @@ impl api::ListNodesRequest {
             org_id: self.org_id.parse()?,
             offset: self.offset,
             limit: self.limit,
-            status: self.status().map(|s| s.into_model()).collect(),
-            node_types: self.node_type().map(|t| t.into_model()).collect(),
+            status: self.statuses().map(|s| s.into_model()).collect(),
+            node_types: self.node_types().map(|t| t.into_model()).collect(),
             blockchains: self
-                .blockchain_id
+                .blockchain_ids
                 .iter()
                 .map(|id| id.parse())
                 .collect::<Result<_, _>>()?,
