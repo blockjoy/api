@@ -1,8 +1,13 @@
+// This file contains messages that are being sent over our message queue, MQTT.
+// Not all messages that are sent over MQTT are included here, but some of the
+// messages need special 
+
 syntax = "proto3";
 
-package blockjoy.api.ui_v1;
+package v1;
 
-import "common.proto";
+import "v1/node.proto";
+import "v1/organization.proto";
 
 // A message about an event that happened to a node.
 message NodeMessage {
@@ -44,14 +49,14 @@ message OrgMessage {
 }
 
 message OrgCreated {
-  Organization org = 1;
+  v1.Organization org = 1;
   string created_by = 2;
   string created_by_name = 3;
   string created_by_email = 4;
 }
 
 message OrgUpdated {
-  Organization org = 1;
+  v1.Organization org = 1;
   string updated_by = 2;
   string updated_by_name = 3;
   string updated_by_email = 4;

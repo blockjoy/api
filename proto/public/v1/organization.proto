@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "v1/user.proto";
+
+// Organization representation
+message Organization {
+  // The UUID of a the organization.
+  string id = 1;
+  // The name of this organization.
+  string name = 2;
+  // If this field is set to true, this organization is a personal
+  // organization. A personal organization is the default organzation for a
+  // user that contains only them.
+  bool personal = 3;
+  // The number of users in this organization.
+  uint64 member_count = 4;
+  // The moment which this organization was created.
+  google.protobuf.Timestamp created_at = 13;
+  // The moment which this organization was last updated.
+  google.protobuf.Timestamp updated_at = 14;
+  // This field contains the users of this organization.
+  repeated OrgUser members = 15;
+}
+
+message OrgUser {
+  enum OrgRole {
+    ORG_ROLE_UNSPECIFIED = 0;
+    ORG_ROLE_MEMBER = 1;
+    ORG_ROLE_OWNER = 2;
+    ORG_ROLE_ADMIN = 3;
+  }
+
+  string user_id = 1;
+  string org_id = 2;
+  OrgRole role = 3;
+}
+
+// Manage organizations
+service Orgs {
+  // Get all the organizations for a user. All users automatically get a private
+  // (internal) organization. 
+  rpc Get(GetOrganizationsRequest) returns (GetOrganizationsResponse);
+  // Create a single organization
+  rpc Create(CreateOrganizationRequest) returns (CreateOrganizationResponse);
+  // Update a single organization
+  rpc Update(UpdateOrganizationRequest) returns (UpdateOrganizationResponse);
+  // Mark a single organization as deleted
+  rpc Delete(DeleteOrganizationRequest) returns (DeleteOrganizationResponse);
+  // Restore a previously deleted organization
+  rpc Restore(RestoreOrganizationRequest) returns (RestoreOrganizationResponse);
+  // Retrieve organization members
+  rpc Members(OrganizationMemberRequest) returns (OrganizationMemberResponse);
+  // Remove organization member
+  rpc RemoveMember(RemoveMemberRequest) returns (google.protobuf.Empty);
+  // Leave an organization the user is member of
+  rpc Leave(LeaveOrganizationRequest) returns (google.protobuf.Empty);
+}
+
+message GetOrganizationsRequest {
+  optional string org_id = 1;
+}
+
+message GetOrganizationsResponse {
+  repeated Organization organizations = 1;
+}
+
+message CreateOrganizationRequest {
+  string name = 1;
+}
+
+message CreateOrganizationResponse {
+  Organization organization = 1;
+}
+
+message UpdateOrganizationRequest {
+  // The id of the organization to be updated.
+  string id = 1;
+  // If this value is provided, the name of the organization will be set to the
+  // provided value.
+  optional string name = 2;
+}
+
+message UpdateOrganizationResponse {
+}
+
+message DeleteOrganizationRequest {
+  string id = 1;
+}
+
+message DeleteOrganizationResponse {
+}
+
+message OrganizationMemberRequest {
+  string id = 1;
+}
+
+message OrganizationMemberResponse {
+  repeated User users = 1;
+}
+
+message RestoreOrganizationRequest {
+  string id = 1;
+}
+
+message RestoreOrganizationResponse {
+  Organization organization = 1;
+}
+
+message RemoveMemberRequest {
+  string user_id = 1;
+  string org_id = 2;
+}
+
+message LeaveOrganizationRequest {
+  string org_id = 1;
+}

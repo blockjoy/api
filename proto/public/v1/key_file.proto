@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package v1;
+
+// A single keyfile representation
+message Keyfile {
+  string name = 1;
+  bytes content = 2;
+}
+
+service KeyFiles {
+  // Return all available key files for given node ID
+  rpc Get(KeyFilesGetRequest) returns (KeyFilesGetResponse);
+  // Save key files for given node ID
+  rpc Save(KeyFilesSaveRequest) returns (KeyFilesSaveResponse);
+}
+
+message KeyFilesGetRequest {
+  string node_id = 1;
+}
+
+message KeyFilesGetResponse {
+  repeated Keyfile key_files = 1;
+}
+
+message KeyFilesSaveRequest {
+  string node_id = 1;
+  repeated Keyfile key_files = 2;
+}
+
+message KeyFilesSaveResponse {
+  repeated string messages = 1;
+}
