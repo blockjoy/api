@@ -165,7 +165,10 @@ impl nodes_server::Nodes for super::GrpcImpl {
         .await
     }
 
-    async fn delete(&self, request: Request<api::DeleteNodeRequest>) -> super::Result<()> {
+    async fn delete(
+        &self,
+        request: Request<api::DeleteNodeRequest>,
+    ) -> super::Result<api::DeleteNodeResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let user_id = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?.id;
         let inner = request.into_inner();
@@ -227,7 +230,8 @@ impl nodes_server::Nodes for super::GrpcImpl {
             .scope_boxed()
         })
         .await?;
-        super::response_with_refresh_token(refresh_token, ())
+        let resp = api::DeleteNodeResponse {};
+        super::response_with_refresh_token(refresh_token, resp)
     }
 }
 
@@ -286,6 +290,8 @@ impl api::Node {
         blockchain: &models::Blockchain,
         user: Option<&models::User>,
     ) -> crate::Result<Self> {
+        use api::node::{ContainerStatus, NodeStatus, NodeType, StakingStatus, SyncStatus};
+
         let properties = node
             .properties()?
             .properties
@@ -293,7 +299,7 @@ impl api::Node {
             .flatten()
             .map(api::node::NodeProperty::from_model)
             .collect();
-        Ok(Self {
+        let mut dto = Self {
             id: node.id.to_string(),
             org_id: node.org_id.to_string(),
             host_id: node.host_id.to_string(),
@@ -304,18 +310,15 @@ impl api::Node {
             version: node.version,
             ip: Some(node.ip_addr),
             ip_gateway: node.ip_gateway,
-            node_type: node.node_type.into(),
+            node_type: 0, // We use the setter to set this field for type-safety
             properties,
             block_height: node.block_height.map(i64::from),
             created_at: Some(super::try_dt_to_ts(node.created_at)?),
             updated_at: Some(super::try_dt_to_ts(node.updated_at)?),
-            status: api::node::NodeStatus::from_model(node.chain_status).into(),
-            staking_status: node
-                .staking_status
-                .map(api::node::StakingStatus::from_model)
-                .map(Into::into),
-            container_status: api::node::ContainerStatus::from_model(node.container_status).into(),
-            sync_status: api::node::SyncStatus::from_model(node.sync_status).into(),
+            status: 0,            // We use the setter to set this field for type-safety
+            staking_status: None, // We use the setter to set this field for type-safety
+            container_status: 0,  // We use the setter to set this field for type-safety
+            sync_status: 0,       // We use the setter to set this field for type-safety
             self_update: node.self_update,
             network: node.network,
             blockchain_name: Some(blockchain.name.clone()),
@@ -324,7 +327,15 @@ impl api::Node {
             created_by_email: user.map(|u| u.email.clone()),
             allow_ips: super::json_value_to_vec(&node.allow_ips)?,
             deny_ips: super::json_value_to_vec(&node.deny_ips)?,
-        })
+        };
+        dto.set_node_type(NodeType::from_model(node.node_type));
+        dto.set_status(NodeStatus::from_model(node.chain_status));
+        if let Some(ss) = node.staking_status {
+            dto.set_staking_status(StakingStatus::from_model(ss));
+        }
+        dto.set_container_status(ContainerStatus::from_model(node.container_status));
+        dto.set_sync_status(SyncStatus::from_model(node.sync_status));
+        Ok(dto)
     }
 }
 
@@ -373,18 +384,8 @@ impl api::ListNodesRequest {
             org_id: self.org_id.parse()?,
             offset: self.offset,
             limit: self.limit,
-            status: self
-                .status
-                .iter()
-                .copied()
-                .map(models::NodeChainStatus::try_from)
-                .collect::<crate::Result<_>>()?,
-            node_types: self
-                .status
-                .iter()
-                .copied()
-                .map(models::NodeType::try_from)
-                .collect::<crate::Result<_>>()?,
+            status: self.status().map(|s| s.into_model()).collect(),
+            node_types: self.node_type().map(|t| t.into_model()).collect(),
             blockchains: self
                 .blockchain_id
                 .iter()
@@ -406,13 +407,48 @@ impl api::UpdateNodeRequest {
             chain_status: None,
             sync_status: None,
             staking_status: None,
-            container_status: self
-                .container_status
-                .map(models::ContainerStatus::try_from)
-                .transpose()?,
+            container_status: Some(self.container_status().into_model()),
             self_update: self.self_update,
             address: self.address.as_deref(),
         })
+    }
+}
+
+impl api::node::NodeType {
+    pub fn from_model(model: models::NodeType) -> Self {
+        match model {
+            models::NodeType::Unknown => Self::Unspecified,
+            models::NodeType::Miner => Self::Miner,
+            models::NodeType::Etl => Self::Etl,
+            models::NodeType::Validator => Self::Validator,
+            models::NodeType::Api => Self::Api,
+            models::NodeType::Oracle => Self::Oracle,
+            models::NodeType::Relay => Self::Relay,
+            models::NodeType::Execution => Self::Execution,
+            models::NodeType::Beacon => Self::Beacon,
+            models::NodeType::MevBoost => Self::Mevboost,
+            models::NodeType::Node => Self::Node,
+            models::NodeType::FullNode => Self::Fullnode,
+            models::NodeType::LightNode => Self::Lightnode,
+        }
+    }
+
+    fn into_model(self) -> models::NodeType {
+        match self {
+            Self::Unspecified => models::NodeType::Unknown,
+            Self::Miner => models::NodeType::Miner,
+            Self::Etl => models::NodeType::Etl,
+            Self::Validator => models::NodeType::Validator,
+            Self::Api => models::NodeType::Api,
+            Self::Oracle => models::NodeType::Oracle,
+            Self::Relay => models::NodeType::Relay,
+            Self::Execution => models::NodeType::Execution,
+            Self::Beacon => models::NodeType::Beacon,
+            Self::Mevboost => models::NodeType::MevBoost,
+            Self::Node => models::NodeType::Node,
+            Self::Fullnode => models::NodeType::FullNode,
+            Self::Lightnode => models::NodeType::LightNode,
+        }
     }
 }
 
@@ -431,6 +467,23 @@ impl api::node::ContainerStatus {
             models::ContainerStatus::Deleted => Self::Deleted,
             models::ContainerStatus::Installing => Self::Installing,
             models::ContainerStatus::Snapshotting => Self::Snapshotting,
+        }
+    }
+
+    fn into_model(self) -> models::ContainerStatus {
+        match self {
+            Self::Unspecified => models::ContainerStatus::Unknown,
+            Self::Creating => models::ContainerStatus::Creating,
+            Self::Running => models::ContainerStatus::Running,
+            Self::Starting => models::ContainerStatus::Starting,
+            Self::Stopping => models::ContainerStatus::Stopping,
+            Self::Stopped => models::ContainerStatus::Stopped,
+            Self::Upgrading => models::ContainerStatus::Upgrading,
+            Self::Upgraded => models::ContainerStatus::Upgraded,
+            Self::Deleting => models::ContainerStatus::Deleting,
+            Self::Deleted => models::ContainerStatus::Deleted,
+            Self::Installing => models::ContainerStatus::Installing,
+            Self::Snapshotting => models::ContainerStatus::Snapshotting,
         }
     }
 }
@@ -458,6 +511,29 @@ impl api::node::NodeStatus {
             models::NodeChainStatus::Removing => Self::Removing,
         }
     }
+
+    pub fn into_model(self) -> models::NodeChainStatus {
+        match self {
+            Self::Unspecified => models::NodeChainStatus::Unknown,
+            Self::Provisioning => models::NodeChainStatus::Provisioning,
+            Self::Broadcasting => models::NodeChainStatus::Broadcasting,
+            Self::Cancelled => models::NodeChainStatus::Cancelled,
+            Self::Delegating => models::NodeChainStatus::Delegating,
+            Self::Delinquent => models::NodeChainStatus::Delinquent,
+            Self::Disabled => models::NodeChainStatus::Disabled,
+            Self::Earning => models::NodeChainStatus::Earning,
+            Self::Electing => models::NodeChainStatus::Electing,
+            Self::Elected => models::NodeChainStatus::Elected,
+            Self::Exported => models::NodeChainStatus::Exported,
+            Self::Ingesting => models::NodeChainStatus::Ingesting,
+            Self::Mining => models::NodeChainStatus::Mining,
+            Self::Minting => models::NodeChainStatus::Minting,
+            Self::Processing => models::NodeChainStatus::Processing,
+            Self::Relaying => models::NodeChainStatus::Relaying,
+            Self::Removed => models::NodeChainStatus::Removed,
+            Self::Removing => models::NodeChainStatus::Removing,
+        }
+    }
 }
 
 impl api::node::StakingStatus {
@@ -472,6 +548,18 @@ impl api::node::StakingStatus {
             models::NodeStakingStatus::Unstaked => Self::Unstaked,
         }
     }
+
+    pub fn into_model(self) -> models::NodeStakingStatus {
+        match self {
+            Self::Unspecified => models::NodeStakingStatus::Unknown,
+            Self::Follower => models::NodeStakingStatus::Follower,
+            Self::Staked => models::NodeStakingStatus::Staked,
+            Self::Staking => models::NodeStakingStatus::Staking,
+            Self::Validating => models::NodeStakingStatus::Validating,
+            Self::Consensus => models::NodeStakingStatus::Consensus,
+            Self::Unstaked => models::NodeStakingStatus::Unstaked,
+        }
+    }
 }
 
 impl api::node::SyncStatus {
@@ -480,6 +568,14 @@ impl api::node::SyncStatus {
             models::NodeSyncStatus::Unknown => Self::Unspecified,
             models::NodeSyncStatus::Syncing => Self::Syncing,
             models::NodeSyncStatus::Synced => Self::Synced,
+        }
+    }
+
+    pub fn into_model(self) -> models::NodeSyncStatus {
+        match self {
+            Self::Unspecified => models::NodeSyncStatus::Unknown,
+            Self::Syncing => models::NodeSyncStatus::Syncing,
+            Self::Synced => models::NodeSyncStatus::Synced,
         }
     }
 }

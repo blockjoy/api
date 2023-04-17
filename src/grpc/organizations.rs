@@ -174,15 +174,15 @@ impl orgs_server::Orgs for super::GrpcImpl {
 
     async fn members(
         &self,
-        request: Request<api::OrgMemberRequest>,
-    ) -> super::Result<api::OrgMemberResponse> {
+        request: Request<api::OrgMembersRequest>,
+    ) -> super::Result<api::OrgMembersResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let request = request.into_inner();
         let org_id = request.id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
         let users = models::Org::find_all_member_users(org_id, &mut conn).await?;
         let users: crate::Result<_> = users.into_iter().map(api::User::from_model).collect();
-        let response = api::OrgMemberResponse { users: users? };
+        let response = api::OrgMembersResponse { users: users? };
         super::response_with_refresh_token(refresh_token, response)
     }
 
@@ -290,7 +290,7 @@ impl api::Org {
                                 user_id: ou.user_id.to_string(),
                                 org_id: ou.org_id.to_string(),
                                 role: ou.role as i32,
-                                name: format!("{} {}", user.first_name, user.last_name),
+                                name: user.name(),
                                 email: user.email.clone(),
                             }
                         })

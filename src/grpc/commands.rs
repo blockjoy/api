@@ -108,6 +108,8 @@ impl api::Command {
         let node_cmd = |command, node_id| {
             Ok(api::Command {
                 id: model.id.to_string(),
+                response: model.response.clone(),
+                exit_code: model.exit_status,
                 command: Some(command::Command::Node(api::NodeCommand {
                     node_id,
                     host_id: model.host_id.to_string(),
@@ -124,6 +126,8 @@ impl api::Command {
         let host_cmd = |host_id| {
             Ok(api::Command {
                 id: model.id.to_string(),
+                response: model.response.clone(),
+                exit_code: model.exit_status,
                 command: Some(command::Command::Host(api::HostCommand { host_id })),
             })
         };
@@ -136,6 +140,7 @@ impl api::Command {
                 let node = models::Node::find_by_id(node_id()?, conn).await?;
                 let cmd = Command::Update(api::NodeUpdate {
                     self_update: Some(node.self_update),
+                    rules: vec![], // todo after T merges this
                 });
                 node_cmd_default_id(cmd)
             }
@@ -146,12 +151,14 @@ impl api::Command {
             CreateNode => {
                 let node = models::Node::find_by_id(node_id()?, conn).await?;
                 let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
-                let image = api::ContainerImage {
+                let mut image = api::ContainerImage {
                     protocol: blockchain.name,
-                    node_type: node.node_type.to_string().to_lowercase(),
                     node_version: node.version.as_deref().unwrap_or("latest").to_lowercase(),
-                    status: api::container_image::StatusName::Development.into(),
+                    node_type: 0, // We use the setter to set this field for type-safety
+                    status: 0,    // We use the setter to set this field for type-safety
                 };
+                image.set_node_type(api::node::NodeType::from_model(node.node_type));
+                image.set_status(api::container_image::StatusName::Development);
                 let network = api::Parameter::new("network", &node.network);
                 let properties = node
                     .properties()?
@@ -160,16 +167,19 @@ impl api::Command {
                     .map(|(name, value)| api::Parameter::new(name, value))
                     .chain([network])
                     .collect();
-                let cmd = Command::Create(api::NodeCreate {
+                let mut node_create = api::NodeCreate {
                     name: node.name,
                     blockchain: node.blockchain_id.to_string(),
                     image: Some(image),
-                    node_type: node.node_type.into(),
+                    node_type: 0, // We use the setter to set this field for type-safety
                     ip: node.ip_addr,
                     gateway: node.ip_gateway,
                     self_update: node.self_update,
                     properties,
-                });
+                    rules: vec![], // todo after T merges this
+                };
+                node_create.set_node_type(api::node::NodeType::from_model(node.node_type));
+                let cmd = Command::Create(node_create);
 
                 node_cmd_default_id(cmd)
             }

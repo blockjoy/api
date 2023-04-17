@@ -25,7 +25,7 @@ fn main() {
                 "v1/organization.proto",
                 "v1/user.proto",
             ],
-            &["cookbook_protos", "proto"],
+            &["cookbook_protos", "proto/public"],
         )
     {
         eprintln!("Building protos failed with:\n{e}");

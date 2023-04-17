@@ -19,31 +19,24 @@ pub enum NodeType {
     LightNode = 12,
 }
 
-impl NodeType {
-    pub fn str_from_value(value: i32) -> String {
-        match value {
-            0 => "Unknown".to_string(),
-            1 => "Miner".to_string(),
-            2 => "ETL".to_string(),
-            3 => "Validator".to_string(),
-            4 => "API".to_string(),
-            5 => "Oracle".to_string(),
-            6 => "Relay".to_string(),
-            7 => "Execution".to_string(),
-            8 => "Beacon".to_string(),
-            9 => "MEVBoost".to_string(),
-            10 => "Node".to_string(),
-            11 => "FullNode".to_string(),
-            12 => "LightNode".to_string(),
-            _ => "Unknown".to_string(),
-        }
-    }
-}
-
 impl std::fmt::Display for NodeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let i: i32 = (*self).into();
-        write!(f, "{}", Self::str_from_value(i))
+        let s = match self {
+            Self::Unknown => "Unknown",
+            Self::Miner => "Miner",
+            Self::Etl => "ETL",
+            Self::Validator => "Validator",
+            Self::Api => "API",
+            Self::Oracle => "Oracle",
+            Self::Relay => "Relay",
+            Self::Execution => "Execution",
+            Self::Beacon => "Beacon",
+            Self::MevBoost => "MEVBoost",
+            Self::Node => "Node",
+            Self::FullNode => "FullNode",
+            Self::LightNode => "LightNode",
+        };
+        write!(f, "{s}")
     }
 }
 
@@ -121,19 +114,18 @@ mod tests {
 
     #[test]
     fn returns_valid_string_for_value() {
-        assert_eq!(NodeType::str_from_value(0), "Unknown");
-        assert_eq!(NodeType::str_from_value(1), "Miner");
-        assert_eq!(NodeType::str_from_value(2), "ETL");
-        assert_eq!(NodeType::str_from_value(3), "Validator");
-        assert_eq!(NodeType::str_from_value(4), "API");
-        assert_eq!(NodeType::str_from_value(5), "Oracle");
-        assert_eq!(NodeType::str_from_value(6), "Relay");
-        assert_eq!(NodeType::str_from_value(7), "Execution");
-        assert_eq!(NodeType::str_from_value(8), "Beacon");
-        assert_eq!(NodeType::str_from_value(9), "MEVBoost");
-        assert_eq!(NodeType::str_from_value(10), "Node");
-        assert_eq!(NodeType::str_from_value(11), "FullNode");
-        assert_eq!(NodeType::str_from_value(12), "LightNode");
-        assert_eq!(NodeType::str_from_value(100), "Unknown");
+        assert_eq!(NodeType::Unknown.to_string(), "Unknown");
+        assert_eq!(NodeType::Miner.to_string(), "Miner");
+        assert_eq!(NodeType::Etl.to_string(), "ETL");
+        assert_eq!(NodeType::Validator.to_string(), "Validator");
+        assert_eq!(NodeType::Api.to_string(), "API");
+        assert_eq!(NodeType::Oracle.to_string(), "Oracle");
+        assert_eq!(NodeType::Relay.to_string(), "Relay");
+        assert_eq!(NodeType::Execution.to_string(), "Execution");
+        assert_eq!(NodeType::Beacon.to_string(), "Beacon");
+        assert_eq!(NodeType::MevBoost.to_string(), "MEVBoost");
+        assert_eq!(NodeType::Node.to_string(), "Node");
+        assert_eq!(NodeType::FullNode.to_string(), "FullNode");
+        assert_eq!(NodeType::LightNode.to_string(), "LightNode");
     }
 }

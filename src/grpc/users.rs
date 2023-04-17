@@ -34,11 +34,14 @@ impl users_server::Users for super::GrpcImpl {
         }
         let new_user = inner.as_new()?;
         let new_user = self.trx(|c| new_user.create(c).scope_boxed()).await?;
-        let response = api::CreateUserResponse {};
 
         MailClient::new()
             .registration_confirmation(&new_user)
             .await?;
+
+        let response = api::CreateUserResponse {
+            user: Some(api::User::from_model(new_user.clone())?),
+        };
 
         Ok(Response::new(response))
     }
@@ -77,7 +80,7 @@ impl users_server::Users for super::GrpcImpl {
     async fn delete(
         &self,
         request: Request<api::DeleteUserRequest>,
-    ) -> Result<Response<()>, Status> {
+    ) -> Result<Response<api::DeleteUserResponse>, Status> {
         let refresh_token = super::get_refresh_token(&request);
         let token = request
             .extensions()
@@ -91,8 +94,8 @@ impl users_server::Users for super::GrpcImpl {
             .scope_boxed()
         })
         .await?;
-
-        super::response_with_refresh_token(refresh_token, ())
+        let resp = api::DeleteUserResponse {};
+        super::response_with_refresh_token(refresh_token, resp)
     }
 }
 

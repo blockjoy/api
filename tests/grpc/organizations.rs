@@ -52,7 +52,7 @@ async fn responds_ok_for_members() {
     let tester = super::Tester::new().await;
     let user = tester.admin_user().await;
     let org_id = tester.org_for(&user).await.id.to_string();
-    let req = api::OrgMemberRequest { id: org_id };
+    let req = api::OrgMembersRequest { id: org_id };
     tester.send_admin(Service::members, req).await.unwrap();
 }
 

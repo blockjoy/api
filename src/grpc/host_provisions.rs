@@ -3,7 +3,6 @@ use super::helpers::required;
 use crate::models;
 use crate::Result;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_async::AsyncPgConnection;
 use tonic::{Request, Response};
 
 #[tonic::async_trait]
@@ -18,7 +17,7 @@ impl host_provisions_server::HostProvisions for super::GrpcImpl {
         let host_provision =
             models::HostProvision::find_by_id(&host_provision_id, &mut conn).await?;
         let response = api::GetHostProvisionResponse {
-            host_provisions: Some(api::HostProvision::from_model(host_provision, &mut conn)?),
+            host_provisions: Some(api::HostProvision::from_model(host_provision)?),
         };
         Ok(Response::new(response))
     }
@@ -31,16 +30,18 @@ impl host_provisions_server::HostProvisions for super::GrpcImpl {
         let request = request.into_inner();
         let new_provision = request.as_new()?;
 
-        self.trx(|c| new_provision.create(c).scope_boxed()).await?;
+        let host_provision = self.trx(|c| new_provision.create(c).scope_boxed()).await?;
 
-        let response = api::CreateHostProvisionResponse {};
+        let response = api::CreateHostProvisionResponse {
+            host_provision: Some(api::HostProvision::from_model(host_provision)?),
+        };
 
         super::response_with_refresh_token(refresh_token, response)
     }
 }
 
 impl api::HostProvision {
-    fn from_model(hp: models::HostProvision, _conn: &mut AsyncPgConnection) -> Result<Self> {
+    fn from_model(hp: models::HostProvision) -> Result<Self> {
         let install_cmd = hp.install_cmd();
         let hp = Self {
             id: hp.id,

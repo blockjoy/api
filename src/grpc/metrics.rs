@@ -44,13 +44,10 @@ impl api::NodeMetrics {
             id,
             block_height: self.height.map(i64::try_from).transpose()?,
             block_age: self.block_age.map(i64::try_from).transpose()?,
-            staking_status: self
-                .staking_status
-                .map(models::NodeStakingStatus::try_from)
-                .transpose()?,
+            staking_status: Some(self.staking_status().into_model()),
             consensus: self.consensus,
-            chain_status: self.application_status.map(TryInto::try_into).transpose()?,
-            sync_status: self.sync_status.map(TryInto::try_into).transpose()?,
+            chain_status: Some(self.application_status().into_model()),
+            sync_status: Some(self.sync_status().into_model()),
         })
     }
 }

@@ -5,7 +5,6 @@ use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
 use crate::models::{Blockchain, Host, IpAddress};
 use crate::{Error, Result};
-use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -29,30 +28,6 @@ pub enum ContainerStatus {
     Snapshotting,
 }
 
-impl TryFrom<i32> for ContainerStatus {
-    type Error = Error;
-
-    fn try_from(n: i32) -> Result<Self> {
-        match n {
-            0 => Ok(Self::Unknown),
-            1 => Ok(Self::Creating),
-            2 => Ok(Self::Running),
-            3 => Ok(Self::Starting),
-            4 => Ok(Self::Stopping),
-            5 => Ok(Self::Stopped),
-            6 => Ok(Self::Upgrading),
-            7 => Ok(Self::Upgraded),
-            8 => Ok(Self::Deleting),
-            9 => Ok(Self::Deleted),
-            10 => Ok(Self::Installing),
-            11 => Ok(Self::Snapshotting),
-            _ => Err(Error::UnexpectedError(anyhow!(
-                "Cannot convert {n} to ContainerStatus"
-            ))),
-        }
-    }
-}
-
 /// NodeSyncStatus reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumNodeSyncStatus"]
@@ -60,21 +35,6 @@ pub enum NodeSyncStatus {
     Unknown,
     Syncing,
     Synced,
-}
-
-impl TryFrom<i32> for NodeSyncStatus {
-    type Error = Error;
-
-    fn try_from(n: i32) -> Result<Self> {
-        match n {
-            0 => Ok(Self::Unknown),
-            1 => Ok(Self::Syncing),
-            2 => Ok(Self::Synced),
-            _ => Err(Error::UnexpectedError(anyhow!(
-                "Cannot convert {n} to NodeSyncStatus"
-            ))),
-        }
-    }
 }
 
 /// NodeStakingStatus reflects blockjoy.api.v1.node.NodeInfo.StakingStatus in node.proto
@@ -88,25 +48,6 @@ pub enum NodeStakingStatus {
     Validating,
     Consensus,
     Unstaked,
-}
-
-impl TryFrom<i32> for NodeStakingStatus {
-    type Error = Error;
-
-    fn try_from(n: i32) -> Result<Self> {
-        match n {
-            0 => Ok(Self::Unknown),
-            1 => Ok(Self::Follower),
-            2 => Ok(Self::Staked),
-            3 => Ok(Self::Staking),
-            4 => Ok(Self::Validating),
-            5 => Ok(Self::Consensus),
-            6 => Ok(Self::Unstaked),
-            _ => Err(Error::UnexpectedError(anyhow!(
-                "Cannot convert {n} to NodeStakingStatus"
-            ))),
-        }
-    }
 }
 
 /// NodeChainStatus reflects blockjoy.api.v1.node.NodeInfo.ApplicationStatus in node.proto
@@ -131,66 +72,6 @@ pub enum NodeChainStatus {
     Relaying,
     Removed,
     Removing,
-}
-
-impl TryFrom<i32> for NodeChainStatus {
-    type Error = Error;
-
-    fn try_from(n: i32) -> Result<Self> {
-        match n {
-            0 => Ok(Self::Unknown),
-            1 => Ok(Self::Provisioning),
-            2 => Ok(Self::Broadcasting),
-            3 => Ok(Self::Cancelled),
-            4 => Ok(Self::Delegating),
-            5 => Ok(Self::Delinquent),
-            6 => Ok(Self::Disabled),
-            7 => Ok(Self::Earning),
-            8 => Ok(Self::Electing),
-            9 => Ok(Self::Elected),
-            10 => Ok(Self::Exported),
-            11 => Ok(Self::Ingesting),
-            12 => Ok(Self::Mining),
-            13 => Ok(Self::Minting),
-            14 => Ok(Self::Processing),
-            15 => Ok(Self::Relaying),
-            16 => Ok(Self::Removed),
-            17 => Ok(Self::Removing),
-            _ => Err(Error::UnexpectedError(anyhow!(
-                "Cannot convert {n} to NodeChainStatus"
-            ))),
-        }
-    }
-}
-
-impl std::str::FromStr for NodeChainStatus {
-    type Err = Error;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s {
-            "unknown" => Ok(Self::Unknown),
-            "provisioning" => Ok(Self::Provisioning),
-            "broadcasting" => Ok(Self::Broadcasting),
-            "cancelled" => Ok(Self::Cancelled),
-            "delegating" => Ok(Self::Delegating),
-            "delinquent" => Ok(Self::Delinquent),
-            "disabled" => Ok(Self::Disabled),
-            "earning" => Ok(Self::Earning),
-            "electing" => Ok(Self::Electing),
-            "elected" => Ok(Self::Elected),
-            "exported" => Ok(Self::Exported),
-            "ingesting" => Ok(Self::Ingesting),
-            "mining" => Ok(Self::Mining),
-            "minting" => Ok(Self::Minting),
-            "processing" => Ok(Self::Processing),
-            "relaying" => Ok(Self::Relaying),
-            "removed" => Ok(Self::Removed),
-            "removing" => Ok(Self::Removing),
-            _ => Err(Error::UnexpectedError(anyhow!(
-                "Cannot convert `{s}` to NodeChainStatus"
-            ))),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Queryable, Identifiable)]

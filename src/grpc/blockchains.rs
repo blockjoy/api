@@ -50,7 +50,8 @@ impl blockchains_server::Blockchains for super::GrpcImpl {
         for blockchain in &blockchains {
             for node_properties in dbg!(blockchain.supported_node_types())? {
                 let name = blockchain.name.clone();
-                let node_type = models::NodeType::str_from_value(node_properties.id);
+                let node_type = node_properties.id.try_into();
+                let node_type = node_type.unwrap_or(models::NodeType::Unknown).to_string();
                 let version = Some(node_properties.version.clone());
                 network_futs.push(try_get_networks(blockchain.id, name, node_type, version));
             }
