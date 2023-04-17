@@ -34,8 +34,8 @@ p, master_admin, /v1.Invitations/Decline, POST
 p, members,      /v1.Invitations/Decline, POST
 p, master_admin, /v1.Invitations/Revoke, POST
 
+p, master_admin, /v1.KeyFiles/Create, POST
 p, master_admin, /v1.KeyFiles/Get, POST
-p, master_admin, /v1.KeyFiles/Save, POST
 
 p, master_admin, /v1.Metrics/Node, POST
 p, master_admin, /v1.Metrics/Host, POST
