@@ -6,9 +6,15 @@ import "google/protobuf/timestamp.proto";
 import "v1/node.proto";
 
 message Command {
+  // Each command has a unique id that identifies it.
+  string id = 1;
+  // The rest of the fields are split in two. There are commands that are meant
+  // to instrument hosts, and commands that are meant to instrument nodes. The
+  // reason we have this dichotomy is because the commands that go to a node
+  // typically look different from those that go to a host.
   oneof command {
-    NodeCommand node = 1;
-    HostCommand host = 2;
+    NodeCommand node = 2;
+    HostCommand host = 3;
   }
 }
 
@@ -23,6 +29,27 @@ service Commands {
   rpc Update(UpdateCommandRequest) returns (UpdateCommandResponse);
   // Get pending commands for host
   rpc Pending(PendingCommandsRequest) returns (PendingCommandsResponse);
+}
+
+// This request is used to create new commands. They will be stored in the
+// database and then emitted over MQTT. Note that this message cannot be used
+// for creating every possible command. For example, a `CreateNodeCommand` is
+// emitted when `Nodes.Create` is called.
+message CreateCommandRequest {
+  oneof command {
+    // This variant will cause a new `StartNodeCommand` to be created.
+    StartNodeCommand start_node = 1;
+    // This variant will cause a new `StopNodeCommand` to be created.
+    StopNodeCommand stop_node = 2;
+    // This variant will cause a new `RestartNodeCommand` to be created.
+    RestartNodeCommand restart_node = 3;
+    // This variant will cause a new `StartHostCommand` to be created.
+    StartHostCommand start_host = 4;
+    // This variant will cause a new `StopHostCommand` to be created.
+    StopHostCommand stop_host = 5;
+    // This variant will cause a new `RestartHostCommand` to be created.
+    RestartHostCommand restart_host = 6;
+  }
 }
 
 // Implies that the node identified by `node_id` should be started. If the node
@@ -56,20 +83,6 @@ message StopHostCommand {
 
 message RestartHostCommand {
   string host_id = 1;
-}
-
-message CreateCommandRequest {
-  oneof command {
-    // This variant will cause a new `StartNodeCommand` to be created.
-    StartNodeCommand start_node = 1;
-    // This variant will cause a new `StopNodeCommand` to be created.
-    StopNodeCommand stop_node = 2;
-    // This variant will cause a new `RestartNodeCommand` to be created.
-    RestartNodeCommand restart_node = 3;
-    StartHostCommand start_host = 4;
-    StopHostCommand stop_host = 5;
-    RestartHostCommand restart_host = 6;
-  }
 }
 
 message CreateCommandResponse {
