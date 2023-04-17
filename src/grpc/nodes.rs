@@ -78,13 +78,27 @@ impl nodes_server::Nodes for super::GrpcImpl {
         request: Request<api::GetNodeRequest>,
     ) -> super::Result<api::GetNodeResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?.clone();
+        let org_id = helpers::try_get_token::<_, auth::UserAuthToken>(&request)
+            .ok()
+            .map(|t| t.try_org_id())
+            .transpose()?;
+        let host_id = helpers::try_get_token::<_, auth::HostAuthToken>(&request)
+            .ok()
+            .map(|t| t.id);
         let inner = request.into_inner();
         let node_id = inner.id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
         let node = models::Node::find_by_id(node_id, &mut conn).await?;
 
-        if node.org_id != token.try_org_id()? {
+        let is_allowed = if let Some(org_id) = org_id {
+            node.org_id == org_id
+        } else if let Some(host_id) = host_id {
+            node.host_id == host_id
+        } else {
+            false
+        };
+
+        if !is_allowed {
             super::bail_unauthorized!("Access not allowed")
         }
         let response = api::GetNodeResponse {
@@ -111,14 +125,33 @@ impl nodes_server::Nodes for super::GrpcImpl {
         request: Request<api::UpdateNodeRequest>,
     ) -> super::Result<api::UpdateNodeResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?;
-        let user_id = token.id;
+        let user_token = helpers::try_get_token::<_, auth::UserAuthToken>(&request).ok();
+        let org_id = user_token.map(|t| t.try_org_id()).transpose()?;
+        let user_id = user_token.map(|t| t.id);
+        let host_id = helpers::try_get_token::<_, auth::HostAuthToken>(&request)
+            .ok()
+            .map(|t| t.id);
 
         self.trx(|c| {
             async move {
                 let inner = request.into_inner();
+                let node = models::Node::find_by_id(inner.id.parse()?, c).await?;
+
+                let is_allowed = if let Some(org_id) = org_id {
+                    dbg!(node.org_id == org_id)
+                } else if let Some(host_id) = host_id {
+                    dbg!(node.host_id == host_id)
+                } else {
+                    false
+                };
+
+                if !is_allowed {
+                    super::bail_unauthorized!("Access not allowed")
+                }
+
                 let update_node = inner.as_update()?;
-                let user = models::User::find_by_id(user_id, c).await?;
+                let user = user_id.map(|id| models::User::find_by_id(id, c));
+                let user = OptionFuture::from(user).await.transpose()?;
                 let node = update_node.update(c).await?;
 
                 let msg = api::NodeMessage::updated(node, user, c).await?;

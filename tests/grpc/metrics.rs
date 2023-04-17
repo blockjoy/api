@@ -1,20 +1,17 @@
-mod setup;
+use blockvisor_api::grpc::api;
+use blockvisor_api::models;
 
-use api::grpc::blockjoy::{self, metrics_service_client};
-use api::models;
-use tonic::transport;
-
-type Service = metrics_service_client::MetricsServiceClient<transport::Channel>;
+type Service = api::metrics_client::MetricsClient<super::Channel>;
 
 #[tokio::test]
 async fn responds_ok_for_write_node() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let host = tester.host().await;
     let auth = tester.host_token(&host);
     let refresh = tester.refresh_for(&auth);
     let node = tester.node().await;
     let mut metrics = std::collections::HashMap::new();
-    let metric = blockjoy::NodeMetrics {
+    let metric = api::NodeMetrics {
         height: Some(10),
         block_age: Some(5),
         staking_status: Some(4),
@@ -23,7 +20,7 @@ async fn responds_ok_for_write_node() {
         sync_status: Some(2),
     };
     metrics.insert(node.id.to_string(), metric);
-    let req = blockjoy::NodeMetricsRequest { metrics };
+    let req = api::NodeMetricsRequest { metrics };
     tester
         .send_with(Service::node, req, auth, refresh)
         .await
@@ -42,12 +39,12 @@ async fn responds_ok_for_write_node() {
 
 #[tokio::test]
 async fn responds_ok_for_write_node_empty() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let host = tester.host().await;
     let auth = tester.host_token(&host);
     let refresh = tester.refresh_for(&auth);
     let metrics = std::collections::HashMap::new();
-    let req = blockjoy::NodeMetricsRequest { metrics };
+    let req = api::NodeMetricsRequest { metrics };
     tester
         .send_with(Service::node, req, auth, refresh)
         .await
@@ -56,12 +53,12 @@ async fn responds_ok_for_write_node_empty() {
 
 #[tokio::test]
 async fn responds_ok_for_write_host() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let host = tester.host().await;
     let auth = tester.host_token(&host);
     let refresh = tester.refresh_for(&auth);
     let mut metrics = std::collections::HashMap::new();
-    let metric = blockjoy::HostMetrics {
+    let metric = api::HostMetrics {
         used_cpu: Some(201),
         used_memory: Some(1123123123123),
         used_disk_space: Some(3123213123),
@@ -73,7 +70,7 @@ async fn responds_ok_for_write_host() {
         uptime: Some(687678678),
     };
     metrics.insert(host.id.to_string(), metric);
-    let req = blockjoy::HostMetricsRequest { metrics };
+    let req = api::HostMetricsRequest { metrics };
     tester
         .send_with(Service::host, req, auth, refresh)
         .await
@@ -92,12 +89,12 @@ async fn responds_ok_for_write_host() {
 
 #[tokio::test]
 async fn responds_ok_for_write_host_empty() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let host = tester.host().await;
     let auth = tester.host_token(&host);
     let refresh = tester.refresh_for(&auth);
     let metrics = std::collections::HashMap::new();
-    let req = blockjoy::HostMetricsRequest { metrics };
+    let req = api::HostMetricsRequest { metrics };
     tester
         .send_with(Service::host, req, auth, refresh)
         .await

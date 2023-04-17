@@ -107,6 +107,7 @@ impl api::Command {
         // Closure to conveniently construct a api:: from the data that we need to have.
         let node_cmd = |command, node_id| {
             Ok(api::Command {
+                id: model.id.to_string(),
                 command: Some(command::Command::Node(api::NodeCommand {
                     node_id,
                     host_id: model.host_id.to_string(),
@@ -119,6 +120,13 @@ impl api::Command {
         // Construct a api::Command with the node id extracted from the `node.node_id` field.
         // Only `DeleteNode` does not use this method.
         let node_cmd_default_id = |command| node_cmd(command, node_id()?.to_string());
+
+        let host_cmd = |host_id| {
+            Ok(api::Command {
+                id: model.id.to_string(),
+                command: Some(command::Command::Host(api::HostCommand { host_id })),
+            })
+        };
 
         match model.cmd {
             RestartNode => node_cmd_default_id(Command::Restart(api::NodeRestart {})),
@@ -173,12 +181,12 @@ impl api::Command {
                 let cmd = Command::Delete(api::NodeDelete {});
                 node_cmd(cmd, node_id)
             }
-            GetBVSVersion => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            UpdateBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            RestartBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            RemoveBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            CreateBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
-            StopBVS => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),
+            GetBVSVersion => host_cmd(model.host_id.to_string()),
+            UpdateBVS => host_cmd(model.host_id.to_string()),
+            RestartBVS => host_cmd(model.host_id.to_string()),
+            RemoveBVS => host_cmd(model.host_id.to_string()),
+            CreateBVS => host_cmd(model.host_id.to_string()),
+            StopBVS => host_cmd(model.host_id.to_string()),
         }
     }
 }

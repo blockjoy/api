@@ -310,15 +310,18 @@ impl api::NodeMessage {
 
     pub async fn updated(
         model: models::Node,
-        user: models::User,
+        user: Option<models::User>,
         conn: &mut AsyncPgConnection,
     ) -> crate::Result<Self> {
         Ok(Self {
             message: Some(node_message::Message::Updated(api::NodeUpdated {
                 node: Some(api::Node::from_model(model, conn).await?),
-                updated_by: user.id.to_string(),
-                updated_by_name: format!("{} {}", user.first_name, user.last_name),
-                updated_by_email: user.email,
+                updated_by: user.as_ref().map(|u| u.id.to_string()).unwrap_or_default(),
+                updated_by_name: user
+                    .as_ref()
+                    .map(|u| u.name())
+                    .unwrap_or_else(|| "BlockJoy System".to_string()),
+                updated_by_email: user.map(|u| u.email).unwrap_or_default(),
             })),
         })
     }
@@ -393,7 +396,7 @@ mod tests {
         let notifier = Notifier::new().await.unwrap();
         notifier.nodes_sender().send(&msg).await.unwrap();
 
-        let msg = api::NodeMessage::updated(node.clone(), user.clone(), &mut conn)
+        let msg = api::NodeMessage::updated(node.clone(), Some(user.clone()), &mut conn)
             .await
             .unwrap();
         let notifier = Notifier::new().await.unwrap();

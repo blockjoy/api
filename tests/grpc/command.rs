@@ -1,16 +1,13 @@
-mod setup;
+use blockvisor_api::grpc::api;
 
-use api::grpc::blockjoy_ui::{self, command_service_client};
-use tonic::transport;
-
-type Service = command_service_client::CommandServiceClient<transport::Channel>;
+type Service = api::commands_client::CommandServiceClient<transport::Channel>;
 
 /// Returns a semtantically invalid command. This can be used to assert for status codes to your
 /// liking.
-async fn valid_command() -> (setup::Tester, blockjoy_ui::CommandRequest) {
-    let tester = setup::Tester::new().await;
-    let req = blockjoy_ui::CommandRequest {
-        meta: Some(tester.meta()),
+async fn valid_command() -> (super::Tester, api::CommandRequest) {
+    let tester = super::Tester::new().await;
+    let req = api::CommandRequest {
+         
         id: tester.host().await.id.to_string(),
         params: vec![],
     };
@@ -19,10 +16,10 @@ async fn valid_command() -> (setup::Tester, blockjoy_ui::CommandRequest) {
 
 /// Returns a semtantically invalid command. This can be used to assert for InvalidArgument
 /// responses.
-async fn invalid_command() -> (setup::Tester, blockjoy_ui::CommandRequest) {
-    let tester = setup::Tester::new().await;
-    let req = blockjoy_ui::CommandRequest {
-        meta: Some(tester.meta()),
+async fn invalid_command() -> (super::Tester, api::CommandRequest) {
+    let tester = super::Tester::new().await;
+    let req = api::CommandRequest {
+         
         id: "".to_string(),
         params: vec![],
     };

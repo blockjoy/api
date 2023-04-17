@@ -1,6 +1,6 @@
 mod setup;
 
-use api::models;
+use blockvisor_api::models;
 
 #[tokio::test]
 async fn can_blacklist_any_token() {

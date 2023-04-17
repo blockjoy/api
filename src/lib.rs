@@ -203,16 +203,7 @@ mod test {
                 ip_gateway: "192.168.0.1".parse().unwrap(),
             };
 
-            let host1 = host1.create(conn).await.unwrap();
-            models::NewIpAddressRange::try_new(
-                "127.0.0.1".parse().unwrap(),
-                "127.0.0.10".parse().unwrap(),
-                host1.id,
-            )
-            .unwrap()
-            .create(conn)
-            .await
-            .unwrap();
+            host1.create(conn).await.unwrap();
 
             let host2 = models::NewHost {
                 name: "Host-2",
@@ -230,23 +221,33 @@ mod test {
                 ip_gateway: "192.12.0.1".parse().unwrap(),
             };
 
-            host2.create(conn).await.unwrap();
-            let node_id: uuid::Uuid = "cdbbc736-f399-42ab-86cf-617ce983011d".parse().unwrap();
+            let host2 = host2.create(conn).await.unwrap();
 
-            let ip_gateway = host1.ip_gateway.ip().to_string();
-            let ip_addr = models::IpAddress::next_for_host(host1.id, conn)
+            models::NewIpAddressRange::try_new(
+                "127.0.0.1".parse().unwrap(),
+                "127.0.0.10".parse().unwrap(),
+                host2.id,
+            )
+            .unwrap()
+            .create(conn)
+            .await
+            .unwrap();
+
+            let ip_gateway = host2.ip_gateway.ip().to_string();
+            let ip_addr = models::IpAddress::next_for_host(host2.id, conn)
                 .await
                 .unwrap()
                 .ip
                 .ip()
                 .to_string();
 
+            let node_id: uuid::Uuid = "cdbbc736-f399-42ab-86cf-617ce983011d".parse().unwrap();
             diesel::insert_into(nodes::table)
                 .values((
                     nodes::id.eq(node_id),
                     nodes::name.eq("Test Node"),
                     nodes::org_id.eq(org_id),
-                    nodes::host_id.eq(host1.id),
+                    nodes::host_id.eq(host2.id),
                     nodes::blockchain_id.eq(blockchain.id),
                     nodes::properties.eq(Self::test_node_properties()),
                     nodes::block_age.eq(0),
@@ -341,6 +342,7 @@ mod test {
 
         fn test_node_properties() -> serde_json::Value {
             serde_json::json!({
+                "id": 3,
                 "version": "0.0.3",
                 "properties": [
                     {

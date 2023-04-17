@@ -1,18 +1,12 @@
-use crate::setup::Tester;
-use api::auth::FindableById;
-use api::grpc::blockjoy::commands_client::CommandsClient;
-use api::grpc::blockjoy::{CommandInfo, PendingCommandsRequest};
-use api::models;
-use tonic::transport::Channel;
-use uuid::Uuid;
+use blockvisor_api::auth::FindableById;
+use blockvisor_api::grpc::api;
+use blockvisor_api::models;
 
-mod setup;
-
-type Service = CommandsClient<Channel>;
+type Service = api::commands_client::CommandsClient<super::Channel>;
 
 async fn create_command(
-    tester: &Tester,
-    node_id: Uuid,
+    tester: &super::Tester,
+    node_id: uuid::Uuid,
     cmd_type: models::HostCmd,
 ) -> models::Command {
     let host = tester.host().await;
@@ -28,8 +22,43 @@ async fn create_command(
 }
 
 #[tokio::test]
+async fn can_create_each_variant() {
+    use api::create_command_request::Command::*;
+
+    let tester = super::Tester::new().await;
+    let node = tester.node().await;
+    let host = tester.host().await;
+    let variants = [
+        StartNode(api::StartNodeCommand {
+            node_id: node.id.to_string(),
+        }),
+        StopNode(api::StopNodeCommand {
+            node_id: node.id.to_string(),
+        }),
+        RestartNode(api::RestartNodeCommand {
+            node_id: node.id.to_string(),
+        }),
+        StartHost(api::StartHostCommand {
+            host_id: host.id.to_string(),
+        }),
+        StopHost(api::StopHostCommand {
+            host_id: host.id.to_string(),
+        }),
+        RestartHost(api::RestartHostCommand {
+            host_id: host.id.to_string(),
+        }),
+    ];
+    for command in variants {
+        let req = api::CreateCommandRequest {
+            command: Some(command),
+        };
+        tester.send_admin(Service::create, req).await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn responds_ok_with_single_get() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let mut conn = tester.conn().await;
     let node = tester.node().await;
     let update = models::UpdateNode {
@@ -49,26 +78,20 @@ async fn responds_ok_with_single_get() {
     update.update(&mut conn).await.unwrap();
 
     let cmd = create_command(&tester, node.id, models::HostCmd::CreateNode).await;
-    let host = models::Host::find_by_id(cmd.host_id, &mut conn)
-        .await
-        .unwrap();
-    let token = tester.host_token(&host);
-    let refresh = tester.refresh_for(&token);
-    let req = CommandInfo {
+    let req = api::GetCommandRequest {
         id: cmd.id.to_string(),
-        response: None,
-        exit_code: None,
     };
 
-    tester
-        .send_with(Service::get, req, token, refresh)
-        .await
-        .unwrap();
+    let cmd = tester.send_admin(Service::get, req).await.unwrap();
+    assert!(matches!(
+        cmd.command.unwrap().command.unwrap(),
+        api::command::Command::Node(_),
+    ));
 }
 
 #[tokio::test]
 async fn responds_ok_for_update() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let mut conn = tester.conn().await;
     let node = tester.node().await;
     let cmd = create_command(&tester, node.id, models::HostCmd::CreateNode).await;
@@ -77,7 +100,7 @@ async fn responds_ok_for_update() {
         .unwrap();
     let token = tester.host_token(&host);
     let refresh = tester.refresh_for(&token);
-    let req = CommandInfo {
+    let req = api::UpdateCommandRequest {
         id: cmd.id.to_string(),
         response: Some("hugo boss".to_string()),
         exit_code: Some(98),
@@ -98,7 +121,7 @@ async fn responds_ok_for_update() {
 
 #[tokio::test]
 async fn responds_ok_for_pending() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let mut conn = tester.conn().await;
     let node = tester.node().await;
     let update = models::UpdateNode {
@@ -122,7 +145,7 @@ async fn responds_ok_for_pending() {
         .unwrap();
     let token = tester.host_token(&host);
     let refresh = tester.refresh_for(&token);
-    let req = PendingCommandsRequest {
+    let req = api::PendingCommandsRequest {
         host_id: host.id.to_string(),
         filter_type: None,
     };

@@ -1,34 +1,29 @@
-mod setup;
-
-use api::auth::{self, JwtToken};
-use api::grpc::blockjoy_ui;
-use api::grpc::blockjoy_ui::authentication_service_client::AuthenticationServiceClient;
-use api::models;
+use blockvisor_api::auth::{self, JwtToken};
+use blockvisor_api::grpc::api::{self, authentication_client};
+use blockvisor_api::models;
 use std::collections::HashMap;
-use tonic::transport::Channel;
 
-type Service = AuthenticationServiceClient<Channel>;
+type Service = authentication_client::AuthenticationClient<super::Channel>;
 
 #[tokio::test]
-async fn responds_ok_with_valid_credentials_for_login() -> anyhow::Result<()> {
-    let tester = setup::Tester::new().await;
+async fn responds_ok_with_valid_credentials_for_login() {
+    let tester = super::Tester::new().await;
     let mut conn = tester.conn().await;
     // confirm admin user, otherwise login would fail
-    models::User::confirm(tester.admin_user().await.id, &mut conn).await?;
-    let req = blockjoy_ui::LoginUserRequest {
-        meta: Some(tester.meta()),
+    models::User::confirm(tester.admin_user().await.id, &mut conn)
+        .await
+        .unwrap();
+    let req = api::LoginUserRequest {
         email: "admin@here.com".to_string(),
         password: "abc12345".to_string(),
     };
-    tester.send(Service::login, req).await?;
-    Ok(())
+    tester.send(Service::login, req).await.unwrap();
 }
 
 #[tokio::test]
 async fn responds_unauthenticated_with_valid_credentials_for_unconfirmed_user_login() {
-    let tester = setup::Tester::new().await;
-    let req = blockjoy_ui::LoginUserRequest {
-        meta: Some(tester.meta()),
+    let tester = super::Tester::new().await;
+    let req = api::LoginUserRequest {
         email: "admin@here.com".to_string(),
         password: "abc12345".to_string(),
     };
@@ -39,9 +34,8 @@ async fn responds_unauthenticated_with_valid_credentials_for_unconfirmed_user_lo
 
 #[tokio::test]
 async fn responds_error_with_invalid_credentials_for_login() {
-    let tester = setup::Tester::new().await;
-    let bogus = blockjoy_ui::LoginUserRequest {
-        meta: Some(tester.meta()),
+    let tester = super::Tester::new().await;
+    let bogus = api::LoginUserRequest {
         email: "foo@bar.com".to_string(),
         password: "eafe12345".to_string(),
     };
@@ -51,7 +45,7 @@ async fn responds_error_with_invalid_credentials_for_login() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_credentials_for_confirm() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let user = tester.admin_user().await;
     let mut token_data = HashMap::<String, String>::new();
     token_data.insert("email".into(), "hugo@boss.com".into());
@@ -62,11 +56,9 @@ async fn responds_ok_with_valid_credentials_for_confirm() {
         Some(token_data),
     )
     .unwrap();
-    let req = blockjoy_ui::ConfirmRegistrationRequest {
-        meta: Some(tester.meta()),
-    };
+    let req = api::ConfirmRegistrationRequest {};
     tester
-        .send_with(Service::confirm, req, token, setup::DummyRefresh)
+        .send_with(Service::confirm, req, token, super::DummyRefresh)
         .await
         .unwrap();
     let mut conn = tester.conn().await;
@@ -78,24 +70,20 @@ async fn responds_ok_with_valid_credentials_for_confirm() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_credentials_for_refresh() {
-    let tester = setup::Tester::new().await;
-    let token = tester.admin_token().await.0.to_base64().unwrap();
-    let meta = tester.meta().with_token(token);
-    let req = blockjoy_ui::RefreshTokenRequest { meta: Some(meta) };
+    let tester = super::Tester::new().await;
+    let req = api::RefreshTokenRequest {};
     let status = tester.send_admin(Service::refresh, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unimplemented);
 }
 
 #[tokio::test]
 async fn responds_unauthenticated_with_invalid_credentials_for_refresh() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let invalid_token = base64::encode("asdf.asdfasdfasdfasdfasdf.asfasdfasdfasdfaf");
-    let invalid_token = setup::DummyToken(&invalid_token);
-    let token = tester.admin_token().await.0.to_base64().unwrap();
-    let meta = tester.meta().with_token(token);
-    let req = blockjoy_ui::RefreshTokenRequest { meta: Some(meta) };
+    let invalid_token = super::DummyToken(&invalid_token);
+    let req = api::RefreshTokenRequest {};
     let status = tester
-        .send_with(Service::refresh, req, invalid_token, setup::DummyRefresh)
+        .send_with(Service::refresh, req, invalid_token, super::DummyRefresh)
         .await
         .unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
@@ -103,9 +91,8 @@ async fn responds_unauthenticated_with_invalid_credentials_for_refresh() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_pwds_for_update_ui_pwd() {
-    let tester = setup::Tester::new().await;
-    let req = blockjoy_ui::UpdateUiPasswordRequest {
-        meta: Some(tester.meta()),
+    let tester = super::Tester::new().await;
+    let req = api::UpdateUiPasswordRequest {
         new_pwd: "hugo-boss".to_string(),
         new_pwd_confirmation: "hugo-boss".to_string(),
         old_pwd: "abc12345".to_string(),
@@ -118,9 +105,8 @@ async fn responds_ok_with_valid_pwds_for_update_ui_pwd() {
 
 #[tokio::test]
 async fn responds_unauthenticated_with_invalid_old_pwd_for_update_ui_pwd() {
-    let tester = setup::Tester::new().await;
-    let req = blockjoy_ui::UpdateUiPasswordRequest {
-        meta: Some(tester.meta()),
+    let tester = super::Tester::new().await;
+    let req = api::UpdateUiPasswordRequest {
         new_pwd: "hugo-boss".to_string(),
         new_pwd_confirmation: "hugo-boss".to_string(),
         old_pwd: "some-wrong-pwd".to_string(),
@@ -134,9 +120,8 @@ async fn responds_unauthenticated_with_invalid_old_pwd_for_update_ui_pwd() {
 
 #[tokio::test]
 async fn responds_invalid_argument_with_invalid_pwd_confirmation_for_update_ui_pwd() {
-    let tester = setup::Tester::new().await;
-    let req = blockjoy_ui::UpdateUiPasswordRequest {
-        meta: Some(tester.meta()),
+    let tester = super::Tester::new().await;
+    let req = api::UpdateUiPasswordRequest {
         new_pwd: "hugo-boss".to_string(),
         new_pwd_confirmation: "hugo-employee".to_string(),
         old_pwd: "abc12345".to_string(),

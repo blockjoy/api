@@ -93,12 +93,12 @@ pub async fn server(
     let unauthenticated = UnauthenticatedPaths::new(vec![
         // This path is unauthenticated because you need to have the OTP to create a new host, and
         // that is used instead of the normal machinery.
-        "/blockjoy.api.v1.HostService/Provision",
+        "/v1.Hosts/Provision",
         // The following paths are for users to create and manage their accounts, so should not
         // require authentication either.
-        "/blockjoy.api.ui_v1.AuthenticationService/Login",
-        "/blockjoy.api.ui_v1.UserService/Create",
-        "/blockjoy.api.ui_v1.AuthenticationService/ResetPassword",
+        "/v1.Authentication/Login",
+        "/v1.Authentication/ResetPassword",
+        "/v1.Users/Create",
     ]);
     let enforcer = Authorization::new()
         .await

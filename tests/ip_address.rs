@@ -1,6 +1,6 @@
 mod setup;
 
-use api::models::{IpAddress, NewIpAddressRange};
+use blockvisor_api::models::{IpAddress, NewIpAddressRange};
 
 #[tokio::test]
 async fn should_create_ip_range() -> anyhow::Result<()> {

@@ -12,7 +12,6 @@ impl key_files_server::KeyFiles for super::GrpcImpl {
     ) -> super::Result<api::KeyFilesGetResponse> {
         let inner = request.into_inner();
         let node_id = inner.node_id.parse().map_err(crate::Error::from)?;
-        let request_id = inner.request_id.clone();
         let mut conn = self.conn().await?;
         let key_files = models::NodeKeyFile::find_by_node(node_id, &mut conn).await?;
 
@@ -21,10 +20,8 @@ impl key_files_server::KeyFiles for super::GrpcImpl {
             tracing::debug!("No key files found");
         }
 
-        let response = api::KeyFilesGetResponse {
-            origin_request_id: request_id,
-            key_files: api::Keyfile::from_models(key_files),
-        };
+        let key_files = api::Keyfile::from_models(key_files);
+        let response = api::KeyFilesGetResponse { key_files };
 
         Ok(Response::new(response))
     }
@@ -35,7 +32,6 @@ impl key_files_server::KeyFiles for super::GrpcImpl {
     ) -> super::Result<api::KeyFilesSaveResponse> {
         let inner = request.into_inner();
         let node_id = inner.node_id.parse().map_err(crate::Error::from)?;
-        let request_id = inner.request_id.clone();
 
         self.trx(|c| {
             async move {
@@ -61,10 +57,7 @@ impl key_files_server::KeyFiles for super::GrpcImpl {
         })
         .await?;
 
-        let response = api::KeyFilesSaveResponse {
-            origin_request_id: request_id,
-            messages: vec![],
-        };
+        let response = api::KeyFilesSaveResponse {};
 
         Ok(Response::new(response))
     }

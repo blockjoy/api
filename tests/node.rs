@@ -1,6 +1,6 @@
 mod setup;
 
-use api::models;
+use blockvisor_api::models;
 
 #[tokio::test]
 async fn can_filter_nodes() -> anyhow::Result<()> {
@@ -44,9 +44,12 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         status: vec![models::NodeChainStatus::Unknown],
         node_types: vec![],
         blockchains: vec![blockchain.id],
+        limit: 10,
+        offset: 0,
+        org_id: org.id,
     };
 
-    let nodes = models::Node::find_all_by_filter(org.id, filter, 0, 10, &mut conn).await?;
+    let nodes = models::Node::filter(filter, &mut conn).await?;
 
     assert_eq!(nodes.len(), 1);
 

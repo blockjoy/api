@@ -1,15 +1,42 @@
-mod setup;
+use blockvisor_api::auth::FindableById;
+use blockvisor_api::grpc::api;
+use blockvisor_api::models;
 
-use api::grpc::blockjoy_ui::{self, node_service_client};
-use tonic::transport;
+type Service = api::nodes_client::NodesClient<super::Channel>;
 
-type Service = node_service_client::NodeServiceClient<transport::Channel>;
+#[tokio::test]
+async fn responds_ok_for_update() {
+    let tester = super::Tester::new().await;
+    let host = tester.host().await;
+    let token = tester.host_token(&host);
+    let refresh = tester.refresh_for(&token);
+    let node = tester.node().await;
+    let node_id = node.id.to_string();
+    let req = api::UpdateNodeRequest {
+        id: node_id.clone(),
+        self_update: Some(true),
+        container_status: None,
+        address: None,
+        version: Some("newer is always better".to_string()),
+    };
+
+    tester
+        .send_with(Service::update, req, token, refresh)
+        .await
+        .unwrap();
+
+    let mut conn = tester.conn().await;
+    let node = models::Node::find_by_id(node_id.parse().unwrap(), &mut conn)
+        .await
+        .unwrap();
+
+    assert!(node.self_update);
+}
 
 #[tokio::test]
 async fn responds_not_found_without_any_for_get() {
-    let tester = setup::Tester::new().await;
-    let req = blockjoy_ui::GetNodeRequest {
-        meta: Some(tester.meta()),
+    let tester = super::Tester::new().await;
+    let req = api::GetNodeRequest {
         id: uuid::Uuid::new_v4().to_string(),
     };
     let status = tester.send_admin(Service::get, req).await.unwrap_err();
@@ -18,10 +45,9 @@ async fn responds_not_found_without_any_for_get() {
 
 #[tokio::test]
 async fn responds_ok_with_id_for_get() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let node = tester.node().await;
-    let req = blockjoy_ui::GetNodeRequest {
-        meta: Some(tester.meta()),
+    let req = api::GetNodeRequest {
         id: node.id.to_string(),
     };
     tester.send_admin(Service::get, req).await.unwrap();
@@ -29,15 +55,14 @@ async fn responds_ok_with_id_for_get() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_data_for_create() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let blockchain = tester.blockchain().await;
     let user = tester.admin_user().await;
     let org = tester.org_for(&user).await;
-    let req = blockjoy_ui::CreateNodeRequest {
-        meta: Some(tester.meta()),
+    let req = api::CreateNodeRequest {
         org_id: org.id.to_string(),
         blockchain_id: blockchain.id.to_string(),
-        r#type: blockjoy_ui::node::NodeType::Validator.into(),
+        node_type: api::node::NodeType::Validator.into(),
         properties: vec![],
         version: Some("3.3.0".into()),
         network: "some network".to_string(),
@@ -47,14 +72,13 @@ async fn responds_ok_with_valid_data_for_create() {
 
 #[tokio::test]
 async fn responds_invalid_argument_with_invalid_data_for_create() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let blockchain = tester.blockchain().await;
-    let req = blockjoy_ui::CreateNodeRequest {
-        meta: Some(tester.meta()),
+    let req = api::CreateNodeRequest {
         // This is an invalid uuid so the api call should fail.
         org_id: "wowowowowow".to_string(),
         blockchain_id: blockchain.id.to_string(),
-        r#type: blockjoy_ui::node::NodeType::Api.into(),
+        node_type: api::node::NodeType::Api.into(),
         properties: vec![],
         version: Some("3.3.0".into()),
         network: "some network".to_string(),
@@ -65,24 +89,26 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_data_for_update() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let node = tester.node().await;
-    let req = blockjoy_ui::UpdateNodeRequest {
-        meta: Some(tester.meta()),
+    let req = api::UpdateNodeRequest {
         id: node.id.to_string(),
         version: Some("10".to_string()),
+        self_update: Some(false),
+        container_status: None,
+        address: Some("My main noderoni".to_string()),
     };
     tester.send_admin(Service::update, req).await.unwrap();
 }
 
 #[tokio::test]
 async fn responds_internal_with_invalid_data_for_update() {
-    let tester = setup::Tester::new().await;
-    let req = blockjoy_ui::UpdateNodeRequest {
-        meta: Some(tester.meta()),
+    let tester = super::Tester::new().await;
+    let req = api::UpdateNodeRequest {
         // This is an invalid uuid so the api call should fail.
         id: "wowowow".to_string(),
         version: Some("stri-bu".to_string()),
+        ..Default::default()
     };
     let status = tester.send_admin(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
@@ -90,12 +116,12 @@ async fn responds_internal_with_invalid_data_for_update() {
 
 #[tokio::test]
 async fn responds_not_found_with_invalid_id_for_update() {
-    let tester = setup::Tester::new().await;
-    let req = blockjoy_ui::UpdateNodeRequest {
-        meta: Some(tester.meta()),
+    let tester = super::Tester::new().await;
+    let req = api::UpdateNodeRequest {
         // This uuid will not exist, so the api call should fail.
         id: uuid::Uuid::new_v4().to_string(),
         version: Some("stri-bu".to_string()),
+        ..Default::default()
     };
     let status = tester.send_admin(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::NotFound, "{status:?}");
@@ -103,10 +129,9 @@ async fn responds_not_found_with_invalid_id_for_update() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_data_for_delete() {
-    let tester = setup::Tester::new().await;
+    let tester = super::Tester::new().await;
     let node = tester.node().await;
-    let req = blockjoy_ui::DeleteNodeRequest {
-        meta: Some(tester.meta()),
+    let req = api::DeleteNodeRequest {
         id: node.id.to_string(),
     };
     tester.send_admin(Service::delete, req).await.unwrap();

@@ -93,9 +93,10 @@ impl invitations_server::Invitations for super::GrpcImpl {
         request: Request<api::ListReceivedInvitationRequest>,
     ) -> super::Result<api::InvitationsResponse> {
         let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?.clone();
+        let request = request.into_inner();
+        let user_id = request.user_id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
-        let user = models::User::find_by_id(token.get_id(), &mut conn).await?;
+        let user = models::User::find_by_id(user_id, &mut conn).await?;
         let invitations = models::Invitation::received(&user.email, &mut conn)
             .await?
             .into_iter()

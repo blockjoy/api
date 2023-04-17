@@ -1,5 +1,5 @@
 use super::api::{self, hosts_server};
-use super::helpers;
+use super::helpers::{self, try_get_token};
 use crate::auth::{HostAuthToken, JwtToken, TokenRole, TokenType};
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -50,7 +50,13 @@ impl hosts_server::Hosts for super::GrpcImpl {
         &self,
         request: Request<api::UpdateHostRequest>,
     ) -> super::Result<api::UpdateHostResponse> {
+        let host_token = try_get_token::<_, HostAuthToken>(&request)?.clone();
         let request = request.into_inner();
+        let host_id = request.id.parse().map_err(crate::Error::from)?;
+        let is_allowed = host_token.id == host_id;
+        if !is_allowed {
+            super::bail_unauthorized!("Not allowed to delete host {host_id}!");
+        }
         let updater = request.as_update()?;
         self.trx(|c| updater.update(c).scope_boxed()).await?;
         let response = api::UpdateHostResponse {};
@@ -61,8 +67,13 @@ impl hosts_server::Hosts for super::GrpcImpl {
         &self,
         request: Request<api::DeleteHostRequest>,
     ) -> super::Result<api::DeleteHostResponse> {
+        let host_token = try_get_token::<_, HostAuthToken>(&request)?.clone();
         let request = request.into_inner();
         let host_id = request.id.parse().map_err(crate::Error::from)?;
+        let is_allowed = host_token.id == host_id;
+        if !is_allowed {
+            super::bail_unauthorized!("Not allowed to delete host {host_id}!");
+        }
         self.trx(|c| models::Host::delete(host_id, c).scope_boxed())
             .await?;
         let response = api::DeleteHostResponse {};
@@ -75,7 +86,6 @@ impl hosts_server::Hosts for super::GrpcImpl {
         request: Request<api::ProvisionHostRequest>,
     ) -> super::Result<api::ProvisionHostResponse> {
         let inner = request.into_inner();
-        let request_id = inner.request_id.clone();
 
         let host = self
             .trx(|c| models::HostProvision::claim_by_grpc_provision(&inner, c).scope_boxed())
@@ -90,8 +100,6 @@ impl hosts_server::Hosts for super::GrpcImpl {
         let result = api::ProvisionHostResponse {
             host_id: host.id.to_string(),
             token,
-            messages: vec!["All good".into()],
-            origin_request_id: request_id,
         };
         Ok(Response::new(result))
     }
@@ -102,23 +110,24 @@ impl api::Host {
         models
             .into_iter()
             .map(|model| {
-                let dto = Self {
+                let mut dto = Self {
                     id: model.id.to_string(),
                     name: model.name,
                     version: model.version,
                     location: model.location,
                     cpu_count: model.cpu_count.map(|n| n.try_into()).transpose()?,
-                    mem_size: model.mem_size.map(|n| n.try_into()).transpose()?,
-                    disk_size: model.disk_size.map(|n| n.try_into()).transpose()?,
+                    mem_size_bytes: model.mem_size.map(|n| n.try_into()).transpose()?,
+                    disk_size_bytes: model.disk_size.map(|n| n.try_into()).transpose()?,
                     os: model.os,
                     os_version: model.os_version,
                     ip: model.ip_addr,
-                    status: model.status.into(),
+                    status: 0, // Note the setter below
                     created_at: Some(super::try_dt_to_ts(model.created_at)?),
                     ip_range_from: Some(model.ip_range_from.ip().to_string()),
                     ip_range_to: Some(model.ip_range_to.ip().to_string()),
                     ip_gateway: Some(model.ip_gateway.ip().to_string()),
                 };
+                dto.set_status(api::host::HostStatus::from_model(model.status));
                 Ok(dto)
             })
             .collect()
@@ -136,8 +145,8 @@ impl api::CreateHostRequest {
             version: self.version.as_deref(),
             location: self.location.as_deref(),
             cpu_count: self.cpu_count.map(|n| n.try_into()).transpose()?,
-            mem_size: self.mem_size.map(|n| n.try_into()).transpose()?,
-            disk_size: self.disk_size.map(|n| n.try_into()).transpose()?,
+            mem_size: self.mem_size_bytes.map(|n| n.try_into()).transpose()?,
+            disk_size: self.disk_size_bytes.map(|n| n.try_into()).transpose()?,
             os: self.os.as_deref(),
             os_version: self.os_version.as_deref(),
             ip_addr: &self.ip_addr,
@@ -182,7 +191,7 @@ impl api::ProvisionHostRequest {
             os: Some(&self.os),
             os_version: Some(&self.os_version),
             ip_addr: &self.ip,
-            status: self.status.try_into()?,
+            status: self.status().into_model()?,
             ip_range_from: provision
                 .ip_range_from
                 .ok_or_else(helpers::required("provision.ip_range_from"))?,
@@ -194,5 +203,29 @@ impl api::ProvisionHostRequest {
                 .ok_or_else(helpers::required("provision.ip_gateway"))?,
         };
         Ok(new_host)
+    }
+}
+
+impl api::host::HostStatus {
+    fn from_model(_model: models::ConnectionStatus) -> Self {
+        // todo
+        Self::Unspecified
+    }
+}
+
+impl api::provision_host_request::ConnectionStatus {
+    fn _from_model(model: models::ConnectionStatus) -> Self {
+        match model {
+            models::ConnectionStatus::Online => Self::Online,
+            models::ConnectionStatus::Offline => Self::Offline,
+        }
+    }
+
+    fn into_model(self) -> crate::Result<models::ConnectionStatus> {
+        match self {
+            Self::Unspecified => Err(crate::Error::unexpected("Unspecified ConnectionStatus")),
+            Self::Online => Ok(models::ConnectionStatus::Online),
+            Self::Offline => Ok(models::ConnectionStatus::Offline),
+        }
     }
 }

@@ -1,11 +1,11 @@
 #![allow(dead_code)]
-mod dummy_token;
 
+mod dummy_token;
 mod helper_traits;
 
-use api::auth::{self, JwtToken, TokenRole, TokenType};
-use api::models;
-use api::{grpc::blockjoy_ui, TestDb};
+use blockvisor_api::auth::{self, JwtToken, TokenRole, TokenType};
+use blockvisor_api::models;
+use blockvisor_api::TestDb;
 use diesel_async::pooled_connection::bb8::PooledConnection;
 use diesel_async::AsyncPgConnection;
 pub use dummy_token::*;
@@ -57,7 +57,7 @@ impl Tester {
         let uds = UnixListener::bind(&*socket).unwrap();
         let stream = UnixListenerStream::new(uds);
         tokio::spawn(async {
-            api::grpc::server(pool)
+            blockvisor_api::grpc::server(pool)
                 .await
                 .serve_with_incoming(stream)
                 .await
@@ -74,23 +74,6 @@ impl Tester {
 
     pub async fn conn(&self) -> PooledConnection<'_, AsyncPgConnection> {
         self.db.pool.conn().await.unwrap()
-    }
-
-    pub fn meta(&self) -> blockjoy_ui::RequestMeta {
-        blockjoy_ui::RequestMeta {
-            id: Some(uuid::Uuid::new_v4().to_string()),
-            token: None,
-            fields: vec![],
-            pagination: None,
-        }
-    }
-
-    pub fn pagination(&self) -> blockjoy_ui::Pagination {
-        blockjoy_ui::Pagination {
-            current_page: 0,
-            items_per_page: 10,
-            total_items: None,
-        }
     }
 
     /// Returns an admin user, so a user that has maximal permissions.
@@ -148,13 +131,8 @@ impl Tester {
     }
 
     pub fn host_token(&self, host: &models::Host) -> impl JwtToken + Clone {
-        dbg!(auth::HostAuthToken::create_token_for(
-            host,
-            TokenType::HostAuth,
-            TokenRole::User,
-            None
-        )
-        .unwrap())
+        auth::HostAuthToken::create_token_for(host, TokenType::HostAuth, TokenRole::User, None)
+            .unwrap()
     }
 
     pub fn refresh_for(&self, token: &impl JwtToken) -> impl JwtToken + Clone {
@@ -162,7 +140,7 @@ impl Tester {
     }
 
     pub async fn node(&self) -> models::Node {
-        use api::auth::FindableById;
+        use blockvisor_api::auth::FindableById;
         let mut conn = self.conn().await;
         let node_id = "cdbbc736-f399-42ab-86cf-617ce983011d".parse().unwrap();
         models::Node::find_by_id(node_id, &mut conn).await.unwrap()

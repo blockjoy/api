@@ -247,6 +247,10 @@ impl User {
         "en"
     }
 
+    pub fn name(&self) -> String {
+        format!("{} {}", self.first_name, self.last_name)
+    }
+
     fn not_deleted() -> NotDeleted {
         users::table.filter(users::deleted_at.is_null())
     }
