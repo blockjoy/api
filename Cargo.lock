@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "blockvisor_api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "argon2",
