@@ -37,7 +37,7 @@ type NotDeleted =
 
 impl Blockchain {
     pub fn supported_node_types(&self) -> Result<Vec<super::BlockchainProperties>> {
-        let res = serde_json::from_value(dbg!(self.supported_node_types.clone()))?;
+        let res = serde_json::from_value(self.supported_node_types.clone())?;
         Ok(res)
     }
 

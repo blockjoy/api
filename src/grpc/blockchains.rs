@@ -48,7 +48,7 @@ impl blockchains_server::Blockchains for super::GrpcImpl {
         // that each resolve to a list of networks for that blockchain.
         let mut network_futs = vec![];
         for blockchain in &blockchains {
-            for node_properties in dbg!(blockchain.supported_node_types())? {
+            for node_properties in blockchain.supported_node_types()? {
                 let name = blockchain.name.clone();
                 let node_type = node_properties.id.try_into();
                 let node_type = node_type.unwrap_or(models::NodeType::Unknown).to_string();
@@ -108,7 +108,7 @@ async fn try_get_networks(
 
 impl api::Blockchain {
     fn from_model(model: models::Blockchain) -> crate::Result<Self> {
-        let supported_nodes_types = serde_json::to_string(&dbg!(model.supported_node_types())?)?;
+        let supported_nodes_types = serde_json::to_string(&model.supported_node_types()?)?;
 
         let blockchain = Self {
             id: model.id.to_string(),

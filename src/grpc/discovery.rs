@@ -1,17 +1,16 @@
-use super::api::ServicesResponse;
 use super::api::{self, discovery_server};
 use crate::auth::key_provider::KeyProvider;
 use crate::Error;
 use anyhow::anyhow;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 
 #[tonic::async_trait]
 impl discovery_server::Discovery for super::GrpcImpl {
     async fn services(
         &self,
         _request: Request<api::ServicesRequest>,
-    ) -> Result<Response<ServicesResponse>, Status> {
-        let response = ServicesResponse {
+    ) -> super::Result<api::ServicesResponse> {
+        let response = api::ServicesResponse {
             key_service_url: std::env::var("KEY_SERVICE_URL").map_err(|e| {
                 Error::UnexpectedError(anyhow!("Couldn't find key service url: {e}"))
             })?,

@@ -98,8 +98,14 @@ impl Host {
         Ok(host)
     }
 
-    pub async fn filter(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
-        let query = hosts::table.into_boxed();
+    /// For each provided argument, filters the hosts by that argument.
+    pub async fn filter(os: Option<&str>, conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
+        let mut query = hosts::table.into_boxed();
+
+        if let Some(os) = os {
+            query = query.filter(hosts::os.eq(os));
+        }
+
         let hosts = query.get_results(conn).await?;
         Ok(hosts)
     }

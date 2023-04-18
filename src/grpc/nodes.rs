@@ -138,9 +138,9 @@ impl nodes_server::Nodes for super::GrpcImpl {
                 let node = models::Node::find_by_id(inner.id.parse()?, c).await?;
 
                 let is_allowed = if let Some(org_id) = org_id {
-                    dbg!(node.org_id == org_id)
+                    node.org_id == org_id
                 } else if let Some(host_id) = host_id {
-                    dbg!(node.host_id == host_id)
+                    node.host_id == host_id
                 } else {
                     false
                 };

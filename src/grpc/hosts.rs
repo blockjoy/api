@@ -28,7 +28,7 @@ impl hosts_server::Hosts for super::GrpcImpl {
     ) -> super::Result<api::ListHostsResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let mut conn = self.conn().await?;
-        let hosts = models::Host::filter(&mut conn).await?;
+        let hosts = models::Host::filter(None, &mut conn).await?;
         let hosts = api::Host::from_models(hosts).await?;
         let response = api::ListHostsResponse { hosts };
         super::response_with_refresh_token(refresh_token, response)
