@@ -1,10 +1,10 @@
 [package]
 authors = ["Chris Bruce <chris@lumeo.com>"]
 edition = "2021"
-name = "api"
+name = "blockvisor_api"
 publish = false
 resolver = "2"
-version = "0.1.0"
+version = "0.2.0"
 
 [profile.release]
 codegen-units = 1

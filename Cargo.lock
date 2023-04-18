@@ -57,60 +57,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224afbd727c3d6e4b90103ece64b8d1b67fbb1973b1046c2281eed3f3803f800"
 
 [[package]]
-name = "api"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "axum",
- "base64 0.13.1",
- "casbin",
- "chrono",
- "diesel",
- "diesel-async",
- "diesel-derive-enum",
- "diesel_migrations",
- "dotenv",
- "futures-util",
- "h2",
- "handlebars",
- "hyper",
- "ipnet",
- "ipnetwork",
- "jsonwebtoken",
- "petname",
- "pin-project",
- "prost",
- "prost-types",
- "rand",
- "reqwest",
- "rumqttc",
- "rustls",
- "rustls-native-certs",
- "sendgrid",
- "serde",
- "serde_json",
- "strum",
- "strum_macros",
- "temp-env",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-postgres",
- "tokio-postgres-rustls",
- "tokio-stream",
- "toml",
- "tonic",
- "tonic-build",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "validator",
-]
-
-[[package]]
 name = "argon2"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -293,6 +239,60 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "blockvisor_api"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "axum",
+ "base64 0.13.1",
+ "casbin",
+ "chrono",
+ "diesel",
+ "diesel-async",
+ "diesel-derive-enum",
+ "diesel_migrations",
+ "dotenv",
+ "futures-util",
+ "h2",
+ "handlebars",
+ "hyper",
+ "ipnet",
+ "ipnetwork",
+ "jsonwebtoken",
+ "petname",
+ "pin-project",
+ "prost",
+ "prost-types",
+ "rand",
+ "reqwest",
+ "rumqttc",
+ "rustls",
+ "rustls-native-certs",
+ "sendgrid",
+ "serde",
+ "serde_json",
+ "strum",
+ "strum_macros",
+ "temp-env",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+ "tokio-stream",
+ "toml",
+ "tonic",
+ "tonic-build",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "validator",
 ]
 
 [[package]]

@@ -1,9 +1,9 @@
 use crate::auth::key_provider::KeyProvider;
 use crate::auth::TokenType;
-use crate::cookbook::cookbook_grpc::cook_book_service_client;
-use crate::grpc::blockjoy_ui::blockchain_network::NetworkType;
+use crate::grpc::api;
 use crate::{Error, Result as ApiResult};
 use anyhow::{anyhow, Context};
+use cookbook_grpc::cook_book_service_client;
 use tonic::Request;
 
 #[derive(Debug, Clone, Copy)]
@@ -18,7 +18,7 @@ pub struct HardwareRequirements {
 pub struct BlockchainNetwork {
     pub(crate) name: String,
     pub(crate) url: String,
-    pub(crate) network_type: NetworkType,
+    pub(crate) network_type: api::blockchain_network::NetworkType,
 }
 
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -104,5 +104,45 @@ pub async fn get_networks(
     let response = client.net_configurations(request).await?;
     let inner = response.into_inner();
 
-    inner.configurations.iter().map(|c| c.try_into()).collect()
+    inner
+        .configurations
+        .into_iter()
+        .map(|c| c.try_into())
+        .collect()
+}
+
+impl From<BlockchainNetwork> for api::BlockchainNetwork {
+    fn from(value: BlockchainNetwork) -> Self {
+        Self {
+            name: value.name,
+            url: value.url,
+            net_type: value.network_type.into(),
+        }
+    }
+}
+
+impl TryFrom<api::BlockchainNetwork> for BlockchainNetwork {
+    type Error = Error;
+
+    fn try_from(value: api::BlockchainNetwork) -> crate::Result<Self> {
+        Ok(Self {
+            name: value.name,
+            url: value.url,
+            network_type: api::blockchain_network::NetworkType::from_i32(value.net_type)
+                .ok_or_else(|| anyhow!("Unknown network type: {}", value.net_type))?,
+        })
+    }
+}
+
+impl TryFrom<cookbook_grpc::NetworkConfiguration> for BlockchainNetwork {
+    type Error = Error;
+
+    fn try_from(value: cookbook_grpc::NetworkConfiguration) -> crate::Result<Self> {
+        Ok(Self {
+            name: value.name.clone(),
+            url: value.url.clone(),
+            network_type: api::blockchain_network::NetworkType::from_i32(value.net_type)
+                .ok_or_else(|| anyhow!("Unknown network type: {}", value.net_type))?,
+        })
+    }
 }

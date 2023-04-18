@@ -3,7 +3,6 @@ use crate::auth::{
     token::TokenError, FindableById, Identifiable, JwtToken, TokenClaim, TokenRole, TokenType,
     UserAuthToken, UserRefreshToken,
 };
-use crate::grpc::blockjoy_ui::LoginUserRequest;
 use crate::mail::MailClient;
 use crate::{Error, Result};
 use anyhow::anyhow;
@@ -171,13 +170,13 @@ impl User {
     }
 
     /// Check if user can be found by email, is confirmed and has provided a valid password
-    pub async fn login(login: LoginUserRequest, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let user = Self::find_by_email(&login.email, conn)
+    pub async fn login(email: &str, password: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let user = Self::find_by_email(email, conn)
             .await
             .map_err(|_e| Error::invalid_auth("Email or password is invalid."))?;
 
         if User::is_confirmed(user.id, conn).await? {
-            match user.verify_password(&login.password) {
+            match user.verify_password(password) {
                 Ok(_) => Ok(user),
                 Err(e) => Err(e),
             }
@@ -246,6 +245,10 @@ impl User {
         // Needs to be done later, but we want to have some stub in place so we keep our code aware
         // of language differences.
         "en"
+    }
+
+    pub fn name(&self) -> String {
+        format!("{} {}", self.first_name, self.last_name)
     }
 
     fn not_deleted() -> NotDeleted {

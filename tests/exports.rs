@@ -1,5 +1,5 @@
-use api::auth::*;
-use api::is_owned_by;
+use blockvisor_api::auth::*;
+use blockvisor_api::is_owned_by;
 
 struct Resource;
 struct Owner;

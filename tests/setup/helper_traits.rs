@@ -1,114 +1,88 @@
-use api::grpc::blockjoy;
-use api::grpc::blockjoy::commands_client::CommandsClient;
-use api::grpc::blockjoy::discovery_client::DiscoveryClient;
-use api::grpc::blockjoy::key_files_client::KeyFilesClient;
-use api::grpc::blockjoy::metrics_service_client::MetricsServiceClient;
-use api::grpc::blockjoy_ui;
-use api::grpc::blockjoy_ui::authentication_service_client::AuthenticationServiceClient;
-use api::grpc::blockjoy_ui::blockchain_service_client::BlockchainServiceClient;
-use api::grpc::blockjoy_ui::command_service_client::CommandServiceClient;
-use api::grpc::blockjoy_ui::dashboard_service_client::DashboardServiceClient;
-use api::grpc::blockjoy_ui::host_provision_service_client::HostProvisionServiceClient;
-use api::grpc::blockjoy_ui::invitation_service_client::InvitationServiceClient;
-use api::grpc::blockjoy_ui::organization_service_client::OrganizationServiceClient;
-use api::grpc::blockjoy_ui::user_service_client::UserServiceClient;
+use blockvisor_api::grpc::api::authentication_client;
+use blockvisor_api::grpc::api::blockchains_client;
+use blockvisor_api::grpc::api::commands_client;
+use blockvisor_api::grpc::api::discovery_client;
+use blockvisor_api::grpc::api::host_provisions_client;
+use blockvisor_api::grpc::api::hosts_client;
+use blockvisor_api::grpc::api::invitations_client;
+use blockvisor_api::grpc::api::key_files_client;
+use blockvisor_api::grpc::api::metrics_client;
+use blockvisor_api::grpc::api::nodes_client;
+use blockvisor_api::grpc::api::orgs_client;
+use blockvisor_api::grpc::api::users_client;
 use tonic::transport::Channel;
 
 pub trait GrpcClient<T> {
     fn create(channel: Channel) -> Self;
 }
 
-impl GrpcClient<Channel> for blockjoy_ui::host_service_client::HostServiceClient<Channel> {
+impl GrpcClient<Channel> for authentication_client::AuthenticationClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for AuthenticationServiceClient<Channel> {
+impl GrpcClient<Channel> for blockchains_client::BlockchainsClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for OrganizationServiceClient<Channel> {
+impl GrpcClient<Channel> for commands_client::CommandsClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for UserServiceClient<Channel> {
+impl GrpcClient<Channel> for discovery_client::DiscoveryClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for blockjoy::host_service_client::HostServiceClient<Channel> {
+impl GrpcClient<Channel> for host_provisions_client::HostProvisionsClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for HostProvisionServiceClient<Channel> {
+impl GrpcClient<Channel> for hosts_client::HostsClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for blockjoy_ui::node_service_client::NodeServiceClient<Channel> {
+impl GrpcClient<Channel> for invitations_client::InvitationsClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for CommandServiceClient<Channel> {
+impl GrpcClient<Channel> for key_files_client::KeyFilesClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for DashboardServiceClient<Channel> {
+impl GrpcClient<Channel> for metrics_client::MetricsClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for BlockchainServiceClient<Channel> {
+impl GrpcClient<Channel> for nodes_client::NodesClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for KeyFilesClient<Channel> {
+impl GrpcClient<Channel> for orgs_client::OrgsClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for MetricsServiceClient<Channel> {
-    fn create(channel: Channel) -> Self {
-        Self::new(channel)
-    }
-}
-
-impl GrpcClient<Channel> for InvitationServiceClient<Channel> {
-    fn create(channel: Channel) -> Self {
-        Self::new(channel)
-    }
-}
-
-impl GrpcClient<Channel> for blockjoy::node_service_client::NodeServiceClient<Channel> {
-    fn create(channel: Channel) -> Self {
-        Self::new(channel)
-    }
-}
-
-impl GrpcClient<Channel> for CommandsClient<Channel> {
-    fn create(channel: Channel) -> Self {
-        Self::new(channel)
-    }
-}
-
-impl GrpcClient<Channel> for DiscoveryClient<Channel> {
+impl GrpcClient<Channel> for users_client::UsersClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }

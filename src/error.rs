@@ -94,6 +94,10 @@ impl Error {
     pub fn invalid_auth(msg: impl std::fmt::Display) -> Self {
         Self::InvalidAuthentication(msg.to_string())
     }
+
+    pub fn unexpected(msg: impl std::fmt::Display) -> Self {
+        Self::UnexpectedError(anyhow::anyhow!("{msg}"))
+    }
 }
 
 impl std::fmt::Debug for Error {
@@ -105,6 +109,37 @@ impl std::fmt::Debug for Error {
 impl From<RunError> for Error {
     fn from(value: RunError) -> Self {
         anyhow::anyhow!("Database pool is not behaving: {value}").into()
+    }
+}
+
+impl From<tonic::Status> for Error {
+    fn from(status: tonic::Status) -> Self {
+        match status.code() {
+            tonic::Code::Unauthenticated => Error::InvalidAuthentication(status.to_string()),
+            tonic::Code::PermissionDenied => Error::InsufficientPermissionsError,
+            tonic::Code::InvalidArgument => Error::InvalidArgument(status),
+            _ => Error::UnexpectedError(anyhow::anyhow!(status)),
+        }
+    }
+}
+
+impl From<Error> for tonic::Status {
+    fn from(e: Error) -> Self {
+        use Error::*;
+
+        let msg = format!("{e:?}");
+
+        match e {
+            ValidationError(_) => tonic::Status::invalid_argument(msg),
+            NotFoundError(_) => tonic::Status::not_found(msg),
+            DuplicateResource { .. } => tonic::Status::invalid_argument(msg),
+            InvalidAuthentication(_) => tonic::Status::unauthenticated(msg),
+            InsufficientPermissionsError => tonic::Status::permission_denied(msg),
+            UuidParseError(_) | IpParseError(_) => tonic::Status::invalid_argument(msg),
+            NoMatchingHostError(_) => tonic::Status::resource_exhausted(msg),
+            InvalidArgument(s) => s,
+            _ => tonic::Status::internal(msg),
+        }
     }
 }
 

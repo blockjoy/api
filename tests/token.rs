@@ -1,7 +1,7 @@
-use api::auth::expiration_provider::ExpirationProvider;
-use api::auth::token::*;
 use axum::http::header::AUTHORIZATION;
 use axum::http::Request;
+use blockvisor_api::auth::expiration_provider::ExpirationProvider;
+use blockvisor_api::auth::token::*;
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use std::str::FromStr;
 use uuid::Uuid;
@@ -77,7 +77,6 @@ fn should_panic_on_decode_expired_token() {
             &validation,
         ) {
             Err(e) => assert_eq!(format!("{e}"), "ExpiredSignature"),
-            // assert_eq!(e.into_kind().type_name(), jsonwebtoken::error::ErrorKind::ExpiredSignature),
             _ => panic!("it worked, but it shouldn't"),
         };
     });

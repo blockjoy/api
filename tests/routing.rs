@@ -18,9 +18,9 @@ fn possible_routes() -> Vec<(&'static str, &'static str, StatusCode)> {
 async fn test_possible_routes() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
-    let db = api::TestDb::setup().await;
+    let db = blockvisor_api::TestDb::setup().await;
     let routes = possible_routes();
-    let app = api::http::server(db.pool.clone()).await;
+    let app = blockvisor_api::http::server(db.pool.clone()).await;
 
     let mut cnt = 1;
 

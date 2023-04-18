@@ -1,5 +1,5 @@
 use crate::auth::FindableById;
-use crate::grpc::blockjoy;
+use crate::grpc::api;
 use crate::grpc::notification::Notifier;
 use crate::models::schema::commands;
 use crate::Result;
@@ -90,11 +90,8 @@ impl Command {
 
         // Send one notification per pending command
         for command in &commands {
-            notifier
-                .bv_commands_sender()?
-                .send(&blockjoy::Command::from_model(command, conn).await?)
-                .await?;
-            // notifier.ui_commands_sender().send(command).await?;
+            let command = api::Command::from_model(command, conn).await?;
+            notifier.commands_sender().send(&command).await?;
         }
 
         Ok(commands)
@@ -116,22 +113,6 @@ impl Command {
 
     fn pending() -> Pending {
         commands::table.filter(commands::exit_status.is_null())
-    }
-}
-
-#[tonic::async_trait]
-impl super::UpdateInfo<blockjoy::CommandInfo, Command> for Command {
-    async fn update_info(
-        info: blockjoy::CommandInfo,
-        conn: &mut AsyncPgConnection,
-    ) -> Result<Command> {
-        let cmd = UpdateCommand {
-            id: info.id.parse()?,
-            response: info.response.as_deref(),
-            exit_status: info.exit_code,
-            completed_at: chrono::Utc::now(),
-        };
-        cmd.update(conn).await
     }
 }
 

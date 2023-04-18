@@ -10,14 +10,14 @@ COPY . .
 
 ENV RUSTFLAGS -Ctarget-feature=-crt-static
 RUN cargo build --release
-RUN strip target/release/api
+RUN strip target/release/blockvisor_api
 
 # Slim output image not containing any build tools / artefacts
 FROM alpine:latest
 
 RUN apk add --no-cache libgcc libpq
 
-COPY --from=build /usr/src/api/target/release/api /usr/bin/api
+COPY --from=build /usr/src/api/target/release/blockvisor_api /usr/bin/api
 COPY --from=build /usr/src/api/conf /etc/api/conf
 
 CMD ["api"]

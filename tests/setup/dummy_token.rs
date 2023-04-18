@@ -1,4 +1,4 @@
-use api::auth::{self, JwtToken};
+use blockvisor_api::auth::{self, JwtToken};
 
 #[derive(serde::Serialize)]
 pub struct DummyToken<'a>(pub &'a str);

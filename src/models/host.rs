@@ -17,27 +17,6 @@ pub enum ConnectionStatus {
     Offline,
 }
 
-impl From<ConnectionStatus> for i32 {
-    fn from(value: ConnectionStatus) -> Self {
-        match value {
-            ConnectionStatus::Online => 1,
-            ConnectionStatus::Offline => 2,
-        }
-    }
-}
-
-impl TryFrom<i32> for ConnectionStatus {
-    type Error = Error;
-
-    fn try_from(value: i32) -> crate::Result<Self> {
-        match value {
-            1 => Ok(ConnectionStatus::Online),
-            2 => Ok(ConnectionStatus::Offline),
-            n => Err(anyhow!("Invalid ConnectionStatus: {n}").into()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumHostType"]
 pub enum HostType {
@@ -58,9 +37,9 @@ pub struct Host {
     // Number of CPU's that this host has.
     pub cpu_count: i64,
     // The size of the hosts memory, in bytes.
-    pub mem_size: i64,
+    pub mem_size_bytes: i64,
     // The size of the hosts disk, in bytes.
-    pub disk_size: i64,
+    pub disk_size_bytes: i64,
     pub os: String,
     pub os_version: String,
     pub ip_range_from: ipnetwork::IpNetwork,
@@ -133,6 +112,18 @@ impl Host {
         Ok(ids.iter().map(|id| hosts_map[id].clone()).collect())
     }
 
+    /// For each provided argument, filters the hosts by that argument.
+    pub async fn filter(os: Option<&str>, conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
+        let mut query = hosts::table.into_boxed();
+
+        if let Some(os) = os {
+            query = query.filter(hosts::os.eq(os));
+        }
+
+        let hosts = query.get_results(conn).await?;
+        Ok(hosts)
+    }
+
     pub async fn find_by_name(name: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
         let host = hosts::table
             .filter(hosts::name.eq(name))
@@ -186,22 +177,23 @@ impl Host {
         SELECT
             host_id
         FROM
-            (
-                SELECT
-                    id as host_id,
-                    hosts.cpu_count - (SELECT SUM(vcpu_count) FROM nodes WHERE host_id = hosts.id)::BIGINT as av_cpus,
-                    hosts.mem_size - (SELECT SUM(mem_size_bytes) FROM nodes WHERE host_id = hosts.id)::BIGINT as av_mem,
-                    hosts.disk_size - (SELECT SUM(disk_size_bytes) FROM nodes WHERE host_id = hosts.id)::BIGINT as av_disk,
-                    (SELECT COUNT(*) FROM ip_addresses WHERE ip_addresses.host_id = hosts.id AND NOT ip_addresses.is_assigned) as ips,
-                    (SELECT COUNT(*) FROM nodes WHERE host_id = hosts.id AND blockchain_id = $4 AND node_type = $5 AND org_id = $6) as n_similar
-                FROM
-                    hosts
-            ) AS resouces
+        (
+            SELECT
+                id as host_id,
+                hosts.cpu_count - (SELECT COALESCE(SUM(vcpu_count))::BIGINT FROM nodes WHERE host_id = hosts.id) as av_cpus,
+                hosts.mem_size_bytes - (SELECT COALESCE(SUM(mem_size_bytes))::BIGINT FROM nodes WHERE host_id = hosts.id) as av_mem,
+                hosts.disk_size_bytes - (SELECT COALESCE(SUM(disk_size_bytes))::BIGINT FROM nodes WHERE host_id = hosts.id) as av_disk,
+                (SELECT COUNT(*) FROM ip_addresses WHERE ip_addresses.host_id = hosts.id AND NOT ip_addresses.is_assigned) as ips,
+                (SELECT COUNT(*) FROM nodes WHERE host_id = hosts.id AND blockchain_id = $4 AND node_type = $5 AND org_id = $6) as n_similar
+            FROM
+                hosts
+        ) AS resouces
         WHERE
-            -- These are our hard filters, we do not want any nodes that cannot satisfy the requirements
-            av_cpus > $1 AND
-            av_mem > $2 AND
-            av_disk > $3 AND
+            -- These are our hard filters, we do not want any nodes that cannot satisfy the
+            -- requirements
+            -- av_cpus > $1 AND
+            -- av_mem > $2 AND
+            -- av_disk > $3 AND
             ips > 0
         {order_by}
         LIMIT
@@ -219,7 +211,8 @@ impl Host {
             .bind::<Uuid, _>(org_id)
             .get_results(conn)
             .await?;
-        let host_ids: Vec<_> = hosts.into_iter().map(|h| h.host_id).collect();
+        let host_ids: Vec<_> = dbg!(hosts).into_iter().map(|h| h.host_id).collect();
+
         Self::by_ids(&host_ids, conn).await
     }
 }
@@ -253,9 +246,9 @@ pub struct NewHost<'a> {
     pub location: Option<&'a str>,
     pub cpu_count: i64,
     /// The amount of memory in bytes that this host has.
-    pub mem_size: i64,
+    pub mem_size_bytes: i64,
     /// The amount of disk space in bytes that this host has.
-    pub disk_size: i64,
+    pub disk_size_bytes: i64,
     pub os: &'a str,
     pub os_version: &'a str,
     pub ip_addr: &'a str,
@@ -300,8 +293,8 @@ pub struct UpdateHost<'a> {
     pub version: Option<&'a str>,
     pub location: Option<&'a str>,
     pub cpu_count: Option<i64>,
-    pub mem_size: Option<i64>,
-    pub disk_size: Option<i64>,
+    pub mem_size_bytes: Option<i64>,
+    pub disk_size_bytes: Option<i64>,
     pub os: Option<&'a str>,
     pub os_version: Option<&'a str>,
     pub ip_addr: Option<&'a str>,

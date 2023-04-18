@@ -9,32 +9,22 @@ fn main() {
             &[
                 // Cookbook API
                 "service.proto",
-                // Backend API
-                "discovery.proto",
-                "host_service.proto",
-                "node_service.proto",
-                "key_file_service.proto",
-                "metrics.proto",
-                "command.proto",
-                // UI API
-                "authentication_service.proto",
-                "billing_service.proto",
-                "blockchain_service.proto",
-                "command_service.proto",
-                "dashboard_service.proto",
-                "host_provision_service.proto",
-                "invitation_service.proto",
-                "mqtt.proto",
-                "fe_host_service.proto",
-                "ui_node_service.proto",
-                "organization_service.proto",
-                "user_service.proto",
+                // Blockjoy API
+                "v1/authentication.proto",
+                "v1/blockchain.proto",
+                "v1/command.proto",
+                "v1/discovery.proto",
+                "v1/host_provision.proto",
+                "v1/host.proto",
+                "v1/invitation.proto",
+                "v1/key_file.proto",
+                "v1/metrics.proto",
+                "v1/mqtt.proto",
+                "v1/node.proto",
+                "v1/organization.proto",
+                "v1/user.proto",
             ],
-            &[
-                "cookbook_protos",
-                "proto/blockjoy/api/v1",
-                "proto/blockjoy/api/ui_v1",
-            ],
+            &["cookbook_protos", "proto/public"],
         )
     {
         eprintln!("Building protos failed with:\n{e}");

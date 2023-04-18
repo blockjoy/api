@@ -1,5 +1,5 @@
 use super::schema::host_provisions;
-use crate::grpc::blockjoy;
+use crate::grpc::api;
 use crate::Result;
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -31,7 +31,7 @@ impl HostProvision {
 
     /// Wrapper for HostProvision::claim, taking ProvisionHostRequest received via gRPC instead of HostCreateRequest
     pub async fn claim_by_grpc_provision(
-        request: &blockjoy::ProvisionHostRequest,
+        request: &api::ProvisionHostRequest,
         conn: &mut AsyncPgConnection,
     ) -> Result<super::Host> {
         let host_provision = Self::find_by_id(&request.otp, conn).await?;
