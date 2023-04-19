@@ -14,11 +14,11 @@ use diesel_async::AsyncPgConnection;
 /// ignore and continue.
 pub(super) async fn recover(
     impler: &grpc::GrpcImpl,
-    failed: &models::Command,
+    failed_cmd: &models::Command,
     conn: &mut AsyncPgConnection,
 ) {
-    if failed.cmd == models::CommandType::CreateNode {
-        recover_created(impler, failed, conn).await;
+    if failed_cmd.cmd == models::CommandType::CreateNode {
+        recover_created(impler, failed_cmd, conn).await;
     }
 }
 

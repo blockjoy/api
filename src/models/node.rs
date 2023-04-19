@@ -302,17 +302,20 @@ impl Node {
         // We now have a list of host candidates for our nodes. Now the only thing left to do is to
         // make a decision about where to place the node.
         let deployments = super::NodeLog::by_node(self, conn).await?;
-        let n_hosts_tried = super::NodeLog::n_hosts_tried(&deployments);
-        let n_last_host = super::NodeLog::n_deploys_tried_on_last_host(&deployments);
-        let best = match (n_hosts_tried, n_last_host) {
-            // If we on the first host we tried, and we tried zero or one time so far, we try
-            // (again) on the first host.
-            (0, 0 | 1) => candidates[0].clone(),
-            // Otherwise if we are on the first host, we move on to the second host.
-            (0, _) => candidates[1].clone(),
-            // If we are on the second host we tried, and we tried zero or one time here, we try
-            // (again) on the second host.
-            (1, 1) => candidates[1].clone(),
+        let hosts_tried = super::NodeLog::hosts_tried(&deployments, conn).await?;
+        let best = match (hosts_tried.as_slice(), candidates.len()) {
+            // If there are 0 hosts to try, we return an error.
+            (_, 0) => return Err(anyhow!("No available host candidates").into()),
+            // If we are on the first host to try we just take the first candidate.
+            ([], _) => candidates[0].clone(),
+            // If we are on the first host to try and we tried once, we try that host again.
+            ([(host, 1)], 1) => host.clone(),
+            // Now we need at least two candidates, so lets check for that.
+            (_, 1) => return Err(anyhow!("Only available host already failed twice").into()),
+            // If there is 1 host that we tried so far, we can try a new one
+            ([_], _) => candidates[1].clone(),
+            // If we are on the second host to try and we tried once, we try that host again.
+            ([_, (host, 1)], _) => host.clone(),
             // Otherwise we exhausted our our options and return an error.
             (_, _) => return Err(anyhow!("No available hosts").into()),
         };

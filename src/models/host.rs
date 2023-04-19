@@ -103,7 +103,7 @@ impl Host {
         Ok(host)
     }
 
-    async fn by_ids(ids: &[uuid::Uuid], conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
+    pub async fn by_ids(ids: &[uuid::Uuid], conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
         let hosts: Vec<Self> = hosts::table
             .filter(hosts::id.eq_any(ids))
             .get_results(conn)

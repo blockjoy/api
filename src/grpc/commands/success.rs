@@ -6,16 +6,16 @@ use diesel_async::AsyncPgConnection;
 /// Some endpoints require some additional action from us when we recieve a success message back
 /// from blockvisord. For now this is limited to creating a node_logs entry when
 /// CreateNode has succeeded, but this may expand over time.
-pub(super) async fn register(succeeded: &models::Command, conn: &mut AsyncPgConnection) {
-    if succeeded.cmd == models::CommandType::CreateNode {
-        create_node_success(succeeded, conn).await;
+pub(super) async fn register(succeeded_cmd: &models::Command, conn: &mut AsyncPgConnection) {
+    if succeeded_cmd.cmd == models::CommandType::CreateNode {
+        create_node_success(succeeded_cmd, conn).await;
     }
 }
 
 /// In case of a successful node deployment, we are expected to write node_logs entry to
 /// the database. The `event` we pass in is `Succeeded`.
-async fn create_node_success(succeeded: &models::Command, conn: &mut AsyncPgConnection) {
-    let Some(node_id) = succeeded.node_id else {
+async fn create_node_success(succeeded_cmd: &models::Command, conn: &mut AsyncPgConnection) {
+    let Some(node_id) = succeeded_cmd.node_id else {
         tracing::error!("`CreateNode` command has no node id!");
         return;
     };

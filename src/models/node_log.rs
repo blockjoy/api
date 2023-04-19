@@ -1,7 +1,7 @@
 use super::schema::node_logs;
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumNodeLogEvent"]
@@ -66,27 +66,21 @@ impl NodeLog {
 
     /// Returns the number of distinct hosts we have tried to deploy a node on. To do this it counts
     /// the number of `CreateSent` events that were undertaken.
-    pub fn n_hosts_tried(deployments: &[Self]) -> usize {
-        let set: HashSet<_> = deployments
-            .iter()
-            .filter(|d| d.event == NodeLogEvent::Created)
-            .map(|d| d.host_id)
+    pub async fn hosts_tried(
+        deployments: &[Self],
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Vec<(super::Host, usize)>> {
+        let mut counts: HashMap<uuid::Uuid, usize> = HashMap::new();
+        for deployment in deployments {
+            *counts.entry(deployment.host_id).or_insert(0) += 1;
+        }
+        let host_ids: Vec<uuid::Uuid> = counts.keys().copied().collect();
+        let hosts = super::Host::by_ids(&host_ids, conn).await?;
+        let hosts = hosts
+            .into_iter()
+            .map(|h @ super::Host { id, .. }| (h, counts[&id]))
             .collect();
-        set.len()
-    }
-
-    /// This function finds the host that was used for the most recent deploy, and then returns the
-    /// number of times a `CreateNode` message was sent to that host. If the provided list is empty,
-    /// it returns 0.
-    pub fn n_deploys_tried_on_last_host(deployments: &[Self]) -> usize {
-        let Some(last_host) = deployments
-            .iter()
-            .filter(|d| d.event == NodeLogEvent::Created)
-            .max_by_key(|h| h.created_at) else { return 0 };
-        deployments
-            .iter()
-            .filter(|d| d.host_id == last_host.host_id)
-            .count()
+        Ok(hosts)
     }
 
     // Do not add update or delete here, this table is meant as a log and is therefore append-only.
