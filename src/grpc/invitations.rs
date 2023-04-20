@@ -116,8 +116,8 @@ impl invitations_server::Invitations for super::GrpcImpl {
             async move {
                 let auth_token = try_get_token::<_, UserAuthToken>(&request).ok().cloned();
                 let inv_token = try_get_token::<_, InvitationToken>(&request).ok().cloned();
-                let invitationid = request.into_inner().invitation_id.parse()?;
-                let invitation = authorized_invite(invitationid, inv_token, auth_token, c).await?;
+                let invitation_id = request.into_inner().invitation_id.parse()?;
+                let invitation = authorized_invite(invitation_id, inv_token, auth_token, c).await?;
                 if invitation.accepted_at.is_some() {
                     return Err(Status::failed_precondition("Invitation already accepted").into());
                 }
@@ -156,8 +156,8 @@ impl invitations_server::Invitations for super::GrpcImpl {
         let inv_token = try_get_token::<_, InvitationToken>(&request).ok().cloned();
         self.trx(|c| {
             async move {
-                let invitationid = request.into_inner().invitation_id.parse()?;
-                let invitation = authorized_invite(invitationid, inv_token, auth_token, c).await?;
+                let invitation_id = request.into_inner().invitation_id.parse()?;
+                let invitation = authorized_invite(invitation_id, inv_token, auth_token, c).await?;
                 if invitation.accepted_at.is_some() {
                     return Err(Status::failed_precondition("Invite is accepted").into());
                 }
@@ -185,8 +185,8 @@ impl invitations_server::Invitations for super::GrpcImpl {
         let request = request.into_inner();
         self.trx(|c| {
             async move {
-                let invitationid = request.invitation_id.parse()?;
-                let invitation = models::Invitation::find_by_id(invitationid, c).await?;
+                let invitation_id = request.invitation_id.parse()?;
+                let invitation = models::Invitation::find_by_id(invitation_id, c).await?;
 
                 // Our checks. We check that the invite hasn't already been used and that the user
                 // is actually in the organization that the invite is for.
@@ -215,8 +215,8 @@ impl invitations_server::Invitations for super::GrpcImpl {
 /// if the user is allowed to use this invite, or an error if access is denied.
 async fn authorized_invite(
     invitation_id: uuid::Uuid,
-    auth_token: Option<InvitationToken>,
-    inv_token: Option<UserAuthToken>,
+    inv_token: Option<InvitationToken>,
+    auth_token: Option<UserAuthToken>,
     conn: &mut AsyncPgConnection,
 ) -> crate::Result<models::Invitation> {
     let invite = models::Invitation::find_by_id(invitation_id, conn).await?;

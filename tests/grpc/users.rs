@@ -72,19 +72,6 @@ async fn responds_error_with_existing_email_for_create() {
 }
 
 #[tokio::test]
-async fn responds_error_with_different_pwds_for_create() {
-    let tester = super::Tester::new().await;
-    let req = api::CreateUserRequest {
-        email: "hugo@boss.com".to_string(),
-        first_name: "Hugo".to_string(),
-        last_name: "Boss".to_string(),
-        password: "abcde12345".to_string(),
-    };
-    let status = tester.send_admin(Service::create, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}
-
-#[tokio::test]
 async fn responds_permission_denied_with_diff_users_for_update() {
     let tester = super::Tester::new().await;
     let req = api::UpdateUserRequest {

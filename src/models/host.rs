@@ -211,7 +211,7 @@ impl Host {
             .bind::<Uuid, _>(org_id)
             .get_results(conn)
             .await?;
-        let host_ids: Vec<_> = dbg!(hosts).into_iter().map(|h| h.host_id).collect();
+        let host_ids: Vec<_> = hosts.into_iter().map(|h| h.host_id).collect();
 
         Self::by_ids(&host_ids, conn).await
     }

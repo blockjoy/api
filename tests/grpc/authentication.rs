@@ -115,17 +115,3 @@ async fn responds_unauthenticated_with_invalid_old_password_for_update_ui_passwo
         .unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
 }
-
-#[tokio::test]
-async fn responds_invalid_argument_with_invalid_password_confirmation_for_update_ui_password() {
-    let tester = super::Tester::new().await;
-    let req = api::UpdateUiPasswordRequest {
-        new_password: "hugo-boss".to_string(),
-        old_password: "abc12345".to_string(),
-    };
-    let status = tester
-        .send_admin(Service::update_ui_password, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}

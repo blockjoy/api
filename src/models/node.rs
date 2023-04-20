@@ -415,17 +415,15 @@ impl NewNode<'_> {
             self.version.to_string(),
         )
         .await?;
-        let candidates = dbg!(
-            super::Host::host_candidates(
-                requirements,
-                self.blockchain_id,
-                self.node_type,
-                self.org_id,
-                self.scheduler(),
-                conn,
-            )
-            .await
-        )?;
+        let candidates = super::Host::host_candidates(
+            requirements,
+            self.blockchain_id,
+            self.node_type,
+            self.org_id,
+            self.scheduler(),
+            conn,
+        )
+        .await?;
         // Jus take the first one if ther is one.
         let best = candidates
             .into_iter()
