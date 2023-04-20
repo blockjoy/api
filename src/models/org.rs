@@ -49,7 +49,7 @@ impl Org {
         member_id: Option<uuid::Uuid>,
         conn: &mut AsyncPgConnection,
     ) -> crate::Result<Vec<Self>> {
-        let mut query = orgs::table.inner_join(orgs_users::table).into_boxed();
+        let mut query = orgs::table.left_join(orgs_users::table).into_boxed();
 
         if let Some(member_id) = member_id {
             query = query.filter(orgs_users::user_id.eq(member_id));

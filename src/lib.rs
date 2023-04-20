@@ -2,6 +2,7 @@ pub mod auth;
 pub mod cloudflare;
 pub mod cookbook;
 pub mod error;
+pub mod firewall;
 pub mod grpc;
 pub mod http;
 pub mod hybrid_server;

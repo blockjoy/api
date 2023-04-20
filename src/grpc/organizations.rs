@@ -274,7 +274,8 @@ impl api::Org {
         models
             .into_iter()
             .map(|model| {
-                let org_users = &org_users[&model.id];
+                let empty = vec![];
+                let org_users = org_users.get(&model.id).unwrap_or(&empty);
                 Ok(Self {
                     id: model.id.to_string(),
                     name: model.name.clone(),
@@ -286,13 +287,15 @@ impl api::Org {
                         .iter()
                         .map(|ou| {
                             let user = &users[&ou.user_id];
-                            api::OrgUser {
+                            let mut org = api::OrgUser {
                                 user_id: ou.user_id.to_string(),
                                 org_id: ou.org_id.to_string(),
                                 role: ou.role as i32,
                                 name: user.name(),
                                 email: user.email.clone(),
-                            }
+                            };
+                            org.set_role(api::org_user::OrgRole::from_model(ou.role));
+                            org
                         })
                         .collect(),
                 })
@@ -305,5 +308,15 @@ impl api::Org {
         conn: &mut AsyncPgConnection,
     ) -> crate::Result<Self> {
         Ok(Self::from_models(vec![model], conn).await?[0].clone())
+    }
+}
+
+impl api::org_user::OrgRole {
+    fn from_model(model: models::OrgRole) -> Self {
+        match model {
+            models::OrgRole::Admin => Self::Admin,
+            models::OrgRole::Owner => Self::Owner,
+            models::OrgRole::Member => Self::Member,
+        }
     }
 }

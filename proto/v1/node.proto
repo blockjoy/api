@@ -99,7 +99,7 @@ message Node {
     string name = 1;
     string label = 2;
     string description = 3;
-    string ui_type = 4;
+    UiType ui_type = 4;
     bool disabled = 5;
     bool required = 6;
     optional string value = 7;
@@ -118,7 +118,7 @@ message Node {
   optional string ip = 9;
   NodeType node_type = 10;
   repeated NodeProperty properties = 11;
-  optional int64 block_height = 13;
+  optional uint64 block_height = 13;
   google.protobuf.Timestamp created_at = 15;
   google.protobuf.Timestamp updated_at = 16;
   NodeStatus status = 17;
@@ -227,6 +227,14 @@ message CreateNodeRequest {
   // The scheduler decides where to place this node. Refer to the documentation
   // of the `NodeScheduler` message for more details.
   NodeScheduler scheduler = 8;
+}
+
+enum UiType {
+  UI_TYPE_UNSPECIFIED = 0;
+  UI_TYPE_SWITCH = 1;
+  UI_TYPE_PASSWORD = 2;
+  UI_TYPE_TEXT = 3;
+  UI_TYPE_FILE_UPLOAD = 4;
 }
 
 // Message returned when a node is created.

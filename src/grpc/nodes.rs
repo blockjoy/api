@@ -9,6 +9,52 @@ use tonic::{Request, Status};
 
 #[tonic::async_trait]
 impl nodes_server::Nodes for super::GrpcImpl {
+    async fn get(
+        &self,
+        request: Request<api::GetNodeRequest>,
+    ) -> super::Result<api::GetNodeResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let user_id = helpers::try_get_token::<_, auth::UserAuthToken>(&request)
+            .ok()
+            .map(|t| t.id);
+        let host_id = helpers::try_get_token::<_, auth::HostAuthToken>(&request)
+            .ok()
+            .map(|t| t.id);
+        let inner = request.into_inner();
+        let node_id = inner.id.parse().map_err(crate::Error::from)?;
+        let mut conn = self.conn().await?;
+        let node = models::Node::find_by_id(node_id, &mut conn).await?;
+
+        let is_allowed = if let Some(user_id) = user_id {
+            models::Org::is_member(user_id, node.org_id, &mut conn).await?
+        } else if let Some(host_id) = host_id {
+            node.host_id == host_id
+        } else {
+            false
+        };
+
+        if !is_allowed {
+            super::bail_unauthorized!("Access not allowed")
+        }
+        let response = api::GetNodeResponse {
+            node: Some(api::Node::from_model(node, &mut conn).await?),
+        };
+        super::response_with_refresh_token(refresh_token, response)
+    }
+
+    async fn list(
+        &self,
+        request: Request<api::ListNodesRequest>,
+    ) -> super::Result<api::ListNodesResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let request = request.into_inner();
+        let mut conn = self.conn().await?;
+        let nodes = models::Node::filter(request.as_filter()?, &mut conn).await?;
+        let nodes = api::Node::from_models(nodes, &mut conn).await?;
+        let response = api::ListNodesResponse { nodes };
+        super::response_with_refresh_token(refresh_token, response)
+    }
+
     async fn create(
         &self,
         request: Request<api::CreateNodeRequest>,
@@ -55,53 +101,6 @@ impl nodes_server::Nodes for super::GrpcImpl {
             .scope_boxed()
         })
         .await
-    }
-
-    async fn get(
-        &self,
-        request: Request<api::GetNodeRequest>,
-    ) -> super::Result<api::GetNodeResponse> {
-        let refresh_token = super::get_refresh_token(&request);
-        let org_id = helpers::try_get_token::<_, auth::UserAuthToken>(&request)
-            .ok()
-            .map(|t| t.try_org_id())
-            .transpose()?;
-        let host_id = helpers::try_get_token::<_, auth::HostAuthToken>(&request)
-            .ok()
-            .map(|t| t.id);
-        let inner = request.into_inner();
-        let node_id = inner.id.parse().map_err(crate::Error::from)?;
-        let mut conn = self.conn().await?;
-        let node = models::Node::find_by_id(node_id, &mut conn).await?;
-
-        let is_allowed = if let Some(org_id) = org_id {
-            node.org_id == org_id
-        } else if let Some(host_id) = host_id {
-            node.host_id == host_id
-        } else {
-            false
-        };
-
-        if !is_allowed {
-            super::bail_unauthorized!("Access not allowed")
-        }
-        let response = api::GetNodeResponse {
-            node: Some(api::Node::from_model(node, &mut conn).await?),
-        };
-        super::response_with_refresh_token(refresh_token, response)
-    }
-
-    async fn list(
-        &self,
-        request: Request<api::ListNodesRequest>,
-    ) -> super::Result<api::ListNodesResponse> {
-        let refresh_token = super::get_refresh_token(&request);
-        let request = request.into_inner();
-        let mut conn = self.conn().await?;
-        let nodes = models::Node::filter(request.as_filter()?, &mut conn).await?;
-        let nodes = api::Node::from_models(nodes, &mut conn).await?;
-        let response = api::ListNodesResponse { nodes };
-        super::response_with_refresh_token(refresh_token, response)
     }
 
     async fn update(
@@ -307,7 +306,7 @@ impl api::Node {
             ip_gateway: node.ip_gateway,
             node_type: 0, // We use the setter to set this field for type-safety
             properties,
-            block_height: node.block_height.map(i64::from),
+            block_height: node.block_height.map(u64::try_from).transpose()?,
             created_at: Some(super::try_dt_to_ts(node.created_at)?),
             updated_at: Some(super::try_dt_to_ts(node.updated_at)?),
             status: 0,            // We use the setter to set this field for type-safety
@@ -338,16 +337,16 @@ impl api::Node {
 
 impl api::CreateNodeRequest {
     pub fn as_new(&self, user_id: uuid::Uuid) -> crate::Result<models::NewNode<'_>> {
+        let properties = self
+            .properties
+            .iter()
+            .map(|p| api::node::NodeProperty::into_model(p.clone()))
+            .collect::<crate::Result<_>>()?;
         let properties = models::NodePropertiesWithId {
             id: self.node_type,
             props: models::NodeProperties {
                 version: self.version.clone(),
-                properties: Some(
-                    self.properties
-                        .iter()
-                        .map(|p| api::node::NodeProperty::into_model(p.clone()))
-                        .collect(),
-                ),
+                properties: Some(properties),
             },
         };
         let scheduler = self
@@ -585,26 +584,50 @@ impl api::node::SyncStatus {
 
 impl api::node::NodeProperty {
     fn from_model(model: models::NodePropertyValue) -> Self {
-        Self {
+        let mut prop = Self {
             name: model.name,
             label: model.label,
             description: model.description,
-            ui_type: model.ui_type,
+            ui_type: 0,
             disabled: model.disabled,
             required: model.required,
             value: model.value,
-        }
+        };
+        prop.set_ui_type(api::UiType::from_model(model.ui_type));
+        prop
     }
 
-    fn into_model(self) -> models::NodePropertyValue {
-        models::NodePropertyValue {
+    fn into_model(self) -> crate::Result<models::NodePropertyValue> {
+        let ui_type = self.ui_type().into_model()?;
+        Ok(models::NodePropertyValue {
             name: self.name,
             label: self.label,
             description: self.description,
-            ui_type: self.ui_type,
+            ui_type,
             disabled: self.disabled,
             required: self.required,
             value: self.value,
+        })
+    }
+}
+
+impl api::UiType {
+    pub fn from_model(model: models::BlockchainPropertyUiType) -> Self {
+        match model {
+            models::BlockchainPropertyUiType::Switch => api::UiType::Switch,
+            models::BlockchainPropertyUiType::Password => api::UiType::Password,
+            models::BlockchainPropertyUiType::Text => api::UiType::Text,
+            models::BlockchainPropertyUiType::FileUpload => api::UiType::FileUpload,
+        }
+    }
+
+    pub fn into_model(self) -> crate::Result<models::BlockchainPropertyUiType> {
+        match self {
+            Self::Unspecified => Err(anyhow::anyhow!("UiType not specified!").into()),
+            Self::Switch => Ok(models::BlockchainPropertyUiType::Switch),
+            Self::Password => Ok(models::BlockchainPropertyUiType::Password),
+            Self::Text => Ok(models::BlockchainPropertyUiType::Text),
+            Self::FileUpload => Ok(models::BlockchainPropertyUiType::FileUpload),
         }
     }
 }

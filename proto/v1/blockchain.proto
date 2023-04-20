@@ -3,6 +3,7 @@ syntax = "proto3";
 package v1;
 
 import "google/protobuf/timestamp.proto";
+import "node.proto";
 
 message Blockchain {
   enum BlockchainStatus {
@@ -23,12 +24,18 @@ message Blockchain {
   optional string version = 7;
   google.protobuf.Timestamp created_at = 8;
   optional google.protobuf.Timestamp updated_at = 9;
-  bool supports_etl = 10;
-  bool supports_node = 11;
-  bool supports_staking = 12;
-  bool supports_broadcast = 13;
-  string supported_nodes_types = 14;
-  repeated BlockchainNetwork networks = 15;
+  // This list contains all the possible node types that can be created for this
+  // kind of blockchain.
+  repeated SupportedNodeType nodes_types = 10;
+  repeated BlockchainNetwork networks = 11;
+}
+
+// Blockchain related service.
+service Blockchains {
+  // Returns a single blockchain as identified by its id.
+  rpc Get(GetBlockchainRequest) returns (GetBlockchainResponse);
+  // Returns a list of all blockchains.
+  rpc List(ListBlockchainsRequest) returns (ListBlockchainsResponse);
 }
 
 message BlockchainNetwork {
@@ -44,12 +51,18 @@ message BlockchainNetwork {
   NetworkType net_type = 3;
 }
 
-// Blockchain related service.
-service Blockchains {
-  // Returns a single blockchain as identified by its id.
-  rpc Get(GetBlockchainRequest) returns (GetBlockchainResponse);
-  // Returns a list of all blockchains.
-  rpc List(ListBlockchainsRequest) returns (ListBlockchainsResponse);
+message SupportedNodeType {
+  Node.NodeType node_type = 1;
+  string version = 2;
+  repeated SupportedNodeProperty properties = 3;
+}
+
+message SupportedNodeProperty {
+  string name = 1;
+  optional string default = 2;
+  UiType ui_type = 3;
+  bool disabled = 4;
+  bool required = 5;
 }
 
 message GetBlockchainRequest {

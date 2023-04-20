@@ -1,6 +1,7 @@
 use super::api::{self, commands_server};
 use super::helpers::required;
 use crate::auth::FindableById;
+use crate::firewall::create_rules_for_node;
 use crate::models;
 use anyhow::anyhow;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -28,6 +29,7 @@ impl commands_server::Commands for super::GrpcImpl {
                     .create(c)
                     .await?;
                 let command = api::Command::from_model(&command, c).await?;
+                self.notifier.commands_sender().send(&command).await?;
                 let response = api::CreateCommandResponse {
                     command: Some(command),
                 };
@@ -156,7 +158,7 @@ impl api::Command {
                 let node = models::Node::find_by_id(node_id()?, conn).await?;
                 let cmd = Command::Update(api::NodeUpdate {
                     self_update: Some(node.self_update),
-                    rules: vec![], // todo after T merges this
+                    rules: create_rules_for_node(&node)?,
                 });
                 node_cmd_default_id(cmd)
             }
@@ -184,15 +186,15 @@ impl api::Command {
                     .chain([network])
                     .collect();
                 let mut node_create = api::NodeCreate {
-                    name: node.name,
+                    name: node.name.clone(),
                     blockchain: node.blockchain_id.to_string(),
                     image: Some(image),
                     node_type: 0, // We use the setter to set this field for type-safety
-                    ip: node.ip_addr,
-                    gateway: node.ip_gateway,
+                    ip: node.ip_addr.clone(),
+                    gateway: node.ip_gateway.clone(),
                     self_update: node.self_update,
                     properties,
-                    rules: vec![], // todo after T merges this
+                    rules: create_rules_for_node(&node)?,
                 };
                 node_create.set_node_type(api::node::NodeType::from_model(node.node_type));
                 let cmd = Command::Create(node_create);

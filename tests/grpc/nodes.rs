@@ -71,7 +71,13 @@ async fn responds_ok_with_valid_data_for_create() {
             resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
         }),
     };
-    tester.send_admin(Service::create, req).await.unwrap();
+    let node = tester.send_admin(Service::create, req).await.unwrap();
+
+    // assert that it really exists
+    let req = api::GetNodeRequest {
+        id: node.node.unwrap().id,
+    };
+    tester.send_admin(Service::get, req).await.unwrap();
 }
 
 #[tokio::test]

@@ -4,7 +4,7 @@ package v1;
 
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
-import "v1/user.proto";
+import "user.proto";
 
 // Organization representation
 message Org {
@@ -110,7 +110,7 @@ message OrgMembersRequest {
 }
 
 message OrgMembersResponse {
-  repeated User users = 1;
+  repeated v1.User users = 1;
 }
 
 message RestoreOrgRequest {

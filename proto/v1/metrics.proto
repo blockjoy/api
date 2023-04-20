@@ -3,7 +3,7 @@ syntax = "proto3";
 package v1;
 
 import "google/protobuf/empty.proto";
-import "v1/node.proto";
+import "node.proto";
 
 // This message is used to store the metrics for a given set of nodes.
 message NodeMetricsRequest {
@@ -28,7 +28,7 @@ message NodeMetrics {
   optional v1.Node.NodeStatus application_status = 5;
   // The status of the node with respect to the rest of the network, i.e.
   // whether it is in sync with the other nodes.
-  optional Node.SyncStatus sync_status = 6;
+  optional v1.Node.SyncStatus sync_status = 6;
 }
 
 // This message is used to store the metrics for a given set of hosts.
@@ -73,7 +73,7 @@ message HostMetrics {
   optional uint64 uptime = 9;
 }
 
-service Metrics{
+service Metrics {
   // Overwrite the metrics for the given nodes.
   rpc Node(NodeMetricsRequest) returns (google.protobuf.Empty);
   // Overwrite the metrics for the given hosts.
