@@ -27,6 +27,7 @@ impl commands_server::Commands for super::GrpcImpl {
                     .create(c)
                     .await?;
                 let command = api::Command::from_model(&command, c).await?;
+                self.notifier.commands_sender().send(&command).await?;
                 let response = api::CreateCommandResponse {
                     command: Some(command),
                 };
