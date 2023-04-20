@@ -274,7 +274,8 @@ impl api::Org {
         models
             .into_iter()
             .map(|model| {
-                let org_users = org_users.get(&model.id).unwrap_or_default();
+                let empty = vec![];
+                let org_users = org_users.get(&model.id).unwrap_or(&empty);
                 Ok(Self {
                     id: model.id.to_string(),
                     name: model.name.clone(),

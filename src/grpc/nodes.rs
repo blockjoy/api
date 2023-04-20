@@ -312,7 +312,7 @@ impl api::Node {
             ip_gateway: node.ip_gateway,
             node_type: 0, // We use the setter to set this field for type-safety
             properties,
-            block_height: node.block_height.map(i64::from),
+            block_height: node.block_height.map(u64::try_from).transpose()?,
             created_at: Some(super::try_dt_to_ts(node.created_at)?),
             updated_at: Some(super::try_dt_to_ts(node.updated_at)?),
             status: 0,            // We use the setter to set this field for type-safety
