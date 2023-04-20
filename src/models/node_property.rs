@@ -36,7 +36,7 @@ impl NodeProperties {
 /// This is a list of properties, but with the type of node stored as an integer in the `id` field.
 /// This is the same way it happens for `BlockchainProperties`, and this representation is used
 /// over the gRPC.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct NodePropertiesWithId {
     pub id: i32,
     #[serde(flatten)]
@@ -44,19 +44,32 @@ pub struct NodePropertiesWithId {
 }
 
 /// A list of properties that goes into the `node_type` field of a `node`.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct BlockchainProperties {
     pub id: i32,
     pub version: String,
     pub properties: Option<Vec<BlockchainPropertyValue>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct BlockchainPropertyValue {
     pub name: String,
-    ui_type: String,
-    disabled: bool,
-    required: bool,
+    pub default: Option<String>,
+    pub ui_type: BlockchainPropertyUiType,
+    pub disabled: bool,
+    pub required: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BlockchainPropertyUiType {
+    Switch,
+    #[serde(alias = "voting_key_pwd")]
+    Password,
+    #[serde(alias = "wallet_address")]
+    Text,
+    #[serde(alias = "key-upload")]
+    FileUpload,
 }
 
 #[cfg(test)]

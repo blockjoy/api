@@ -1,4 +1,4 @@
-use super::api::{self, blockchains_server};
+use super::api::{self, blockchains_server, SupportedNodeProperty};
 use crate::cookbook::get_networks;
 use crate::models;
 use futures_util::future::join_all;
@@ -108,22 +108,82 @@ async fn try_get_networks(
 
 impl api::Blockchain {
     fn from_model(model: models::Blockchain) -> crate::Result<Self> {
-        let supported_nodes_types = serde_json::to_string(&model.supported_node_types()?)?;
+        let nodes_types = model
+            .supported_node_types()?
+            .into_iter()
+            .map(api::SupportedNodeType::from_model)
+            .collect::<crate::Result<_>>()?;
 
-        let blockchain = Self {
+        let mut blockchain = Self {
             id: model.id.to_string(),
             name: model.name,
             // TODO: make this column mandatory
             description: model.description.unwrap_or_default(),
-            status: model.status as i32,
+            status: 0, // We use the setter to set this field for type-safety
             project_url: model.project_url,
             repo_url: model.repo_url,
             version: model.version,
-            supported_nodes_types,
+            nodes_types,
             created_at: Some(super::try_dt_to_ts(model.created_at)?),
             updated_at: Some(super::try_dt_to_ts(model.updated_at)?),
             networks: vec![],
         };
+        blockchain.set_status(api::blockchain::BlockchainStatus::from_model(model.status));
         Ok(blockchain)
+    }
+}
+
+impl api::SupportedNodeType {
+    fn from_model(model: models::BlockchainProperties) -> crate::Result<Self> {
+        let mut props = api::SupportedNodeType {
+            node_type: 0, // We use the setter to set this field for type-safety
+            version: model.version,
+            properties: model
+                .properties
+                .unwrap_or_default()
+                .into_iter()
+                .map(api::SupportedNodeProperty::from_model)
+                .collect(),
+        };
+        let model = models::NodeType::try_from(model.id)?;
+        props.set_node_type(api::node::NodeType::from_model(model));
+        Ok(props)
+    }
+}
+
+impl api::SupportedNodeProperty {
+    fn from_model(model: models::BlockchainPropertyValue) -> Self {
+        let mut prop = SupportedNodeProperty {
+            name: model.name,
+            default: model.default,
+            ui_type: 0, // We use the setter to set this field for type-safety
+            disabled: model.disabled,
+            required: model.required,
+        };
+        prop.set_ui_type(api::UiType::from_model(model.ui_type));
+        prop
+    }
+}
+
+impl api::UiType {
+    fn from_model(model: models::BlockchainPropertyUiType) -> Self {
+        match model {
+            models::BlockchainPropertyUiType::FileUpload => api::UiType::FileUpload,
+            models::BlockchainPropertyUiType::Password => api::UiType::Password,
+            models::BlockchainPropertyUiType::Text => api::UiType::Text,
+            models::BlockchainPropertyUiType::Switch => api::UiType::Switch,
+        }
+    }
+}
+
+impl api::blockchain::BlockchainStatus {
+    fn from_model(model: models::BlockchainStatus) -> Self {
+        match model {
+            models::BlockchainStatus::Development => Self::Development,
+            models::BlockchainStatus::Alpha => Self::Alpha,
+            models::BlockchainStatus::Beta => Self::Beta,
+            models::BlockchainStatus::Production => Self::Production,
+            models::BlockchainStatus::Deleted => Self::Deleted,
+        }
     }
 }
