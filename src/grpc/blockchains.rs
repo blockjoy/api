@@ -52,7 +52,7 @@ impl blockchains_server::Blockchains for super::GrpcImpl {
                 let name = blockchain.name.clone();
                 let node_type = node_properties.id.try_into();
                 let node_type = node_type.unwrap_or(models::NodeType::Unknown).to_string();
-                let version = Some(node_properties.version.clone());
+                let version = node_properties.version.clone();
                 network_futs.push(try_get_networks(blockchain.id, name, node_type, version));
             }
         }
@@ -91,7 +91,7 @@ async fn try_get_networks(
     blockchain_id: uuid::Uuid,
     name: String,
     node_type: String,
-    version: Option<String>,
+    version: String,
 ) -> (uuid::Uuid, Vec<api::BlockchainNetwork>) {
     // We prepare an error message because we are moving all the arguments used to construct it.
     let err_msg = format!("Could not get networks for {name} {node_type} version {version:?}");

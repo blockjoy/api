@@ -262,6 +262,7 @@ mod test {
                     nodes::disk_size_bytes.eq(8 * 1024 * 1024 * 1024),
                     nodes::mem_size_bytes.eq(1024 * 1024 * 1024),
                     nodes::scheduler_resource.eq(models::ResourceAffinity::LeastResources),
+                    nodes::version.eq("3.3.0"),
                 ))
                 .execute(conn)
                 .await

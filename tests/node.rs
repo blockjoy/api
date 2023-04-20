@@ -26,7 +26,7 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         groups: "".to_string(),
         node_data: None,
         name,
-        version: Some("3.3.0"),
+        version: "3.3.0",
         staking_status: models::NodeStakingStatus::Staked,
         self_update: false,
         vcpu_count: 0,

@@ -79,7 +79,7 @@ pub struct Node {
     pub host_id: uuid::Uuid,
     pub name: String,
     pub groups: Option<String>,
-    pub version: Option<String>,
+    pub version: String,
     pub ip_addr: String,
     pub address: Option<String>,
     pub wallet_address: Option<String>,
@@ -282,12 +282,9 @@ impl Node {
 
     pub async fn find_host(&self, conn: &mut AsyncPgConnection) -> crate::Result<super::Host> {
         let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
-        let requirements = get_hw_requirements(
-            chain.name,
-            self.node_type.to_string(),
-            self.version.as_deref(),
-        )
-        .await?;
+        let requirements =
+            get_hw_requirements(chain.name, self.node_type.to_string(), self.version.clone())
+                .await?;
 
         let candidates = super::Host::host_candidates(
             requirements,
@@ -344,7 +341,7 @@ pub struct NewNode<'a> {
     pub org_id: uuid::Uuid,
     pub name: String,
     pub groups: String,
-    pub version: Option<&'a str>,
+    pub version: &'a str,
     pub blockchain_id: uuid::Uuid,
     pub properties: serde_json::Value,
     pub block_height: Option<i64>,
@@ -412,8 +409,12 @@ impl NewNode<'_> {
     /// simply ask for an ordered list of the most suitable hosts, and pick the first one.
     pub async fn find_host(&self, conn: &mut AsyncPgConnection) -> crate::Result<super::Host> {
         let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
-        let requirements =
-            get_hw_requirements(chain.name, self.node_type.to_string(), self.version).await?;
+        let requirements = get_hw_requirements(
+            chain.name,
+            self.node_type.to_string(),
+            self.version.to_string(),
+        )
+        .await?;
         let candidates = dbg!(
             super::Host::host_candidates(
                 requirements,

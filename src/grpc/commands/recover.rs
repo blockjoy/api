@@ -62,7 +62,7 @@ async fn recover_created(
         event: models::NodeLogEvent::Failed,
         blockchain_name: &blockchain.name,
         node_type: node.node_type,
-        version: node.version.as_deref().unwrap_or("latest"),
+        version: &node.version,
         created_at: chrono::Utc::now(),
     };
     let Ok(_) = new_log.create(conn).await else {
@@ -81,7 +81,7 @@ async fn recover_created(
             event: models::NodeLogEvent::Canceled,
             blockchain_name: &blockchain.name,
             node_type: node.node_type,
-            version: node.version.as_deref().unwrap_or("latest"),
+            version: &node.version,
             created_at: chrono::Utc::now(),
         };
         let Ok(_) = new_log.create(conn).await else {

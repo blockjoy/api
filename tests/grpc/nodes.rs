@@ -64,7 +64,7 @@ async fn responds_ok_with_valid_data_for_create() {
         blockchain_id: blockchain.id.to_string(),
         node_type: api::node::NodeType::Validator.into(),
         properties: vec![],
-        version: Some("3.3.0".into()),
+        version: "3.3.0".to_string(),
         network: "some network".to_string(),
         scheduler: Some(api::NodeScheduler {
             similarity: None,
@@ -90,7 +90,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         blockchain_id: blockchain.id.to_string(),
         node_type: api::node::NodeType::Api.into(),
         properties: vec![],
-        version: Some("3.3.0".into()),
+        version: "3.3.0".to_string(),
         network: "some network".to_string(),
         scheduler: Some(api::NodeScheduler {
             similarity: None,

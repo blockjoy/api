@@ -34,7 +34,7 @@ async fn create_node_success(succeeded_cmd: &models::Command, conn: &mut AsyncPg
         event: models::NodeLogEvent::Succeeded,
         blockchain_name: &blockchain.name,
         node_type: node.node_type,
-        version: node.version.as_deref().unwrap_or("latest"),
+        version: &node.version,
         created_at: chrono::Utc::now(),
     };
     let _ = new_log.create(conn).await;
