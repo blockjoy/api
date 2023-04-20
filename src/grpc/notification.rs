@@ -5,8 +5,6 @@ use super::api::{self, host_message, node_message, org_message};
 use crate::{auth::key_provider::KeyProvider, models, Result};
 
 /// Presents the following senders:
-///
-///
 /// |---------------|----------------------------------------------|
 /// | public api    | topics                                       |
 /// |---------------|----------------------------------------------|

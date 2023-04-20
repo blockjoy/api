@@ -3,12 +3,10 @@ use super::schema::{nodes, orgs_users};
 use crate::auth::FindableById;
 use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
-use crate::models::{Blockchain, Host, IpAddress};
-use crate::{Error, Result};
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use uuid::Uuid;
 
 /// ContainerStatus reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
@@ -74,11 +72,11 @@ pub enum NodeChainStatus {
     Removing,
 }
 
-#[derive(Clone, Debug, Queryable, Identifiable)]
+#[derive(Clone, Debug, Queryable, AsChangeset)]
 pub struct Node {
-    pub id: Uuid,
-    pub org_id: Uuid,
-    pub host_id: Uuid,
+    pub id: uuid::Uuid,
+    pub org_id: uuid::Uuid,
+    pub host_id: uuid::Uuid,
     pub name: String,
     pub groups: Option<String>,
     pub version: String,
@@ -89,7 +87,7 @@ pub struct Node {
     pub node_data: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub blockchain_id: Uuid,
+    pub blockchain_id: uuid::Uuid,
     pub sync_status: NodeSyncStatus,
     pub chain_status: NodeChainStatus,
     pub staking_status: Option<NodeStakingStatus>,
@@ -100,8 +98,8 @@ pub struct Node {
     pub block_age: Option<i64>,
     pub consensus: Option<bool>,
     pub vcpu_count: i64,
-    pub mem_size_mb: i64,
-    pub disk_size_gb: i64,
+    pub mem_size_bytes: i64,
+    pub disk_size_bytes: i64,
     pub host_name: String,
     pub network: String,
     pub created_by: Option<uuid::Uuid>,
@@ -109,6 +107,8 @@ pub struct Node {
     pub allow_ips: serde_json::Value,
     pub deny_ips: serde_json::Value,
     pub node_type: NodeType,
+    pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
+    pub scheduler_resource: super::ResourceAffinity,
 }
 
 #[derive(Clone, Debug)]
@@ -123,19 +123,19 @@ pub struct NodeFilter {
 
 #[axum::async_trait]
 impl FindableById for Node {
-    async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
+    async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
         let node = nodes::table.find(id).get_result(conn).await?;
         Ok(node)
     }
 }
 
 impl Node {
-    pub fn properties(&self) -> Result<super::NodeProperties> {
+    pub fn properties(&self) -> crate::Result<super::NodeProperties> {
         let res = serde_json::from_value(self.properties.clone())?;
         Ok(res)
     }
 
-    pub async fn all(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
+    pub async fn all(conn: &mut AsyncPgConnection) -> crate::Result<Vec<Self>> {
         nodes::table
             .get_results(conn)
             .await
@@ -143,9 +143,9 @@ impl Node {
     }
 
     pub async fn find_all_by_host(
-        host_id: Uuid,
+        host_id: uuid::Uuid,
         conn: &mut AsyncPgConnection,
-    ) -> Result<Vec<Self>> {
+    ) -> crate::Result<Vec<Self>> {
         let nodes = nodes::table
             .filter(nodes::host_id.eq(host_id))
             .get_results(conn)
@@ -154,11 +154,11 @@ impl Node {
     }
 
     pub async fn find_all_by_org(
-        org_id: Uuid,
+        org_id: uuid::Uuid,
         offset: i64,
         limit: i64,
         conn: &mut AsyncPgConnection,
-    ) -> Result<Vec<Self>> {
+    ) -> crate::Result<Vec<Self>> {
         let nodes = nodes::table
             .filter(nodes::org_id.eq(org_id))
             .offset(offset)
@@ -170,10 +170,10 @@ impl Node {
 
     // TODO: Check role if user is allowed to delete the node
     pub async fn belongs_to_user_org(
-        org_id: Uuid,
-        user_id: Uuid,
+        org_id: uuid::Uuid,
+        user_id: uuid::Uuid,
         conn: &mut AsyncPgConnection,
-    ) -> Result<bool> {
+    ) -> crate::Result<bool> {
         let query = orgs_users::table
             .filter(orgs_users::org_id.eq(org_id))
             .filter(orgs_users::user_id.eq(user_id));
@@ -183,7 +183,10 @@ impl Node {
         Ok(exists)
     }
 
-    pub async fn filter(filter: NodeFilter, conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
+    pub async fn filter(
+        filter: NodeFilter,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Vec<Self>> {
         let mut query = nodes::table
             .filter(nodes::org_id.eq(filter.org_id))
             .offset(filter.offset.try_into()?)
@@ -207,7 +210,10 @@ impl Node {
         Ok(nodes)
     }
 
-    pub async fn running_nodes_count(org_id: Uuid, conn: &mut AsyncPgConnection) -> Result<i64> {
+    pub async fn running_nodes_count(
+        org_id: uuid::Uuid,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<i64> {
         use NodeChainStatus::*;
         const RUNNING_STATUSES: [NodeChainStatus; 14] = [
             Broadcasting,
@@ -235,7 +241,10 @@ impl Node {
         Ok(count)
     }
 
-    pub async fn halted_nodes_count(org_id: &Uuid, conn: &mut AsyncPgConnection) -> Result<i64> {
+    pub async fn halted_nodes_count(
+        org_id: uuid::Uuid,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<i64> {
         use NodeChainStatus::*;
         const HALTED_STATUSES: [NodeChainStatus; 4] = [Unknown, Disabled, Removed, Removing];
         let count = nodes::table
@@ -248,7 +257,15 @@ impl Node {
         Ok(count)
     }
 
-    pub async fn delete(node_id: Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
+    pub async fn update(self, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
+        let node = diesel::update(nodes::table.find(self.id))
+            .set((self, nodes::updated_at.eq(chrono::Utc::now())))
+            .get_result(conn)
+            .await?;
+        Ok(node)
+    }
+
+    pub async fn delete(node_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> crate::Result<()> {
         let node = Node::find_by_id(node_id, conn).await?;
         let cf_api = CloudflareApi::new(node.ip_addr)?;
 
@@ -262,11 +279,58 @@ impl Node {
 
         Ok(())
     }
+
+    pub async fn find_host(&self, conn: &mut AsyncPgConnection) -> crate::Result<super::Host> {
+        let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
+        let requirements =
+            get_hw_requirements(chain.name, self.node_type.to_string(), self.version.clone())
+                .await?;
+
+        let candidates = super::Host::host_candidates(
+            requirements,
+            self.blockchain_id,
+            self.node_type,
+            self.org_id,
+            self.scheduler(),
+            conn,
+        )
+        .await?;
+
+        // We now have a list of host candidates for our nodes. Now the only thing left to do is to
+        // make a decision about where to place the node.
+        let deployments = super::NodeLog::by_node(self, conn).await?;
+        let hosts_tried = super::NodeLog::hosts_tried(&deployments, conn).await?;
+        let best = match (hosts_tried.as_slice(), candidates.len()) {
+            // If there are 0 hosts to try, we return an error.
+            (_, 0) => return Err(anyhow!("No available host candidates").into()),
+            // If we are on the first host to try we just take the first candidate.
+            ([], _) => candidates[0].clone(),
+            // If we are on the first host to try and we tried once, we try that host again.
+            ([(host, 1)], 1) => host.clone(),
+            // Now we need at least two candidates, so lets check for that.
+            (_, 1) => return Err(anyhow!("Only available host already failed twice").into()),
+            // If there is 1 host that we tried so far, we can try a new one
+            ([_], _) => candidates[1].clone(),
+            // If we are on the second host to try and we tried once, we try that host again.
+            ([_, (host, 1)], _) => host.clone(),
+            // Otherwise we exhausted our our options and return an error.
+            (_, _) => return Err(anyhow!("No available hosts").into()),
+        };
+
+        Ok(best)
+    }
+
+    fn scheduler(&self) -> super::NodeScheduler {
+        super::NodeScheduler {
+            similarity: self.scheduler_similarity,
+            resource: self.scheduler_resource,
+        }
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NodeProvision {
-    pub blockchain_id: Uuid,
+    pub blockchain_id: uuid::Uuid,
     pub node_type: NodeType,
 }
 
@@ -277,8 +341,8 @@ pub struct NewNode<'a> {
     pub org_id: uuid::Uuid,
     pub name: String,
     pub groups: String,
-    pub version: Option<&'a str>,
-    pub blockchain_id: Uuid,
+    pub version: &'a str,
+    pub blockchain_id: uuid::Uuid,
     pub properties: serde_json::Value,
     pub block_height: Option<i64>,
     pub node_data: Option<serde_json::Value>,
@@ -288,30 +352,29 @@ pub struct NewNode<'a> {
     pub container_status: ContainerStatus,
     pub self_update: bool,
     pub vcpu_count: i64,
-    pub mem_size_mb: i64,
-    pub disk_size_gb: i64,
+    pub mem_size_bytes: i64,
+    pub disk_size_bytes: i64,
     pub network: &'a str,
     pub node_type: NodeType,
     pub created_by: uuid::Uuid,
+    pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
+    pub scheduler_resource: super::ResourceAffinity,
 }
 
 impl NewNode<'_> {
-    pub fn properties(&self) -> Result<super::NodeProperties> {
+    pub fn properties(&self) -> crate::Result<super::NodeProperties> {
         let res = serde_json::from_value(self.properties.clone())?;
         Ok(res)
     }
 
-    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<Node> {
-        use Error::NoMatchingHostError;
+    pub async fn create(self, conn: &mut AsyncPgConnection) -> crate::Result<Node> {
+        use crate::Error::NoMatchingHostError;
 
-        let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
-        let node_type = self.node_type.to_string();
-        let requirements = get_hw_requirements(chain.name, node_type, self.version).await?;
-        let host_id = Host::get_next_available_host_id(requirements, conn)
+        let host = self
+            .find_host(conn)
             .await
             .map_err(|_| NoMatchingHostError("The system is out of resources".to_string()))?;
-        let host = Host::find_by_id(host_id, conn).await?;
-        let ip_addr = IpAddress::next_for_host(host_id, conn)
+        let ip_addr = super::IpAddress::next_for_host(host.id, conn)
             .await?
             .ip
             .ip()
@@ -327,7 +390,7 @@ impl NewNode<'_> {
         diesel::insert_into(nodes::table)
             .values((
                 self,
-                nodes::host_id.eq(host_id),
+                nodes::host_id.eq(host.id),
                 nodes::ip_gateway.eq(ip_gateway),
                 nodes::ip_addr.eq(ip_addr),
                 nodes::host_name.eq(&host.name),
@@ -339,6 +402,43 @@ impl NewNode<'_> {
                 tracing::error!("Error creating node: {e}");
                 e.into()
             })
+    }
+
+    /// Finds the most suitable host to initially place the node on. Since this is a freshly created
+    /// node, we do not need to worry about logic regarding where the retry placing the node. We
+    /// simply ask for an ordered list of the most suitable hosts, and pick the first one.
+    pub async fn find_host(&self, conn: &mut AsyncPgConnection) -> crate::Result<super::Host> {
+        let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
+        let requirements = get_hw_requirements(
+            chain.name,
+            self.node_type.to_string(),
+            self.version.to_string(),
+        )
+        .await?;
+        let candidates = dbg!(
+            super::Host::host_candidates(
+                requirements,
+                self.blockchain_id,
+                self.node_type,
+                self.org_id,
+                self.scheduler(),
+                conn,
+            )
+            .await
+        )?;
+        // Jus take the first one if ther is one.
+        let best = candidates
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("No matching host found"))?;
+        Ok(best)
+    }
+
+    fn scheduler(&self) -> super::NodeScheduler {
+        super::NodeScheduler {
+            similarity: self.scheduler_similarity,
+            resource: self.scheduler_resource,
+        }
     }
 }
 
@@ -360,7 +460,7 @@ pub struct UpdateNode<'a> {
 }
 
 impl UpdateNode<'_> {
-    pub async fn update(&self, conn: &mut AsyncPgConnection) -> Result<Node> {
+    pub async fn update(&self, conn: &mut AsyncPgConnection) -> crate::Result<Node> {
         let node = diesel::update(nodes::table.find(self.id))
             .set((self, nodes::updated_at.eq(chrono::Utc::now())))
             .get_result(conn)
@@ -373,7 +473,7 @@ impl UpdateNode<'_> {
 #[derive(Debug, Insertable, AsChangeset)]
 #[diesel(table_name = nodes)]
 pub struct UpdateNodeMetrics {
-    pub id: Uuid,
+    pub id: uuid::Uuid,
     pub block_height: Option<i64>,
     pub block_age: Option<i64>,
     pub staking_status: Option<NodeStakingStatus>,
@@ -384,7 +484,10 @@ pub struct UpdateNodeMetrics {
 
 impl UpdateNodeMetrics {
     /// Performs a selective update of only the columns related to metrics of the provided nodes.
-    pub async fn update_metrics(updates: Vec<Self>, conn: &mut AsyncPgConnection) -> Result<()> {
+    pub async fn update_metrics(
+        updates: Vec<Self>,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<()> {
         for update in updates {
             diesel::update(nodes::table.find(update.id))
                 .set(update)

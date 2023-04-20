@@ -26,15 +26,17 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         groups: "".to_string(),
         node_data: None,
         name,
-        version: Some("3.3.0"),
+        version: "3.3.0",
         staking_status: models::NodeStakingStatus::Staked,
         self_update: false,
         vcpu_count: 0,
-        mem_size_mb: 0,
-        disk_size_gb: 0,
+        mem_size_bytes: 0,
+        disk_size_bytes: 0,
         network: "some network",
         node_type: models::NodeType::Validator,
         created_by: user.id,
+        scheduler_similarity: None,
+        scheduler_resource: models::ResourceAffinity::MostResources,
     };
 
     let mut conn = tester.conn().await;

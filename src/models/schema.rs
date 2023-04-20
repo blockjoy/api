@@ -26,6 +26,18 @@ pub mod sql_types {
     pub struct EnumNodeChainStatus;
 
     #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_node_log_event"))]
+    pub struct EnumNodeLogEvent;
+
+    #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_node_resource_affinity"))]
+    pub struct EnumNodeResourceAffinity;
+
+    #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_node_similarity_affinity"))]
+    pub struct EnumNodeSimilarityAffinity;
+
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_staking_status"))]
     pub struct EnumNodeStakingStatus;
 
@@ -137,17 +149,17 @@ diesel::table! {
 
     hosts (id) {
         id -> Uuid,
-        version -> Nullable<Text>,
+        version -> Text,
         name -> Text,
         location -> Nullable<Text>,
         ip_addr -> Text,
         status -> EnumConnStatus,
         created_at -> Timestamptz,
-        cpu_count -> Nullable<Int8>,
-        mem_size -> Nullable<Int8>,
-        disk_size -> Nullable<Int8>,
-        os -> Nullable<Text>,
-        os_version -> Nullable<Text>,
+        cpu_count -> Int8,
+        mem_size_bytes -> Int8,
+        disk_size_bytes -> Int8,
+        os -> Text,
+        os_version -> Text,
         ip_range_from -> Inet,
         ip_range_to -> Inet,
         ip_gateway -> Inet,
@@ -221,11 +233,30 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::EnumNodeLogEvent;
+    use super::sql_types::EnumNodeType;
+
+    node_logs (id) {
+        id -> Uuid,
+        host_id -> Uuid,
+        node_id -> Uuid,
+        event -> EnumNodeLogEvent,
+        blockchain_name -> Text,
+        node_type -> EnumNodeType,
+        version -> Varchar,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::EnumNodeSyncStatus;
     use super::sql_types::EnumNodeChainStatus;
     use super::sql_types::EnumNodeStakingStatus;
     use super::sql_types::EnumContainerStatus;
     use super::sql_types::EnumNodeType;
+    use super::sql_types::EnumNodeSimilarityAffinity;
+    use super::sql_types::EnumNodeResourceAffinity;
 
     nodes (id) {
         id -> Uuid,
@@ -252,8 +283,8 @@ diesel::table! {
         block_age -> Nullable<Int8>,
         consensus -> Nullable<Bool>,
         vcpu_count -> Int8,
-        mem_size_mb -> Int8,
-        disk_size_gb -> Int8,
+        mem_size_bytes -> Int8,
+        disk_size_bytes -> Int8,
         host_name -> Text,
         network -> Text,
         created_by -> Nullable<Uuid>,
@@ -261,6 +292,8 @@ diesel::table! {
         allow_ips -> Jsonb,
         deny_ips -> Jsonb,
         node_type -> EnumNodeType,
+        scheduler_similarity -> Nullable<EnumNodeSimilarityAffinity>,
+        scheduler_resource -> EnumNodeResourceAffinity,
     }
 }
 
@@ -374,6 +407,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     invoices,
     ip_addresses,
     node_key_files,
+    node_logs,
     nodes,
     orgs,
     orgs_users,

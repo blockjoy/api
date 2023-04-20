@@ -7,7 +7,7 @@ type Service = api::commands_client::CommandsClient<super::Channel>;
 async fn create_command(
     tester: &super::Tester,
     node_id: uuid::Uuid,
-    cmd_type: models::HostCmd,
+    cmd_type: models::CommandType,
 ) -> models::Command {
     let host = tester.host().await;
     let mut conn = tester.conn().await;
@@ -77,7 +77,7 @@ async fn responds_ok_with_single_get() {
     };
     update.update(&mut conn).await.unwrap();
 
-    let cmd = create_command(&tester, node.id, models::HostCmd::CreateNode).await;
+    let cmd = create_command(&tester, node.id, models::CommandType::CreateNode).await;
     let req = api::GetCommandRequest {
         id: cmd.id.to_string(),
     };
@@ -94,7 +94,7 @@ async fn responds_ok_for_update() {
     let tester = super::Tester::new().await;
     let mut conn = tester.conn().await;
     let node = tester.node().await;
-    let cmd = create_command(&tester, node.id, models::HostCmd::CreateNode).await;
+    let cmd = create_command(&tester, node.id, models::CommandType::CreateNode).await;
     let host = models::Host::find_by_id(cmd.host_id, &mut conn)
         .await
         .unwrap();
@@ -139,7 +139,7 @@ async fn responds_ok_for_pending() {
         address: None,
     };
     update.update(&mut conn).await.unwrap();
-    let cmd = create_command(&tester, node.id, models::HostCmd::CreateNode).await;
+    let cmd = create_command(&tester, node.id, models::CommandType::CreateNode).await;
     let host = models::Host::find_by_id(cmd.host_id, &mut conn)
         .await
         .unwrap();

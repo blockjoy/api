@@ -6,8 +6,10 @@ use crate::models;
 use anyhow::anyhow;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncPgConnection;
-use std::str::FromStr;
 use tonic::Request;
+
+mod recover;
+mod success;
 
 #[tonic::async_trait]
 impl commands_server::Commands for super::GrpcImpl {
@@ -45,10 +47,10 @@ impl commands_server::Commands for super::GrpcImpl {
     ) -> super::Result<api::GetCommandResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let inner = request.into_inner();
-        let cmd_id = uuid::Uuid::from_str(inner.id.as_str()).map_err(crate::Error::from)?;
-        let mut db_conn = self.conn().await?;
-        let cmd = models::Command::find_by_id(cmd_id, &mut db_conn).await?;
-        let command = api::Command::from_model(&cmd, &mut db_conn).await?;
+        let cmd_id = inner.id.parse().map_err(crate::Error::from)?;
+        let mut conn = self.conn().await?;
+        let cmd = models::Command::find_by_id(cmd_id, &mut conn).await?;
+        let command = api::Command::from_model(&cmd, &mut conn).await?;
         let response = api::GetCommandResponse {
             command: Some(command),
         };
@@ -64,8 +66,22 @@ impl commands_server::Commands for super::GrpcImpl {
         let update_cmd = inner.as_update()?;
         self.trx(|c| {
             async move {
-                let command = update_cmd.update(c).await?;
-                let command = api::Command::from_model(&command, c).await?;
+                let cmd = update_cmd.update(c).await?;
+                match cmd.exit_status {
+                    Some(0) => {
+                        // Some responses require us to register success.
+                        success::register(&cmd, c).await;
+                    }
+                    // Will match any integer other than 0.
+                    Some(_) => {
+                        // We got back an error status code. In practice, blockvisord sends 0 for
+                        // success and 1 for failure, but we treat every non-zero exit code as an
+                        // error, not just 1.
+                        recover::recover(self, &cmd, c).await;
+                    }
+                    None => {}
+                }
+                let command = api::Command::from_model(&cmd, c).await?;
                 let resp = api::UpdateCommandResponse {
                     command: Some(command),
                 };
@@ -83,11 +99,11 @@ impl commands_server::Commands for super::GrpcImpl {
         let refresh_token = super::get_refresh_token(&request);
         let inner = request.into_inner();
         let host_id = inner.host_id.parse().map_err(crate::Error::from)?;
-        let mut db_conn = self.conn().await?;
-        let cmds = models::Command::find_pending_by_host(host_id, &mut db_conn).await?;
+        let mut conn = self.conn().await?;
+        let cmds = models::Command::find_pending_by_host(host_id, &mut conn).await?;
         let mut commands = Vec::with_capacity(cmds.len());
         for cmd in cmds {
-            let grpc_cmd = api::Command::from_model(&cmd, &mut db_conn).await?;
+            let grpc_cmd = api::Command::from_model(&cmd, &mut conn).await?;
             commands.push(grpc_cmd);
         }
         let response = api::PendingCommandsResponse { commands };
@@ -102,7 +118,7 @@ impl api::Command {
     ) -> crate::Result<api::Command> {
         use api::command;
         use api::node_command::Command;
-        use models::HostCmd::*;
+        use models::CommandType::*;
 
         // Extract the node id from the model, if there is one.
         let node_id = || model.node_id.ok_or_else(required("command.node_id"));
@@ -208,7 +224,7 @@ impl api::CreateCommandRequest {
         &self,
         host_id: uuid::Uuid,
         node_id: Option<uuid::Uuid>,
-        command_type: models::HostCmd,
+        command_type: models::CommandType,
     ) -> crate::Result<models::NewCommand<'_>> {
         Ok(models::NewCommand {
             host_id,
@@ -248,17 +264,17 @@ impl api::CreateCommandRequest {
         }
     }
 
-    fn command_type(&self) -> crate::Result<models::HostCmd> {
+    fn command_type(&self) -> crate::Result<models::CommandType> {
         use api::create_command_request::Command::*;
 
         let command = self.command.as_ref().ok_or_else(required("command"))?;
         let command_type = match command {
-            StartNode(_) => models::HostCmd::RestartNode,
-            StopNode(_) => models::HostCmd::KillNode,
-            RestartNode(_) => models::HostCmd::RestartNode,
-            StartHost(_) => models::HostCmd::RestartBVS,
-            StopHost(_) => models::HostCmd::StopBVS,
-            RestartHost(_) => models::HostCmd::RestartBVS,
+            StartNode(_) => models::CommandType::RestartNode,
+            StopNode(_) => models::CommandType::KillNode,
+            RestartNode(_) => models::CommandType::RestartNode,
+            StartHost(_) => models::CommandType::RestartBVS,
+            StopHost(_) => models::CommandType::StopBVS,
+            RestartHost(_) => models::CommandType::RestartBVS,
         };
         Ok(command_type)
     }

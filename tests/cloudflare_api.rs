@@ -35,6 +35,10 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
+        scheduler: Some(api::NodeScheduler {
+            similarity: None,
+            resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+        }),
     };
 
     tester.send_admin(Service::create, req).await.unwrap();

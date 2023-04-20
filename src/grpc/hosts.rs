@@ -1,6 +1,6 @@
 use super::api::{self, hosts_server};
 use super::helpers::{self, try_get_token};
-use crate::auth::{HostAuthToken, JwtToken, TokenRole, TokenType};
+use crate::auth::{FindableById, HostAuthToken, JwtToken, TokenRole, TokenType};
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response};
@@ -115,9 +115,9 @@ impl api::Host {
                     name: model.name,
                     version: model.version,
                     location: model.location,
-                    cpu_count: model.cpu_count.map(|n| n.try_into()).transpose()?,
-                    mem_size_bytes: model.mem_size.map(|n| n.try_into()).transpose()?,
-                    disk_size_bytes: model.disk_size.map(|n| n.try_into()).transpose()?,
+                    cpu_count: Some(model.cpu_count.try_into()?),
+                    mem_size_bytes: Some(model.mem_size_bytes.try_into()?),
+                    disk_size_bytes: Some(model.disk_size_bytes.try_into()?),
                     os: model.os,
                     os_version: model.os_version,
                     ip: model.ip_addr,
@@ -142,13 +142,13 @@ impl api::CreateHostRequest {
     pub fn as_new(&self) -> crate::Result<models::NewHost<'_>> {
         Ok(models::NewHost {
             name: &self.name,
-            version: Some(&self.version),
-            location: self.location.as_deref(),
-            cpu_count: Some(self.cpu_count.try_into()?),
-            mem_size: Some(self.mem_size_bytes.try_into()?),
-            disk_size: Some(self.disk_size_bytes.try_into()?),
-            os: Some(&self.os),
-            os_version: Some(&self.os_version),
+            version: &self.version,
+            location: None,
+            cpu_count: self.cpu_count.try_into()?,
+            mem_size_bytes: self.mem_size_bytes.try_into()?,
+            disk_size_bytes: self.disk_size_bytes.try_into()?,
+            os: &self.os,
+            os_version: &self.os_version,
             ip_addr: &self.ip_addr,
             status: models::ConnectionStatus::Online,
             ip_range_from: self.ip_range_from.parse()?,
@@ -166,8 +166,8 @@ impl api::UpdateHostRequest {
             version: self.version.as_deref(),
             location: self.location.as_deref(),
             cpu_count: None,
-            mem_size: None,
-            disk_size: None,
+            mem_size_bytes: None,
+            disk_size_bytes: None,
             os: self.os.as_deref(),
             os_version: self.os_version.as_deref(),
             ip_addr: None,
@@ -183,13 +183,13 @@ impl api::ProvisionHostRequest {
     pub fn as_new(&self, provision: models::HostProvision) -> crate::Result<models::NewHost<'_>> {
         let new_host = models::NewHost {
             name: &self.name,
-            version: Some(&self.version),
+            version: &self.version,
             location: None,
-            cpu_count: Some(self.cpu_count.try_into()?),
-            mem_size: Some(self.mem_size_bytes.try_into()?),
-            disk_size: Some(self.disk_size_bytes.try_into()?),
-            os: Some(&self.os),
-            os_version: Some(&self.os_version),
+            cpu_count: self.cpu_count.try_into()?,
+            mem_size_bytes: self.mem_size_bytes.try_into()?,
+            disk_size_bytes: self.disk_size_bytes.try_into()?,
+            os: &self.os,
+            os_version: &self.os_version,
             ip_addr: &self.ip,
             status: self.status().into_model()?,
             ip_range_from: provision

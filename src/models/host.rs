@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::schema::{hosts, nodes};
 use crate::auth::{FindableById, HostAuthToken, Identifiable, JwtToken, Owned, TokenError};
 use crate::cookbook::HardwareRequirements;
@@ -22,21 +24,24 @@ pub enum HostType {
     Enterprise,
 }
 
-#[derive(Clone, Queryable)]
+#[derive(Debug, Clone, Queryable)]
 #[diesel(table_name = hosts)]
 pub struct Host {
     pub id: Uuid,
-    pub version: Option<String>,
+    pub version: String,
     pub name: String,
     pub location: Option<String>,
     pub ip_addr: String,
     pub status: ConnectionStatus,
     pub created_at: DateTime<Utc>,
-    pub cpu_count: Option<i64>,
-    pub mem_size: Option<i64>,
-    pub disk_size: Option<i64>,
-    pub os: Option<String>,
-    pub os_version: Option<String>,
+    // Number of CPU's that this host has.
+    pub cpu_count: i64,
+    // The size of the hosts memory, in bytes.
+    pub mem_size_bytes: i64,
+    // The size of the hosts disk, in bytes.
+    pub disk_size_bytes: i64,
+    pub os: String,
+    pub os_version: String,
     pub ip_range_from: ipnetwork::IpNetwork,
     pub ip_range_to: ipnetwork::IpNetwork,
     pub ip_gateway: ipnetwork::IpNetwork,
@@ -98,6 +103,15 @@ impl Host {
         Ok(host)
     }
 
+    pub async fn by_ids(ids: &[uuid::Uuid], conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
+        let hosts: Vec<Self> = hosts::table
+            .filter(hosts::id.eq_any(ids))
+            .get_results(conn)
+            .await?;
+        let hosts_map: HashMap<_, _> = hosts.into_iter().map(|h| (h.id, h)).collect();
+        Ok(ids.iter().map(|id| hosts_map[id].clone()).collect())
+    }
+
     /// For each provided argument, filters the hosts by that argument.
     pub async fn filter(os: Option<&str>, conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
         let mut query = hosts::table.into_boxed();
@@ -108,11 +122,6 @@ impl Host {
 
         let hosts = query.get_results(conn).await?;
         Ok(hosts)
-    }
-
-    pub async fn find_by_id(host_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let host = hosts::table.find(host_id).get_result(conn).await?;
-        Ok(host)
     }
 
     pub async fn find_by_name(name: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
@@ -140,62 +149,71 @@ impl Host {
         Ok(n_rows)
     }
 
-    /// We sum up all nodes values assigned to a host and deduct that from the total the host has
-    /// We don't consider CPUs in the selection, hard disk is more important than memory. The result
-    /// is ordered by disk_size and mem_size the first one in the list is returned
-    pub async fn get_next_available_host_id(
+    /// This function returns a list of up to 2 possible hosts that the node may be scheduled on.
+    /// This list is ordered by suitability, the best fit will be first in the list. Note that zero
+    /// hosts may be returned when our system is out of resources, and this case should be handled
+    /// gracefully.
+    pub async fn host_candidates(
         requirements: HardwareRequirements,
+        blockchain_id: uuid::Uuid,
+        node_type: super::NodeType,
+        org_id: uuid::Uuid,
+        scheduler: super::NodeScheduler,
         conn: &mut AsyncPgConnection,
-    ) -> Result<Uuid> {
+    ) -> crate::Result<Vec<Host>> {
+        use super::schema::sql_types::EnumNodeType;
         use diesel::sql_types::{BigInt, Uuid};
 
-        #[derive(QueryableByName)]
-        struct HostAndProps {
+        #[derive(Debug, QueryableByName)]
+        struct HostCandidate {
             #[diesel(sql_type = Uuid)]
-            id: uuid::Uuid,
-            #[diesel(sql_type = BigInt)]
-            mem_size: i64,
-            #[diesel(sql_type = BigInt)]
-            disk_size: i64,
-            #[diesel(sql_type = BigInt)]
-            ip_addrs: i64,
+            host_id: uuid::Uuid,
         }
 
-        let host: HostAndProps = diesel::sql_query(
-            r#"
-            SELECT hosts.id AS id,
-                    COALESCE((hosts.mem_size - (SELECT SUM(mem_size_mb) FROM nodes WHERE host_id = hosts.id)::BIGINT), 0) AS mem_size,
-                    COALESCE((hosts.disk_size - (SELECT SUM(disk_size_gb) FROM nodes WHERE host_id = hosts.id)::BIGINT), 0) AS disk_size,
-                    (SELECT COUNT(*) FROM ip_addresses WHERE ip_addresses.host_id = hosts.id AND NOT ip_addresses.is_assigned)::BIGINT AS ip_addrs
-            FROM hosts
-            ORDER BY ip_addrs desc, disk_size desc, mem_size DESC
-            LIMIT 1
-        "#,
-        )
-        .get_result(conn)
-        .await?;
+        // SAFETY: We are using `format!` to place a custom generated ORDER BY clause into a sql
+        // query. This is injection-safe because the clause is entirely generated from static
+        // strings, not user input.
+        let query = format!("
+        SELECT
+            host_id
+        FROM
+        (
+            SELECT
+                id as host_id,
+                hosts.cpu_count - (SELECT COALESCE(SUM(vcpu_count))::BIGINT FROM nodes WHERE host_id = hosts.id) as av_cpus,
+                hosts.mem_size_bytes - (SELECT COALESCE(SUM(mem_size_bytes))::BIGINT FROM nodes WHERE host_id = hosts.id) as av_mem,
+                hosts.disk_size_bytes - (SELECT COALESCE(SUM(disk_size_bytes))::BIGINT FROM nodes WHERE host_id = hosts.id) as av_disk,
+                (SELECT COUNT(*) FROM ip_addresses WHERE ip_addresses.host_id = hosts.id AND NOT ip_addresses.is_assigned) as ips,
+                (SELECT COUNT(*) FROM nodes WHERE host_id = hosts.id AND blockchain_id = $4 AND node_type = $5 AND org_id = $6) as n_similar
+            FROM
+                hosts
+        ) AS resouces
+        WHERE
+            -- These are our hard filters, we do not want any nodes that cannot satisfy the
+            -- requirements
+            -- av_cpus > $1 AND
+            -- av_mem > $2 AND
+            -- av_disk > $3 AND
+            ips > 0
+        {order_by}
+        LIMIT
+            -- We only ever retry 2 times, so not querying all possible results saves postgres a lot
+            -- of work, especially with the number of subqueries that we have going on here.
+            2;
+        ", order_by = scheduler.order_clause());
 
-        // Trace warnings, if the selected host doesn't seem to have enough resources
-        if requirements.disk_size_gb > host.disk_size / 1024i64.pow(3) {
-            tracing::warn!(
-                "Host {} doesn't seem to have enough disk space available",
-                host.id
-            );
-        }
-        if requirements.mem_size_mb > host.mem_size / 1024i64.pow(2) {
-            tracing::warn!(
-                "Host {} doesn't seem to have enough memory available",
-                host.id
-            );
-        }
-        if host.ip_addrs < 1 {
-            tracing::warn!(
-                "Host {} doesn't seem to have enough IP addresses available",
-                host.id
-            );
-        }
+        let hosts: Vec<HostCandidate> = diesel::sql_query(query)
+            .bind::<BigInt, _>(requirements.vcpu_count)
+            .bind::<BigInt, _>(requirements.mem_size_mb * 1000 * 1000)
+            .bind::<BigInt, _>(requirements.disk_size_gb * 1000 * 1000 * 1000)
+            .bind::<Uuid, _>(blockchain_id)
+            .bind::<EnumNodeType, _>(node_type)
+            .bind::<Uuid, _>(org_id)
+            .get_results(conn)
+            .await?;
+        let host_ids: Vec<_> = dbg!(hosts).into_iter().map(|h| h.host_id).collect();
 
-        Ok(host.id)
+        Self::by_ids(&host_ids, conn).await
     }
 }
 
@@ -224,15 +242,15 @@ impl Owned<Host, ()> for Host {
 #[diesel(table_name = hosts)]
 pub struct NewHost<'a> {
     pub name: &'a str,
-    pub version: Option<&'a str>,
+    pub version: &'a str,
     pub location: Option<&'a str>,
-    pub cpu_count: Option<i64>,
+    pub cpu_count: i64,
     /// The amount of memory in bytes that this host has.
-    pub mem_size: Option<i64>,
+    pub mem_size_bytes: i64,
     /// The amount of disk space in bytes that this host has.
-    pub disk_size: Option<i64>,
-    pub os: Option<&'a str>,
-    pub os_version: Option<&'a str>,
+    pub disk_size_bytes: i64,
+    pub os: &'a str,
+    pub os_version: &'a str,
     pub ip_addr: &'a str,
     pub status: ConnectionStatus,
     pub ip_range_from: ipnetwork::IpNetwork,
@@ -275,8 +293,8 @@ pub struct UpdateHost<'a> {
     pub version: Option<&'a str>,
     pub location: Option<&'a str>,
     pub cpu_count: Option<i64>,
-    pub mem_size: Option<i64>,
-    pub disk_size: Option<i64>,
+    pub mem_size_bytes: Option<i64>,
+    pub disk_size_bytes: Option<i64>,
     pub os: Option<&'a str>,
     pub os_version: Option<&'a str>,
     pub ip_addr: Option<&'a str>,

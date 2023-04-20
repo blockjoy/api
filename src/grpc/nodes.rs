@@ -75,13 +75,7 @@ impl nodes_server::Nodes for super::GrpcImpl {
                 let new_node = inner.as_new(user.id)?;
                 let node = new_node.create(c).await?;
 
-                let new_command = models::NewCommand {
-                    host_id: node.host_id,
-                    cmd: models::HostCmd::CreateNode,
-                    sub_cmd: None,
-                    node_id: Some(node.id),
-                };
-                let create_cmd = new_command.create(c).await?;
+                create_notification(self, &node, c).await?;
 
                 let update_user = models::UpdateUser {
                     id: user.id,
@@ -93,20 +87,10 @@ impl nodes_server::Nodes for super::GrpcImpl {
                 };
                 update_user.update(c).await?;
 
-                let new_command = models::NewCommand {
-                    host_id: node.host_id,
-                    cmd: models::HostCmd::RestartNode,
-                    sub_cmd: None,
-                    node_id: Some(node.id),
-                };
-                let restart_cmd = new_command.create(c).await?;
+                start_notification(self, &node, c).await?;
 
                 let created = api::NodeMessage::created(node.clone(), user.clone(), c).await?;
-                let create_msg = api::Command::from_model(&create_cmd, c).await?;
-                let restart_msg = api::Command::from_model(&restart_cmd, c).await?;
                 self.notifier.nodes_sender().send(&created).await?;
-                self.notifier.commands_sender().send(&create_msg).await?;
-                self.notifier.commands_sender().send(&restart_msg).await?;
 
                 let response = api::CreateNodeResponse {
                     node: Some(api::Node::from_model(node.clone(), c).await?),
@@ -200,7 +184,7 @@ impl nodes_server::Nodes for super::GrpcImpl {
                 let node_id = node_id.to_string();
                 let new_command = models::NewCommand {
                     host_id: node.host_id,
-                    cmd: models::HostCmd::DeleteNode,
+                    cmd: models::CommandType::DeleteNode,
                     sub_cmd: Some(&node_id),
                     // Note that the `node_id` goes into the `sub_cmd` field, not the node_id
                     // field, because the node was just deleted.
@@ -290,6 +274,7 @@ impl api::Node {
         user: Option<&models::User>,
     ) -> crate::Result<Self> {
         use api::node::{ContainerStatus, NodeStatus, NodeType, StakingStatus, SyncStatus};
+        use api::node_scheduler::{ResourceAffinity, SimilarNodeAffinity};
 
         let properties = node
             .properties()?
@@ -298,6 +283,16 @@ impl api::Node {
             .flatten()
             .map(api::node::NodeProperty::from_model)
             .collect();
+
+        let mut scheduler = api::NodeScheduler {
+            similarity: None,
+            resource: 0,
+        };
+        if let Some(similarity) = node.scheduler_similarity {
+            scheduler.set_similarity(SimilarNodeAffinity::from_model(similarity));
+        }
+        scheduler.set_resource(ResourceAffinity::from_model(node.scheduler_resource));
+
         let mut dto = Self {
             id: node.id.to_string(),
             org_id: node.org_id.to_string(),
@@ -326,6 +321,7 @@ impl api::Node {
             created_by_email: user.map(|u| u.email.clone()),
             allow_ips: super::json_value_to_vec(&node.allow_ips)?,
             deny_ips: super::json_value_to_vec(&node.deny_ips)?,
+            scheduler: Some(scheduler),
         };
         dto.set_node_type(NodeType::from_model(node.node_type));
         dto.set_status(NodeStatus::from_model(node.chain_status));
@@ -334,6 +330,7 @@ impl api::Node {
         }
         dto.set_container_status(ContainerStatus::from_model(node.container_status));
         dto.set_sync_status(SyncStatus::from_model(node.sync_status));
+
         Ok(dto)
     }
 }
@@ -352,12 +349,16 @@ impl api::CreateNodeRequest {
                 properties: Some(properties),
             },
         };
+        let scheduler = self
+            .scheduler
+            .as_ref()
+            .ok_or_else(helpers::required("scheduler"))?;
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4(),
             org_id: self.org_id.parse()?,
             name: petname::Petnames::large().generate_one(3, "_"),
             groups: "".to_string(),
-            version: Some(&self.version),
+            version: &self.version,
             blockchain_id: self.blockchain_id.parse()?,
             properties: serde_json::to_value(properties.props)?,
             block_height: None,
@@ -368,11 +369,13 @@ impl api::CreateNodeRequest {
             container_status: models::ContainerStatus::Unknown,
             self_update: false,
             vcpu_count: 0,
-            mem_size_mb: 0,
-            disk_size_gb: 0,
+            mem_size_bytes: 0,
+            disk_size_bytes: 0,
             network: &self.network,
             node_type: properties.id.try_into()?,
             created_by: user_id,
+            scheduler_similarity: scheduler.similarity().into_model(),
+            scheduler_resource: scheduler.resource().into_model()?,
         })
     }
 }
@@ -625,6 +628,78 @@ impl api::UiType {
             Self::Password => Ok(models::BlockchainPropertyUiType::Password),
             Self::Text => Ok(models::BlockchainPropertyUiType::Text),
             Self::FileUpload => Ok(models::BlockchainPropertyUiType::FileUpload),
+        }
+    }
+}
+
+pub(super) async fn create_notification(
+    impler: &super::GrpcImpl,
+    node: &models::Node,
+    conn: &mut diesel_async::AsyncPgConnection,
+) -> crate::Result<()> {
+    let new_command = models::NewCommand {
+        host_id: node.host_id,
+        cmd: models::CommandType::CreateNode,
+        sub_cmd: None,
+        node_id: Some(node.id),
+    };
+    let cmd = new_command.create(conn).await?;
+    impler
+        .notifier
+        .commands_sender()
+        .send(&api::Command::from_model(&cmd, conn).await?)
+        .await
+}
+
+pub(super) async fn start_notification(
+    impler: &super::GrpcImpl,
+    node: &models::Node,
+    conn: &mut diesel_async::AsyncPgConnection,
+) -> crate::Result<()> {
+    let new_command = models::NewCommand {
+        host_id: node.host_id,
+        cmd: models::CommandType::RestartNode,
+        sub_cmd: None,
+        node_id: Some(node.id),
+    };
+    let cmd = new_command.create(conn).await?;
+    impler
+        .notifier
+        .commands_sender()
+        .send(&api::Command::from_model(&cmd, conn).await?)
+        .await
+}
+
+impl api::node_scheduler::SimilarNodeAffinity {
+    fn from_model(model: models::SimilarNodeAffinity) -> Self {
+        match model {
+            models::SimilarNodeAffinity::Cluster => Self::Cluster,
+            models::SimilarNodeAffinity::Spread => Self::Spread,
+        }
+    }
+
+    fn into_model(self) -> Option<models::SimilarNodeAffinity> {
+        match self {
+            Self::Unspecified => None,
+            Self::Cluster => Some(models::SimilarNodeAffinity::Cluster),
+            Self::Spread => Some(models::SimilarNodeAffinity::Spread),
+        }
+    }
+}
+
+impl api::node_scheduler::ResourceAffinity {
+    fn from_model(model: models::ResourceAffinity) -> Self {
+        match model {
+            models::ResourceAffinity::MostResources => Self::MostResources,
+            models::ResourceAffinity::LeastResources => Self::LeastResources,
+        }
+    }
+
+    fn into_model(self) -> crate::Result<models::ResourceAffinity> {
+        match self {
+            Self::Unspecified => Err(anyhow::anyhow!("Unspecified resource affinity").into()),
+            Self::MostResources => Ok(models::ResourceAffinity::MostResources),
+            Self::LeastResources => Ok(models::ResourceAffinity::LeastResources),
         }
     }
 }
