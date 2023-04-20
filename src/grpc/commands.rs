@@ -155,7 +155,7 @@ impl api::Command {
                 let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
                 let mut image = api::ContainerImage {
                     protocol: blockchain.name,
-                    node_version: node.version.as_deref().unwrap_or("latest").to_lowercase(),
+                    node_version: node.version.to_lowercase(),
                     node_type: 0, // We use the setter to set this field for type-safety
                     status: 0,    // We use the setter to set this field for type-safety
                 };

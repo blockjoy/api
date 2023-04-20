@@ -33,7 +33,7 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
         blockchain_id: blockchain.id.to_string(),
         node_type: api::node::NodeType::Validator.into(),
         properties: vec![],
-        version: Some("3.3.0".into()),
+        version: "3.3.0".to_string(),
         network: "some network".to_string(),
     };
 

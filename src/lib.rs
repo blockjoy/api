@@ -258,6 +258,7 @@ mod test {
                     nodes::ip_addr.eq(ip_addr),
                     nodes::node_type.eq(models::NodeType::Validator),
                     nodes::dns_record_id.eq("The id"),
+                    nodes::version.eq("3.3.0"),
                 ))
                 .execute(conn)
                 .await

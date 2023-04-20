@@ -348,7 +348,7 @@ impl api::CreateNodeRequest {
         let properties = models::NodePropertiesWithId {
             id: self.node_type,
             props: models::NodeProperties {
-                version: self.version.clone(),
+                version: Some(self.version.clone()),
                 properties: Some(properties),
             },
         };
@@ -357,7 +357,7 @@ impl api::CreateNodeRequest {
             org_id: self.org_id.parse()?,
             name: petname::Petnames::large().generate_one(3, "_"),
             groups: "".to_string(),
-            version: self.version.as_deref(),
+            version: Some(&self.version),
             blockchain_id: self.blockchain_id.parse()?,
             properties: serde_json::to_value(properties.props)?,
             block_height: None,

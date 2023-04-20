@@ -81,7 +81,7 @@ pub struct Node {
     pub host_id: Uuid,
     pub name: String,
     pub groups: Option<String>,
-    pub version: Option<String>,
+    pub version: String,
     pub ip_addr: String,
     pub address: Option<String>,
     pub wallet_address: Option<String>,

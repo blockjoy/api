@@ -233,7 +233,7 @@ diesel::table! {
         host_id -> Uuid,
         name -> Text,
         groups -> Nullable<Text>,
-        version -> Nullable<Text>,
+        version -> Text,
         ip_addr -> Text,
         address -> Nullable<Text>,
         wallet_address -> Nullable<Text>,
