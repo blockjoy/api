@@ -25,7 +25,7 @@ async fn responds_ok_for_create() {
     let org_id = tester.org().await.id;
     let req = api::CreateInvitationRequest {
         invitee_email: "hugo@boss.com".to_string(),
-        created_for_org_id: org_id.to_string(),
+        org_id: org_id.to_string(),
     };
 
     tester.send_admin(Service::create, req).await.unwrap();
@@ -85,12 +85,8 @@ async fn responds_ok_for_accept() {
     let tester = super::Tester::new().await;
     let invitation = create_invitation(&tester).await.unwrap();
     let token = auth::InvitationToken::create_for_invitation(&invitation).unwrap();
-    let grpc_invitation = api::Invitation {
-        id: invitation.id.to_string(),
-        ..Default::default()
-    };
-    let req = api::InvitationRequest {
-        invitation: Some(grpc_invitation),
+    let req = api::AcceptInvitationRequest {
+        invitation_id: invitation.id.to_string(),
     };
 
     tester
@@ -105,19 +101,8 @@ async fn responds_ok_for_decline() {
     let invitation = create_invitation(&tester).await.unwrap();
     let token = auth::InvitationToken::create_for_invitation(&invitation).unwrap();
 
-    let grpc_invitation = api::Invitation {
-        id: invitation.id.to_string(),
-        created_by_id: invitation.created_by_user.to_string(),
-        created_for_org_id: invitation.created_for_org.to_string(),
-        invitee_email: invitation.invitee_email.to_string(),
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: "hugo".to_string(),
-        created_for_org_name: "boss".to_string(),
-    };
-    let req = api::InvitationRequest {
-        invitation: Some(grpc_invitation),
+    let req: api::DeclineInvitationRequest = api::DeclineInvitationRequest {
+        invitation_id: invitation.id.to_string(),
     };
 
     tester
@@ -137,19 +122,8 @@ async fn responds_ok_for_revoke() {
         .unwrap();
     // If the user is already added, thats okay
     let _ = models::Org::add_member(user.id, org.id, models::OrgRole::Admin, &mut conn).await;
-    let grpc_invitation = api::Invitation {
-        id: invitation.id.to_string(),
-        created_by_id: invitation.created_by_user.to_string(),
-        created_for_org_id: invitation.created_for_org.to_string(),
-        invitee_email: invitation.invitee_email.to_string(),
-        created_at: None,
-        accepted_at: None,
-        declined_at: None,
-        created_by_user_name: "hugo".to_string(),
-        created_for_org_name: "boss".to_string(),
-    };
-    let req = api::InvitationRequest {
-        invitation: Some(grpc_invitation),
+    let req = api::RevokeInvitationRequest {
+        invitation_id: invitation.id.to_string(),
     };
 
     tester.send_admin(Service::revoke, req).await.unwrap();

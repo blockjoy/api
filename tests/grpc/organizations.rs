@@ -86,12 +86,8 @@ async fn member_count_works() {
     let invitation = new_invitation.create(&mut conn).await.unwrap();
 
     let token = auth::InvitationToken::create_for_invitation(&invitation).unwrap();
-    let grpc_invitation = api::Invitation {
-        id: invitation.id.to_string(),
-        ..Default::default()
-    };
-    let req = api::InvitationRequest {
-        invitation: Some(grpc_invitation),
+    let req = api::AcceptInvitationRequest {
+        invitation_id: invitation.id.to_string(),
     };
 
     tester

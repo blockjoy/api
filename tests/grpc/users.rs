@@ -53,7 +53,6 @@ async fn responds_ok_without_token_for_create() {
         first_name: "Hugo".to_string(),
         last_name: "The Bossman".to_string(),
         password: "abcde12345".to_string(),
-        password_confirmation: "abcde12345".to_string(),
     };
     tester.send(Service::create, req).await.unwrap();
 }
@@ -67,7 +66,6 @@ async fn responds_error_with_existing_email_for_create() {
         first_name: user.first_name,
         last_name: user.last_name,
         password: "abcde12345".to_string(),
-        password_confirmation: "abcde12345".to_string(),
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
@@ -81,7 +79,6 @@ async fn responds_error_with_different_pwds_for_create() {
         first_name: "Hugo".to_string(),
         last_name: "Boss".to_string(),
         password: "abcde12345".to_string(),
-        password_confirmation: "54321edcba".to_string(),
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);

@@ -90,12 +90,11 @@ async fn responds_unauthenticated_with_invalid_credentials_for_refresh() {
 }
 
 #[tokio::test]
-async fn responds_ok_with_valid_pwds_for_update_ui_pwd() {
+async fn responds_ok_with_valid_passwords_for_update_ui_password() {
     let tester = super::Tester::new().await;
     let req = api::UpdateUiPasswordRequest {
-        new_pwd: "hugo-boss".to_string(),
-        new_pwd_confirmation: "hugo-boss".to_string(),
-        old_pwd: "abc12345".to_string(),
+        new_password: "hugo-boss".to_string(),
+        old_password: "abc12345".to_string(),
     };
     tester
         .send_admin(Service::update_ui_password, req)
@@ -104,12 +103,11 @@ async fn responds_ok_with_valid_pwds_for_update_ui_pwd() {
 }
 
 #[tokio::test]
-async fn responds_unauthenticated_with_invalid_old_pwd_for_update_ui_pwd() {
+async fn responds_unauthenticated_with_invalid_old_password_for_update_ui_password() {
     let tester = super::Tester::new().await;
     let req = api::UpdateUiPasswordRequest {
-        new_pwd: "hugo-boss".to_string(),
-        new_pwd_confirmation: "hugo-boss".to_string(),
-        old_pwd: "some-wrong-pwd".to_string(),
+        new_password: "hugo-boss".to_string(),
+        old_password: "some-wrong-pwd".to_string(),
     };
     let status = tester
         .send_admin(Service::update_ui_password, req)
@@ -119,12 +117,11 @@ async fn responds_unauthenticated_with_invalid_old_pwd_for_update_ui_pwd() {
 }
 
 #[tokio::test]
-async fn responds_invalid_argument_with_invalid_pwd_confirmation_for_update_ui_pwd() {
+async fn responds_invalid_argument_with_invalid_password_confirmation_for_update_ui_password() {
     let tester = super::Tester::new().await;
     let req = api::UpdateUiPasswordRequest {
-        new_pwd: "hugo-boss".to_string(),
-        new_pwd_confirmation: "hugo-employee".to_string(),
-        old_pwd: "abc12345".to_string(),
+        new_password: "hugo-boss".to_string(),
+        old_password: "abc12345".to_string(),
     };
     let status = tester
         .send_admin(Service::update_ui_password, req)

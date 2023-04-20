@@ -30,9 +30,10 @@ cargo test
 ```
 
 ## Update protos
+!! Important, before updating the protos, make sure that there are no changes in the local repo.
+
 ```bash
 git rm -r proto
-git commit -m "fix: delete old protos"
-git push origin <branch>
-git subtree [add|pull] --prefix proto https://github.com/blockjoy/api-proto <version tag> --squash
+git commit -m "update protos"
+git subtree add --prefix proto https://github.com/blockjoy/api-proto HEAD --squash
 ```
