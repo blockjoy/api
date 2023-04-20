@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package v1;
+
+import "google/protobuf/timestamp.proto";
+
+// User representation.
+message User {
+  string id = 1;
+  string email = 2;
+  string first_name = 3;
+  string last_name = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// User related services.
+service Users {
+  // Retrieve a single user.
+  rpc Get(GetUserRequest) returns (GetUserResponse);
+  // Create a single user.
+  rpc Create(CreateUserRequest) returns (CreateUserResponse);
+  // Update a single user.
+  rpc Update(UpdateUserRequest) returns (UpdateUserResponse);
+  // Delete a single user.
+  rpc Delete(DeleteUserRequest) returns (DeleteUserResponse);
+}
+
+message GetUserRequest {
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string first_name = 2;
+  string last_name = 3;
+  string password = 4;
+  string password_confirmation = 5;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message UpdateUserRequest {
+  // The id of the user to be updated.
+  string id = 1;
+  optional string first_name = 2;
+  optional string last_name = 3;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+// Users can only delete themselves, so no need for any further params
+message DeleteUserRequest {
+}
+
+message DeleteUserResponse {
+}
