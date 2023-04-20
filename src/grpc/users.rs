@@ -29,9 +29,6 @@ impl users_server::Users for super::GrpcImpl {
         request: Request<api::CreateUserRequest>,
     ) -> super::Result<api::CreateUserResponse> {
         let inner = request.into_inner();
-        if inner.password != inner.password_confirmation {
-            return Err(Status::invalid_argument("Passwords don't match"));
-        }
         let new_user = inner.as_new()?;
         let new_user = self.trx(|c| new_user.create(c).scope_boxed()).await?;
 

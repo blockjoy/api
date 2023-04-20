@@ -47,9 +47,7 @@ impl authentication_server::Authentication for super::GrpcImpl {
                 let auth_token = auth_token.set_org_user(&org_user);
 
                 let response = api::LoginUserResponse {
-                    token: Some(api::ApiToken {
-                        value: auth_token.to_base64()?,
-                    }),
+                    token: auth_token.to_base64()?,
                 };
                 Ok(response_with_refresh_token(Some(refresh_token), response)?)
             }
@@ -70,7 +68,7 @@ impl authentication_server::Authentication for super::GrpcImpl {
         self.trx(|c| {
             async move {
                 let user = models::User::confirm(user_id, c).await?;
-                let auth_token = UserAuthToken::create_token_for::<models::User>(
+                let token = UserAuthToken::create_token_for::<models::User>(
                     &user,
                     TokenType::UserAuth,
                     TokenRole::User,
@@ -87,9 +85,7 @@ impl authentication_server::Authentication for super::GrpcImpl {
 
                 models::User::set_refresh(user.id, &refresh_token, c).await?;
 
-                let response = api::ConfirmRegistrationResponse {
-                    token: Some(api::ApiToken { value: auth_token }),
-                };
+                let response = api::ConfirmRegistrationResponse { token };
 
                 Ok(response_with_refresh_token(Some(refresh_token), response)?)
             }
@@ -156,9 +152,7 @@ impl authentication_server::Authentication for super::GrpcImpl {
                     None,
                 )?;
                 let response = api::UpdatePasswordResponse {
-                    token: Some(api::ApiToken {
-                        value: auth_token.to_base64()?,
-                    }),
+                    token: auth_token.to_base64()?,
                 };
 
                 // Send notification mail
@@ -184,19 +178,10 @@ impl authentication_server::Authentication for super::GrpcImpl {
                     .map_err(|e| Status::internal(format!("Token encode error {e:?}")))?;
                 let inner = request.into_inner();
 
-                user.verify_password(&inner.old_pwd)?;
-                if inner.new_pwd != inner.new_pwd_confirmation {
-                    return Err(Status::invalid_argument(
-                        "Password and password confirmation don't match",
-                    )
-                    .into());
-                }
+                user.verify_password(&inner.old_password)?;
+                user.update_password(&inner.new_password, c).await?;
 
-                user.update_password(&inner.new_pwd, c).await?;
-
-                let response = api::UpdateUiPasswordResponse {
-                    token: Some(api::ApiToken { value: encoded }),
-                };
+                let response = api::UpdateUiPasswordResponse { token: encoded };
 
                 // Send notification mail
                 MailClient::new().update_password(&user).await?;
@@ -227,9 +212,7 @@ impl authentication_server::Authentication for super::GrpcImpl {
         let auth_token = auth_token.set_org_user(&org_user);
 
         let response = api::LoginUserResponse {
-            token: Some(api::ApiToken {
-                value: auth_token.to_base64()?,
-            }),
+            token: auth_token.to_base64()?,
         };
 
         response_with_refresh_token(refresh_token, response)
