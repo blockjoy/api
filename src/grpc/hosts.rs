@@ -114,7 +114,6 @@ impl api::Host {
                     id: model.id.to_string(),
                     name: model.name,
                     version: model.version,
-                    location: model.location,
                     cpu_count: Some(model.cpu_count.try_into()?),
                     mem_size_bytes: Some(model.mem_size_bytes.try_into()?),
                     disk_size_bytes: Some(model.disk_size_bytes.try_into()?),
@@ -143,7 +142,6 @@ impl api::CreateHostRequest {
         Ok(models::NewHost {
             name: &self.name,
             version: &self.version,
-            location: None,
             cpu_count: self.cpu_count.try_into()?,
             mem_size_bytes: self.mem_size_bytes.try_into()?,
             disk_size_bytes: self.disk_size_bytes.try_into()?,
@@ -164,7 +162,6 @@ impl api::UpdateHostRequest {
             id: self.id.parse()?,
             name: self.name.as_deref(),
             version: self.version.as_deref(),
-            location: self.location.as_deref(),
             cpu_count: None,
             mem_size_bytes: None,
             disk_size_bytes: None,
@@ -184,7 +181,6 @@ impl api::ProvisionHostRequest {
         let new_host = models::NewHost {
             name: &self.name,
             version: &self.version,
-            location: None,
             cpu_count: self.cpu_count.try_into()?,
             mem_size_bytes: self.mem_size_bytes.try_into()?,
             disk_size_bytes: self.disk_size_bytes.try_into()?,

@@ -23,7 +23,6 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         sync_status: models::NodeSyncStatus::Syncing,
         container_status: models::ContainerStatus::Installing,
         block_height: None,
-        groups: "".to_string(),
         node_data: None,
         name,
         version: "3.3.0",

@@ -21,14 +21,9 @@ pub struct Blockchain {
     pub status: BlockchainStatus,
     pub project_url: Option<String>,
     pub repo_url: Option<String>,
-    pub supports_etl: bool,
-    pub supports_node: bool,
-    pub supports_staking: bool,
-    pub supports_broadcast: bool,
     pub version: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
-    pub token: Option<String>,
     supported_node_types: serde_json::Value,
 }
 

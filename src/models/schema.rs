@@ -69,46 +69,10 @@ diesel::table! {
         status -> EnumBlockchainStatus,
         project_url -> Nullable<Text>,
         repo_url -> Nullable<Text>,
-        supports_etl -> Bool,
-        supports_node -> Bool,
-        supports_staking -> Bool,
-        supports_broadcast -> Bool,
         version -> Nullable<Text>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        token -> Nullable<Text>,
         supported_node_types -> Jsonb,
-    }
-}
-
-diesel::table! {
-    broadcast_filters (id) {
-        id -> Uuid,
-        blockchain_id -> Uuid,
-        org_id -> Uuid,
-        name -> Text,
-        callback_url -> Text,
-        auth_token -> Text,
-        is_active -> Bool,
-        last_processed_height -> Nullable<Int8>,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        addresses -> Nullable<Jsonb>,
-        txn_types -> Jsonb,
-    }
-}
-
-diesel::table! {
-    broadcast_logs (id) {
-        id -> Uuid,
-        blockchain_id -> Uuid,
-        org_id -> Uuid,
-        broadcast_filter_id -> Uuid,
-        address_count -> Int8,
-        txn_count -> Int8,
-        event_type -> Text,
-        event_msg -> Nullable<Text>,
-        created_at -> Timestamptz,
     }
 }
 
@@ -151,7 +115,6 @@ diesel::table! {
         id -> Uuid,
         version -> Text,
         name -> Text,
-        location -> Nullable<Text>,
         ip_addr -> Text,
         status -> EnumConnStatus,
         created_at -> Timestamptz,
@@ -177,15 +140,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    info (block_height) {
-        block_height -> Int8,
-        staked_count -> Nullable<Int8>,
-        oracle_price -> Nullable<Int8>,
-        total_rewards -> Nullable<Int8>,
-    }
-}
-
-diesel::table! {
     invitations (id) {
         id -> Uuid,
         created_by_user -> Uuid,
@@ -196,20 +150,6 @@ diesel::table! {
         declined_at -> Nullable<Timestamptz>,
         created_by_user_name -> Text,
         created_for_org_name -> Text,
-    }
-}
-
-diesel::table! {
-    invoices (id) {
-        id -> Int4,
-        user_id -> Uuid,
-        amount -> Int8,
-        validators_count -> Int8,
-        starts_at -> Timestamptz,
-        ends_at -> Timestamptz,
-        is_paid -> Bool,
-        earnings -> Int8,
-        fee_bps -> Int8,
     }
 }
 
@@ -263,7 +203,6 @@ diesel::table! {
         org_id -> Uuid,
         host_id -> Uuid,
         name -> Text,
-        groups -> Nullable<Text>,
         version -> Text,
         ip_addr -> Text,
         address -> Nullable<Text>,
@@ -322,34 +261,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    payments (hash) {
-        hash -> Text,
-        user_id -> Uuid,
-        block -> Int8,
-        payer -> Text,
-        payee -> Text,
-        amount -> Int8,
-        oracle_price -> Int8,
-        created_at -> Nullable<Timestamptz>,
-    }
-}
-
-diesel::table! {
-    rewards (id) {
-        id -> Uuid,
-        block -> Int8,
-        hash -> Text,
-        validator_id -> Uuid,
-        account -> Text,
-        amount -> Int8,
-        txn_time -> Timestamptz,
-        created_at -> Timestamptz,
-        user_id -> Nullable<Uuid>,
-        validator -> Text,
-    }
-}
-
-diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::TokenType;
 
@@ -366,10 +277,8 @@ diesel::table! {
         hashword -> Text,
         salt -> Text,
         refresh -> Nullable<Text>,
-        fee_bps -> Int8,
         created_at -> Timestamptz,
         staking_quota -> Int8,
-        pay_address -> Nullable<Text>,
         first_name -> Varchar,
         last_name -> Varchar,
         confirmed_at -> Nullable<Timestamptz>,
@@ -377,14 +286,11 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(broadcast_filters -> blockchains (blockchain_id));
-diesel::joinable!(broadcast_filters -> orgs (org_id));
 diesel::joinable!(commands -> hosts (host_id));
 diesel::joinable!(commands -> nodes (node_id));
 diesel::joinable!(host_provisions -> hosts (host_id));
 diesel::joinable!(invitations -> orgs (created_for_org));
 diesel::joinable!(invitations -> users (created_by_user));
-diesel::joinable!(invoices -> users (user_id));
 diesel::joinable!(ip_addresses -> hosts (host_id));
 diesel::joinable!(node_key_files -> nodes (node_id));
 diesel::joinable!(nodes -> blockchains (blockchain_id));
@@ -393,26 +299,19 @@ diesel::joinable!(nodes -> orgs (org_id));
 diesel::joinable!(nodes -> users (created_by));
 diesel::joinable!(orgs_users -> orgs (org_id));
 diesel::joinable!(orgs_users -> users (user_id));
-diesel::joinable!(payments -> users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     blockchains,
-    broadcast_filters,
-    broadcast_logs,
     commands,
     host_provisions,
     hosts,
-    info,
     invitations,
-    invoices,
     ip_addresses,
     node_key_files,
     node_logs,
     nodes,
     orgs,
     orgs_users,
-    payments,
-    rewards,
     token_blacklist,
     users,
 );

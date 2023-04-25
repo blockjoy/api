@@ -112,7 +112,6 @@ async fn can_verify_and_refresh_auth_token() {
         id: user.id,
         first_name: None,
         last_name: None,
-        fee_bps: None,
         staking_quota: None,
         refresh: Some(&encoded),
     };
@@ -149,7 +148,6 @@ async fn cannot_verify_and_refresh_wo_valid_refresh_token() {
         id: user.id,
         first_name: None,
         last_name: None,
-        fee_bps: None,
         staking_quota: None,
         refresh: Some(&encoded),
     };

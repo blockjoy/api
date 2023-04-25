@@ -26,10 +26,8 @@ pub struct User {
     pub hashword: String,
     pub salt: String,
     pub refresh: Option<String>,
-    pub fee_bps: i64,
     pub created_at: DateTime<Utc>,
     pub staking_quota: i64,
-    pub pay_address: Option<String>,
     pub first_name: String,
     pub last_name: String,
     pub confirmed_at: Option<DateTime<Utc>>,
@@ -118,15 +116,6 @@ impl User {
             .get_results(conn)
             .await?;
         Ok(users)
-    }
-
-    pub async fn find_all_pay_address(conn: &mut AsyncPgConnection) -> Result<Vec<UserPayAddress>> {
-        let addrs = Self::not_deleted()
-            .filter(users::pay_address.is_not_null())
-            .select((users::id, users::pay_address))
-            .get_results(conn)
-            .await?;
-        Ok(addrs)
     }
 
     pub async fn find_by_email(email: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
@@ -319,7 +308,6 @@ pub struct UpdateUser<'a> {
     pub id: uuid::Uuid,
     pub first_name: Option<&'a str>,
     pub last_name: Option<&'a str>,
-    pub fee_bps: Option<i64>,
     pub staking_quota: Option<i64>,
     pub refresh: Option<&'a str>,
 }

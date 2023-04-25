@@ -81,7 +81,6 @@ impl nodes_server::Nodes for super::GrpcImpl {
                     id: user.id,
                     first_name: None,
                     last_name: None,
-                    fee_bps: None,
                     staking_quota: Some(user.staking_quota - 1),
                     refresh: None,
                 };
@@ -197,7 +196,6 @@ impl nodes_server::Nodes for super::GrpcImpl {
                     id: user.id,
                     first_name: None,
                     last_name: None,
-                    fee_bps: None,
                     staking_quota: Some(user.staking_quota + 1),
                     refresh: None,
                 };
@@ -375,7 +373,6 @@ impl api::CreateNodeRequest {
             id: uuid::Uuid::new_v4(),
             org_id: self.org_id.parse()?,
             name: petname::Petnames::large().generate_one(3, "_"),
-            groups: "".to_string(),
             version: &self.version,
             blockchain_id: self.blockchain_id.parse()?,
             properties: serde_json::to_value(properties)?,

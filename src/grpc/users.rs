@@ -129,7 +129,6 @@ impl api::UpdateUserRequest {
             last_name: self.last_name.as_deref(),
 
             // For obvious reasons, users are not allowed to update these fields
-            fee_bps: None,
             staking_quota: None,
             refresh: None,
         })

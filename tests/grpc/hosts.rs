@@ -13,7 +13,6 @@ async fn responds_unauthenticated_with_empty_token_for_update() {
         id: host.id.to_string(),
         name: None,
         version: None,
-        location: None,
         os: None,
         os_version: None,
     };
@@ -38,7 +37,6 @@ async fn responds_unauthenticated_without_token_for_update() {
         id: host.id.to_string(),
         name: None,
         version: None,
-        location: None,
         os: None,
         os_version: None,
     };
@@ -56,7 +54,6 @@ async fn responds_unauthenticated_with_bad_token_for_update() {
         id: host_id,
         name: Some("the most beautiful server in the world".to_string()),
         version: None,
-        location: None,
         os: None,
         os_version: None,
     };
@@ -85,7 +82,6 @@ async fn responds_permission_denied_with_token_ownership_for_update() {
         id: other_host.id.to_string(),
         name: Some("hostus mostus maximus".to_string()),
         version: Some("3".to_string()),
-        location: Some("over yonder".to_string()),
         os: Some("LuukOS".to_string()),
         os_version: Some("5".to_string()),
     };
@@ -153,7 +149,6 @@ async fn responds_ok_for_update() {
         id: host.id.to_string(),
         name: Some("Servy McServington".to_string()),
         version: Some("3".to_string()),
-        location: Some("behind the garden shed".to_string()),
         os: Some("LuukOS".to_string()),
         os_version: Some("5".to_string()),
     };
@@ -225,7 +220,6 @@ async fn can_update_host_info() {
         ip_range_to: Some("192.168.0.20".parse().unwrap()),
         ip_gateway: Some("192.168.0.1".parse().unwrap()),
         version: None,
-        location: None,
         cpu_count: None,
         mem_size_bytes: None,
         disk_size_bytes: None,

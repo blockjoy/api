@@ -128,11 +128,6 @@ mod test {
         }
 
         async fn _seed(conn: &mut diesel_async::AsyncPgConnection) -> crate::Result<()> {
-            diesel::sql_query("INSERT INTO info (block_height) VALUES (99)")
-                .execute(conn)
-                .await
-                .expect("could not update info in test setup");
-
             diesel::sql_query("INSERT INTO blockchains (id,name,status,supported_node_types) values ('1fdbf4c3-ff16-489a-8d3d-87c8620b963c','Helium', 'production', '[]')")
                 .execute(conn)
                 .await.unwrap();
@@ -165,7 +160,7 @@ mod test {
             let user = models::NewUser::new("test@here.com", "Luuk", "Tester", "abc12345").unwrap();
             let admin = models::NewUser::new("admin@here.com", "Mr", "Admin", "abc12345").unwrap();
 
-            let user = user.create(conn).await.unwrap();
+            let _user = user.create(conn).await.unwrap();
             let admin = admin.create(conn).await.unwrap();
 
             models::NewOrgUser::new(org_id, admin.id, models::OrgRole::Admin)
@@ -173,25 +168,9 @@ mod test {
                 .await
                 .unwrap();
 
-            diesel::sql_query(
-                "UPDATE users set pay_address = '123456', staking_quota = 3 WHERE email = 'test@here.com'",
-            )
-            .execute(conn)
-            .await.unwrap();
-
-            diesel::sql_query("
-            INSERT INTO
-                invoices (user_id, earnings, fee_bps, validators_count, amount, starts_at, ends_at, is_paid)
-            VALUES
-                ($1, 99, 200, 1, 1000000000, now(), now(), false);")
-                .bind::<diesel::sql_types::Uuid, _>(user.id)
-                .execute(conn)
-                .await.unwrap();
-
             let host1 = models::NewHost {
                 name: "Host-1",
                 version: "0.1.0",
-                location: Some("Virginia"),
                 cpu_count: 16,
                 mem_size_bytes: 1_612_312_312_000,   // 1.6 TB
                 disk_size_bytes: 16_121_231_200_000, // 16 TB
@@ -209,7 +188,6 @@ mod test {
             let host2 = models::NewHost {
                 name: "Host-2",
                 version: "0.1.0",
-                location: Some("Ohio"),
                 cpu_count: 16,
                 mem_size_bytes: 1_612_312,  // 1.6 MB
                 disk_size_bytes: 1_612_312, // 1.6 MB

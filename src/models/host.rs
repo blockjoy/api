@@ -30,7 +30,6 @@ pub struct Host {
     pub id: Uuid,
     pub version: String,
     pub name: String,
-    pub location: Option<String>,
     pub ip_addr: String,
     pub status: ConnectionStatus,
     pub created_at: DateTime<Utc>,
@@ -243,7 +242,6 @@ impl Owned<Host, ()> for Host {
 pub struct NewHost<'a> {
     pub name: &'a str,
     pub version: &'a str,
-    pub location: Option<&'a str>,
     pub cpu_count: i64,
     /// The amount of memory in bytes that this host has.
     pub mem_size_bytes: i64,
@@ -291,7 +289,6 @@ pub struct UpdateHost<'a> {
     pub id: Uuid,
     pub name: Option<&'a str>,
     pub version: Option<&'a str>,
-    pub location: Option<&'a str>,
     pub cpu_count: Option<i64>,
     pub mem_size_bytes: Option<i64>,
     pub disk_size_bytes: Option<i64>,
