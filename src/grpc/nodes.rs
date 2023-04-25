@@ -73,7 +73,21 @@ impl nodes_server::Nodes for super::GrpcImpl {
         self.trx(|c| {
             async move {
                 let new_node = inner.as_new(user.id)?;
-                let node = new_node.create(c).await?;
+
+                // The host_id will either be determined by the scheduler, or by the host_id.
+                // Therfore we pass in an optional host_id for the node creation to fall back on if
+                // there is no scheduler.
+                let host_id = inner.host_id()?;
+                if let Some(host_id) = host_id {
+                    let host = models::Host::find_by_id(host_id, c).await?;
+                    let Some(org_id) = host.org_id else {
+                        super::bail_unauthorized!("Host must have org_id");
+                    };
+                    if !models::Org::is_member(user.id, org_id, c).await? {
+                        super::bail_unauthorized!("Must be member of org");
+                    }
+                }
+                let node = new_node.create(inner.host_id()?, c).await?;
 
                 create_notification(self, &node, c).await?;
 
@@ -274,7 +288,6 @@ impl api::Node {
         user: Option<&models::User>,
     ) -> crate::Result<Self> {
         use api::node::{ContainerStatus, NodeStatus, NodeType, StakingStatus, SyncStatus};
-        use api::node_scheduler::{ResourceAffinity, SimilarNodeAffinity};
 
         let properties = node
             .properties()?
@@ -284,14 +297,16 @@ impl api::Node {
             .map(api::node::NodeProperty::from_model)
             .collect();
 
-        let mut scheduler = api::NodeScheduler {
-            similarity: None,
-            resource: 0,
+        let placement = node
+            .scheduler()
+            .map(api::NodeScheduler::new)
+            // If there is a scheduler, we will return the scheduler variant of node placement.
+            .map(|s| api::node_placement::Placement::Scheduler(s))
+            // If there isn't one, we return the host id variant.
+            .unwrap_or_else(|| api::node_placement::Placement::HostId(node.host_id.to_string()));
+        let placement = api::NodePlacement {
+            placement: Some(placement),
         };
-        if let Some(similarity) = node.scheduler_similarity {
-            scheduler.set_similarity(SimilarNodeAffinity::from_model(similarity));
-        }
-        scheduler.set_resource(ResourceAffinity::from_model(node.scheduler_resource));
 
         let mut dto = Self {
             id: node.id.to_string(),
@@ -321,7 +336,7 @@ impl api::Node {
             created_by_email: user.map(|u| u.email.clone()),
             allow_ips: super::json_value_to_vec(&node.allow_ips)?,
             deny_ips: super::json_value_to_vec(&node.deny_ips)?,
-            scheduler: Some(scheduler),
+            placement: Some(placement),
         };
         dto.set_node_type(NodeType::from_model(node.node_type));
         dto.set_status(NodeStatus::from_model(node.chain_status));
@@ -349,10 +364,17 @@ impl api::CreateNodeRequest {
                 properties: Some(properties),
             },
         };
-        let scheduler = self
-            .scheduler
+        let placement = self
+            .placement
             .as_ref()
-            .ok_or_else(helpers::required("scheduler"))?;
+            .ok_or_else(helpers::required("placement"))?
+            .placement
+            .as_ref()
+            .ok_or_else(helpers::required("placement"))?;
+        let scheduler = match placement {
+            api::node_placement::Placement::HostId(_) => None,
+            api::node_placement::Placement::Scheduler(s) => Some(s),
+        };
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4(),
             org_id: self.org_id.parse()?,
@@ -374,9 +396,27 @@ impl api::CreateNodeRequest {
             network: &self.network,
             node_type: properties.id.try_into()?,
             created_by: user_id,
-            scheduler_similarity: scheduler.similarity().into_model(),
-            scheduler_resource: scheduler.resource().into_model()?,
+            // We use and_then here to coalesce the scheduler being None and the similarity being
+            // None. This is because both the scheduler and the similarity are optional.
+            scheduler_similarity: scheduler.and_then(|s| s.similarity().into_model()),
+            // Here we use `map` and `transpose`, because the scheduler is optional, but if it is
+            // provided, the `resource` is not optional.
+            scheduler_resource: scheduler.map(|s| s.resource().into_model()).transpose()?,
         })
+    }
+
+    fn host_id(&self) -> crate::Result<Option<uuid::Uuid>> {
+        let placement = self
+            .placement
+            .as_ref()
+            .ok_or_else(helpers::required("placement"))?
+            .placement
+            .as_ref()
+            .ok_or_else(helpers::required("placement"))?;
+        match placement {
+            api::node_placement::Placement::Scheduler(_) => Ok(None),
+            api::node_placement::Placement::HostId(id) => Ok(Some(id.parse()?)),
+        }
     }
 }
 
@@ -629,6 +669,22 @@ impl api::UiType {
             Self::Text => Ok(models::BlockchainPropertyUiType::Text),
             Self::FileUpload => Ok(models::BlockchainPropertyUiType::FileUpload),
         }
+    }
+}
+
+impl api::NodeScheduler {
+    fn new(node: models::NodeScheduler) -> Self {
+        use api::node_scheduler::{ResourceAffinity, SimilarNodeAffinity};
+
+        let mut scheduler = Self {
+            similarity: None,
+            resource: 0,
+        };
+        scheduler.set_resource(ResourceAffinity::from_model(node.resource));
+        if let Some(similarity) = node.similarity {
+            scheduler.set_similarity(SimilarNodeAffinity::from_model(similarity));
+        }
+        scheduler
     }
 }
 

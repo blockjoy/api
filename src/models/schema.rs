@@ -139,6 +139,7 @@ diesel::table! {
         ip_range_from -> Nullable<Inet>,
         ip_range_to -> Nullable<Inet>,
         ip_gateway -> Nullable<Inet>,
+        org_id -> Nullable<Uuid>,
     }
 }
 
@@ -173,6 +174,7 @@ diesel::table! {
         network_sent -> Nullable<Int8>,
         uptime -> Nullable<Int8>,
         host_type -> Nullable<EnumHostType>,
+        org_id -> Nullable<Uuid>,
     }
 }
 
@@ -293,7 +295,7 @@ diesel::table! {
         deny_ips -> Jsonb,
         node_type -> EnumNodeType,
         scheduler_similarity -> Nullable<EnumNodeSimilarityAffinity>,
-        scheduler_resource -> EnumNodeResourceAffinity,
+        scheduler_resource -> Nullable<EnumNodeResourceAffinity>,
     }
 }
 
@@ -382,6 +384,8 @@ diesel::joinable!(broadcast_filters -> orgs (org_id));
 diesel::joinable!(commands -> hosts (host_id));
 diesel::joinable!(commands -> nodes (node_id));
 diesel::joinable!(host_provisions -> hosts (host_id));
+diesel::joinable!(host_provisions -> orgs (org_id));
+diesel::joinable!(hosts -> orgs (org_id));
 diesel::joinable!(invitations -> orgs (created_for_org));
 diesel::joinable!(invitations -> users (created_by_user));
 diesel::joinable!(invoices -> users (user_id));

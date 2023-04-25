@@ -108,7 +108,7 @@ pub struct Node {
     pub deny_ips: serde_json::Value,
     pub node_type: NodeType,
     pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
-    pub scheduler_resource: super::ResourceAffinity,
+    pub scheduler_resource: Option<super::ResourceAffinity>,
 }
 
 #[derive(Clone, Debug)]
@@ -286,15 +286,20 @@ impl Node {
             get_hw_requirements(chain.name, self.node_type.to_string(), self.version.clone())
                 .await?;
 
-        let candidates = super::Host::host_candidates(
-            requirements,
-            self.blockchain_id,
-            self.node_type,
-            self.org_id,
-            self.scheduler(),
-            conn,
-        )
-        .await?;
+        let candidates = match self.scheduler() {
+            Some(scheduler) => {
+                super::Host::host_candidates(
+                    requirements,
+                    self.blockchain_id,
+                    self.node_type,
+                    self.org_id,
+                    scheduler,
+                    conn,
+                )
+                .await?
+            }
+            None => vec![super::Host::find_by_id(self.host_id, conn).await?],
+        };
 
         // We now have a list of host candidates for our nodes. Now the only thing left to do is to
         // make a decision about where to place the node.
@@ -320,11 +325,12 @@ impl Node {
         Ok(best)
     }
 
-    fn scheduler(&self) -> super::NodeScheduler {
-        super::NodeScheduler {
+    pub fn scheduler(&self) -> Option<super::NodeScheduler> {
+        let Some(resource) = self.scheduler_resource else { return None; };
+        Some(super::NodeScheduler {
             similarity: self.scheduler_similarity,
-            resource: self.scheduler_resource,
-        }
+            resource,
+        })
     }
 }
 
@@ -357,8 +363,10 @@ pub struct NewNode<'a> {
     pub network: &'a str,
     pub node_type: NodeType,
     pub created_by: uuid::Uuid,
+    /// Controls whether to run the node on hosts that contain nodes similar to this one.
     pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
-    pub scheduler_resource: super::ResourceAffinity,
+    /// Controls whether to run the node on hosts that are full or empty.
+    pub scheduler_resource: Option<super::ResourceAffinity>,
 }
 
 impl NewNode<'_> {
@@ -367,13 +375,21 @@ impl NewNode<'_> {
         Ok(res)
     }
 
-    pub async fn create(self, conn: &mut AsyncPgConnection) -> crate::Result<Node> {
+    pub async fn create(
+        self,
+        host_id: Option<uuid::Uuid>,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Node> {
         use crate::Error::NoMatchingHostError;
 
-        let host = self
-            .find_host(conn)
-            .await
-            .map_err(|_| NoMatchingHostError("The system is out of resources".to_string()))?;
+        let no_sched = || anyhow!("If there is no host_id, the scheduler is required");
+        let host = match host_id {
+            Some(id) => super::Host::find_by_id(id, conn).await?,
+            None => self
+                .find_host(self.scheduler().ok_or_else(no_sched)?, conn)
+                .await
+                .map_err(|_| NoMatchingHostError("The system is out of resources".to_string()))?,
+        };
         let ip_addr = super::IpAddress::next_for_host(host.id, conn)
             .await?
             .ip
@@ -407,7 +423,11 @@ impl NewNode<'_> {
     /// Finds the most suitable host to initially place the node on. Since this is a freshly created
     /// node, we do not need to worry about logic regarding where the retry placing the node. We
     /// simply ask for an ordered list of the most suitable hosts, and pick the first one.
-    pub async fn find_host(&self, conn: &mut AsyncPgConnection) -> crate::Result<super::Host> {
+    pub async fn find_host(
+        &self,
+        scheduler: super::NodeScheduler,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<super::Host> {
         let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let requirements = get_hw_requirements(
             chain.name,
@@ -420,7 +440,7 @@ impl NewNode<'_> {
             self.blockchain_id,
             self.node_type,
             self.org_id,
-            self.scheduler(),
+            scheduler,
             conn,
         )
         .await?;
@@ -432,11 +452,12 @@ impl NewNode<'_> {
         Ok(best)
     }
 
-    fn scheduler(&self) -> super::NodeScheduler {
-        super::NodeScheduler {
+    fn scheduler(&self) -> Option<super::NodeScheduler> {
+        let Some(resource) = self.scheduler_resource else { return None; };
+        Some(super::NodeScheduler {
             similarity: self.scheduler_similarity,
-            resource: self.scheduler_resource,
-        }
+            resource,
+        })
     }
 }
 

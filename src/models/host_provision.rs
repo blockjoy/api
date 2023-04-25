@@ -15,6 +15,7 @@ pub struct HostProvision {
     pub ip_range_from: Option<ipnetwork::IpNetwork>,
     pub ip_range_to: Option<ipnetwork::IpNetwork>,
     pub ip_gateway: Option<ipnetwork::IpNetwork>,
+    pub org_id: Option<uuid::Uuid>,
 }
 
 impl HostProvision {
@@ -82,6 +83,7 @@ pub struct NewHostProvision {
     ip_range_from: ipnetwork::IpNetwork,
     ip_range_to: ipnetwork::IpNetwork,
     ip_gateway: ipnetwork::IpNetwork,
+    org_id: Option<uuid::Uuid>,
 }
 
 impl NewHostProvision {
@@ -90,6 +92,7 @@ impl NewHostProvision {
         ip_range_from: std::net::IpAddr,
         ip_range_to: std::net::IpAddr,
         ip_gateway: std::net::IpAddr,
+        org_id: Option<uuid::Uuid>,
     ) -> Result<Self> {
         let nodes = nodes.as_ref().map(serde_json::to_string).transpose()?;
         Ok(Self {
@@ -98,6 +101,7 @@ impl NewHostProvision {
             ip_range_from: ip_range_from.into(),
             ip_range_to: ip_range_to.into(),
             ip_gateway: ip_gateway.into(),
+            org_id,
         })
     }
 

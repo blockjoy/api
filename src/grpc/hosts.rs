@@ -126,6 +126,7 @@ impl api::Host {
                     ip_range_from: Some(model.ip_range_from.ip().to_string()),
                     ip_range_to: Some(model.ip_range_to.ip().to_string()),
                     ip_gateway: Some(model.ip_gateway.ip().to_string()),
+                    org_id: model.org_id.map(|org_id| org_id.to_string()),
                 };
                 dto.set_status(api::host::HostStatus::from_model(model.status));
                 Ok(dto)
@@ -154,6 +155,7 @@ impl api::CreateHostRequest {
             ip_range_from: self.ip_range_from.parse()?,
             ip_range_to: self.ip_range_to.parse()?,
             ip_gateway: self.ip_gateway.parse()?,
+            org_id: self.org_id.as_ref().map(|s| s.parse()).transpose()?,
         })
     }
 }
@@ -201,6 +203,7 @@ impl api::ProvisionHostRequest {
             ip_gateway: provision
                 .ip_gateway
                 .ok_or_else(helpers::required("provision.ip_gateway"))?,
+            org_id: provision.org_id,
         };
         Ok(new_host)
     }

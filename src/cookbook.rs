@@ -57,7 +57,7 @@ pub async fn get_hw_requirements(
             .map_err(|e| Error::UnexpectedError(anyhow!("Can't set cookbook auth header: {e}")))?,
     );
 
-    let response = client.requirements(request).await?;
+    let response = client.requirements(dbg!(request)).await?;
     let inner = response.into_inner();
 
     Ok(HardwareRequirements {

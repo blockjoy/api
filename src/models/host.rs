@@ -55,13 +55,16 @@ pub struct Host {
     pub network_sent: Option<i64>,
     pub uptime: Option<i64>,
     pub host_type: Option<HostType>,
+    /// If this host is not a cloud host, but rather a machine to be used for self-hosted machines,
+    /// this value will be set to the id of the org that owns and operates this host.
+    pub org_id: Option<uuid::Uuid>,
 }
 
 impl Host {
     /// Test if given `token` has expired and refresh it using the `refresh_token` if necessary
     pub fn verify_auth_token(token: HostAuthToken) -> Result<HostAuthToken> {
         if token.has_expired() {
-            Err(crate::Error::from(TokenError::Expired))
+            Err(TokenError::Expired.into())
         } else {
             // Token is valid, just return what we got
             // If nothing was updated or changed, we don't even query for the user to save 1 query
@@ -74,11 +77,8 @@ impl Host {
         is_online: bool,
         conn: &mut AsyncPgConnection,
     ) -> Result<()> {
-        let status = if is_online {
-            ConnectionStatus::Online
-        } else {
-            ConnectionStatus::Offline
-        };
+        use ConnectionStatus::{Offline, Online};
+        let status = is_online.then(|| Online).unwrap_or(Offline);
 
         diesel::update(hosts::table.find(host_id))
             .set(hosts::status.eq(status))
@@ -256,6 +256,9 @@ pub struct NewHost<'a> {
     pub ip_range_from: ipnetwork::IpNetwork,
     pub ip_range_to: ipnetwork::IpNetwork,
     pub ip_gateway: ipnetwork::IpNetwork,
+    /// If this host is not a cloud host, but rather a machine to be used for self-hosted machines,
+    /// this value should be set to the id of the org that owns and operates this host.
+    pub org_id: Option<uuid::Uuid>,
 }
 
 impl NewHost<'_> {

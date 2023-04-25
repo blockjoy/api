@@ -21,6 +21,7 @@ async fn responds_ok_with_valid_id_for_get() {
         "192.168.0.1".parse().unwrap(),
         "192.168.0.10".parse().unwrap(),
         "192.168.0.20".parse().unwrap(),
+        Some(tester.org().await.id),
     )
     .unwrap();
     let mut conn = tester.conn().await;
@@ -36,6 +37,7 @@ async fn responds_error_with_invalid_provision_for_create() {
         ip_range_from: "192.168.0.1".to_string(),
         ip_range_to: "192.168.0.10".to_string(),
         ip_gateway: "192.168.0.1000".to_string(),
+        org_id: Some(tester.org().await.id.to_string()),
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
@@ -48,6 +50,7 @@ async fn responds_ok_with_valid_provision_for_create() {
         ip_range_from: "192.168.0.1".to_string(),
         ip_range_to: "192.168.0.10".to_string(),
         ip_gateway: "192.168.0.20".to_string(),
+        org_id: Some(tester.org().await.id.to_string()),
     };
     tester.send_admin(Service::create, req).await.unwrap();
 }

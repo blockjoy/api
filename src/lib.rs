@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 pub mod auth;
 pub mod cloudflare;
 pub mod cookbook;
@@ -202,6 +204,7 @@ mod test {
                 ip_range_from: "192.168.0.10".parse().unwrap(),
                 ip_range_to: "192.168.0.100".parse().unwrap(),
                 ip_gateway: "192.168.0.1".parse().unwrap(),
+                org_id: None,
             };
 
             host1.create(conn).await.unwrap();
@@ -220,6 +223,7 @@ mod test {
                 ip_range_from: "192.12.0.10".parse().unwrap(),
                 ip_range_to: "192.12.0.20".parse().unwrap(),
                 ip_gateway: "192.12.0.1".parse().unwrap(),
+                org_id: None,
             };
 
             let host2 = host2.create(conn).await.unwrap();

@@ -74,6 +74,7 @@ impl api::CreateHostProvisionRequest {
             self.ip_range_from.parse()?,
             self.ip_range_to.parse()?,
             self.ip_gateway.parse()?,
+            self.org_id.as_ref().map(|id| id.parse()).transpose()?,
         )
     }
 }

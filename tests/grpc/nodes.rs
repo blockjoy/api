@@ -66,9 +66,13 @@ async fn responds_ok_with_valid_data_for_create() {
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
-        scheduler: Some(api::NodeScheduler {
-            similarity: None,
-            resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+        placement: Some(api::NodePlacement {
+            placement: Some(api::node_placement::Placement::Scheduler(
+                api::NodeScheduler {
+                    similarity: None,
+                    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+                },
+            )),
         }),
     };
     let node = tester.send_admin(Service::create, req).await.unwrap();
@@ -92,9 +96,13 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
-        scheduler: Some(api::NodeScheduler {
-            similarity: None,
-            resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+        placement: Some(api::NodePlacement {
+            placement: Some(api::node_placement::Placement::Scheduler(
+                api::NodeScheduler {
+                    similarity: None,
+                    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+                },
+            )),
         }),
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
