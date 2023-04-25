@@ -7,6 +7,13 @@ use tonic::{Request, Response};
 
 #[tonic::async_trait]
 impl key_files_server::KeyFiles for super::GrpcImpl {
+    async fn update(
+        &self,
+        request: Request<api::UpdateKeyFilesRequest>,
+    ) -> super::Result<api::UpdateKeyFilesResponse> {
+        todo!()
+    }
+
     async fn create(
         &self,
         request: Request<api::CreateKeyFilesRequest>,
