@@ -113,13 +113,13 @@ impl api::Host {
                 let mut dto = Self {
                     id: model.id.to_string(),
                     name: model.name,
-                    version: Some(model.version),
+                    version: model.version,
                     location: model.location,
                     cpu_count: Some(model.cpu_count.try_into()?),
                     mem_size_bytes: Some(model.mem_size_bytes.try_into()?),
                     disk_size_bytes: Some(model.disk_size_bytes.try_into()?),
-                    os: Some(model.os),
-                    os_version: Some(model.os_version),
+                    os: model.os,
+                    os_version: model.os_version,
                     ip: model.ip_addr,
                     status: 0, // Note the setter below
                     created_at: Some(super::try_dt_to_ts(model.created_at)?),

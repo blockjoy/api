@@ -364,12 +364,12 @@ impl api::CreateNodeRequest {
         let allow_ips: Vec<models::FilteredIpAddr> = self
             .allow_ips
             .iter()
-            .map(api::FilteredIpAddr::into_model)
+            .map(api::FilteredIpAddr::as_model)
             .collect();
         let deny_ips: Vec<models::FilteredIpAddr> = self
             .deny_ips
             .iter()
-            .map(api::FilteredIpAddr::into_model)
+            .map(api::FilteredIpAddr::as_model)
             .collect();
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4(),
@@ -423,12 +423,12 @@ impl api::UpdateNodeRequest {
         let allow_ips: Vec<models::FilteredIpAddr> = self
             .allow_ips
             .iter()
-            .map(api::FilteredIpAddr::into_model)
+            .map(api::FilteredIpAddr::as_model)
             .collect();
         let deny_ips: Vec<models::FilteredIpAddr> = self
             .deny_ips
             .iter()
-            .map(api::FilteredIpAddr::into_model)
+            .map(api::FilteredIpAddr::as_model)
             .collect();
 
         Ok(models::UpdateNode {
@@ -679,7 +679,7 @@ impl api::FilteredIpAddr {
         }
     }
 
-    fn into_model(&self) -> models::FilteredIpAddr {
+    fn as_model(&self) -> models::FilteredIpAddr {
         models::FilteredIpAddr {
             ip: self.ip.clone(),
             description: self.description.clone(),

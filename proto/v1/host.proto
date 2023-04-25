@@ -30,7 +30,7 @@ message Host {
   // This is the randomly generated name of the host.
   string name = 2;
   // The version of the blockjoy control software running on the host.
-  optional string version = 3;
+  string version = 3;
   // The physical location of the server.
   optional string location = 4;
   // The number of logical cores the machine has.
@@ -40,9 +40,9 @@ message Host {
   // The size of the physical disks the machine has.
   optional uint64 disk_size_bytes = 7;
   // The operating system running on the machine, i.e. "BSD" or "Linux".
-  optional string os = 8;
+  string os = 8;
   // The version of said operating system running on the host.
-  optional string os_version = 9;
+  string os_version = 9;
   // The ip address on which the machine is reachable.
   string ip = 10;
   // Current status of the machine, or `UNSPECIFIED`.
