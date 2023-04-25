@@ -4,6 +4,9 @@ package v1;
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 208cdfd (Squashed 'proto/' changes from 2504f12..11f1cad)
 import "google/protobuf/timestamp.proto";
 
 // The invitation resource. This invites users into organization 
@@ -34,6 +37,7 @@ message Invitation {
   // If this invitation has been declined, this field is set to the moment of
   // declination.
   optional google.protobuf.Timestamp declined_at = 10;
+<<<<<<< HEAD
 =======
 import "google/protobuf/empty.proto";
 =======
@@ -80,12 +84,17 @@ message Invitation {
   // declination.
   optional google.protobuf.Timestamp declined_at = 10;
 >>>>>>> 00f3ec6 (simplify invitation requests (#85))
+=======
+>>>>>>> 208cdfd (Squashed 'proto/' changes from 2504f12..11f1cad)
 }
 
 // Manage invitations
 service Invitations {
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 208cdfd (Squashed 'proto/' changes from 2504f12..11f1cad)
   // Invite a user into an organization.
   rpc Create(CreateInvitationRequest) returns (CreateInvitationResponse);
   // List pending invitations for given org.
@@ -122,6 +131,7 @@ message CreateInvitationRequest {
   string invitee_email = 1;
   // The id of the organization that the user is being invited to.
   string org_id = 2;
+<<<<<<< HEAD
 =======
   // Create an invitation for an org the calling user is owner/admin of
 =======
@@ -167,6 +177,8 @@ message CreateInvitationRequest {
   // The id of the organization that the user is being invited to.
   string org_id = 2;
 >>>>>>> 00f3ec6 (simplify invitation requests (#85))
+=======
+>>>>>>> 208cdfd (Squashed 'proto/' changes from 2504f12..11f1cad)
 }
 
 message CreateInvitationResponse {
@@ -186,8 +198,11 @@ message InvitationsResponse {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> 00f3ec6 (simplify invitation requests (#85))
+=======
+>>>>>>> 208cdfd (Squashed 'proto/' changes from 2504f12..11f1cad)
 message AcceptInvitationRequest {
   string invitation_id = 1;
 }
@@ -208,10 +223,13 @@ message RevokeInvitationRequest {
 
 message RevokeInvitationResponse {
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 message InvitationRequest {
   Invitation invitation = 1;
 >>>>>>> 05e4c55 (move protos into flat structure)
 =======
 >>>>>>> 00f3ec6 (simplify invitation requests (#85))
+=======
+>>>>>>> 208cdfd (Squashed 'proto/' changes from 2504f12..11f1cad)
 }

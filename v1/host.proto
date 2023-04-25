@@ -34,6 +34,7 @@ message Host {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> a43270d (Squashed 'proto/' changes from 4dad6e9..11f1cad)
 
@@ -48,6 +49,11 @@ message Host {
   // location = 4 has been deleted. Dont use number '4' for any other field.
 
 >>>>>>> fa4274f (Removing unused field)
+=======
+
+  // location = 4 has been deleted. Dont use number '4' for any other field.
+
+>>>>>>> 208cdfd (Squashed 'proto/' changes from 2504f12..11f1cad)
   // The number of logical cores the machine has.
   optional uint64 cpu_count = 5;
   // The amount of physical memory the machine has.
