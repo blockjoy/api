@@ -207,26 +207,3 @@ pub fn try_dt_to_ts(
     };
     Ok(timestamp)
 }
-
-pub fn json_value_to_vec(json: &serde_json::Value) -> crate::Result<Vec<api::FilteredIpAddr>> {
-    let arr = json
-        .as_array()
-        .ok_or_else(|| crate::Error::unexpected("Error deserializing JSON object"))?;
-    let mut result = vec![];
-
-    for value in arr {
-        let tmp = value
-            .as_object()
-            .ok_or_else(|| crate::Error::unexpected("Error deserializing JSON array"))?;
-        let ip = tmp
-            .get("ip")
-            .map(|e| e.to_string())
-            .ok_or_else(|| crate::Error::unexpected("Can't read IP"))?
-            .to_string();
-        let description = tmp.get("description").map(|e| e.to_string());
-
-        result.push(api::FilteredIpAddr { ip, description });
-    }
-
-    Ok(result)
-}

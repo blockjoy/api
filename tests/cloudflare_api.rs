@@ -39,6 +39,8 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
             similarity: None,
             resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
         }),
+        allow_ips: vec![],
+        deny_ips: vec![],
     };
 
     tester.send_admin(Service::create, req).await.unwrap();

@@ -74,6 +74,8 @@ async fn responds_ok_with_single_get() {
         container_status: None,
         self_update: None,
         address: None,
+        allow_ips: None,
+        deny_ips: None,
     };
     update.update(&mut conn).await.unwrap();
 
@@ -137,6 +139,8 @@ async fn responds_ok_for_pending() {
         container_status: None,
         self_update: None,
         address: None,
+        allow_ips: None,
+        deny_ips: None,
     };
     update.update(&mut conn).await.unwrap();
     let cmd = create_command(&tester, node.id, models::CommandType::CreateNode).await;

@@ -104,8 +104,8 @@ pub struct Node {
     pub network: String,
     pub created_by: Option<uuid::Uuid>,
     pub dns_record_id: String,
-    pub allow_ips: serde_json::Value,
-    pub deny_ips: serde_json::Value,
+    allow_ips: serde_json::Value,
+    deny_ips: serde_json::Value,
     pub node_type: NodeType,
     pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
     pub scheduler_resource: super::ResourceAffinity,
@@ -326,12 +326,31 @@ impl Node {
             resource: self.scheduler_resource,
         }
     }
+
+    pub fn allow_ips(&self) -> crate::Result<Vec<FilteredIpAddr>> {
+        Self::filtered_ip_addrs(self.allow_ips.clone())
+    }
+
+    pub fn deny_ips(&self) -> crate::Result<Vec<FilteredIpAddr>> {
+        Self::filtered_ip_addrs(self.deny_ips.clone())
+    }
+
+    fn filtered_ip_addrs(value: serde_json::Value) -> crate::Result<Vec<FilteredIpAddr>> {
+        let addrs: Vec<FilteredIpAddr> = serde_json::from_value(value)?;
+        Ok(addrs)
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NodeProvision {
     pub blockchain_id: uuid::Uuid,
     pub node_type: NodeType,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct FilteredIpAddr {
+    pub ip: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -355,6 +374,8 @@ pub struct NewNode<'a> {
     pub mem_size_bytes: i64,
     pub disk_size_bytes: i64,
     pub network: &'a str,
+    pub allow_ips: serde_json::Value,
+    pub deny_ips: serde_json::Value,
     pub node_type: NodeType,
     pub created_by: uuid::Uuid,
     pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
@@ -455,6 +476,8 @@ pub struct UpdateNode<'a> {
     pub container_status: Option<ContainerStatus>,
     pub self_update: Option<bool>,
     pub address: Option<&'a str>,
+    pub allow_ips: Option<serde_json::Value>,
+    pub deny_ips: Option<serde_json::Value>,
 }
 
 impl UpdateNode<'_> {

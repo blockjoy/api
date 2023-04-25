@@ -18,6 +18,14 @@ async fn responds_ok_for_update() {
         container_status: None,
         address: None,
         version: Some("newer is always better".to_string()),
+        allow_ips: vec![api::FilteredIpAddr {
+            ip: "127.0.0.1".to_string(),
+            description: Some("wow so allowed".to_string()),
+        }],
+        deny_ips: vec![api::FilteredIpAddr {
+            ip: "127.0.0.2".to_string(),
+            description: Some("wow so denied".to_string()),
+        }],
     };
 
     tester
@@ -30,7 +38,16 @@ async fn responds_ok_for_update() {
         .await
         .unwrap();
 
+    // Some assertions that the update actually worked
     assert!(node.self_update);
+
+    let allowed = node.allow_ips().unwrap()[0].clone();
+    assert_eq!(allowed.ip, "127.0.0.1");
+    assert_eq!(allowed.description.unwrap(), "wow so allowed");
+
+    let denied = node.deny_ips().unwrap()[0].clone();
+    assert_eq!(denied.ip, "127.0.0.2");
+    assert_eq!(denied.description.unwrap(), "wow so denied");
 }
 
 #[tokio::test]
@@ -70,6 +87,14 @@ async fn responds_ok_with_valid_data_for_create() {
             similarity: None,
             resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
         }),
+        allow_ips: vec![api::FilteredIpAddr {
+            ip: "127.0.0.1".to_string(),
+            description: Some("wow so allowed".to_string()),
+        }],
+        deny_ips: vec![api::FilteredIpAddr {
+            ip: "127.0.0.2".to_string(),
+            description: Some("wow so denied".to_string()),
+        }],
     };
     let node = tester.send_admin(Service::create, req).await.unwrap();
 
@@ -77,7 +102,16 @@ async fn responds_ok_with_valid_data_for_create() {
     let req = api::GetNodeRequest {
         id: node.node.unwrap().id,
     };
-    tester.send_admin(Service::get, req).await.unwrap();
+    let resp = tester.send_admin(Service::get, req).await.unwrap();
+    let node = resp.node.unwrap();
+
+    let allowed = node.allow_ips[0].clone();
+    assert_eq!(allowed.ip, "127.0.0.1");
+    assert_eq!(allowed.description.unwrap(), "wow so allowed");
+
+    let denied = node.deny_ips[0].clone();
+    assert_eq!(denied.ip, "127.0.0.2");
+    assert_eq!(denied.description.unwrap(), "wow so denied");
 }
 
 #[tokio::test]
@@ -96,6 +130,8 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
             similarity: None,
             resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
         }),
+        allow_ips: vec![],
+        deny_ips: vec![],
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
@@ -111,6 +147,8 @@ async fn responds_ok_with_valid_data_for_update() {
         self_update: Some(false),
         container_status: None,
         address: Some("My main noderoni".to_string()),
+        allow_ips: vec![],
+        deny_ips: vec![],
     };
     tester.send_admin(Service::update, req).await.unwrap();
 }

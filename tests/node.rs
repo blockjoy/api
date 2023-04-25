@@ -37,6 +37,8 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         created_by: user.id,
         scheduler_similarity: None,
         scheduler_resource: models::ResourceAffinity::MostResources,
+        allow_ips: serde_json::json!([]),
+        deny_ips: serde_json::json!([]),
     };
 
     let mut conn = tester.conn().await;
