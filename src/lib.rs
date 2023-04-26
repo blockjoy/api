@@ -223,7 +223,7 @@ mod test {
                 ip_range_from: "192.12.0.10".parse().unwrap(),
                 ip_range_to: "192.12.0.20".parse().unwrap(),
                 ip_gateway: "192.12.0.1".parse().unwrap(),
-                org_id: None,
+                org_id: Some(org_id),
             };
 
             let host2 = host2.create(conn).await.unwrap();

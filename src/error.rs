@@ -24,8 +24,8 @@ pub enum Error {
     #[error("invalid authentication credentials: {0}")]
     InvalidAuthentication(String),
 
-    #[error("Insufficient permission.")]
-    InsufficientPermissionsError,
+    #[error("{0}")]
+    InsufficientPermissionsError(String),
 
     #[error("Error processing JWT")]
     JWTError(#[from] jsonwebtoken::errors::Error),
@@ -120,7 +120,9 @@ impl From<tonic::Status> for Error {
     fn from(status: tonic::Status) -> Self {
         match status.code() {
             tonic::Code::Unauthenticated => Error::InvalidAuthentication(status.to_string()),
-            tonic::Code::PermissionDenied => Error::InsufficientPermissionsError,
+            tonic::Code::PermissionDenied => {
+                Error::InsufficientPermissionsError(status.to_string())
+            }
             tonic::Code::InvalidArgument => Error::InvalidArgument(status),
             _ => Error::UnexpectedError(anyhow::anyhow!(status)),
         }
@@ -138,7 +140,7 @@ impl From<Error> for tonic::Status {
             NotFoundError(_) => tonic::Status::not_found(msg),
             DuplicateResource { .. } => tonic::Status::invalid_argument(msg),
             InvalidAuthentication(_) => tonic::Status::unauthenticated(msg),
-            InsufficientPermissionsError => tonic::Status::permission_denied(msg),
+            InsufficientPermissionsError(_) => tonic::Status::permission_denied(msg),
             UuidParseError(_) | IpParseError(_) => tonic::Status::invalid_argument(msg),
             NoMatchingHostError(_) => tonic::Status::resource_exhausted(msg),
             InvalidArgument(s) => s,
@@ -181,7 +183,7 @@ impl IntoResponse for Error {
             Error::NotFoundError(_) => StatusCode::NOT_FOUND,
             Error::DuplicateResource { .. } => StatusCode::CONFLICT,
             Error::InvalidAuthentication(_) => StatusCode::UNAUTHORIZED,
-            Error::InsufficientPermissionsError => StatusCode::FORBIDDEN,
+            Error::InsufficientPermissionsError(_) => StatusCode::FORBIDDEN,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let response = (status_code, Json(self.to_string())).into_response();
