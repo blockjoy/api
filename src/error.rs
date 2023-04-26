@@ -25,10 +25,10 @@ pub enum Error {
     InvalidAuthentication(String),
 
     #[error("{0}")]
-    InsufficientPermissionsError(String),
+    InsufficientPermissions(String),
 
     #[error("Error processing JWT")]
-    JWTError(#[from] jsonwebtoken::errors::Error),
+    Jwt(#[from] jsonwebtoken::errors::Error),
 
     #[error("Error related to JSON parsing or serialization: {0}")]
     JsonError(#[from] serde_json::Error),
@@ -120,9 +120,7 @@ impl From<tonic::Status> for Error {
     fn from(status: tonic::Status) -> Self {
         match status.code() {
             tonic::Code::Unauthenticated => Error::InvalidAuthentication(status.to_string()),
-            tonic::Code::PermissionDenied => {
-                Error::InsufficientPermissionsError(status.to_string())
-            }
+            tonic::Code::PermissionDenied => Error::InsufficientPermissions(status.to_string()),
             tonic::Code::InvalidArgument => Error::InvalidArgument(status),
             _ => Error::UnexpectedError(anyhow::anyhow!(status)),
         }
@@ -140,7 +138,7 @@ impl From<Error> for tonic::Status {
             NotFoundError(_) => tonic::Status::not_found(msg),
             DuplicateResource { .. } => tonic::Status::invalid_argument(msg),
             InvalidAuthentication(_) => tonic::Status::unauthenticated(msg),
-            InsufficientPermissionsError(_) => tonic::Status::permission_denied(msg),
+            InsufficientPermissions(_) => tonic::Status::permission_denied(msg),
             UuidParseError(_) | IpParseError(_) => tonic::Status::invalid_argument(msg),
             NoMatchingHostError(_) => tonic::Status::resource_exhausted(msg),
             InvalidArgument(s) => s,
@@ -183,7 +181,7 @@ impl IntoResponse for Error {
             Error::NotFoundError(_) => StatusCode::NOT_FOUND,
             Error::DuplicateResource { .. } => StatusCode::CONFLICT,
             Error::InvalidAuthentication(_) => StatusCode::UNAUTHORIZED,
-            Error::InsufficientPermissionsError(_) => StatusCode::FORBIDDEN,
+            Error::InsufficientPermissions(_) => StatusCode::FORBIDDEN,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let response = (status_code, Json(self.to_string())).into_response();
