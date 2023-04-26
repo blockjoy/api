@@ -301,7 +301,7 @@ impl api::Node {
             .scheduler()
             .map(api::NodeScheduler::new)
             // If there is a scheduler, we will return the scheduler variant of node placement.
-            .map(|s| api::node_placement::Placement::Scheduler(s))
+            .map(api::node_placement::Placement::Scheduler)
             // If there isn't one, we return the host id variant.
             .unwrap_or_else(|| api::node_placement::Placement::HostId(node.host_id.to_string()));
         let placement = api::NodePlacement {

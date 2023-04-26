@@ -78,7 +78,7 @@ impl Host {
         conn: &mut AsyncPgConnection,
     ) -> Result<()> {
         use ConnectionStatus::{Offline, Online};
-        let status = is_online.then(|| Online).unwrap_or(Offline);
+        let status = if is_online { Online } else { Offline };
 
         diesel::update(hosts::table.find(host_id))
             .set(hosts::status.eq(status))
