@@ -20,7 +20,7 @@ fn create_firewall_rules(
     let mut rules = vec![];
     for ip in denied_or_allowed_ips {
         // Validate IP
-        if IpCidr::is_ip_cidr(&ip.ip) {
+        if !IpCidr::is_ip_cidr(&ip.ip) {
             return Err(Error::Cidr);
         }
 
