@@ -235,6 +235,10 @@ message CreateNodeRequest {
   string network = 7;
   // Logic with regards to where the node should placed.
   NodePlacement placement = 8;
+  // A list of ip addresses allowed to access public ports on this node.
+  repeated FilteredIpAddr allow_ips = 9;
+  // A list of ip addresses denied all access to any ports on this node.
+  repeated FilteredIpAddr deny_ips = 10;
 }
 
 enum UiType {
@@ -302,6 +306,10 @@ message UpdateNodeRequest {
   optional Node.ContainerStatus container_status = 5;
   // Update the P2P address of the blockchain node.
   optional string address = 6;
+  // A list of ip addresses allowed to access public ports on this node.
+  repeated FilteredIpAddr allow_ips = 7;
+  // A list of ip addresses denied all access to any ports on this node.
+  repeated FilteredIpAddr deny_ips = 8;
 }
 
 message UpdateNodeResponse {

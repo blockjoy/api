@@ -57,6 +57,7 @@ pub enum Error {
     #[error("Cannot parse IP address: {0}")]
     IpParseError(#[from] std::net::AddrParseError),
 
+    /// This variant is used when an IP-address is not parseable in a CIDR format.
     #[error("Cannot parse CIDR address")]
     Cidr,
 

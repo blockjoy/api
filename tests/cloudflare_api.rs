@@ -40,6 +40,8 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
                 tester.host().await.id.to_string(),
             )),
         }),
+        allow_ips: vec![],
+        deny_ips: vec![],
     };
 
     tester.send_admin(Service::create, req).await.unwrap();

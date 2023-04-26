@@ -308,6 +308,17 @@ impl api::Node {
             placement: Some(placement),
         };
 
+        let allow_ips = node
+            .allow_ips()?
+            .into_iter()
+            .map(api::FilteredIpAddr::from_model)
+            .collect();
+        let deny_ips = node
+            .deny_ips()?
+            .into_iter()
+            .map(api::FilteredIpAddr::from_model)
+            .collect();
+
         let mut dto = Self {
             id: node.id.to_string(),
             org_id: node.org_id.to_string(),
@@ -334,8 +345,8 @@ impl api::Node {
             created_by: user.map(|u| u.id.to_string()),
             created_by_name: user.map(|u| format!("{} {}", u.first_name, u.last_name)),
             created_by_email: user.map(|u| u.email.clone()),
-            allow_ips: super::json_value_to_vec(&node.allow_ips)?,
-            deny_ips: super::json_value_to_vec(&node.deny_ips)?,
+            allow_ips,
+            deny_ips,
             placement: Some(placement),
         };
         dto.set_node_type(NodeType::from_model(node.node_type));
@@ -357,12 +368,9 @@ impl api::CreateNodeRequest {
             .iter()
             .map(|p| api::node::NodeProperty::into_model(p.clone()))
             .collect::<crate::Result<_>>()?;
-        let properties = models::NodePropertiesWithId {
-            id: self.node_type,
-            props: models::NodeProperties {
-                version: Some(self.version.clone()),
-                properties: Some(properties),
-            },
+        let properties = models::NodeProperties {
+            version: Some(self.version.clone()),
+            properties: Some(properties),
         };
         let placement = self
             .placement
@@ -375,6 +383,16 @@ impl api::CreateNodeRequest {
             api::node_placement::Placement::HostId(_) => None,
             api::node_placement::Placement::Scheduler(s) => Some(s),
         };
+        let allow_ips: Vec<models::FilteredIpAddr> = self
+            .allow_ips
+            .iter()
+            .map(api::FilteredIpAddr::as_model)
+            .collect();
+        let deny_ips: Vec<models::FilteredIpAddr> = self
+            .deny_ips
+            .iter()
+            .map(api::FilteredIpAddr::as_model)
+            .collect();
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4(),
             org_id: self.org_id.parse()?,
@@ -382,7 +400,7 @@ impl api::CreateNodeRequest {
             groups: "".to_string(),
             version: &self.version,
             blockchain_id: self.blockchain_id.parse()?,
-            properties: serde_json::to_value(properties.props)?,
+            properties: serde_json::to_value(properties)?,
             block_height: None,
             node_data: None,
             chain_status: models::NodeChainStatus::Provisioning,
@@ -394,7 +412,9 @@ impl api::CreateNodeRequest {
             mem_size_bytes: 0,
             disk_size_bytes: 0,
             network: &self.network,
-            node_type: properties.id.try_into()?,
+            node_type: self.node_type().into_model(),
+            allow_ips: serde_json::to_value(allow_ips)?,
+            deny_ips: serde_json::to_value(deny_ips)?,
             created_by: user_id,
             // We use and_then here to coalesce the scheduler being None and the similarity being
             // None. This is because both the scheduler and the similarity are optional.
@@ -439,6 +459,18 @@ impl api::ListNodesRequest {
 
 impl api::UpdateNodeRequest {
     pub fn as_update(&self) -> crate::Result<models::UpdateNode> {
+        // Convert the ip list from the gRPC structures to the database models.
+        let allow_ips: Vec<models::FilteredIpAddr> = self
+            .allow_ips
+            .iter()
+            .map(api::FilteredIpAddr::as_model)
+            .collect();
+        let deny_ips: Vec<models::FilteredIpAddr> = self
+            .deny_ips
+            .iter()
+            .map(api::FilteredIpAddr::as_model)
+            .collect();
+
         Ok(models::UpdateNode {
             id: self.id.parse()?,
             name: None,
@@ -452,6 +484,13 @@ impl api::UpdateNodeRequest {
             container_status: Some(self.container_status().into_model()),
             self_update: self.self_update,
             address: self.address.as_deref(),
+            // Only pass in `Some` for these fields if the lists are non-empty.
+            allow_ips: (!allow_ips.is_empty())
+                .then(|| serde_json::to_value(allow_ips))
+                .transpose()?,
+            deny_ips: (!deny_ips.is_empty())
+                .then(|| serde_json::to_value(deny_ips))
+                .transpose()?,
         })
     }
 }
@@ -685,6 +724,22 @@ impl api::NodeScheduler {
             scheduler.set_similarity(SimilarNodeAffinity::from_model(similarity));
         }
         scheduler
+    }
+}
+
+impl api::FilteredIpAddr {
+    fn from_model(model: models::FilteredIpAddr) -> Self {
+        Self {
+            ip: model.ip,
+            description: model.description,
+        }
+    }
+
+    fn as_model(&self) -> models::FilteredIpAddr {
+        models::FilteredIpAddr {
+            ip: self.ip.clone(),
+            description: self.description.clone(),
+        }
     }
 }
 

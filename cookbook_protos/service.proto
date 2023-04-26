@@ -12,7 +12,7 @@ enum StatusName {
   Stable = 3;
 }
 
-/* Message type used for identifying a specific configuration */
+/* Message type used for identifying a specific plugin */
 message ConfigIdentifier {
   /* snake_cased name of the blockchain */
   string protocol = 1;
@@ -29,10 +29,10 @@ message BundleIdentifier {
   string version = 1;
 }
 
-message Configuration {
+message Plugin {
   ConfigIdentifier identifier = 1;
-  /* Configuration file contents */
-  bytes toml_content = 2;
+  /* Plugin script contents */
+  bytes rhai_content = 2;
 }
 
 message ArchiveLocation {
@@ -88,8 +88,8 @@ message NetConfigurationResponse {
 
 /* Babel cookbook service */
 service CookBookService {
-  /* Retrieve configuration for specific version and state */
-  rpc RetrieveConfiguration(ConfigIdentifier) returns (Configuration) {}
+  /* Retrieve plugin for specific version and state */
+  rpc RetrievePlugin(ConfigIdentifier) returns (Plugin) {}
   /* Retrieve image for specific version and state */
   rpc RetrieveImage(ConfigIdentifier) returns (ArchiveLocation) {}
   /* Retrieve kernel file for specific version and state */
@@ -100,11 +100,11 @@ service CookBookService {
   rpc NetConfigurations(ConfigIdentifier) returns (NetConfigurationResponse) {}
   /* List all available babel versions */
   rpc ListBabelVersions(BabelVersionsRequest) returns (BabelVersionsResponse) {}
-  /* Promote/Demote configuration/image to the desired state */
+  /* Promote/Demote plugin/image to the desired state */
   rpc AddStage(ConfigIdentifier) returns (google.protobuf.Empty) {}
-  /* Disable configuration in the desired state */
+  /* Disable plugin in the desired state */
   rpc RemoveStage(ConfigIdentifier) returns (google.protobuf.Empty) {}
-  /* Delete configuration/image from storage */
+  /* Delete plugin/image from storage */
   rpc Delete(ConfigIdentifier) returns (google.protobuf.Empty) {}
 }
 
@@ -116,7 +116,7 @@ service BundleService {
   rpc ListBundleVersions(BundleVersionsRequest) returns (BundleVersionsResponse) {}
   /* Promote/Demote bundle to the desired state */
   rpc AddStage(BundleIdentifier) returns (google.protobuf.Empty) {}
-  /* Disable configuration in the desired state */
+  /* Disable bundle in the desired state */
   rpc RemoveStage(BundleIdentifier) returns (google.protobuf.Empty) {}
   /* Delete bundle from storage */
   rpc Delete(BundleIdentifier) returns (google.protobuf.Empty) {}
