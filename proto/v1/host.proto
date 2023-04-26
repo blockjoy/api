@@ -108,7 +108,7 @@ message UpdateHostRequest {
   string id = 1;
   optional string name = 2;
   optional string version = 3;
-  optional string location = 4;
+  //optional string location = 4;
   optional string os = 5;
   optional string os_version = 6;
 }
