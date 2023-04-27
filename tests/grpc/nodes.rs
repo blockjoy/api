@@ -99,6 +99,7 @@ async fn responds_ok_with_valid_data_for_create() {
             ip: "127.0.0.2".to_string(),
             description: Some("wow so denied".to_string()),
         }],
+        self_update: None,
     };
     let node = tester.send_admin(Service::create, req).await.unwrap();
 
@@ -140,6 +141,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         }),
         allow_ips: vec![],
         deny_ips: vec![],
+        self_update: None,
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
