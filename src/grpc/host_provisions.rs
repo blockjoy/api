@@ -24,16 +24,16 @@ impl host_provision_service_server::HostProvisionService for super::GrpcImpl {
 
     async fn create(
         &self,
-        request: Request<api::HostServiceCreateRequest>,
-    ) -> super::Result<api::HostServiceCreateResponse> {
+        request: Request<api::HostProvisionServiceCreateRequest>,
+    ) -> super::Result<api::HostProvisionServiceCreateResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let request = request.into_inner();
         let new_provision = request.as_new()?;
 
         let host_provision = self.trx(|c| new_provision.create(c).scope_boxed()).await?;
 
-        let response = api::HostServiceCreateResponse {
-            host: Some(api::HostProvision::from_model(host_provision)?),
+        let response = api::HostProvisionServiceCreateResponse {
+            host_provision: Some(api::HostProvision::from_model(host_provision)?),
         };
 
         super::response_with_refresh_token(refresh_token, response)

@@ -1,4 +1,4 @@
-use super::api::{self, invitations_server};
+use super::api::{self, invitation_service_server};
 use super::helpers::try_get_token;
 use crate::auth::{FindableById, InvitationToken, JwtToken, UserAuthToken};
 use crate::mail;
@@ -8,11 +8,11 @@ use diesel_async::AsyncPgConnection;
 use tonic::{Request, Status};
 
 #[tonic::async_trait]
-impl invitations_server::Invitations for super::GrpcImpl {
+impl invitation_service_server::InvitationService for super::GrpcImpl {
     async fn create(
         &self,
-        request: Request<api::CreateInvitationRequest>,
-    ) -> super::Result<api::CreateInvitationResponse> {
+        request: Request<api::InvitationServiceCreateRequest>,
+    ) -> super::Result<api::InvitationServiceCreateResponse> {
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let refresh_token = super::get_refresh_token(&request);
         let creator_id = token.get_id();
@@ -47,7 +47,7 @@ impl invitations_server::Invitations for super::GrpcImpl {
                     }
                 }
 
-                let response = api::CreateInvitationResponse {};
+                let response = api::InvitationServiceCreateResponse {};
                 Ok(super::response_with_refresh_token(refresh_token, response)?)
             }
             .scope_boxed()
@@ -55,62 +55,50 @@ impl invitations_server::Invitations for super::GrpcImpl {
         .await
     }
 
-    /// TODO: Role should be checked by policies
-    async fn list_pending(
+    async fn list(
         &self,
-        request: Request<api::ListPendingInvitationRequest>,
-    ) -> super::Result<api::InvitationsResponse> {
+        request: Request<api::InvitationServiceListRequest>,
+    ) -> super::Result<api::InvitationServiceListResponse> {
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let refresh_token = super::get_refresh_token(&request);
         let user_id = token.get_id();
         let inner = request.into_inner();
-        let org_id = inner.org_id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
-        let org_user = models::Org::find_org_user(user_id, org_id, &mut conn).await?;
 
-        let is_allowed = match org_user.role {
-            models::OrgRole::Member => false,
-            models::OrgRole::Admin | models::OrgRole::Owner => true,
+        let (is_allowed, reason) = if let Some(org_id) = &inner.org_id {
+            let org_id = org_id.parse().map_err(crate::Error::from)?;
+            let is_member = models::Org::is_member(user_id, org_id, &mut conn).await?;
+            (is_member, "you are not a member")
+        } else if let Some(invitee_id) = &inner.invitee_id {
+            let invitee_id: uuid::Uuid = invitee_id.parse().map_err(crate::Error::from)?;
+            let is_invitee = invitee_id == user_id;
+            (is_invitee, "invitee_id is not current user")
+        } else {
+            (
+                false,
+                "request must contain either `org_id` or `invitee_id`",
+            )
         };
         if !is_allowed {
-            super::bail_unauthorized!(
-                "User {user_id} is not allowed to list pending invitations on org {org_id}"
-            );
+            super::bail_unauthorized!("Not allowed because {reason}");
         }
-        let invitations = models::Invitation::pending(org_id, &mut conn)
+
+        let filter = inner.as_filter()?;
+        let invitations = models::Invitation::filter(filter, &mut conn)
             .await?
             .into_iter()
             .map(api::Invitation::from_model)
             .collect::<crate::Result<_>>()?;
 
-        let response = api::InvitationsResponse { invitations };
-
-        super::response_with_refresh_token(refresh_token, response)
-    }
-
-    async fn list_received(
-        &self,
-        request: Request<api::ListReceivedInvitationRequest>,
-    ) -> super::Result<api::InvitationsResponse> {
-        let refresh_token = super::get_refresh_token(&request);
-        let request = request.into_inner();
-        let user_id = request.user_id.parse().map_err(crate::Error::from)?;
-        let mut conn = self.conn().await?;
-        let user = models::User::find_by_id(user_id, &mut conn).await?;
-        let invitations = models::Invitation::received(&user.email, &mut conn)
-            .await?
-            .into_iter()
-            .map(api::Invitation::from_model)
-            .collect::<crate::Result<_>>()?;
-        let response = api::InvitationsResponse { invitations };
+        let response = api::InvitationServiceListResponse { invitations };
 
         super::response_with_refresh_token(refresh_token, response)
     }
 
     async fn accept(
         &self,
-        request: Request<api::AcceptInvitationRequest>,
-    ) -> super::Result<api::AcceptInvitationResponse> {
+        request: Request<api::InvitationServiceAcceptRequest>,
+    ) -> super::Result<api::InvitationServiceAcceptResponse> {
         let refresh_token = super::get_refresh_token(&request);
         self.trx(|c| {
             async move {
@@ -139,7 +127,7 @@ impl invitations_server::Invitations for super::GrpcImpl {
                 let user = models::User::find_by_id(org_user.user_id, c).await?;
                 let msg = api::OrgMessage::updated(org, user, c).await?;
                 self.notifier.orgs_sender().send(&msg).await?;
-                let resp = api::AcceptInvitationResponse {};
+                let resp = api::InvitationServiceAcceptResponse {};
                 Ok(super::response_with_refresh_token(refresh_token, resp)?)
             }
             .scope_boxed()
@@ -149,8 +137,8 @@ impl invitations_server::Invitations for super::GrpcImpl {
 
     async fn decline(
         &self,
-        request: Request<api::DeclineInvitationRequest>,
-    ) -> super::Result<api::DeclineInvitationResponse> {
+        request: Request<api::InvitationServiceDeclineRequest>,
+    ) -> super::Result<api::InvitationServiceDeclineResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let auth_token = try_get_token::<_, UserAuthToken>(&request).ok().cloned();
         let inv_token = try_get_token::<_, InvitationToken>(&request).ok().cloned();
@@ -167,7 +155,7 @@ impl invitations_server::Invitations for super::GrpcImpl {
 
                 invitation.decline(c).await?;
 
-                let resp = api::DeclineInvitationResponse {};
+                let resp = api::InvitationServiceDeclineResponse {};
                 Ok(super::response_with_refresh_token(refresh_token, resp)?)
             }
             .scope_boxed()
@@ -177,8 +165,8 @@ impl invitations_server::Invitations for super::GrpcImpl {
 
     async fn revoke(
         &self,
-        request: Request<api::RevokeInvitationRequest>,
-    ) -> super::Result<api::RevokeInvitationResponse> {
+        request: Request<api::InvitationServiceRevokeRequest>,
+    ) -> super::Result<api::InvitationServiceRevokeResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?;
         let user_id = token.id;
@@ -206,7 +194,7 @@ impl invitations_server::Invitations for super::GrpcImpl {
         })
         .await?;
 
-        let resp = api::RevokeInvitationResponse {};
+        let resp = api::InvitationServiceRevokeResponse {};
         super::response_with_refresh_token(refresh_token, resp)
     }
 }
@@ -238,7 +226,7 @@ async fn authorized_invite(
     Ok(invite)
 }
 
-impl api::CreateInvitationRequest {
+impl api::InvitationServiceCreateRequest {
     pub async fn as_new(
         &self,
         created_by_user: uuid::Uuid,
@@ -284,5 +272,19 @@ impl api::Invitation {
         };
         invitation.set_status(status);
         Ok(invitation)
+    }
+}
+
+impl api::InvitationServiceListRequest {
+    fn as_filter(&self) -> crate::Result<models::InvitationFilter> {
+        let status = self.status();
+        let status = (status != api::InvitationStatus::Unspecified).then_some(status);
+        Ok(models::InvitationFilter {
+            org_id: self.org_id.as_ref().map(|id| id.parse()).transpose()?,
+            invitee_id: self.invitee_id.as_ref().map(|id| id.parse()).transpose()?,
+            created_by: self.created_by.as_ref().map(|id| id.parse()).transpose()?,
+            accepted: status.map(|s| s == api::InvitationStatus::Accepted),
+            declined: status.map(|s| s == api::InvitationStatus::Declined),
+        })
     }
 }

@@ -1,11 +1,11 @@
 mod setup;
 
 use blockvisor_api::cloudflare::CloudflareApi;
-use blockvisor_api::grpc::{api, api::nodes_client};
+use blockvisor_api::grpc::{api, api::node_service_client};
 use blockvisor_api::models;
 use tonic::transport;
 
-type Service = nodes_client::NodesClient<transport::Channel>;
+type Service = node_service_client::NodeServiceClient<transport::Channel>;
 
 #[tokio::test]
 async fn can_create_node_dns() -> anyhow::Result<()> {
@@ -28,10 +28,10 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
     let blockchain = tester.blockchain().await;
     let user = tester.admin_user().await;
     let org = tester.org_for(&user).await;
-    let req = api::CreateNodeRequest {
+    let req = api::NodeServiceCreateRequest {
         org_id: org.id.to_string(),
         blockchain_id: blockchain.id.to_string(),
-        node_type: api::node::NodeType::Validator.into(),
+        node_type: api::NodeType::Validator.into(),
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),

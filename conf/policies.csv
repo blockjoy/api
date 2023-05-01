@@ -1,64 +1,59 @@
-p, master_admin, /v1.Authentication/Confirm, POST
-p, master_admin, /v1.Authentication/Refresh, POST
-p, master_admin, /v1.Authentication/UpdatePassword, POST
-p, master_admin, /v1.Authentication/UpdateUIPassword, POST
-p, http_user,    /v1.Authentication/SwitchOrganization, POST
+p, master_admin, /blockjoy.v1.AuthService/Confirm, POST
+p, master_admin, /blockjoy.v1.AuthService/Refresh, POST
+p, master_admin, /blockjoy.v1.AuthService/UpdatePassword, POST
+p, master_admin, /blockjoy.v1.AuthService/UpdateUIPassword, POST
 
-p, master_admin, /v1.Blockchains/List, POST
-p, master_admin, /v1.Blockchains/Get, POST
+p, master_admin, /blockjoy.v1.BlockchainService/List, POST
+p, master_admin, /blockjoy.v1.BlockchainService/Get, POST
 
-p, master_admin, /v1.Commands/Create, POST
-p, master_admin, /v1.Commands/Get, POST
-p, members,      /v1.Commands/Get, POST
-p, master_admin, /v1.Commands/Update, POST
-p, members,      /v1.Commands/Update, POST
-p, master_admin, /v1.Commands/Pending, POST
-p, members,      /v1.Commands/Pending, POST
+p, master_admin, /blockjoy.v1.CommandService/Create, POST
+p, master_admin, /blockjoy.v1.CommandService/Get, POST
+p, members,      /blockjoy.v1.CommandService/Get, POST
+p, master_admin, /blockjoy.v1.CommandService/Update, POST
+p, members,      /blockjoy.v1.CommandService/Update, POST
+p, master_admin, /blockjoy.v1.CommandService/Pending, POST
+p, members,      /blockjoy.v1.CommandService/Pending, POST
 
-p, master_admin, /v1.Discovery/Services, POST
+p, master_admin, /blockjoy.v1.DiscoveryService/Services, POST
 
-p, master_admin, /v1.Hosts/Get, POST
-p, master_admin, /v1.Hosts/Create, POST
-p, master_admin, /v1.Hosts/Update, POST
-p, master_admin, /v1.Hosts/Delete, POST
+p, master_admin, /blockjoy.v1.HostService/Get, POST
+p, master_admin, /blockjoy.v1.HostService/Create, POST
+p, master_admin, /blockjoy.v1.HostService/Update, POST
+p, master_admin, /blockjoy.v1.HostService/Delete, POST
 
-p, master_admin, /v1.HostProvisions/Get, POST
-p, master_admin, /v1.HostProvisions/Create, POST
+p, master_admin, /blockjoy.v1.HostProvisionService/Get, POST
+p, master_admin, /blockjoy.v1.HostProvisionService/Create, POST
 
-p, master_admin, /v1.Invitations/Create, POST
-p, master_admin, /v1.Invitations/ListPending, POST
-p, master_admin, /v1.Invitations/ListReceived, POST
-p, master_admin, /v1.Invitations/Accept, POST
-p, members,      /v1.Invitations/Accept, POST
-p, master_admin, /v1.Invitations/Decline, POST
-p, members,      /v1.Invitations/Decline, POST
-p, master_admin, /v1.Invitations/Revoke, POST
+p, master_admin, /blockjoy.v1.InvitationService/Create, POST
+p, master_admin, /blockjoy.v1.InvitationService/List, POST
+p, master_admin, /blockjoy.v1.InvitationService/Accept, POST
+p, members,      /blockjoy.v1.InvitationService/Accept, POST
+p, master_admin, /blockjoy.v1.InvitationService/Decline, POST
+p, members,      /blockjoy.v1.InvitationService/Decline, POST
+p, master_admin, /blockjoy.v1.InvitationService/Revoke, POST
 
-p, master_admin, /v1.KeyFiles/Create, POST
-p, master_admin, /v1.KeyFiles/Get, POST
+p, master_admin, /blockjoy.v1.KeyFileService/Create, POST
+p, master_admin, /blockjoy.v1.KeyFileService/List, POST
 
-p, master_admin, /v1.Metrics/Node, POST
-p, master_admin, /v1.Metrics/Host, POST
+p, master_admin, /blockjoy.v1.MetricsService/Node, POST
+p, master_admin, /blockjoy.v1.MetricsService/Host, POST
 
-p, master_admin, /v1.Nodes/Get, POST
-p, master_admin, /v1.Nodes/List, POST
-p, master_admin, /v1.Nodes/Create, POST
-p, master_admin, /v1.Nodes/Update, POST
-p, master_admin, /v1.Nodes/Delete, POST
+p, master_admin, /blockjoy.v1.NodeService/Get, POST
+p, master_admin, /blockjoy.v1.NodeService/List, POST
+p, master_admin, /blockjoy.v1.NodeService/Create, POST
+p, master_admin, /blockjoy.v1.NodeService/Update, POST
+p, master_admin, /blockjoy.v1.NodeService/Delete, POST
 
-p, master_admin, /v1.Orgs/Create, POST
-p, master_admin, /v1.Orgs/Get, POST
-p, master_admin, /v1.Orgs/List, POST
-p, master_admin, /v1.Orgs/Update, POST
-p, master_admin, /v1.Orgs/Delete, POST
-p, master_admin, /v1.Orgs/Restore, POST
-p, master_admin, /v1.Orgs/Members, POST
-p, master_admin, /v1.Orgs/RemoveMember, POST
-p, master_admin, /v1.Orgs/Leave, POST
+p, master_admin, /blockjoy.v1.OrgService/Create, POST
+p, master_admin, /blockjoy.v1.OrgService/Get, POST
+p, master_admin, /blockjoy.v1.OrgService/List, POST
+p, master_admin, /blockjoy.v1.OrgService/Update, POST
+p, master_admin, /blockjoy.v1.OrgService/Delete, POST
+p, master_admin, /blockjoy.v1.OrgService/RemoveMember, POST
 
-p, master_admin, /v1.Users/Get, POST
-p, master_admin, /v1.Users/Update, POST
-p, master_admin, /v1.Users/Delete, POST
+p, master_admin, /blockjoy.v1.UserService/Get, POST
+p, master_admin, /blockjoy.v1.UserService/Update, POST
+p, master_admin, /blockjoy.v1.UserService/Delete, POST
 
 g, admin, master_admin
 g, user, master_admin

@@ -1,7 +1,7 @@
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
 
-type Service = api::metrics_client::MetricsClient<super::Channel>;
+type Service = api::metrics_service_client::MetricsServiceClient<super::Channel>;
 
 #[tokio::test]
 async fn responds_ok_for_write_node() {
@@ -20,7 +20,7 @@ async fn responds_ok_for_write_node() {
         sync_status: Some(2),
     };
     metrics.insert(node.id.to_string(), metric);
-    let req = api::NodeMetricsRequest { metrics };
+    let req = api::MetricsServiceNodeRequest { metrics };
     tester
         .send_with(Service::node, req, auth, refresh)
         .await
@@ -44,7 +44,7 @@ async fn responds_ok_for_write_node_empty() {
     let auth = tester.host_token(&host);
     let refresh = tester.refresh_for(&auth);
     let metrics = std::collections::HashMap::new();
-    let req = api::NodeMetricsRequest { metrics };
+    let req = api::MetricsServiceNodeRequest { metrics };
     tester
         .send_with(Service::node, req, auth, refresh)
         .await
@@ -70,7 +70,7 @@ async fn responds_ok_for_write_host() {
         uptime: Some(687678678),
     };
     metrics.insert(host.id.to_string(), metric);
-    let req = api::HostMetricsRequest { metrics };
+    let req = api::MetricsServiceHostRequest { metrics };
     tester
         .send_with(Service::host, req, auth, refresh)
         .await
@@ -94,7 +94,7 @@ async fn responds_ok_for_write_host_empty() {
     let auth = tester.host_token(&host);
     let refresh = tester.refresh_for(&auth);
     let metrics = std::collections::HashMap::new();
-    let req = api::HostMetricsRequest { metrics };
+    let req = api::MetricsServiceHostRequest { metrics };
     tester
         .send_with(Service::host, req, auth, refresh)
         .await

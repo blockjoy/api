@@ -2,7 +2,7 @@ use blockvisor_api::auth::{self, FindableById};
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
 
-type Service = api::invitations_client::InvitationsClient<super::Channel>;
+type Service = api::invitation_service_client::InvitationServiceClient<super::Channel>;
 
 async fn create_invitation(tester: &super::Tester) -> anyhow::Result<models::Invitation> {
     let user = tester.admin_user().await;
@@ -23,7 +23,7 @@ async fn create_invitation(tester: &super::Tester) -> anyhow::Result<models::Inv
 async fn responds_ok_for_create() {
     let tester = super::Tester::new().await;
     let org_id = tester.org().await.id;
-    let req = api::CreateInvitationRequest {
+    let req = api::InvitationServiceCreateRequest {
         invitee_email: "hugo@boss.com".to_string(),
         org_id: org_id.to_string(),
     };
@@ -45,11 +45,13 @@ async fn responds_ok_for_list_pending() {
     let invitation = create_invitation(&tester).await.unwrap();
     let user = tester.admin_user().await;
     let org = tester.org_for(&user).await;
-    let req = api::ListPendingInvitationRequest {
-        org_id: org.id.to_string(),
+    let req = api::InvitationServiceListRequest {
+        org_id: Some(org.id.to_string()),
+        status: Some(api::InvitationStatus::Open.into()),
+        ..Default::default()
     };
 
-    tester.send_admin(Service::list_pending, req).await.unwrap();
+    tester.send_admin(Service::list, req).await.unwrap();
 
     let mut conn = tester.conn().await;
     let invitations = models::Invitation::received(&invitation.invitee_email, &mut conn)
@@ -64,14 +66,12 @@ async fn responds_ok_for_list_received() {
     let tester = super::Tester::new().await;
     let invitation = create_invitation(&tester).await.unwrap();
     let user = tester.admin_user().await;
-    let req = api::ListReceivedInvitationRequest {
-        user_id: user.id.to_string(),
+    let req = api::InvitationServiceListRequest {
+        invitee_id: Some(user.id.to_string()),
+        ..Default::default()
     };
 
-    tester
-        .send_admin(Service::list_received, req)
-        .await
-        .unwrap();
+    tester.send_admin(Service::list, req).await.unwrap();
     let mut conn = tester.conn().await;
     let invitations = models::Invitation::received(&invitation.invitee_email, &mut conn)
         .await
@@ -85,7 +85,7 @@ async fn responds_ok_for_accept() {
     let tester = super::Tester::new().await;
     let invitation = create_invitation(&tester).await.unwrap();
     let token = auth::InvitationToken::create_for_invitation(&invitation).unwrap();
-    let req = api::AcceptInvitationRequest {
+    let req = api::InvitationServiceAcceptRequest {
         invitation_id: invitation.id.to_string(),
     };
 
@@ -101,7 +101,7 @@ async fn responds_ok_for_decline() {
     let invitation = create_invitation(&tester).await.unwrap();
     let token = auth::InvitationToken::create_for_invitation(&invitation).unwrap();
 
-    let req: api::DeclineInvitationRequest = api::DeclineInvitationRequest {
+    let req = api::InvitationServiceDeclineRequest {
         invitation_id: invitation.id.to_string(),
     };
 
@@ -122,7 +122,7 @@ async fn responds_ok_for_revoke() {
         .unwrap();
     // If the user is already added, thats okay
     let _ = models::Org::add_member(user.id, org.id, models::OrgRole::Admin, &mut conn).await;
-    let req = api::RevokeInvitationRequest {
+    let req = api::InvitationServiceRevokeRequest {
         invitation_id: invitation.id.to_string(),
     };
 

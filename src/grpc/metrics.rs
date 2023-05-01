@@ -3,16 +3,19 @@
 //! does not store a history of metrics. Rather, it overwrites the metrics that are know for each
 //! time new ones are provided. This makes sure that the database doesn't grow overly large.
 
-use super::api::{self, metrics_server};
+use super::api::{self, metrics_service_server};
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 
 #[tonic::async_trait]
-impl metrics_server::Metrics for super::GrpcImpl {
+impl metrics_service_server::MetricsService for super::GrpcImpl {
     /// Update the metrics for the nodes provided in this request. Since this endpoint is called
     /// often (e.g. if we have 10,000 nodes, 170 calls per second) we take care to perform a single
     /// query for this whole list of metrics that comes in.
-    async fn node(&self, request: tonic::Request<api::NodeMetricsRequest>) -> super::Result<()> {
+    async fn node(
+        &self,
+        request: tonic::Request<api::MetricsServiceNodeRequest>,
+    ) -> super::Result<api::MetricsServiceNodeResponse> {
         let request = request.into_inner();
         let updates = request
             .metrics
@@ -21,10 +24,14 @@ impl metrics_server::Metrics for super::GrpcImpl {
             .collect::<crate::Result<_>>()?;
         self.trx(|c| models::UpdateNodeMetrics::update_metrics(updates, c).scope_boxed())
             .await?;
-        Ok(tonic::Response::new(()))
+        let resp = api::MetricsServiceNodeResponse {};
+        Ok(tonic::Response::new(resp))
     }
 
-    async fn host(&self, request: tonic::Request<api::HostMetricsRequest>) -> super::Result<()> {
+    async fn host(
+        &self,
+        request: tonic::Request<api::MetricsServiceHostRequest>,
+    ) -> super::Result<api::MetricsServiceHostResponse> {
         let request = request.into_inner();
         let updates = request
             .metrics
@@ -33,7 +40,8 @@ impl metrics_server::Metrics for super::GrpcImpl {
             .collect::<crate::Result<_>>()?;
         self.trx(|c| models::UpdateHostMetrics::update_metrics(updates, c).scope_boxed())
             .await?;
-        Ok(tonic::Response::new(()))
+        let resp = api::MetricsServiceHostResponse {};
+        Ok(tonic::Response::new(resp))
     }
 }
 

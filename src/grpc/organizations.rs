@@ -1,4 +1,4 @@
-use super::api::{self, orgs_server};
+use super::api::{self, org_service_server};
 use super::helpers;
 use crate::auth::{FindableById, UserAuthToken};
 use crate::models;
@@ -8,25 +8,25 @@ use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
-impl orgs_server::Orgs for super::GrpcImpl {
+impl org_service_server::OrgService for super::GrpcImpl {
     async fn get(
         &self,
-        request: Request<api::GetOrgRequest>,
-    ) -> super::Result<api::GetOrgResponse> {
+        request: Request<api::OrgServiceGetRequest>,
+    ) -> super::Result<api::OrgServiceGetResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let request = request.into_inner();
         let mut conn = self.db.conn().await?;
-        let org_id = request.org_id.parse().map_err(crate::Error::from)?;
+        let org_id = request.id.parse().map_err(crate::Error::from)?;
         let org = models::Org::find_by_id(org_id, &mut conn).await?;
         let org = api::Org::from_model(org, &mut conn).await?;
-        let resp = api::GetOrgResponse { org: Some(org) };
+        let resp = api::OrgServiceGetResponse { org: Some(org) };
         super::response_with_refresh_token(refresh_token, resp)
     }
 
     async fn list(
         &self,
-        request: Request<api::ListOrgsRequest>,
-    ) -> super::Result<api::ListOrgsResponse> {
+        request: Request<api::OrgServiceListRequest>,
+    ) -> super::Result<api::OrgServiceListResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let request = request.into_inner();
 
@@ -38,14 +38,14 @@ impl orgs_server::Orgs for super::GrpcImpl {
             .map_err(crate::Error::from)?;
         let orgs = models::Org::filter(member_id, &mut conn).await?;
         let orgs = api::Org::from_models(orgs, &mut conn).await?;
-        let resp = api::ListOrgsResponse { orgs };
+        let resp = api::OrgServiceListResponse { orgs };
         super::response_with_refresh_token(refresh_token, resp)
     }
 
     async fn create(
         &self,
-        request: Request<api::CreateOrgRequest>,
-    ) -> super::Result<api::CreateOrgResponse> {
+        request: Request<api::OrgServiceCreateRequest>,
+    ) -> super::Result<api::OrgServiceCreateResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let user_id = helpers::try_get_token::<_, UserAuthToken>(&request)?.id;
         let inner = request.into_inner();
@@ -60,7 +60,7 @@ impl orgs_server::Orgs for super::GrpcImpl {
                 let msg = api::OrgMessage::created(org.clone(), user, c).await?;
                 let org = api::Org::from_model(org, c).await?;
                 self.notifier.orgs_sender().send(&msg).await?;
-                let resp = api::CreateOrgResponse { org: Some(org) };
+                let resp = api::OrgServiceCreateResponse { org: Some(org) };
                 Ok(super::response_with_refresh_token(refresh_token, resp)?)
             }
             .scope_boxed()
@@ -70,8 +70,8 @@ impl orgs_server::Orgs for super::GrpcImpl {
 
     async fn update(
         &self,
-        request: Request<api::UpdateOrgRequest>,
-    ) -> super::Result<api::UpdateOrgResponse> {
+        request: Request<api::OrgServiceUpdateRequest>,
+    ) -> super::Result<api::OrgServiceUpdateResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let token = helpers::try_get_token::<_, UserAuthToken>(&request)?;
         let user_id = token.id;
@@ -88,7 +88,7 @@ impl orgs_server::Orgs for super::GrpcImpl {
                 let user = models::User::find_by_id(user_id, c).await?;
                 let msg = api::OrgMessage::updated(org, user, c).await?;
                 self.notifier.orgs_sender().send(&msg).await?;
-                let resp = api::UpdateOrgResponse {};
+                let resp = api::OrgServiceUpdateResponse {};
                 Ok(super::response_with_refresh_token(refresh_token, resp)?)
             }
             .scope_boxed()
@@ -98,8 +98,8 @@ impl orgs_server::Orgs for super::GrpcImpl {
 
     async fn delete(
         &self,
-        request: Request<api::DeleteOrgRequest>,
-    ) -> super::Result<api::DeleteOrgResponse> {
+        request: Request<api::OrgServiceDeleteRequest>,
+    ) -> super::Result<api::OrgServiceDeleteResponse> {
         use models::OrgRole::*;
 
         let refresh_token = super::get_refresh_token(&request);
@@ -130,7 +130,7 @@ impl orgs_server::Orgs for super::GrpcImpl {
                 let user = models::User::find_by_id(user_id, c).await?;
                 let msg = api::OrgMessage::deleted(org, user);
                 self.notifier.orgs_sender().send(&msg).await?;
-                let resp = api::DeleteOrgResponse {};
+                let resp = api::OrgServiceDeleteResponse {};
                 Ok(super::response_with_refresh_token(refresh_token, resp)?)
             }
             .scope_boxed()
@@ -138,58 +138,10 @@ impl orgs_server::Orgs for super::GrpcImpl {
         .await
     }
 
-    async fn restore(
-        &self,
-        request: Request<api::RestoreOrgRequest>,
-    ) -> super::Result<api::RestoreOrgResponse> {
-        use models::OrgRole::*;
-
-        let token = helpers::try_get_token::<_, UserAuthToken>(&request)?;
-        let user_id = token.id;
-        let inner = request.into_inner();
-        let org_id = inner.id.parse().map_err(crate::Error::from)?;
-        self.trx(|c| {
-            async move {
-                let member = models::Org::find_org_user(user_id, org_id, c).await?;
-                let is_allowed = match member.role {
-                    Member => false,
-                    // Only owner or admins may restore orgs
-                    Owner | Admin => true,
-                };
-                if !is_allowed {
-                    super::bail_unauthorized!(
-                        "User {user_id} has no sufficient privileges to restore org {org_id}"
-                    );
-                }
-                let org = models::Org::restore(org_id, c).await?;
-                let resp = api::RestoreOrgResponse {
-                    org: Some(api::Org::from_model(org, c).await?),
-                };
-                Ok(Response::new(resp))
-            }
-            .scope_boxed()
-        })
-        .await
-    }
-
-    async fn members(
-        &self,
-        request: Request<api::OrgMembersRequest>,
-    ) -> super::Result<api::OrgMembersResponse> {
-        let refresh_token = super::get_refresh_token(&request);
-        let request = request.into_inner();
-        let org_id = request.id.parse().map_err(crate::Error::from)?;
-        let mut conn = self.conn().await?;
-        let users = models::Org::find_all_member_users(org_id, &mut conn).await?;
-        let users: crate::Result<_> = users.into_iter().map(api::User::from_model).collect();
-        let response = api::OrgMembersResponse { users: users? };
-        super::response_with_refresh_token(refresh_token, response)
-    }
-
     async fn remove_member(
         &self,
-        request: Request<api::RemoveMemberRequest>,
-    ) -> Result<Response<()>, Status> {
+        request: Request<api::OrgServiceRemoveMemberRequest>,
+    ) -> Result<Response<api::OrgServiceRemoveMemberResponse>, Status> {
         use models::OrgRole::*;
 
         let refresh_token = super::get_refresh_token(&request);
@@ -201,7 +153,8 @@ impl orgs_server::Orgs for super::GrpcImpl {
                 let org_id = inner.org_id.parse()?;
                 let member = models::Org::find_org_user(caller_id, org_id, c).await?;
                 let is_allowed = match member.role {
-                    Member => false,
+                    // Members can only remove themselves
+                    Member => caller_id == user_id,
                     Owner | Admin => true,
                 };
                 if !is_allowed {
@@ -220,27 +173,8 @@ impl orgs_server::Orgs for super::GrpcImpl {
                 let user = models::User::find_by_id(caller_id, c).await?;
                 let msg = api::OrgMessage::updated(org, user, c).await?;
                 self.notifier.orgs_sender().send(&msg).await?;
-                Ok(super::response_with_refresh_token(refresh_token, ())?)
-            }
-            .scope_boxed()
-        })
-        .await
-    }
-
-    async fn leave(&self, request: Request<api::LeaveOrgRequest>) -> Result<Response<()>, Status> {
-        let refresh_token = super::get_refresh_token(&request);
-        let token = helpers::try_get_token::<_, UserAuthToken>(&request)?;
-        let user_id = token.id;
-        let inner = request.into_inner();
-        let org_id = inner.org_id.parse().map_err(crate::Error::from)?;
-        self.trx(|c| {
-            async move {
-                models::Org::remove_org_user(user_id, org_id, c).await?;
-                let org = models::Org::find_by_id(org_id, c).await?;
-                let user = models::User::find_by_id(user_id, c).await?;
-                let msg = api::OrgMessage::updated(org, user, c).await?;
-                self.notifier.orgs_sender().send(&msg).await?;
-                Ok(super::response_with_refresh_token(refresh_token, ())?)
+                let resp = api::OrgServiceRemoveMemberResponse {};
+                Ok(super::response_with_refresh_token(refresh_token, resp)?)
             }
             .scope_boxed()
         })
@@ -290,11 +224,11 @@ impl api::Org {
                             let mut org = api::OrgUser {
                                 user_id: ou.user_id.to_string(),
                                 org_id: ou.org_id.to_string(),
-                                role: ou.role as i32,
+                                role: 0, // We use the setter to set this field for type-safety
                                 name: user.name(),
                                 email: user.email.clone(),
                             };
-                            org.set_role(api::org_user::OrgRole::from_model(ou.role));
+                            org.set_role(api::OrgRole::from_model(ou.role));
                             org
                         })
                         .collect(),
@@ -311,7 +245,7 @@ impl api::Org {
     }
 }
 
-impl api::org_user::OrgRole {
+impl api::OrgRole {
     fn from_model(model: models::OrgRole) -> Self {
         match model {
             models::OrgRole::Admin => Self::Admin,

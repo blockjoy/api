@@ -62,6 +62,45 @@ impl Invitation {
         Ok(pending)
     }
 
+    pub async fn filter(
+        filter: InvitationFilter,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<Vec<Self>> {
+        use super::schema::users;
+
+        let mut query = invitations::table
+            .left_join(users::table.on(users::email.eq(invitations::invitee_email)))
+            .into_boxed();
+
+        if let Some(org_id) = filter.org_id {
+            query = query.filter(invitations::created_for_org.eq(org_id));
+        }
+        if let Some(invitee_id) = filter.invitee_id {
+            query = query.filter(users::id.eq(invitee_id));
+        }
+        if let Some(created_by) = filter.created_by {
+            query = query.filter(invitations::created_by_user.eq(created_by));
+        }
+        if let Some(true) = filter.accepted {
+            query = query.filter(invitations::accepted_at.is_not_null());
+        }
+        if let Some(false) = filter.accepted {
+            query = query.filter(invitations::accepted_at.is_null());
+        }
+        if let Some(true) = filter.declined {
+            query = query.filter(invitations::declined_at.is_not_null());
+        }
+        if let Some(false) = filter.declined {
+            query = query.filter(invitations::declined_at.is_null());
+        }
+
+        let invites = query
+            .select(invitations::all_columns)
+            .get_results(conn)
+            .await?;
+        Ok(invites)
+    }
+
     pub async fn accept(self, conn: &mut AsyncPgConnection) -> Result<Self> {
         let invitation = diesel::update(invitations::table.find(self.id))
             .set(invitations::accepted_at.eq(chrono::Utc::now()))
@@ -116,4 +155,12 @@ impl<'a> NewInvitation<'a> {
             .await?;
         Ok(invitation)
     }
+}
+
+pub struct InvitationFilter {
+    pub org_id: Option<uuid::Uuid>,
+    pub invitee_id: Option<uuid::Uuid>,
+    pub created_by: Option<uuid::Uuid>,
+    pub accepted: Option<bool>,
+    pub declined: Option<bool>,
 }

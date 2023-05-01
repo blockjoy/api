@@ -128,9 +128,9 @@ message HostServiceProvisionRequest {
 }
 
 enum HostConnectionStatus {
-  CONNECTION_STATUS_UNSPECIFIED = 0;
-  CONNECTION_STATUS_ONLINE = 1;
-  CONNECTION_STATUS_OFFLINE = 2;
+  HOST_CONNECTION_STATUS_UNSPECIFIED = 0;
+  HOST_CONNECTION_STATUS_ONLINE = 1;
+  HOST_CONNECTION_STATUS_OFFLINE = 2;
 }
 
 message HostServiceProvisionResponse {

@@ -1,88 +1,88 @@
-use blockvisor_api::grpc::api::authentication_client;
-use blockvisor_api::grpc::api::blockchains_client;
-use blockvisor_api::grpc::api::commands_client;
-use blockvisor_api::grpc::api::discovery_client;
-use blockvisor_api::grpc::api::host_provisions_client;
-use blockvisor_api::grpc::api::hosts_client;
-use blockvisor_api::grpc::api::invitations_client;
-use blockvisor_api::grpc::api::key_files_client;
-use blockvisor_api::grpc::api::metrics_client;
-use blockvisor_api::grpc::api::nodes_client;
-use blockvisor_api::grpc::api::orgs_client;
-use blockvisor_api::grpc::api::users_client;
+use blockvisor_api::grpc::api::auth_service_client;
+use blockvisor_api::grpc::api::blockchain_service_client;
+use blockvisor_api::grpc::api::command_service_client;
+use blockvisor_api::grpc::api::discovery_service_client;
+use blockvisor_api::grpc::api::host_provision_service_client;
+use blockvisor_api::grpc::api::host_service_client;
+use blockvisor_api::grpc::api::invitation_service_client;
+use blockvisor_api::grpc::api::key_file_service_client;
+use blockvisor_api::grpc::api::metrics_service_client;
+use blockvisor_api::grpc::api::node_service_client;
+use blockvisor_api::grpc::api::org_service_client;
+use blockvisor_api::grpc::api::user_service_client;
 use tonic::transport::Channel;
 
 pub trait GrpcClient<T> {
     fn create(channel: Channel) -> Self;
 }
 
-impl GrpcClient<Channel> for authentication_client::AuthenticationClient<Channel> {
+impl GrpcClient<Channel> for auth_service_client::AuthServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for blockchains_client::BlockchainsClient<Channel> {
+impl GrpcClient<Channel> for blockchain_service_client::BlockchainServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for commands_client::CommandsClient<Channel> {
+impl GrpcClient<Channel> for command_service_client::CommandServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for discovery_client::DiscoveryClient<Channel> {
+impl GrpcClient<Channel> for discovery_service_client::DiscoveryServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for host_provisions_client::HostProvisionsClient<Channel> {
+impl GrpcClient<Channel> for host_provision_service_client::HostProvisionServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for hosts_client::HostsClient<Channel> {
+impl GrpcClient<Channel> for host_service_client::HostServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for invitations_client::InvitationsClient<Channel> {
+impl GrpcClient<Channel> for invitation_service_client::InvitationServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for key_files_client::KeyFilesClient<Channel> {
+impl GrpcClient<Channel> for key_file_service_client::KeyFileServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for metrics_client::MetricsClient<Channel> {
+impl GrpcClient<Channel> for metrics_service_client::MetricsServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for nodes_client::NodesClient<Channel> {
+impl GrpcClient<Channel> for node_service_client::NodeServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for orgs_client::OrgsClient<Channel> {
+impl GrpcClient<Channel> for org_service_client::OrgServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for users_client::UsersClient<Channel> {
+impl GrpcClient<Channel> for user_service_client::UserServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }

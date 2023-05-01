@@ -67,7 +67,7 @@ where
             let db = request
                 .extensions()
                 .get::<models::DbPool>()
-                .unwrap_or_else(|| panic!("DB extension missing"));
+                .expect("DB extension missing");
             let token = AnyToken::from_request(&request)
                 .map_err(|_| unauthenticated_response("Missing valid token"))?;
             let cant_parse =

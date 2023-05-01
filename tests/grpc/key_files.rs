@@ -1,7 +1,7 @@
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
 
-type Service = api::key_files_client::KeyFilesClient<super::Channel>;
+type Service = api::key_file_service_client::KeyFileServiceClient<super::Channel>;
 
 #[tokio::test]
 async fn responds_ok_with_invalid_node_id() {
@@ -9,11 +9,11 @@ async fn responds_ok_with_invalid_node_id() {
     let host = tester.host().await;
     let auth = tester.host_token(&host);
     let refresh = tester.refresh_for(&auth);
-    let req = api::GetKeyFilesRequest {
+    let req = api::KeyFileServiceListRequest {
         node_id: uuid::Uuid::new_v4().to_string(),
     };
     tester
-        .send_with(Service::get, req, auth, refresh)
+        .send_with(Service::list, req, auth, refresh)
         .await
         .unwrap();
 }
@@ -33,11 +33,11 @@ async fn responds_ok_with_valid_node_id() {
         node_id: node.id,
     };
     new_node_key_file.create(&mut conn).await.unwrap();
-    let req = api::GetKeyFilesRequest {
+    let req = api::KeyFileServiceListRequest {
         node_id: node.id.to_string(),
     };
     tester
-        .send_with(Service::get, req, auth, refresh)
+        .send_with(Service::list, req, auth, refresh)
         .await
         .unwrap();
 }
@@ -52,7 +52,7 @@ async fn responds_not_found_with_invalid_node_id_for_save() {
         name: "new keyfile".to_string(),
         content: "üöäß@niesfiefasd".to_string().into_bytes(),
     };
-    let req = api::CreateKeyFilesRequest {
+    let req = api::KeyFileServiceCreateRequest {
         node_id: uuid::Uuid::new_v4().to_string(),
         key_files: vec![key_file],
     };
@@ -74,7 +74,7 @@ async fn responds_ok_with_valid_node_id_for_save() {
         name: "new keyfile".to_string(),
         content: "üöäß@niesfiefasd".to_string().into_bytes(),
     };
-    let req = api::CreateKeyFilesRequest {
+    let req = api::KeyFileServiceCreateRequest {
         node_id: node.id.to_string(),
         key_files: vec![key_file],
     };
@@ -95,7 +95,7 @@ async fn responds_error_with_same_node_id_name_twice_for_save() {
         name: "new keyfile".to_string(),
         content: "üöäß@niesfiefasd".to_string().into_bytes(),
     };
-    let req = api::CreateKeyFilesRequest {
+    let req = api::KeyFileServiceCreateRequest {
         node_id: node.id.to_string(),
         key_files: vec![key_file.clone()],
     };
@@ -105,7 +105,7 @@ async fn responds_error_with_same_node_id_name_twice_for_save() {
         .await
         .unwrap();
 
-    let req = api::CreateKeyFilesRequest {
+    let req = api::KeyFileServiceCreateRequest {
         node_id: node.id.to_string(),
         key_files: vec![key_file],
     };

@@ -18,7 +18,7 @@ pub struct HardwareRequirements {
 pub struct BlockchainNetwork {
     pub(crate) name: String,
     pub(crate) url: String,
-    pub(crate) network_type: api::blockchain_network::NetworkType,
+    pub(crate) network_type: api::BlockchainNetworkType,
 }
 
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -128,7 +128,7 @@ impl TryFrom<api::BlockchainNetwork> for BlockchainNetwork {
         Ok(Self {
             name: value.name,
             url: value.url,
-            network_type: api::blockchain_network::NetworkType::from_i32(value.net_type)
+            network_type: api::BlockchainNetworkType::from_i32(value.net_type)
                 .ok_or_else(|| anyhow!("Unknown network type: {}", value.net_type))?,
         })
     }
@@ -141,7 +141,7 @@ impl TryFrom<cookbook_grpc::NetworkConfiguration> for BlockchainNetwork {
         Ok(Self {
             name: value.name.clone(),
             url: value.url.clone(),
-            network_type: api::blockchain_network::NetworkType::from_i32(value.net_type)
+            network_type: api::BlockchainNetworkType::from_i32(value.net_type)
                 .ok_or_else(|| anyhow!("Unknown network type: {}", value.net_type))?,
         })
     }

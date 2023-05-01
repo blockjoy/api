@@ -2,7 +2,7 @@ use blockvisor_api::auth::FindableById;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
 
-type Service = api::nodes_client::NodesClient<super::Channel>;
+type Service = api::node_service_client::NodeServiceClient<super::Channel>;
 
 #[tokio::test]
 async fn responds_ok_for_update() {
@@ -12,7 +12,7 @@ async fn responds_ok_for_update() {
     let refresh = tester.refresh_for(&token);
     let node = tester.node().await;
     let node_id = node.id.to_string();
-    let req = api::UpdateNodeRequest {
+    let req = api::NodeServiceUpdateRequest {
         id: node_id.clone(),
         self_update: Some(true),
         container_status: None,
@@ -53,7 +53,7 @@ async fn responds_ok_for_update() {
 #[tokio::test]
 async fn responds_not_found_without_any_for_get() {
     let tester = super::Tester::new().await;
-    let req = api::GetNodeRequest {
+    let req = api::NodeServiceGetRequest {
         id: uuid::Uuid::new_v4().to_string(),
     };
     let status = tester.send_admin(Service::get, req).await.unwrap_err();
@@ -64,7 +64,7 @@ async fn responds_not_found_without_any_for_get() {
 async fn responds_ok_with_id_for_get() {
     let tester = super::Tester::new().await;
     let node = tester.node().await;
-    let req = api::GetNodeRequest {
+    let req = api::NodeServiceGetRequest {
         id: node.id.to_string(),
     };
     tester.send_admin(Service::get, req).await.unwrap();
@@ -76,10 +76,10 @@ async fn responds_ok_with_valid_data_for_create() {
     let blockchain = tester.blockchain().await;
     let user = tester.admin_user().await;
     let org = tester.org_for(&user).await;
-    let req = api::CreateNodeRequest {
+    let req = api::NodeServiceCreateRequest {
         org_id: org.id.to_string(),
         blockchain_id: blockchain.id.to_string(),
-        node_type: api::node::NodeType::Validator.into(),
+        node_type: api::NodeType::Validator.into(),
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
@@ -103,7 +103,7 @@ async fn responds_ok_with_valid_data_for_create() {
     let node = tester.send_admin(Service::create, req).await.unwrap();
 
     // assert that it really exists
-    let req = api::GetNodeRequest {
+    let req = api::NodeServiceGetRequest {
         id: node.node.unwrap().id,
     };
     let resp = tester.send_admin(Service::get, req).await.unwrap();
@@ -122,11 +122,11 @@ async fn responds_ok_with_valid_data_for_create() {
 async fn responds_invalid_argument_with_invalid_data_for_create() {
     let tester = super::Tester::new().await;
     let blockchain = tester.blockchain().await;
-    let req = api::CreateNodeRequest {
+    let req = api::NodeServiceCreateRequest {
         // This is an invalid uuid so the api call should fail.
         org_id: "wowowowowow".to_string(),
         blockchain_id: blockchain.id.to_string(),
-        node_type: api::node::NodeType::Api.into(),
+        node_type: api::NodeType::Api.into(),
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
@@ -149,7 +149,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
 async fn responds_ok_with_valid_data_for_update() {
     let tester = super::Tester::new().await;
     let node = tester.node().await;
-    let req = api::UpdateNodeRequest {
+    let req = api::NodeServiceUpdateRequest {
         id: node.id.to_string(),
         version: Some("10".to_string()),
         self_update: Some(false),
@@ -164,7 +164,7 @@ async fn responds_ok_with_valid_data_for_update() {
 #[tokio::test]
 async fn responds_internal_with_invalid_data_for_update() {
     let tester = super::Tester::new().await;
-    let req = api::UpdateNodeRequest {
+    let req = api::NodeServiceUpdateRequest {
         // This is an invalid uuid so the api call should fail.
         id: "wowowow".to_string(),
         version: Some("stri-bu".to_string()),
@@ -177,7 +177,7 @@ async fn responds_internal_with_invalid_data_for_update() {
 #[tokio::test]
 async fn responds_not_found_with_invalid_id_for_update() {
     let tester = super::Tester::new().await;
-    let req = api::UpdateNodeRequest {
+    let req = api::NodeServiceUpdateRequest {
         // This uuid will not exist, so the api call should fail.
         id: uuid::Uuid::new_v4().to_string(),
         version: Some("stri-bu".to_string()),
@@ -191,7 +191,7 @@ async fn responds_not_found_with_invalid_id_for_update() {
 async fn responds_ok_with_valid_data_for_delete() {
     let tester = super::Tester::new().await;
     let node = tester.node().await;
-    let req = api::DeleteNodeRequest {
+    let req = api::NodeServiceDeleteRequest {
         id: node.id.to_string(),
     };
     tester.send_admin(Service::delete, req).await.unwrap();

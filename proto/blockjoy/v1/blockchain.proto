@@ -68,7 +68,7 @@ message SupportedNodeProperty {
   bool required = 5;
 }
 
-enum NetworkType {
+enum BlockchainNetworkType {
   NETWORK_TYPE_UNSPECIFIED = 0;
   NETWORK_TYPE_DEV = 1;
   NETWORK_TYPE_TEST = 2;
@@ -78,5 +78,5 @@ enum NetworkType {
 message BlockchainNetwork {
   string name = 1;
   string url = 2;
-  NetworkType net_type = 3;
+  BlockchainNetworkType net_type = 3;
 }

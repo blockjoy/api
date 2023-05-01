@@ -1,4 +1,5 @@
 use crate::auth::FindableById;
+use crate::grpc::api;
 use crate::grpc::notification::Notifier;
 use crate::models::schema::commands;
 use crate::Result;

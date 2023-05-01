@@ -1,4 +1,4 @@
-use super::api::{self, key_files_server};
+use super::api::{self, key_file_service_server};
 use crate::auth::FindableById;
 use crate::models;
 use anyhow::Context;
@@ -6,11 +6,11 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response};
 
 #[tonic::async_trait]
-impl key_files_server::KeyFiles for super::GrpcImpl {
+impl key_file_service_server::KeyFileService for super::GrpcImpl {
     async fn create(
         &self,
-        request: Request<api::CreateKeyFilesRequest>,
-    ) -> super::Result<api::CreateKeyFilesResponse> {
+        request: Request<api::KeyFileServiceCreateRequest>,
+    ) -> super::Result<api::KeyFileServiceCreateResponse> {
         let request = request.into_inner();
 
         self.trx(|c| {
@@ -35,14 +35,14 @@ impl key_files_server::KeyFiles for super::GrpcImpl {
             .scope_boxed()
         })
         .await?;
-        let response = api::CreateKeyFilesResponse {};
+        let response = api::KeyFileServiceCreateResponse {};
         Ok(Response::new(response))
     }
 
-    async fn get(
+    async fn list(
         &self,
-        request: Request<api::GetKeyFilesRequest>,
-    ) -> super::Result<api::GetKeyFilesResponse> {
+        request: Request<api::KeyFileServiceListRequest>,
+    ) -> super::Result<api::KeyFileServiceListResponse> {
         let inner = request.into_inner();
         let node_id = inner.node_id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
@@ -54,7 +54,7 @@ impl key_files_server::KeyFiles for super::GrpcImpl {
         }
 
         let key_files = api::Keyfile::from_models(key_files);
-        let response = api::GetKeyFilesResponse { key_files };
+        let response = api::KeyFileServiceListResponse { key_files };
 
         Ok(Response::new(response))
     }

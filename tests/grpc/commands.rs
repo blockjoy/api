@@ -2,7 +2,7 @@ use blockvisor_api::auth::FindableById;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
 
-type Service = api::commands_client::CommandsClient<super::Channel>;
+type Service = api::command_service_client::CommandServiceClient<super::Channel>;
 
 async fn create_command(
     tester: &super::Tester,
@@ -23,7 +23,7 @@ async fn create_command(
 
 #[tokio::test]
 async fn can_create_each_variant() {
-    use api::create_command_request::Command::*;
+    use api::command_service_create_request::Command::*;
 
     let tester = super::Tester::new().await;
     let node = tester.node().await;
@@ -49,7 +49,7 @@ async fn can_create_each_variant() {
         }),
     ];
     for command in variants {
-        let req = api::CreateCommandRequest {
+        let req = api::CommandServiceCreateRequest {
             command: Some(command),
         };
         tester.send_admin(Service::create, req).await.unwrap();
@@ -80,7 +80,7 @@ async fn responds_ok_with_single_get() {
     update.update(&mut conn).await.unwrap();
 
     let cmd = create_command(&tester, node.id, models::CommandType::CreateNode).await;
-    let req = api::GetCommandRequest {
+    let req = api::CommandServiceGetRequest {
         id: cmd.id.to_string(),
     };
 
@@ -102,7 +102,7 @@ async fn responds_ok_for_update() {
         .unwrap();
     let token = tester.host_token(&host);
     let refresh = tester.refresh_for(&token);
-    let req = api::UpdateCommandRequest {
+    let req = api::CommandServiceUpdateRequest {
         id: cmd.id.to_string(),
         response: Some("hugo boss".to_string()),
         exit_code: Some(98),
@@ -149,7 +149,7 @@ async fn responds_ok_for_pending() {
         .unwrap();
     let token = tester.host_token(&host);
     let refresh = tester.refresh_for(&token);
-    let req = api::PendingCommandsRequest {
+    let req = api::CommandServicePendingRequest {
         host_id: host.id.to_string(),
         filter_type: None,
     };

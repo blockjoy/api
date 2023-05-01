@@ -14,7 +14,7 @@ pub mod organizations;
 pub mod users;
 
 #[allow(clippy::large_enum_variant)]
-mod api {
+pub mod api {
     tonic::include_proto!("blockjoy.v1");
 }
 
@@ -80,12 +80,12 @@ pub async fn server(db: models::DbPool) -> Router<CorsServer> {
     let unauthenticated = UnauthenticatedPaths::new(vec![
         // This path is unauthenticated because you need to have the OTP to create a new host, and
         // that is used instead of the normal machinery.
-        "/v1.Hosts/Provision",
+        "/blockjoy.v1.HostService/Provision",
         // The following paths are for users to create and manage their accounts, so should not
         // require authentication either.
-        "/v1.Authentication/Login",
-        "/v1.Authentication/ResetPassword",
-        "/v1.Users/Create",
+        "/blockjoy.v1.AuthService/Login",
+        "/blockjoy.v1.AuthService/ResetPassword",
+        "/blockjoy.v1.UserService/Create",
     ]);
     let enforcer = Authorization::new()
         .await

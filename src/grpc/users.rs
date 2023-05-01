@@ -1,4 +1,4 @@
-use super::api::{self, users_server};
+use super::api::{self, user_service_server};
 use super::helpers::{required, try_get_token};
 use crate::auth::{JwtToken, UserAuthToken};
 use crate::mail::MailClient;
@@ -8,16 +8,16 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
-impl users_server::Users for super::GrpcImpl {
+impl user_service_server::UserService for super::GrpcImpl {
     async fn get(
         &self,
-        request: Request<api::GetUserRequest>,
-    ) -> super::Result<api::GetUserResponse> {
+        request: Request<api::UserServiceGetRequest>,
+    ) -> super::Result<api::UserServiceGetResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let mut conn = self.conn().await?;
         let user = token.try_get_user(token.id, &mut conn).await?;
-        let response = api::GetUserResponse {
+        let response = api::UserServiceGetResponse {
             user: Some(api::User::from_model(user)?),
         };
 
@@ -26,8 +26,8 @@ impl users_server::Users for super::GrpcImpl {
 
     async fn create(
         &self,
-        request: Request<api::CreateUserRequest>,
-    ) -> super::Result<api::CreateUserResponse> {
+        request: Request<api::UserServiceCreateRequest>,
+    ) -> super::Result<api::UserServiceCreateResponse> {
         let inner = request.into_inner();
         let new_user = inner.as_new()?;
         let new_user = self.trx(|c| new_user.create(c).scope_boxed()).await?;
@@ -36,7 +36,7 @@ impl users_server::Users for super::GrpcImpl {
             .registration_confirmation(&new_user)
             .await?;
 
-        let response = api::CreateUserResponse {
+        let response = api::UserServiceCreateResponse {
             user: Some(api::User::from_model(new_user.clone())?),
         };
 
@@ -45,8 +45,8 @@ impl users_server::Users for super::GrpcImpl {
 
     async fn update(
         &self,
-        request: Request<api::UpdateUserRequest>,
-    ) -> super::Result<api::UpdateUserResponse> {
+        request: Request<api::UserServiceUpdateRequest>,
+    ) -> super::Result<api::UserServiceUpdateResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let token = request
             .extensions()
@@ -63,7 +63,7 @@ impl users_server::Users for super::GrpcImpl {
                     super::bail_unauthorized!("You are not allowed to update this user");
                 }
                 let user = inner.as_update()?.update(c).await?;
-                let resp = api::UpdateUserResponse {
+                let resp = api::UserServiceUpdateResponse {
                     user: Some(api::User::from_model(user)?),
                 };
 
@@ -76,8 +76,8 @@ impl users_server::Users for super::GrpcImpl {
 
     async fn delete(
         &self,
-        request: Request<api::DeleteUserRequest>,
-    ) -> Result<Response<api::DeleteUserResponse>, Status> {
+        request: Request<api::UserServiceDeleteRequest>,
+    ) -> Result<Response<api::UserServiceDeleteResponse>, Status> {
         let refresh_token = super::get_refresh_token(&request);
         let token = request
             .extensions()
@@ -91,7 +91,7 @@ impl users_server::Users for super::GrpcImpl {
             .scope_boxed()
         })
         .await?;
-        let resp = api::DeleteUserResponse {};
+        let resp = api::UserServiceDeleteResponse {};
         super::response_with_refresh_token(refresh_token, resp)
     }
 }
@@ -110,7 +110,7 @@ impl api::User {
     }
 }
 
-impl api::CreateUserRequest {
+impl api::UserServiceCreateRequest {
     fn as_new(&self) -> crate::Result<models::NewUser> {
         models::NewUser::new(
             &self.email,
@@ -121,7 +121,7 @@ impl api::CreateUserRequest {
     }
 }
 
-impl api::UpdateUserRequest {
+impl api::UserServiceUpdateRequest {
     pub fn as_update(&self) -> crate::Result<models::UpdateUser<'_>> {
         Ok(models::UpdateUser {
             id: self.id.parse()?,

@@ -4,12 +4,13 @@ use blockvisor_api::{
     models,
 };
 
-type Service = api::users_client::UsersClient<super::Channel>;
+type Service = api::user_service_client::UserServiceClient<super::Channel>;
 
 #[tokio::test]
 async fn responds_ok_with_valid_token_for_get() {
     let tester = super::Tester::new().await;
-    let req = api::GetUserRequest {};
+    let id = tester.admin_user().await.id.to_string();
+    let req = api::UserServiceGetRequest { id };
     tester.send_admin(Service::get, req).await.unwrap();
 }
 
@@ -19,7 +20,7 @@ async fn responds_ok_with_valid_token_for_get() {
 #[ignore]
 async fn responds_not_found_with_valid_token_for_delete() {
     let tester = super::Tester::new().await;
-    let req = api::DeleteUserRequest {};
+    let req = api::UserServiceDeleteRequest {};
     let status = tester.send_admin(Service::delete, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::NotFound);
 }
@@ -27,7 +28,7 @@ async fn responds_not_found_with_valid_token_for_delete() {
 #[tokio::test]
 async fn responds_ok_with_valid_token_for_delete() {
     let tester = super::Tester::new().await;
-    let req = api::DeleteUserRequest {};
+    let req = api::UserServiceDeleteRequest {};
 
     tester.send_admin(Service::delete, req).await.unwrap();
 }
@@ -37,7 +38,8 @@ async fn responds_unauthenticated_without_valid_token_for_get() {
     let tester = super::Tester::new().await;
     let token = base64::encode("some-invalid-token");
     let token = super::DummyToken(&token);
-    let req = api::GetUserRequest {};
+    let id = tester.admin_user().await.id.to_string();
+    let req = api::UserServiceGetRequest { id };
     let status = tester
         .send_with(Service::get, req, token, super::DummyRefresh)
         .await
@@ -48,7 +50,7 @@ async fn responds_unauthenticated_without_valid_token_for_get() {
 #[tokio::test]
 async fn responds_ok_without_token_for_create() {
     let tester = super::Tester::new().await;
-    let req = api::CreateUserRequest {
+    let req = api::UserServiceCreateRequest {
         email: "hugo@boss.com".to_string(),
         first_name: "Hugo".to_string(),
         last_name: "The Bossman".to_string(),
@@ -61,7 +63,7 @@ async fn responds_ok_without_token_for_create() {
 async fn responds_error_with_existing_email_for_create() {
     let tester = super::Tester::new().await;
     let user = tester.admin_user().await;
-    let req = api::CreateUserRequest {
+    let req = api::UserServiceCreateRequest {
         email: user.email,
         first_name: user.first_name,
         last_name: user.last_name,
@@ -74,7 +76,7 @@ async fn responds_error_with_existing_email_for_create() {
 #[tokio::test]
 async fn responds_permission_denied_with_diff_users_for_update() {
     let tester = super::Tester::new().await;
-    let req = api::UpdateUserRequest {
+    let req = api::UserServiceUpdateRequest {
         id: uuid::Uuid::new_v4().to_string(),
         first_name: Some("Hugo".to_string()),
         last_name: Some("Boss".to_string()),
@@ -87,7 +89,7 @@ async fn responds_permission_denied_with_diff_users_for_update() {
 async fn responds_ok_with_equal_users_for_update() {
     let tester = super::Tester::new().await;
     let user = tester.admin_user().await;
-    let req = api::UpdateUserRequest {
+    let req = api::UserServiceUpdateRequest {
         id: user.id.to_string(),
         first_name: Some("Hugo".to_string()),
         last_name: Some("Boss".to_string()),

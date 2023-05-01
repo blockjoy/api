@@ -1,4 +1,4 @@
-use super::api::{self, nodes_server};
+use super::api::{self, node_service_server};
 use super::helpers;
 use crate::auth::FindableById;
 use crate::{auth, models};
@@ -8,11 +8,11 @@ use std::collections::HashMap;
 use tonic::{Request, Status};
 
 #[tonic::async_trait]
-impl nodes_server::Nodes for super::GrpcImpl {
+impl node_service_server::NodeService for super::GrpcImpl {
     async fn get(
         &self,
-        request: Request<api::GetNodeRequest>,
-    ) -> super::Result<api::GetNodeResponse> {
+        request: Request<api::NodeServiceGetRequest>,
+    ) -> super::Result<api::NodeServiceGetResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let user_id = helpers::try_get_token::<_, auth::UserAuthToken>(&request)
             .ok()
@@ -36,7 +36,7 @@ impl nodes_server::Nodes for super::GrpcImpl {
             super::bail_unauthorized!("Access not allowed")
         }
 
-        let response = api::GetNodeResponse {
+        let response = api::NodeServiceGetResponse {
             node: Some(api::Node::from_model(node, &mut conn).await?),
         };
         super::response_with_refresh_token(refresh_token, response)
@@ -44,21 +44,21 @@ impl nodes_server::Nodes for super::GrpcImpl {
 
     async fn list(
         &self,
-        request: Request<api::ListNodesRequest>,
-    ) -> super::Result<api::ListNodesResponse> {
+        request: Request<api::NodeServiceListRequest>,
+    ) -> super::Result<api::NodeServiceListResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let request = request.into_inner();
         let mut conn = self.conn().await?;
         let nodes = models::Node::filter(request.as_filter()?, &mut conn).await?;
         let nodes = api::Node::from_models(nodes, &mut conn).await?;
-        let response = api::ListNodesResponse { nodes };
+        let response = api::NodeServiceListResponse { nodes };
         super::response_with_refresh_token(refresh_token, response)
     }
 
     async fn create(
         &self,
-        request: Request<api::CreateNodeRequest>,
-    ) -> super::Result<api::CreateNodeResponse> {
+        request: Request<api::NodeServiceCreateRequest>,
+    ) -> super::Result<api::NodeServiceCreateResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?.clone();
         // Check quota
@@ -105,7 +105,7 @@ impl nodes_server::Nodes for super::GrpcImpl {
                 let created = api::NodeMessage::created(node.clone(), user.clone(), c).await?;
                 self.notifier.nodes_sender().send(&created).await?;
 
-                let response = api::CreateNodeResponse {
+                let response = api::NodeServiceCreateResponse {
                     node: Some(api::Node::from_model(node.clone(), c).await?),
                 };
 
@@ -118,8 +118,8 @@ impl nodes_server::Nodes for super::GrpcImpl {
 
     async fn update(
         &self,
-        request: Request<api::UpdateNodeRequest>,
-    ) -> super::Result<api::UpdateNodeResponse> {
+        request: Request<api::NodeServiceUpdateRequest>,
+    ) -> super::Result<api::NodeServiceUpdateResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let user_token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)
             .ok()
@@ -153,7 +153,7 @@ impl nodes_server::Nodes for super::GrpcImpl {
                 let msg = api::NodeMessage::updated(node, user, c).await?;
                 self.notifier.nodes_sender().send(&msg).await?;
 
-                let response = api::UpdateNodeResponse {};
+                let response = api::NodeServiceUpdateResponse {};
                 Ok(super::response_with_refresh_token(refresh_token, response)?)
             }
             .scope_boxed()
@@ -163,8 +163,8 @@ impl nodes_server::Nodes for super::GrpcImpl {
 
     async fn delete(
         &self,
-        request: Request<api::DeleteNodeRequest>,
-    ) -> super::Result<api::DeleteNodeResponse> {
+        request: Request<api::NodeServiceDeleteRequest>,
+    ) -> super::Result<api::NodeServiceDeleteResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let user_id = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?.id;
         let inner = request.into_inner();
@@ -225,7 +225,7 @@ impl nodes_server::Nodes for super::GrpcImpl {
             .scope_boxed()
         })
         .await?;
-        let resp = api::DeleteNodeResponse {};
+        let resp = api::NodeServiceDeleteResponse {};
         super::response_with_refresh_token(refresh_token, resp)
     }
 }
@@ -285,14 +285,14 @@ impl api::Node {
         blockchain: &models::Blockchain,
         user: Option<&models::User>,
     ) -> crate::Result<Self> {
-        use api::node::{ContainerStatus, NodeStatus, NodeType, StakingStatus, SyncStatus};
+        use api::{ContainerStatus, NodeStatus, NodeType, StakingStatus, SyncStatus};
 
         let properties = node
             .properties()?
             .properties
             .into_iter()
             .flatten()
-            .map(api::node::NodeProperty::from_model)
+            .map(api::NodeProperty::from_model)
             .collect();
 
         let placement = node
@@ -359,12 +359,12 @@ impl api::Node {
     }
 }
 
-impl api::CreateNodeRequest {
+impl api::NodeServiceCreateRequest {
     pub fn as_new(&self, user_id: uuid::Uuid) -> crate::Result<models::NewNode<'_>> {
         let properties = self
             .properties
             .iter()
-            .map(|p| api::node::NodeProperty::into_model(p.clone()))
+            .map(|p| api::NodeProperty::into_model(p.clone()))
             .collect::<crate::Result<_>>()?;
         let properties = models::NodeProperties {
             version: Some(self.version.clone()),
@@ -437,7 +437,7 @@ impl api::CreateNodeRequest {
     }
 }
 
-impl api::ListNodesRequest {
+impl api::NodeServiceListRequest {
     fn as_filter(&self) -> crate::Result<models::NodeFilter> {
         Ok(models::NodeFilter {
             org_id: self.org_id.parse()?,
@@ -454,7 +454,7 @@ impl api::ListNodesRequest {
     }
 }
 
-impl api::UpdateNodeRequest {
+impl api::NodeServiceUpdateRequest {
     pub fn as_update(&self) -> crate::Result<models::UpdateNode> {
         // Convert the ip list from the gRPC structures to the database models.
         let allow_ips: Vec<models::FilteredIpAddr> = self
@@ -492,7 +492,7 @@ impl api::UpdateNodeRequest {
     }
 }
 
-impl api::node::NodeType {
+impl api::NodeType {
     pub fn from_model(model: models::NodeType) -> Self {
         match model {
             models::NodeType::Unknown => Self::Unspecified,
@@ -530,7 +530,7 @@ impl api::node::NodeType {
     }
 }
 
-impl api::node::ContainerStatus {
+impl api::ContainerStatus {
     fn from_model(model: models::ContainerStatus) -> Self {
         match model {
             models::ContainerStatus::Unknown => Self::Unspecified,
@@ -566,7 +566,7 @@ impl api::node::ContainerStatus {
     }
 }
 
-impl api::node::NodeStatus {
+impl api::NodeStatus {
     fn from_model(model: models::NodeChainStatus) -> Self {
         match model {
             models::NodeChainStatus::Unknown => Self::Unspecified,
@@ -614,7 +614,7 @@ impl api::node::NodeStatus {
     }
 }
 
-impl api::node::StakingStatus {
+impl api::StakingStatus {
     fn from_model(model: models::NodeStakingStatus) -> Self {
         match model {
             models::NodeStakingStatus::Unknown => Self::Unspecified,
@@ -640,7 +640,7 @@ impl api::node::StakingStatus {
     }
 }
 
-impl api::node::SyncStatus {
+impl api::SyncStatus {
     fn from_model(model: models::NodeSyncStatus) -> Self {
         match model {
             models::NodeSyncStatus::Unknown => Self::Unspecified,
@@ -658,7 +658,7 @@ impl api::node::SyncStatus {
     }
 }
 
-impl api::node::NodeProperty {
+impl api::NodeProperty {
     fn from_model(model: models::NodePropertyValue) -> Self {
         let mut prop = Self {
             name: model.name,

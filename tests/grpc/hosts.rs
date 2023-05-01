@@ -3,26 +3,22 @@ use blockvisor_api::models;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
-type Service = api::hosts_client::HostsClient<super::Channel>;
+type Service = api::host_service_client::HostServiceClient<super::Channel>;
 
 #[tokio::test]
 async fn responds_unauthenticated_with_empty_token_for_update() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
-    let req = api::UpdateHostRequest {
+    let req = api::HostServiceUpdateRequest {
         id: host.id.to_string(),
         name: None,
         version: None,
         os: None,
         os_version: None,
     };
+    let (token, refresh) = (super::DummyToken(""), super::DummyRefresh);
     let status = tester
-        .send_with(
-            Service::update,
-            req,
-            super::DummyToken(""),
-            super::DummyRefresh,
-        )
+        .send_with(Service::update, req, token, refresh)
         .await
         .unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
@@ -33,7 +29,7 @@ async fn responds_unauthenticated_without_token_for_update() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
 
-    let req = api::UpdateHostRequest {
+    let req = api::HostServiceUpdateRequest {
         id: host.id.to_string(),
         name: None,
         version: None,
@@ -50,7 +46,7 @@ async fn responds_unauthenticated_with_bad_token_for_update() {
     let host = tester.host().await;
     let host_id = host.id.to_string();
 
-    let req = api::UpdateHostRequest {
+    let req = api::HostServiceUpdateRequest {
         id: host_id,
         name: Some("the most beautiful server in the world".to_string()),
         version: None,
@@ -78,7 +74,7 @@ async fn responds_permission_denied_with_token_ownership_for_update() {
     let refresh = tester.refresh_for(&token);
 
     let other_host = tester.host2().await;
-    let req = api::UpdateHostRequest {
+    let req = api::HostServiceUpdateRequest {
         id: other_host.id.to_string(),
         name: Some("hostus mostus maximus".to_string()),
         version: Some("3".to_string()),
@@ -96,9 +92,9 @@ async fn responds_permission_denied_with_token_ownership_for_update() {
 #[tokio::test]
 async fn responds_not_found_for_wrong_otp() {
     let tester = super::Tester::new().await;
-    let req = api::ProvisionHostRequest {
+    let req = api::HostServiceProvisionRequest {
         otp: "unknown-otp".into(),
-        status: api::provision_host_request::ConnectionStatus::Online.into(),
+        status: api::HostConnectionStatus::Online.into(),
         name: "tester".to_string(),
         version: "3".to_string(),
         cpu_count: 2,
@@ -124,9 +120,9 @@ async fn responds_ok_for_provision() {
         .create(&mut conn)
         .await
         .unwrap();
-    let req = api::ProvisionHostRequest {
+    let req = api::HostServiceProvisionRequest {
         otp: host_provision.id,
-        status: api::provision_host_request::ConnectionStatus::Online.into(),
+        status: api::HostConnectionStatus::Online.into(),
         name: "tester".to_string(),
         version: "3".to_string(),
         cpu_count: 2,
@@ -145,7 +141,7 @@ async fn responds_ok_for_update() {
     let host = tester.host().await;
     let token = tester.host_token(&host);
     let refresh = tester.refresh_for(&token);
-    let req = api::UpdateHostRequest {
+    let req = api::HostServiceUpdateRequest {
         id: host.id.to_string(),
         name: Some("Servy McServington".to_string()),
         version: Some("3".to_string()),
@@ -164,7 +160,7 @@ async fn responds_ok_for_delete() {
     let host = tester.host().await;
     let token = tester.host_token(&host);
     let refresh = tester.refresh_for(&token);
-    let req = api::DeleteHostRequest {
+    let req = api::HostServiceDeleteRequest {
         id: host.id.to_string(),
     };
     tester
@@ -177,7 +173,7 @@ async fn responds_ok_for_delete() {
 async fn responds_unauthenticated_without_token_for_delete() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
-    let req = api::DeleteHostRequest {
+    let req = api::HostServiceDeleteRequest {
         id: host.id.to_string(),
     };
     let status = tester.send(Service::delete, req).await.unwrap_err();
@@ -189,7 +185,7 @@ async fn responds_permission_denied_for_delete() {
     let tester = super::Tester::new().await;
 
     let host = tester.host().await;
-    let req = api::DeleteHostRequest {
+    let req = api::HostServiceDeleteRequest {
         id: host.id.to_string(),
     };
 

@@ -1,11 +1,11 @@
 use blockvisor_api::grpc::api;
 
-type Service = api::discovery_client::DiscoveryClient<super::Channel>;
+type Service = api::discovery_service_client::DiscoveryServiceClient<super::Channel>;
 
 #[tokio::test]
 async fn responds_unauthenticated_with_empty_token_fors_services() {
     let tester = super::Tester::new().await;
-    let req = api::ServicesRequest {};
+    let req = api::DiscoveryServiceServicesRequest {};
     let (token, refresh) = (super::DummyToken(""), super::DummyRefresh);
     let status = tester
         .send_with(Service::services, req, token, refresh)
@@ -17,7 +17,7 @@ async fn responds_unauthenticated_with_empty_token_fors_services() {
 #[tokio::test]
 async fn responds_correct_urls_forss() {
     let tester = super::Tester::new().await;
-    let req = api::ServicesRequest {};
+    let req = api::DiscoveryServiceServicesRequest {};
 
     let response = tester.send_admin(Service::services, req).await.unwrap();
 

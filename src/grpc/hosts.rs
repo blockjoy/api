@@ -41,7 +41,7 @@ impl host_service_server::HostService for super::GrpcImpl {
         let request = request.into_inner();
         let new_host = request.as_new()?;
         let host = self.trx(|c| new_host.create(c).scope_boxed()).await?;
-        let host = api::Host::from_model(host).await;
+        let host = api::Host::from_model(host).await?;
         let response = api::HostServiceCreateResponse { host: Some(host) };
 
         Ok(Response::new(response))
@@ -86,14 +86,14 @@ impl host_service_server::HostService for super::GrpcImpl {
         &self,
         request: Request<api::HostServiceProvisionRequest>,
     ) -> super::Result<api::HostServiceProvisionResponse> {
-        let inner = request.into_inner();
+        let request = request.into_inner();
 
         let host = self
             .trx(|c| {
                 async move {
-                    let provision = models::HostProvision::find_by_id(&inner.otp, c).await?;
-                    let new_host = request.as_new(provision);
-                    models::HostProvision::claim(&inner.otp, new_host, c).await
+                    let provision = models::HostProvision::find_by_id(&request.otp, c).await?;
+                    let new_host = request.as_new(provision)?;
+                    models::HostProvision::claim(&request.otp, new_host, c).await
                 }
                 .scope_boxed()
             })
@@ -128,7 +128,7 @@ impl api::Host {
                     os: model.os,
                     os_version: model.os_version,
                     ip: model.ip_addr,
-                    status: 0, // Note the setter below
+                    status: 0, // We use the setter to set this field for type-safety
                     created_at: Some(super::try_dt_to_ts(model.created_at)?),
                     ip_range_from: Some(model.ip_range_from.ip().to_string()),
                     ip_range_to: Some(model.ip_range_to.ip().to_string()),
@@ -220,7 +220,7 @@ impl api::HostStatus {
     }
 }
 
-impl api::ConnectionStatus {
+impl api::HostConnectionStatus {
     fn _from_model(model: models::ConnectionStatus) -> Self {
         match model {
             models::ConnectionStatus::Online => Self::Online,
