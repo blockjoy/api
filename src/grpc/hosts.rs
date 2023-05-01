@@ -1,4 +1,4 @@
-use super::api::{self, hosts_server};
+use super::api::{self, host_service_server};
 use super::helpers::{self, try_get_token};
 use crate::auth::{FindableById, HostAuthToken, JwtToken, TokenRole, TokenType};
 use crate::models;
@@ -6,50 +6,51 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response};
 
 #[tonic::async_trait]
-impl hosts_server::Hosts for super::GrpcImpl {
+impl host_service_server::HostService for super::GrpcImpl {
     /// Get a host by id.
     async fn get(
         &self,
-        request: Request<api::GetHostRequest>,
-    ) -> super::Result<api::GetHostResponse> {
+        request: Request<api::HostServiceGetRequest>,
+    ) -> super::Result<api::HostServiceGetResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let request = request.into_inner();
         let host_id = request.id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
         let host = models::Host::find_by_id(host_id, &mut conn).await?;
         let host = api::Host::from_model(host).await?;
-        let response = api::GetHostResponse { host: Some(host) };
+        let response = api::HostServiceGetResponse { host: Some(host) };
         super::response_with_refresh_token(refresh_token, response)
     }
 
     async fn list(
         &self,
-        request: Request<api::ListHostsRequest>,
-    ) -> super::Result<api::ListHostsResponse> {
+        request: Request<api::HostServiceListRequest>,
+    ) -> super::Result<api::HostServiceListResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let mut conn = self.conn().await?;
         let hosts = models::Host::filter(None, &mut conn).await?;
         let hosts = api::Host::from_models(hosts).await?;
-        let response = api::ListHostsResponse { hosts };
+        let response = api::HostServiceListResponse { hosts };
         super::response_with_refresh_token(refresh_token, response)
     }
 
     async fn create(
         &self,
-        request: Request<api::CreateHostRequest>,
-    ) -> super::Result<api::CreateHostResponse> {
+        request: Request<api::HostServiceCreateRequest>,
+    ) -> super::Result<api::HostServiceCreateResponse> {
         let request = request.into_inner();
         let new_host = request.as_new()?;
-        self.trx(|c| new_host.create(c).scope_boxed()).await?;
-        let response = api::CreateHostResponse {};
+        let host = self.trx(|c| new_host.create(c).scope_boxed()).await?;
+        let host = api::Host::from_model(host).await;
+        let response = api::HostServiceCreateResponse { host: Some(host) };
 
         Ok(Response::new(response))
     }
 
     async fn update(
         &self,
-        request: Request<api::UpdateHostRequest>,
-    ) -> super::Result<api::UpdateHostResponse> {
+        request: Request<api::HostServiceUpdateRequest>,
+    ) -> super::Result<api::HostServiceUpdateResponse> {
         let host_token = try_get_token::<_, HostAuthToken>(&request)?.clone();
         let request = request.into_inner();
         let host_id = request.id.parse().map_err(crate::Error::from)?;
@@ -59,14 +60,14 @@ impl hosts_server::Hosts for super::GrpcImpl {
         }
         let updater = request.as_update()?;
         self.trx(|c| updater.update(c).scope_boxed()).await?;
-        let response = api::UpdateHostResponse {};
+        let response = api::HostServiceUpdateResponse {};
         Ok(Response::new(response))
     }
 
     async fn delete(
         &self,
-        request: Request<api::DeleteHostRequest>,
-    ) -> super::Result<api::DeleteHostResponse> {
+        request: Request<api::HostServiceDeleteRequest>,
+    ) -> super::Result<api::HostServiceDeleteResponse> {
         let host_token = try_get_token::<_, HostAuthToken>(&request)?.clone();
         let request = request.into_inner();
         let host_id = request.id.parse().map_err(crate::Error::from)?;
@@ -76,19 +77,26 @@ impl hosts_server::Hosts for super::GrpcImpl {
         }
         self.trx(|c| models::Host::delete(host_id, c).scope_boxed())
             .await?;
-        let response = api::DeleteHostResponse {};
+        let response = api::HostServiceDeleteResponse {};
 
         Ok(Response::new(response))
     }
 
     async fn provision(
         &self,
-        request: Request<api::ProvisionHostRequest>,
-    ) -> super::Result<api::ProvisionHostResponse> {
+        request: Request<api::HostServiceProvisionRequest>,
+    ) -> super::Result<api::HostServiceProvisionResponse> {
         let inner = request.into_inner();
 
         let host = self
-            .trx(|c| models::HostProvision::claim_by_grpc_provision(&inner, c).scope_boxed())
+            .trx(|c| {
+                async move {
+                    let provision = models::HostProvision::find_by_id(&inner.otp, c).await?;
+                    let new_host = request.as_new(provision);
+                    models::HostProvision::claim(&inner.otp, new_host, c).await
+                }
+                .scope_boxed()
+            })
             .await?;
         let token: HostAuthToken = JwtToken::create_token_for::<models::Host>(
             &host,
@@ -97,7 +105,7 @@ impl hosts_server::Hosts for super::GrpcImpl {
             None,
         )?;
         let token = token.encode()?;
-        let result = api::ProvisionHostResponse {
+        let result = api::HostServiceProvisionResponse {
             host_id: host.id.to_string(),
             token,
         };
@@ -127,7 +135,7 @@ impl api::Host {
                     ip_gateway: Some(model.ip_gateway.ip().to_string()),
                     org_id: model.org_id.map(|org_id| org_id.to_string()),
                 };
-                dto.set_status(api::host::HostStatus::from_model(model.status));
+                dto.set_status(api::HostStatus::from_model(model.status));
                 Ok(dto)
             })
             .collect()
@@ -138,7 +146,7 @@ impl api::Host {
     }
 }
 
-impl api::CreateHostRequest {
+impl api::HostServiceCreateRequest {
     pub fn as_new(&self) -> crate::Result<models::NewHost<'_>> {
         Ok(models::NewHost {
             name: &self.name,
@@ -158,7 +166,7 @@ impl api::CreateHostRequest {
     }
 }
 
-impl api::UpdateHostRequest {
+impl api::HostServiceUpdateRequest {
     pub fn as_update(&self) -> crate::Result<models::UpdateHost<'_>> {
         Ok(models::UpdateHost {
             id: self.id.parse()?,
@@ -178,7 +186,7 @@ impl api::UpdateHostRequest {
     }
 }
 
-impl api::ProvisionHostRequest {
+impl api::HostServiceProvisionRequest {
     pub fn as_new(&self, provision: models::HostProvision) -> crate::Result<models::NewHost<'_>> {
         let new_host = models::NewHost {
             name: &self.name,
@@ -205,14 +213,14 @@ impl api::ProvisionHostRequest {
     }
 }
 
-impl api::host::HostStatus {
+impl api::HostStatus {
     fn from_model(_model: models::ConnectionStatus) -> Self {
         // todo
         Self::Unspecified
     }
 }
 
-impl api::provision_host_request::ConnectionStatus {
+impl api::ConnectionStatus {
     fn _from_model(model: models::ConnectionStatus) -> Self {
         match model {
             models::ConnectionStatus::Online => Self::Online,

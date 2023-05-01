@@ -1,4 +1,4 @@
-use super::api::{self, host_provisions_server};
+use super::api::{self, host_provision_service_server};
 use super::helpers::required;
 use crate::models;
 use crate::Result;
@@ -6,17 +6,17 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response};
 
 #[tonic::async_trait]
-impl host_provisions_server::HostProvisions for super::GrpcImpl {
+impl host_provision_service_server::HostProvisionService for super::GrpcImpl {
     async fn get(
         &self,
-        request: Request<api::GetHostProvisionRequest>,
-    ) -> super::Result<api::GetHostProvisionResponse> {
+        request: Request<api::HostProvisionServiceGetRequest>,
+    ) -> super::Result<api::HostProvisionServiceGetResponse> {
         let request = request.into_inner();
         let host_provision_id = request.id;
         let mut conn = self.conn().await?;
         let host_provision =
             models::HostProvision::find_by_id(&host_provision_id, &mut conn).await?;
-        let response = api::GetHostProvisionResponse {
+        let response = api::HostProvisionServiceGetResponse {
             host_provisions: Some(api::HostProvision::from_model(host_provision)?),
         };
         Ok(Response::new(response))
@@ -24,16 +24,16 @@ impl host_provisions_server::HostProvisions for super::GrpcImpl {
 
     async fn create(
         &self,
-        request: Request<api::CreateHostProvisionRequest>,
-    ) -> super::Result<api::CreateHostProvisionResponse> {
+        request: Request<api::HostServiceCreateRequest>,
+    ) -> super::Result<api::HostServiceCreateResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let request = request.into_inner();
         let new_provision = request.as_new()?;
 
         let host_provision = self.trx(|c| new_provision.create(c).scope_boxed()).await?;
 
-        let response = api::CreateHostProvisionResponse {
-            host_provision: Some(api::HostProvision::from_model(host_provision)?),
+        let response = api::HostServiceCreateResponse {
+            host: Some(api::HostProvision::from_model(host_provision)?),
         };
 
         super::response_with_refresh_token(refresh_token, response)
@@ -67,7 +67,7 @@ impl api::HostProvision {
     }
 }
 
-impl api::CreateHostProvisionRequest {
+impl api::HostProvisionServiceCreateRequest {
     fn as_new(&self) -> crate::Result<models::NewHostProvision> {
         models::NewHostProvision::new(
             None,

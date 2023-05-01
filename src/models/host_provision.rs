@@ -1,5 +1,4 @@
 use super::schema::host_provisions;
-use crate::grpc::api;
 use crate::Result;
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -19,6 +18,8 @@ pub struct HostProvision {
 }
 
 impl HostProvision {
+    /// Find a host provision by its id. The id is the one time password that is sent to the user
+    /// when a host provision is created.
     pub async fn find_by_id(
         host_provision_id: &str,
         conn: &mut AsyncPgConnection,
@@ -30,23 +31,25 @@ impl HostProvision {
         Ok(host_provision)
     }
 
-    /// Wrapper for HostProvision::claim, taking ProvisionHostRequest received via gRPC instead of HostCreateRequest
-    pub async fn claim_by_grpc_provision(
-        request: &api::ProvisionHostRequest,
-        conn: &mut AsyncPgConnection,
-    ) -> Result<super::Host> {
-        let host_provision = Self::find_by_id(&request.otp, conn).await?;
+    // /// Wrapper for HostProvision::claim, taking ProvisionHostRequest received via gRPC instead of HostCreateRequest
+    // pub async fn claim(
+    //     otp: &str,
+    //     new_host: super::NewHost<'_>,
+    //     request: &api::ProvisionHostRequest,
+    //     conn: &mut AsyncPgConnection,
+    // ) -> Result<super::Host> {
+    //     let host_provision = Self::find_by_id(&request.otp, conn).await?;
 
-        if host_provision.is_claimed() {
-            return Err(anyhow::anyhow!("Host provision has already been claimed.").into());
-        }
+    //     if host_provision.is_claimed() {
+    //         return Err(anyhow::anyhow!("Host provision has already been claimed.").into());
+    //     }
 
-        let new_host = request.as_new(host_provision)?;
-        let prov = HostProvision::claim(&request.otp, new_host, conn).await?;
-        Ok(prov)
-    }
+    //     let new_host = request.as_new(host_provision)?;
+    //     let prov = HostProvision::claim(&request.otp, new_host, conn).await?;
+    //     Ok(prov)
+    // }
 
-    async fn claim(
+    pub async fn claim(
         host_provision_id: &str,
         new_host: super::NewHost<'_>,
         conn: &mut AsyncPgConnection,

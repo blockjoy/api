@@ -1,4 +1,4 @@
-use super::api::{self, commands_server};
+use super::api::{self, command_service_server};
 use super::helpers::required;
 use crate::auth::FindableById;
 use crate::firewall::create_rules_for_node;
@@ -12,11 +12,11 @@ mod recover;
 mod success;
 
 #[tonic::async_trait]
-impl commands_server::Commands for super::GrpcImpl {
+impl command_service_server::CommandService for super::GrpcImpl {
     async fn create(
         &self,
-        req: Request<api::CreateCommandRequest>,
-    ) -> super::Result<api::CreateCommandResponse> {
+        req: Request<api::CommandServiceCreateRequest>,
+    ) -> super::Result<api::CommandServiceCreateResponse> {
         let refresh_token = super::get_refresh_token(&req);
         let req = req.into_inner();
         self.trx(|c| {
@@ -30,7 +30,7 @@ impl commands_server::Commands for super::GrpcImpl {
                     .await?;
                 let command = api::Command::from_model(&command, c).await?;
                 self.notifier.commands_sender().send(&command).await?;
-                let response = api::CreateCommandResponse {
+                let response = api::CommandServiceCreateResponse {
                     command: Some(command),
                 };
 
@@ -43,15 +43,15 @@ impl commands_server::Commands for super::GrpcImpl {
 
     async fn get(
         &self,
-        request: Request<api::GetCommandRequest>,
-    ) -> super::Result<api::GetCommandResponse> {
+        request: Request<api::CommandServiceGetRequest>,
+    ) -> super::Result<api::CommandServiceGetResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let inner = request.into_inner();
         let cmd_id = inner.id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
         let cmd = models::Command::find_by_id(cmd_id, &mut conn).await?;
         let command = api::Command::from_model(&cmd, &mut conn).await?;
-        let response = api::GetCommandResponse {
+        let response = api::CommandServiceGetResponse {
             command: Some(command),
         };
         super::response_with_refresh_token(refresh_token, response)
@@ -59,8 +59,8 @@ impl commands_server::Commands for super::GrpcImpl {
 
     async fn update(
         &self,
-        request: Request<api::UpdateCommandRequest>,
-    ) -> super::Result<api::UpdateCommandResponse> {
+        request: Request<api::CommandServiceUpdateRequest>,
+    ) -> super::Result<api::CommandServiceUpdateResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let inner = request.into_inner();
         let update_cmd = inner.as_update()?;
@@ -82,7 +82,7 @@ impl commands_server::Commands for super::GrpcImpl {
                     None => {}
                 }
                 let command = api::Command::from_model(&cmd, c).await?;
-                let resp = api::UpdateCommandResponse {
+                let resp = api::CommandServiceUpdateResponse {
                     command: Some(command),
                 };
                 Ok(super::response_with_refresh_token(refresh_token, resp)?)
@@ -94,8 +94,8 @@ impl commands_server::Commands for super::GrpcImpl {
 
     async fn pending(
         &self,
-        request: Request<api::PendingCommandsRequest>,
-    ) -> super::Result<api::PendingCommandsResponse> {
+        request: Request<api::CommandServicePendingRequest>,
+    ) -> super::Result<api::CommandServicePendingResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let inner = request.into_inner();
         let host_id = inner.host_id.parse().map_err(crate::Error::from)?;
@@ -106,7 +106,7 @@ impl commands_server::Commands for super::GrpcImpl {
             let grpc_cmd = api::Command::from_model(&cmd, &mut conn).await?;
             commands.push(grpc_cmd);
         }
-        let response = api::PendingCommandsResponse { commands };
+        let response = api::CommandServicePendingResponse { commands };
         super::response_with_refresh_token(refresh_token, response)
     }
 }
@@ -175,8 +175,8 @@ impl api::Command {
                     node_type: 0, // We use the setter to set this field for type-safety
                     status: 0,    // We use the setter to set this field for type-safety
                 };
-                image.set_node_type(api::node::NodeType::from_model(node.node_type));
-                image.set_status(api::container_image::StatusName::Development);
+                image.set_node_type(api::NodeType::from_model(node.node_type));
+                image.set_status(api::ContainerImageStatus::Development);
                 let network = api::Parameter::new("network", &node.network);
                 let properties = node
                     .properties()?
@@ -196,7 +196,7 @@ impl api::Command {
                     properties,
                     rules: create_rules_for_node(&node)?,
                 };
-                node_create.set_node_type(api::node::NodeType::from_model(node.node_type));
+                node_create.set_node_type(api::NodeType::from_model(node.node_type));
                 let cmd = Command::Create(node_create);
 
                 node_cmd_default_id(cmd)
@@ -219,7 +219,7 @@ impl api::Command {
     }
 }
 
-impl api::CreateCommandRequest {
+impl api::CommandServiceCreateRequest {
     fn as_new(
         &self,
         host_id: uuid::Uuid,
@@ -235,7 +235,7 @@ impl api::CreateCommandRequest {
     }
 
     async fn host_id(&self, conn: &mut AsyncPgConnection) -> crate::Result<uuid::Uuid> {
-        use api::create_command_request::Command::*;
+        use api::command_service_create_request::Command::*;
 
         let command = self.command.as_ref().ok_or_else(required("command"))?;
         let node_id = match command {
@@ -251,7 +251,7 @@ impl api::CreateCommandRequest {
     }
 
     fn node_id(&self) -> crate::Result<Option<uuid::Uuid>> {
-        use api::create_command_request::Command::*;
+        use api::command_service_create_request::Command::*;
 
         let command = self.command.as_ref().ok_or_else(required("command"))?;
         match command {
@@ -265,7 +265,7 @@ impl api::CreateCommandRequest {
     }
 
     fn command_type(&self) -> crate::Result<models::CommandType> {
-        use api::create_command_request::Command::*;
+        use api::command_service_create_request::Command::*;
 
         let command = self.command.as_ref().ok_or_else(required("command"))?;
         let command_type = match command {
@@ -280,7 +280,7 @@ impl api::CreateCommandRequest {
     }
 }
 
-impl api::UpdateCommandRequest {
+impl api::CommandServiceUpdateRequest {
     fn as_update(&self) -> crate::Result<models::UpdateCommand<'_>> {
         Ok(models::UpdateCommand {
             id: self.id.parse()?,

@@ -1,15 +1,15 @@
-use super::api::{self, blockchains_server, SupportedNodeProperty};
+use super::api::{self, blockchain_service_server, SupportedNodeProperty};
 use crate::cookbook::get_networks;
 use crate::models;
 use futures_util::future::join_all;
 use std::collections::HashMap;
 
 #[tonic::async_trait]
-impl blockchains_server::Blockchains for super::GrpcImpl {
+impl blockchain_service_server::BlockchainService for super::GrpcImpl {
     async fn get(
         &self,
-        request: tonic::Request<api::GetBlockchainRequest>,
-    ) -> super::Result<api::GetBlockchainResponse> {
+        request: tonic::Request<api::BlockchainServiceGetRequest>,
+    ) -> super::Result<api::BlockchainServiceGetResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let inner = request.into_inner();
         let id = inner.id.parse().map_err(crate::Error::from)?;
@@ -17,7 +17,7 @@ impl blockchains_server::Blockchains for super::GrpcImpl {
         let blockchain = models::Blockchain::find_by_id(id, &mut conn)
             .await
             .map_err(|_| tonic::Status::not_found("No such blockchain"))?;
-        let response = api::GetBlockchainResponse {
+        let response = api::BlockchainServiceGetResponse {
             blockchain: Some(api::Blockchain::from_model(blockchain)?),
         };
         super::response_with_refresh_token(refresh_token, response)
@@ -25,8 +25,8 @@ impl blockchains_server::Blockchains for super::GrpcImpl {
 
     async fn list(
         &self,
-        request: tonic::Request<api::ListBlockchainsRequest>,
-    ) -> super::Result<api::ListBlockchainsResponse> {
+        request: tonic::Request<api::BlockchainServiceListRequest>,
+    ) -> super::Result<api::BlockchainServiceListResponse> {
         // We need to combine info from two seperate sources: the database and cookbook. Since
         // cookbook is slow, the step where we call it is parallelized.
         let refresh_token = super::get_refresh_token(&request);
@@ -75,7 +75,7 @@ impl blockchains_server::Blockchains for super::GrpcImpl {
             dto.networks = networks_map.get(&model.id).cloned().unwrap_or_default();
         }
 
-        let response = api::ListBlockchainsResponse {
+        let response = api::BlockchainServiceListResponse {
             blockchains: grpc_blockchains,
         };
 
@@ -128,7 +128,7 @@ impl api::Blockchain {
             updated_at: Some(super::try_dt_to_ts(model.updated_at)?),
             networks: vec![],
         };
-        blockchain.set_status(api::blockchain::BlockchainStatus::from_model(model.status));
+        blockchain.set_status(api::BlockchainStatus::from_model(model.status));
         Ok(blockchain)
     }
 }
@@ -146,7 +146,7 @@ impl api::SupportedNodeType {
                 .collect(),
         };
         let model = models::NodeType::try_from(model.id)?;
-        props.set_node_type(api::node::NodeType::from_model(model));
+        props.set_node_type(api::NodeType::from_model(model));
         Ok(props)
     }
 }
@@ -165,7 +165,7 @@ impl api::SupportedNodeProperty {
     }
 }
 
-impl api::blockchain::BlockchainStatus {
+impl api::BlockchainStatus {
     fn from_model(model: models::BlockchainStatus) -> Self {
         match model {
             models::BlockchainStatus::Development => Self::Development,

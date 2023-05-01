@@ -14,8 +14,8 @@ pub mod organizations;
 pub mod users;
 
 #[allow(clippy::large_enum_variant)]
-pub mod api {
-    tonic::include_proto!("v1");
+mod api {
+    tonic::include_proto!("blockjoy.v1");
 }
 
 use crate::auth::{
@@ -99,19 +99,20 @@ pub async fn server(db: models::DbPool) -> Router<CorsServer> {
         notifier,
     };
 
-    let authentication = api::authentication_server::AuthenticationServer::new(impler.clone());
+    let authentication = api::auth_service_server::AuthServiceServer::new(impler.clone());
     // let billing = api::billings_server::BillingsServer::new(impler.clone());
-    let blockchain = api::blockchains_server::BlockchainsServer::new(impler.clone());
-    let command = api::commands_server::CommandsServer::new(impler.clone());
-    let discovery = api::discovery_server::DiscoveryServer::new(impler.clone());
-    let host_provision = api::host_provisions_server::HostProvisionsServer::new(impler.clone());
-    let host = api::hosts_server::HostsServer::new(impler.clone());
-    let invitation = api::invitations_server::InvitationsServer::new(impler.clone());
-    let key_file = api::key_files_server::KeyFilesServer::new(impler.clone());
-    let metrics = api::metrics_server::MetricsServer::new(impler.clone());
-    let node = api::nodes_server::NodesServer::new(impler.clone());
-    let organization = api::orgs_server::OrgsServer::new(impler.clone());
-    let user = api::users_server::UsersServer::new(impler);
+    let blockchain = api::blockchain_service_server::BlockchainServiceServer::new(impler.clone());
+    let command = api::command_service_server::CommandServiceServer::new(impler.clone());
+    let discovery = api::discovery_service_server::DiscoveryServiceServer::new(impler.clone());
+    let host_provision =
+        api::host_provision_service_server::HostProvisionServiceServer::new(impler.clone());
+    let host = api::host_service_server::HostServiceServer::new(impler.clone());
+    let invitation = api::invitation_service_server::InvitationServiceServer::new(impler.clone());
+    let key_file = api::key_file_service_server::KeyFileServiceServer::new(impler.clone());
+    let metrics = api::metrics_service_server::MetricsServiceServer::new(impler.clone());
+    let node = api::node_service_server::NodeServiceServer::new(impler.clone());
+    let organization = api::org_service_server::OrgServiceServer::new(impler.clone());
+    let user = api::user_service_server::UserServiceServer::new(impler);
 
     let cors_rules = CorsLayer::new()
         .allow_headers(tower_http::cors::Any)

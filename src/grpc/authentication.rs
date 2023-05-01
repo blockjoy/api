@@ -1,4 +1,4 @@
-use super::api::{self, authentication_server};
+use super::api::{self, auth_service_server};
 use super::helpers::{required, try_get_token};
 use super::{get_refresh_token, response_with_refresh_token};
 use crate::auth::{
@@ -12,11 +12,11 @@ use std::collections::HashMap;
 use tonic::{Request, Status};
 
 #[tonic::async_trait]
-impl authentication_server::Authentication for super::GrpcImpl {
+impl auth_service_server::AuthService for super::GrpcImpl {
     async fn login(
         &self,
-        request: Request<api::LoginUserRequest>,
-    ) -> super::Result<api::LoginUserResponse> {
+        request: Request<api::AuthServiceLoginRequest>,
+    ) -> super::Result<api::AuthServiceLoginResponse> {
         let inner = request.into_inner();
         // User::login checks if user is confirmed before testing for valid login credentials
         self.trx(|c| {
@@ -46,7 +46,7 @@ impl authentication_server::Authentication for super::GrpcImpl {
                 )?;
                 let auth_token = auth_token.set_org_user(&org_user);
 
-                let response = api::LoginUserResponse {
+                let response = api::AuthServiceLoginResponse {
                     token: auth_token.to_base64()?,
                 };
                 Ok(response_with_refresh_token(Some(refresh_token), response)?)
@@ -58,8 +58,8 @@ impl authentication_server::Authentication for super::GrpcImpl {
 
     async fn confirm(
         &self,
-        request: Request<api::ConfirmRegistrationRequest>,
-    ) -> super::Result<api::ConfirmRegistrationResponse> {
+        request: Request<api::AuthServiceConfirmRequest>,
+    ) -> super::Result<api::AuthServiceConfirmResponse> {
         let token = request
             .extensions()
             .get::<RegistrationConfirmationToken>()
@@ -85,7 +85,7 @@ impl authentication_server::Authentication for super::GrpcImpl {
 
                 models::User::set_refresh(user.id, &refresh_token, c).await?;
 
-                let response = api::ConfirmRegistrationResponse { token };
+                let response = api::AuthServiceConfirmResponse { token };
 
                 Ok(response_with_refresh_token(Some(refresh_token), response)?)
             }
@@ -96,8 +96,8 @@ impl authentication_server::Authentication for super::GrpcImpl {
 
     async fn refresh(
         &self,
-        _request: Request<api::RefreshTokenRequest>,
-    ) -> super::Result<api::RefreshTokenResponse> {
+        _request: Request<api::AuthServiceRefreshRequest>,
+    ) -> super::Result<api::AuthServiceRefreshResponse> {
         Err(Status::unimplemented("Not necessary anymore"))
     }
 
@@ -105,8 +105,8 @@ impl authentication_server::Authentication for super::GrpcImpl {
     /// then done through the `update` function.
     async fn reset_password(
         &self,
-        request: Request<api::ResetPasswordRequest>,
-    ) -> super::Result<api::ResetPasswordResponse> {
+        request: Request<api::AuthServiceResetPasswordRequest>,
+    ) -> super::Result<api::AuthServiceResetPasswordResponse> {
         let refresh_token = get_refresh_token(&request);
         let request = request.into_inner();
         // We are going to query the user and send them an email, but when something goes wrong we
@@ -120,7 +120,7 @@ impl authentication_server::Authentication for super::GrpcImpl {
                     let _ = user.email_reset_password(c).await;
                 }
 
-                let response = api::ResetPasswordResponse {};
+                let response = api::AuthServiceResetPasswordResponse {};
                 Ok(response_with_refresh_token(refresh_token, response)?)
             }
             .scope_boxed()
@@ -130,8 +130,8 @@ impl authentication_server::Authentication for super::GrpcImpl {
 
     async fn update_password(
         &self,
-        request: Request<api::UpdatePasswordRequest>,
-    ) -> super::Result<api::UpdatePasswordResponse> {
+        request: Request<api::AuthServiceUpdatePasswordRequest>,
+    ) -> super::Result<api::AuthServiceUpdatePasswordResponse> {
         self.trx(|c| {
             async move {
                 let token = request
@@ -151,7 +151,7 @@ impl authentication_server::Authentication for super::GrpcImpl {
                     TokenRole::User,
                     None,
                 )?;
-                let response = api::UpdatePasswordResponse {
+                let response = api::AuthServiceUpdatePasswordResponse {
                     token: auth_token.to_base64()?,
                 };
 
@@ -166,8 +166,8 @@ impl authentication_server::Authentication for super::GrpcImpl {
 
     async fn update_ui_password(
         &self,
-        request: Request<api::UpdateUiPasswordRequest>,
-    ) -> super::Result<api::UpdateUiPasswordResponse> {
+        request: Request<api::AuthServiceUpdateUiPasswordRequest>,
+    ) -> super::Result<api::AuthServiceUpdateUiPasswordResponse> {
         self.trx(|c| {
             async move {
                 let refresh_token = get_refresh_token(&request);
@@ -181,7 +181,7 @@ impl authentication_server::Authentication for super::GrpcImpl {
                 user.verify_password(&inner.old_password)?;
                 user.update_password(&inner.new_password, c).await?;
 
-                let response = api::UpdateUiPasswordResponse { token: encoded };
+                let response = api::AuthServiceUpdateUiPasswordResponse { token: encoded };
 
                 // Send notification mail
                 MailClient::new().update_password(&user).await?;
@@ -190,31 +190,5 @@ impl authentication_server::Authentication for super::GrpcImpl {
             .scope_boxed()
         })
         .await
-    }
-
-    async fn switch_organization(
-        &self,
-        request: Request<api::SwitchOrgRequest>,
-    ) -> super::Result<api::LoginUserResponse> {
-        let refresh_token = get_refresh_token(&request);
-        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
-        let user_id = token.get_id();
-        let inner = request.into_inner();
-        let mut conn = self.conn().await?;
-        let org_user = models::Org::find_org_user(
-            user_id,
-            inner.org_id.parse().map_err(crate::Error::from)?,
-            &mut conn,
-        )
-        .await?;
-        let auth_token =
-            UserAuthToken::create_token_for(&org_user, TokenType::UserAuth, TokenRole::User, None)?;
-        let auth_token = auth_token.set_org_user(&org_user);
-
-        let response = api::LoginUserResponse {
-            token: auth_token.to_base64()?,
-        };
-
-        response_with_refresh_token(refresh_token, response)
     }
 }
