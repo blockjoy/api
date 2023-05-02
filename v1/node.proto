@@ -148,8 +148,10 @@ message Node {
 }
 
 // Self Upgrade is a message that is sent to the node to tell it to upgrade
-// automatically or not, and take the appropriate action based on the version that is being upgraded to.
-// For example if there is a major version upgrade the user would need to confirm the upgrade.
+// automatically or not, and take the appropriate action based on the version
+// that is being upgraded to.
+// For example if there is a major version upgrade the user would need
+// to confirm the upgrade.
 message SelfUpgrade {
   // Whether or not the node should upgrade itself.
   bool enabled = 1;
@@ -158,7 +160,7 @@ message SelfUpgrade {
   // The type of upgrade that is being performed.
   enum Policy {
     // Force Upgrade all versions no matter what
-    POLICY_UPGRADE_ALL = 0;
+    POLICY_UPGRADE_UNSPECIFIED = 0;
     // Upgrade all versions except major versions.
     POLICY_NOT_UPGRADE_ON_MAJOR = 1;
   }
@@ -336,7 +338,8 @@ message UpdateNodeRequest {
   repeated FilteredIpAddr allow_ips = 7;
   // A list of ip addresses denied all access to any ports on this node.
   repeated FilteredIpAddr deny_ips = 8;
-  // Whether or not the node software should update itself, with the specific policy
+  // Whether or not the node software should update itself,
+  // with the specific policy
   optional SelfUpgrade self_upgrade = 9;
 }
 
