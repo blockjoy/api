@@ -29,6 +29,7 @@ test:
 
 start-db:
 	@docker-compose up -d
+	@sleep 2
 	@diesel migration run
 
 stop-db:

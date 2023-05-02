@@ -1,5 +1,5 @@
-use super::node_type::*;
 use super::schema::{nodes, orgs_users};
+use super::{node_type::*, SelfUpgrade};
 use crate::auth::FindableById;
 use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
@@ -93,7 +93,6 @@ pub struct Node {
     pub container_status: ContainerStatus,
     properties: serde_json::Value,
     pub ip_gateway: String,
-    pub self_update: bool,
     pub block_age: Option<i64>,
     pub consensus: Option<bool>,
     pub vcpu_count: i64,
@@ -108,6 +107,7 @@ pub struct Node {
     pub node_type: NodeType,
     pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
     pub scheduler_resource: Option<super::ResourceAffinity>,
+    pub self_upgrade: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
@@ -129,6 +129,11 @@ impl FindableById for Node {
 }
 
 impl Node {
+    pub fn self_upgrade(&self) -> crate::Result<SelfUpgrade> {
+        <SelfUpgrade as serde::Deserialize>::deserialize(self.self_upgrade.clone())
+            .map_err(crate::Error::from)
+    }
+
     pub fn properties(&self) -> crate::Result<super::NodeProperties> {
         let res = serde_json::from_value(self.properties.clone())?;
         Ok(res)

@@ -220,7 +220,6 @@ diesel::table! {
         container_status -> EnumContainerStatus,
         properties -> Jsonb,
         ip_gateway -> Text,
-        self_update -> Bool,
         block_age -> Nullable<Int8>,
         consensus -> Nullable<Bool>,
         vcpu_count -> Int8,
@@ -235,6 +234,7 @@ diesel::table! {
         node_type -> EnumNodeType,
         scheduler_similarity -> Nullable<EnumNodeSimilarityAffinity>,
         scheduler_resource -> Nullable<EnumNodeResourceAffinity>,
+        self_upgrade -> Jsonb,
     }
 }
 

@@ -337,7 +337,7 @@ impl api::Node {
             staking_status: None, // We use the setter to set this field for type-safety
             container_status: 0,  // We use the setter to set this field for type-safety
             sync_status: 0,       // We use the setter to set this field for type-safety
-            self_update: node.self_update,
+            self_upgrade: node.self_upgrade,
             network: node.network,
             blockchain_name: Some(blockchain.name.clone()),
             created_by: user.map(|u| u.id.to_string()),
