@@ -1,6 +1,5 @@
-/target
-/casbin_authorization/target
-.env
 /.idea
-.vscode
-.DS_Store
+/compile/target
+blockjoy/.DS_Store
+/clients/ts/package-lock.json
+/clients/ts/node_modules
