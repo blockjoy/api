@@ -811,3 +811,12 @@ impl api::node_scheduler::ResourceAffinity {
         }
     }
 }
+
+impl api::self_upgrade::Policy {
+    fn from_model(model: models::SelfUpgradePolicy) -> Self {
+        match model {
+            models::SelfUpgradePolicy::All => Self::Unspecified,
+            models::SelfUpgradePolicy::NotMajor => Self::NotUpgradeOnMajor,
+        }
+    }
+}

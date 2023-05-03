@@ -8,8 +8,8 @@ pub struct SelfUpgrade {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SelfUpgradePolicy {
-    #[serde(rename = "unknown")]
-    Unknown,
+    #[serde(rename = "all")]
+    All,
     #[serde(rename = "not_major")]
     NotMajor,
 }
@@ -22,10 +22,10 @@ mod tests {
     #[test]
     fn parsing_correct_self_upgrade() {
         let props = [(
-            serde_json::json!({"enabled": "true", "policy": "unknown"}),
+            serde_json::json!({"enabled": "true", "policy": "all"}),
             SelfUpgrade {
                 enabled: true,
-                policy: SelfUpgradePolicy::Unknown,
+                policy: SelfUpgradePolicy::All,
             },
         )];
         for (prop, expected) in props {
