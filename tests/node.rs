@@ -27,7 +27,10 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
         name,
         version: "3.3.0",
         staking_status: models::NodeStakingStatus::Staked,
-        self_update: false,
+        self_upgrade: Some(serde_json::json!(models::SelfUpgrade {
+            enabled: true,
+            policy: models::SelfUpgradePolicy::All,
+        })),
         vcpu_count: 0,
         mem_size_bytes: 0,
         disk_size_bytes: 0,

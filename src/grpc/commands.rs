@@ -157,7 +157,6 @@ impl api::Command {
             UpdateNode => {
                 let node = models::Node::find_by_id(node_id()?, conn).await?;
                 let cmd = Command::Update(api::NodeUpdate {
-                    self_update: Some(node.self_update),
                     rules: create_rules_for_node(&node)?,
                 });
                 node_cmd_default_id(cmd)
@@ -192,7 +191,6 @@ impl api::Command {
                     node_type: 0, // We use the setter to set this field for type-safety
                     ip: node.ip_addr.clone(),
                     gateway: node.ip_gateway.clone(),
-                    self_update: node.self_update,
                     properties,
                     rules: create_rules_for_node(&node)?,
                 };

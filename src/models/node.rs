@@ -1,5 +1,5 @@
+use super::node_type::*;
 use super::schema::{nodes, orgs_users};
-use super::{node_type::*, SelfUpgrade};
 use crate::auth::FindableById;
 use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
@@ -129,9 +129,9 @@ impl FindableById for Node {
 }
 
 impl Node {
-    pub fn self_upgrade(&self) -> crate::Result<SelfUpgrade> {
-        <SelfUpgrade as serde::Deserialize>::deserialize(self.self_upgrade.clone())
-            .map_err(crate::Error::from)
+    pub fn self_upgrade(&self) -> crate::Result<super::SelfUpgrade> {
+        let res = serde_json::from_value(self.self_upgrade.clone())?;
+        Ok(res)
     }
 
     pub fn properties(&self) -> crate::Result<super::NodeProperties> {
@@ -378,7 +378,6 @@ pub struct NewNode<'a> {
     pub sync_status: NodeSyncStatus,
     pub staking_status: NodeStakingStatus,
     pub container_status: ContainerStatus,
-    pub self_update: bool,
     pub vcpu_count: i64,
     pub mem_size_bytes: i64,
     pub disk_size_bytes: i64,
@@ -391,6 +390,7 @@ pub struct NewNode<'a> {
     pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
     /// Controls whether to run the node on hosts that are full or empty.
     pub scheduler_resource: Option<super::ResourceAffinity>,
+    pub self_upgrade: Option<serde_json::Value>,
 }
 
 impl NewNode<'_> {
@@ -498,10 +498,10 @@ pub struct UpdateNode<'a> {
     pub sync_status: Option<NodeSyncStatus>,
     pub staking_status: Option<NodeStakingStatus>,
     pub container_status: Option<ContainerStatus>,
-    pub self_update: Option<bool>,
     pub address: Option<&'a str>,
     pub allow_ips: Option<serde_json::Value>,
     pub deny_ips: Option<serde_json::Value>,
+    pub self_upgrade: Option<serde_json::Value>,
 }
 
 impl UpdateNode<'_> {

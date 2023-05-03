@@ -317,6 +317,8 @@ impl api::Node {
             .map(api::FilteredIpAddr::from_model)
             .collect();
 
+        let self_upgrade = node.self_upgrade().map(Into::into)?;
+
         let mut dto = Self {
             id: node.id.to_string(),
             org_id: node.org_id.to_string(),
@@ -337,7 +339,7 @@ impl api::Node {
             staking_status: None, // We use the setter to set this field for type-safety
             container_status: 0,  // We use the setter to set this field for type-safety
             sync_status: 0,       // We use the setter to set this field for type-safety
-            self_upgrade: node.self_upgrade,
+            self_upgrade: Some(self_upgrade),
             network: node.network,
             blockchain_name: Some(blockchain.name.clone()),
             created_by: user.map(|u| u.id.to_string()),
@@ -391,6 +393,12 @@ impl api::CreateNodeRequest {
             .iter()
             .map(api::FilteredIpAddr::as_model)
             .collect();
+        let self_upgrade = self.self_upgrade.as_ref().map(|u| {
+            serde_json::json!(<api::SelfUpgrade as Into<models::SelfUpgrade>>::into(
+                u.clone()
+            ))
+        });
+
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4(),
             org_id: self.org_id.parse()?,
@@ -404,7 +412,7 @@ impl api::CreateNodeRequest {
             sync_status: models::NodeSyncStatus::Unknown,
             staking_status: models::NodeStakingStatus::Unknown,
             container_status: models::ContainerStatus::Unknown,
-            self_update: false,
+            self_upgrade,
             vcpu_count: 0,
             mem_size_bytes: 0,
             disk_size_bytes: 0,
@@ -468,6 +476,12 @@ impl api::UpdateNodeRequest {
             .map(api::FilteredIpAddr::as_model)
             .collect();
 
+        let self_upgrade = self.self_upgrade.as_ref().map(|u| {
+            serde_json::json!(<api::SelfUpgrade as Into<models::SelfUpgrade>>::into(
+                u.clone()
+            ))
+        });
+
         Ok(models::UpdateNode {
             id: self.id.parse()?,
             name: None,
@@ -479,7 +493,7 @@ impl api::UpdateNodeRequest {
             sync_status: None,
             staking_status: None,
             container_status: Some(self.container_status().into_model()),
-            self_update: self.self_update,
+            self_upgrade,
             address: self.address.as_deref(),
             // Only pass in `Some` for these fields if the lists are non-empty.
             allow_ips: (!allow_ips.is_empty())
@@ -811,12 +825,28 @@ impl api::node_scheduler::ResourceAffinity {
         }
     }
 }
+impl Into<api::SelfUpgrade> for models::SelfUpgrade {
+    fn into(self) -> api::SelfUpgrade {
+        let policy = match self.policy {
+            models::SelfUpgradePolicy::All => api::self_upgrade::UpgradePolicy::Unspecified,
+            models::SelfUpgradePolicy::NotMajor => api::self_upgrade::UpgradePolicy::NotMajor,
+        };
+        api::SelfUpgrade {
+            enabled: self.enabled,
+            policy: policy.into(),
+        }
+    }
+}
 
-impl api::self_upgrade::Policy {
-    fn from_model(model: models::SelfUpgradePolicy) -> Self {
-        match model {
-            models::SelfUpgradePolicy::All => Self::Unspecified,
-            models::SelfUpgradePolicy::NotMajor => Self::NotUpgradeOnMajor,
+impl Into<models::SelfUpgrade> for api::SelfUpgrade {
+    fn into(self) -> models::SelfUpgrade {
+        let policy = match self.policy() {
+            api::self_upgrade::UpgradePolicy::Unspecified => models::SelfUpgradePolicy::All,
+            api::self_upgrade::UpgradePolicy::NotMajor => models::SelfUpgradePolicy::NotMajor,
+        };
+        models::SelfUpgrade {
+            enabled: self.enabled,
+            policy,
         }
     }
 }

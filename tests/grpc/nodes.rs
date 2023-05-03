@@ -14,7 +14,10 @@ async fn responds_ok_for_update() {
     let node_id = node.id.to_string();
     let req = api::UpdateNodeRequest {
         id: node_id.clone(),
-        self_update: Some(true),
+        self_upgrade: Some(api::SelfUpgrade {
+            enabled: true,
+            policy: api::self_upgrade::UpgradePolicy::NotMajor.into(),
+        }),
         container_status: None,
         address: None,
         version: Some("newer is always better".to_string()),
@@ -38,9 +41,6 @@ async fn responds_ok_for_update() {
         .await
         .unwrap();
 
-    // Some assertions that the update actually worked
-    assert!(node.self_update);
-
     let allowed = node.allow_ips().unwrap()[0].clone();
     assert_eq!(allowed.ip, "127.0.0.1");
     assert_eq!(allowed.description.unwrap(), "wow so allowed");
@@ -48,6 +48,13 @@ async fn responds_ok_for_update() {
     let denied = node.deny_ips().unwrap()[0].clone();
     assert_eq!(denied.ip, "127.0.0.2");
     assert_eq!(denied.description.unwrap(), "wow so denied");
+
+    let self_upgrade_data = node.self_upgrade().unwrap();
+    assert!(self_upgrade_data.enabled);
+    assert_eq!(
+        self_upgrade_data.policy,
+        models::SelfUpgradePolicy::NotMajor
+    );
 }
 
 #[tokio::test]
@@ -99,7 +106,10 @@ async fn responds_ok_with_valid_data_for_create() {
             ip: "127.0.0.2".to_string(),
             description: Some("wow so denied".to_string()),
         }],
-        self_update: None,
+        self_upgrade: Some(api::SelfUpgrade {
+            enabled: true,
+            policy: api::self_upgrade::UpgradePolicy::NotMajor.into(),
+        }),
     };
     let node = tester.send_admin(Service::create, req).await.unwrap();
 
@@ -117,6 +127,15 @@ async fn responds_ok_with_valid_data_for_create() {
     let denied = node.deny_ips[0].clone();
     assert_eq!(denied.ip, "127.0.0.2");
     assert_eq!(denied.description.unwrap(), "wow so denied");
+
+    let self_upgrade_data = node.self_upgrade.unwrap();
+    assert_eq!(
+        self_upgrade_data,
+        api::SelfUpgrade {
+            enabled: true,
+            policy: api::self_upgrade::UpgradePolicy::NotMajor.into()
+        }
+    );
 }
 
 #[tokio::test]
@@ -141,7 +160,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         }),
         allow_ips: vec![],
         deny_ips: vec![],
-        self_update: None,
+        self_upgrade: None,
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
@@ -154,7 +173,10 @@ async fn responds_ok_with_valid_data_for_update() {
     let req = api::UpdateNodeRequest {
         id: node.id.to_string(),
         version: Some("10".to_string()),
-        self_update: Some(false),
+        self_upgrade: Some(api::SelfUpgrade {
+            enabled: true,
+            policy: api::self_upgrade::UpgradePolicy::NotMajor.into(),
+        }),
         container_status: None,
         address: Some("My main noderoni".to_string()),
         allow_ips: vec![],
