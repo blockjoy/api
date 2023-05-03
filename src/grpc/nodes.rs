@@ -825,27 +825,27 @@ impl api::node_scheduler::ResourceAffinity {
         }
     }
 }
-impl Into<api::SelfUpgrade> for models::SelfUpgrade {
-    fn into(self) -> api::SelfUpgrade {
-        let policy = match self.policy {
+impl From<models::SelfUpgrade> for api::SelfUpgrade {
+    fn from(val: models::SelfUpgrade) -> Self {
+        let policy = match val.policy {
             models::SelfUpgradePolicy::All => api::self_upgrade::UpgradePolicy::Unspecified,
             models::SelfUpgradePolicy::NotMajor => api::self_upgrade::UpgradePolicy::NotMajor,
         };
         api::SelfUpgrade {
-            enabled: self.enabled,
+            enabled: val.enabled,
             policy: policy.into(),
         }
     }
 }
 
-impl Into<models::SelfUpgrade> for api::SelfUpgrade {
-    fn into(self) -> models::SelfUpgrade {
-        let policy = match self.policy() {
+impl From<api::SelfUpgrade> for models::SelfUpgrade {
+    fn from(val: api::SelfUpgrade) -> Self {
+        let policy = match val.policy() {
             api::self_upgrade::UpgradePolicy::Unspecified => models::SelfUpgradePolicy::All,
             api::self_upgrade::UpgradePolicy::NotMajor => models::SelfUpgradePolicy::NotMajor,
         };
         models::SelfUpgrade {
-            enabled: self.enabled,
+            enabled: val.enabled,
             policy,
         }
     }
