@@ -120,6 +120,17 @@ pub struct NodeFilter {
     pub blockchains: Vec<uuid::Uuid>,
 }
 
+#[derive(Clone, Debug)]
+pub struct NodeSelfUpgradeFilter {
+    pub node_type: NodeType,
+    // blockchain in snake_case.
+    pub blockchain: String,
+    // Semantic versioning.
+    pub version: String,
+}
+
+impl NodeSelfUpgradeFilter {}
+
 #[axum::async_trait]
 impl FindableById for Node {
     async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
@@ -338,6 +349,17 @@ impl Node {
 
     pub fn deny_ips(&self) -> crate::Result<Vec<FilteredIpAddr>> {
         Self::filtered_ip_addrs(self.deny_ips.clone())
+    }
+
+    pub async fn find_all_active_by_version(
+        host_id: uuid::Uuid,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Vec<Self>> {
+        let nodes = nodes::table
+            .filter(nodes::host_id.eq(host_id))
+            .get_results(conn)
+            .await?;
+        Ok(nodes)
     }
 
     fn filtered_ip_addrs(value: serde_json::Value) -> crate::Result<Vec<FilteredIpAddr>> {

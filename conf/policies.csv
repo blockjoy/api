@@ -55,6 +55,8 @@ p, master_admin, /blockjoy.v1.UserService/Get, POST
 p, master_admin, /blockjoy.v1.UserService/Update, POST
 p, master_admin, /blockjoy.v1.UserService/Delete, POST
 
+p, master_admin, /blockjoy.v1.BabelService/Notify, POST
+
 g, admin, master_admin
 g, user, master_admin
 g, reset_role, master_admin

@@ -1,4 +1,5 @@
 pub mod authentication;
+pub mod babel;
 pub mod blockchains;
 pub mod commands;
 pub mod discovery;

@@ -84,6 +84,9 @@ pub enum Error {
 
     #[error("Could not select a matching host")]
     NoMatchingHostError(String),
+
+    #[error("Could not convert babel config to filter for node query {0}")]
+    BabelConfigConvertError(String),
 }
 
 impl Error {
