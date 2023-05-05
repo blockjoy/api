@@ -1,5 +1,5 @@
-use super::node_type::*;
-use super::schema::{nodes, orgs_users};
+use super::schema::{blockchains, nodes, orgs_users};
+use super::{node_type::*, string_to_array};
 use crate::auth::FindableById;
 use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
@@ -351,14 +351,30 @@ impl Node {
         Self::filtered_ip_addrs(self.deny_ips.clone())
     }
 
-    pub async fn find_all_active_by_version(
-        host_id: uuid::Uuid,
+    pub async fn find_all_to_upgrade(
+        filter: &NodeSelfUpgradeFilter,
         conn: &mut AsyncPgConnection,
     ) -> crate::Result<Vec<Self>> {
         let nodes = nodes::table
-            .filter(nodes::host_id.eq(host_id))
+            .inner_join(blockchains::table.on(nodes::blockchain_id.eq(blockchains::id)))
+            .filter(
+                nodes::self_update
+                    .eq(true)
+                    .and(nodes::node_type.eq(filter.node_type))
+                    .and(
+                        string_to_array(nodes::version, ".")
+                            .lt(string_to_array(filter.version.to_string(), ".")),
+                    )
+                    .and(blockchains::name.eq(filter.blockchain.to_string())),
+            )
+            .select(nodes::all_columns)
             .get_results(conn)
-            .await?;
+            .await
+            .map_err(|e| {
+                tracing::error!("Error finding nodes to upgrade: {e}");
+                crate::Error::from(e)
+            })?;
+
         Ok(nodes)
     }
 
