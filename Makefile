@@ -27,6 +27,11 @@ test:
 	@cargo test
 	@docker-compose down
 
+test-with:
+	@docker-compose up -d
+	@cargo test ${test}
+	@docker-compose down
+
 start-db:
 	@docker-compose up -d
 	@sleep 2

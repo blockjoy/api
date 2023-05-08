@@ -2,9 +2,10 @@ use std::str::FromStr;
 
 use crate::models::{self, NodeSelfUpgradeFilter, NodeType};
 use diesel_async::scoped_futures::ScopedFutureExt;
-use tokio::task::JoinSet;
 use tonic::Request;
+use tracing::log::{debug, info};
 
+use super::api;
 // Import generated proto code
 use super::api::{babel_service_server::BabelService, BabelNewVersionRequest};
 
@@ -15,59 +16,51 @@ impl BabelService for super::GrpcImpl {
     async fn notify(&self, request: Request<BabelNewVersionRequest>) -> super::Result<()> {
         let refresh_token = super::get_refresh_token(&request);
         let req = request.into_inner();
-        self.trx(|c| {
-            async move {
-                let filter = req
-                    .clone()
-                    .try_into()
-                    .map_err(<crate::Error as Into<tonic::Status>>::into)?;
-                let nodes_to_upgrade = models::Node::find_all_to_upgrade(&filter, c)
-                    .await
-                    .map_err(<crate::Error as Into<tonic::Status>>::into)?;
-                let mut tasks = JoinSet::new();
-                nodes_to_upgrade.into_iter().for_each(|node| {
-                    let handler = self.clone();
-                    let req_cloned = req.clone();
-                    tasks.spawn(
-                        async move { handler.send_upgrade_command(&node, req_cloned).await },
-                    );
-                });
-                while let Some(task) = tasks.join_next().await {
-                    if let Err(error) = task.unwrap() {
-                        tracing::error!("Error upgrading nodes {error:?}");
-                        return Err(crate::Error::UpgradeProcessError(format!(
-                            "Error upgrading nodes {error:?}"
-                        )));
-                    }
-                }
-                Ok(())
-            }
-            .scope_boxed()
-        })
-        .await?;
-        Ok(super::response_with_refresh_token(refresh_token, ())?)
-    }
-}
+        let mut conn = self.conn().await?;
+        let filter = req
+            .clone()
+            .try_into()
+            .map_err(<crate::Error as Into<tonic::Status>>::into)?;
+        let nodes_to_upgrade = models::Node::find_all_to_upgrade(&filter, &mut conn)
+            .await
+            .map_err(<crate::Error as Into<tonic::Status>>::into)?;
+        debug!("Nodes to upgrade: {:?}", nodes_to_upgrade);
 
-impl super::GrpcImpl {
-    async fn send_upgrade_command(
-        &self,
-        node: &models::Node,
-        request: BabelNewVersionRequest,
-    ) -> crate::Result<()> {
-        //let host_id = req.host_id(c).await?;
-        //let node_id = req.node_id()?;
-        //let command_type = req.command_type()?;
-        //let command = req
-        //    .as_new(host_id, node_id, command_type)?
-        //    .create(c)
-        //    .await?;
-        //let command = api::Command::from_model(&command, c).await?;
-        //self.notifier.commands_sender().send(&command).await?;
-        //let response = api::CommandServiceCreateResponse {
-        //    command: Some(command),
-        //};
-        Ok(())
+        let upgraded_nodes = self
+            .trx(|c| {
+                async move {
+                    let mut nodes_ids = vec![];
+                    for mut node in nodes_to_upgrade {
+                        node.version = filter.version.clone();
+                        node.node_type = filter.node_type;
+                        let new_command = models::NewCommand {
+                            host_id: node.host_id,
+                            cmd: models::CommandType::UpgradeNode,
+                            sub_cmd: None,
+                            node_id: Some(node.id),
+                        };
+                        let node_updated = node.update(c).await?;
+                        debug!("Node updated: {:?}", node_updated);
+                        let cmd = new_command.create(c).await?;
+                        let command = api::Command::from_model(&cmd, c).await?;
+                        self.notifier.commands_sender().send(&command).await?;
+                        debug!("Command sent: {:?}", command);
+                        nodes_ids.push(node.id);
+                    }
+                    Ok(nodes_ids)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        info!(
+            "Nodes to be upgraded has been processed: {:?}",
+            upgraded_nodes
+        );
+        Ok(super::response_with_refresh_token(
+            refresh_token,
+            upgraded_nodes,
+        )?)
     }
 }
 
@@ -77,14 +70,12 @@ impl TryFrom<BabelNewVersionRequest> for models::NodeSelfUpgradeFilter {
         req.config
             .map(|conf| {
                 let node_type = NodeType::from_str(&conf.node_type).map_err(|e| {
-                    crate::Error::BabelConfigConvertError(
-                        "Cannot convert node_type {e:?}".to_string(),
-                    )
+                    crate::Error::BabelConfigConvertError(format!("Cannot convert node_type {e:?}"))
                 })?;
                 Ok(NodeSelfUpgradeFilter {
                     version: conf.node_version,
                     node_type,
-                    blockchain: conf.protocol.into(),
+                    blockchain: conf.protocol,
                 })
             })
             .unwrap_or_else(|| {

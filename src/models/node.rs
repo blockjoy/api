@@ -268,8 +268,10 @@ impl Node {
     }
 
     pub async fn update(self, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
-        let node = diesel::update(nodes::table.find(self.id))
-            .set((self, nodes::updated_at.eq(chrono::Utc::now())))
+        let mut node_to_update = self.clone();
+        node_to_update.updated_at = chrono::Utc::now();
+        let node = diesel::update(nodes::table.find(node_to_update.id))
+            .set(node_to_update)
             .get_result(conn)
             .await?;
         Ok(node)
@@ -367,6 +369,7 @@ impl Node {
                     )
                     .and(blockchains::name.eq(filter.blockchain.to_string())),
             )
+            .distinct_on(nodes::id)
             .select(nodes::all_columns)
             .get_results(conn)
             .await

@@ -20,6 +20,7 @@ pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
 pub use test::TestDb;
 
 mod test {
+
     use crate::auth::expiration_provider::ExpirationProvider;
     use crate::auth::{
         HostRefreshToken, JwtToken, TokenClaim, TokenRole, TokenType, UserRefreshToken,
@@ -101,6 +102,25 @@ mod test {
             }
             db.seed().await;
             db
+        }
+
+        pub async fn create_node<'a>(
+            node: &models::NewNode<'a>,
+            host_id_param: &uuid::Uuid,
+            ip_add_param: &str,
+            dns_id: &str,
+            conn: &mut AsyncPgConnection,
+        ) {
+            diesel::insert_into(nodes::table)
+                .values((
+                    node,
+                    nodes::host_id.eq(host_id_param),
+                    nodes::ip_addr.eq(ip_add_param),
+                    nodes::dns_record_id.eq(dns_id),
+                ))
+                .execute(conn)
+                .await
+                .unwrap();
         }
 
         async fn tear_down(test_db_name: String, main_db_url: String) {
