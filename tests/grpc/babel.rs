@@ -35,7 +35,7 @@ fn create_new_node<'a>(
         mem_size_bytes: 0,
         disk_size_bytes: 0,
         network: "some network",
-        node_type: node_type.clone(),
+        node_type: *node_type,
         created_by: user_id.to_owned(),
         scheduler_similarity: None,
         scheduler_resource: Some(models::ResourceAffinity::MostResources),
