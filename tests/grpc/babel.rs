@@ -13,8 +13,8 @@ async fn test_notify_success() {
     let host_id = tester.host().await.id;
     let ip_address = tester.host().await.ip_addr;
     // Create a loop of 20 nodes and store it in db. Only even number of them are upgradable.
-    stream::iter(0..20)
-        .for_each(|i| {
+    let mut ids = stream::iter(0..20)
+        .filter_map(|i| {
             let t = tester.pool.clone();
             let h = host_id;
             let ip = ip_address.clone();
@@ -52,8 +52,14 @@ async fn test_notify_success() {
                 let mut conn = t.conn().await.unwrap();
                 TestDb::create_node(&req, &h, &ip, format!("dns-id-{}", i).as_str(), &mut conn)
                     .await;
+                if i % 2 == 0 {
+                    Some(req.id.to_string())
+                } else {
+                    None
+                }
             }
         })
+        .collect::<Vec<String>>()
         .await;
 
     // Create request object
@@ -66,5 +72,8 @@ async fn test_notify_success() {
         }),
     };
 
-    tester.send_admin(Service::notify, request).await.unwrap();
+    let mut response = tester.send_admin(Service::notify, request).await.unwrap();
+    response.nodes_ids.sort();
+    ids.sort();
+    assert_eq!(ids, response.nodes_ids);
 }

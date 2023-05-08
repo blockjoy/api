@@ -5,7 +5,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::Request;
 use tracing::log::{debug, info};
 
-use super::api;
+use super::api::{self, BabelNewVersionResponse};
 // Import generated proto code
 use super::api::{babel_service_server::BabelService, BabelNewVersionRequest};
 
@@ -13,7 +13,10 @@ use super::api::{babel_service_server::BabelService, BabelNewVersionRequest};
 #[tonic::async_trait]
 impl BabelService for super::GrpcImpl {
     // Define the implementation of the upgrade method
-    async fn notify(&self, request: Request<BabelNewVersionRequest>) -> super::Result<()> {
+    async fn notify(
+        &self,
+        request: Request<BabelNewVersionRequest>,
+    ) -> super::Result<BabelNewVersionResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let req = request.into_inner();
         let mut conn = self.conn().await?;
@@ -31,6 +34,7 @@ impl BabelService for super::GrpcImpl {
                 async move {
                     let mut nodes_ids = vec![];
                     for mut node in nodes_to_upgrade {
+                        let node_id = node.id.to_string();
                         node.version = filter.version.clone();
                         node.node_type = filter.node_type;
                         let new_command = models::NewCommand {
@@ -45,7 +49,7 @@ impl BabelService for super::GrpcImpl {
                         let command = api::Command::from_model(&cmd, c).await?;
                         self.notifier.commands_sender().send(&command).await?;
                         debug!("Command sent: {:?}", command);
-                        nodes_ids.push(node.id);
+                        nodes_ids.push(node_id);
                     }
                     Ok(nodes_ids)
                 }
@@ -57,10 +61,10 @@ impl BabelService for super::GrpcImpl {
             "Nodes to be upgraded has been processed: {:?}",
             upgraded_nodes
         );
-        Ok(super::response_with_refresh_token(
-            refresh_token,
-            upgraded_nodes,
-        )?)
+        let response = BabelNewVersionResponse {
+            nodes_ids: upgraded_nodes,
+        };
+        Ok(super::response_with_refresh_token(refresh_token, response)?)
     }
 }
 
