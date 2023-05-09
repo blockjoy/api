@@ -19,6 +19,7 @@ impl BabelService for super::GrpcImpl {
     ) -> super::Result<BabelNewVersionResponse> {
         let refresh_token = super::get_refresh_token(&request);
         let req = request.into_inner();
+        debug!("New Request Version: {:?}", req);
         let mut conn = self.conn().await?;
         let filter = req
             .clone()
@@ -32,6 +33,14 @@ impl BabelService for super::GrpcImpl {
         let upgraded_nodes = self
             .trx(|c| {
                 async move {
+                    let mut blockchain =
+                        models::Blockchain::find_by_name(&filter.blockchain, c).await?;
+                    blockchain.set_new_supported_node_type_version(&filter)?;
+                    blockchain.update(c).await?;
+                    debug!(
+                        "Blockchain updated with new supported types: {:?}",
+                        blockchain
+                    );
                     let mut nodes_ids = vec![];
                     for mut node in nodes_to_upgrade {
                         let node_id = node.id.to_string();

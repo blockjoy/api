@@ -84,11 +84,13 @@ async fn test_notify_success() {
         .collect::<Vec<String>>()
         .await;
 
+    let target_version = "2.0.0";
+
     // Create request object
     let request = BabelNewVersionRequest {
         uuid: uuid::Uuid::new_v4().to_string(),
         config: Some(BabelConfig {
-            node_version: "2.0.0".to_string(),
+            node_version: target_version.to_string(),
             node_type: models::NodeType::Validator.to_string(),
             protocol: blockchain.name.to_string(),
         }),
@@ -98,6 +100,15 @@ async fn test_notify_success() {
     response.nodes_ids.sort();
     ids.sort();
     assert_eq!(ids, response.nodes_ids);
+
+    // Check that blockchain supported_node_types was updated with new version
+    assert!(tester
+        .blockchain()
+        .await
+        .supported_node_types()
+        .unwrap()
+        .into_iter()
+        .any(|x| x.version == target_version));
 }
 
 #[tokio::test]
