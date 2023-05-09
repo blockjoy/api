@@ -1,6 +1,5 @@
 use super::node_type::*;
-use super::schema::{nodes, orgs_users};
-use crate::auth::FindableById;
+use super::schema::nodes;
 use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
 use anyhow::anyhow;
@@ -120,25 +119,34 @@ pub struct NodeFilter {
     pub blockchains: Vec<uuid::Uuid>,
 }
 
-#[axum::async_trait]
-impl FindableById for Node {
-    async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
+impl Node {
+    pub async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
         let node = nodes::table.find(id).get_result(conn).await?;
         Ok(node)
     }
-}
 
-impl Node {
+    pub async fn find_by_ids(
+        ids: impl IntoIterator<Item = uuid::Uuid>,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Vec<Self>> {
+        let mut ids: Vec<uuid::Uuid> = ids.into_iter().collect();
+        ids.sort();
+        ids.dedup();
+        let node = nodes::table
+            .filter(nodes::id.eq_any(ids))
+            .get_results(conn)
+            .await?;
+        Ok(node)
+    }
+
     pub fn properties(&self) -> crate::Result<super::NodeProperties> {
         let res = serde_json::from_value(self.properties.clone())?;
         Ok(res)
     }
 
     pub async fn all(conn: &mut AsyncPgConnection) -> crate::Result<Vec<Self>> {
-        nodes::table
-            .get_results(conn)
-            .await
-            .map_err(crate::Error::from)
+        let nodes = nodes::table.get_results(conn).await?;
+        Ok(nodes)
     }
 
     pub async fn find_all_by_host(
@@ -154,32 +162,13 @@ impl Node {
 
     pub async fn find_all_by_org(
         org_id: uuid::Uuid,
-        offset: i64,
-        limit: i64,
         conn: &mut AsyncPgConnection,
     ) -> crate::Result<Vec<Self>> {
         let nodes = nodes::table
             .filter(nodes::org_id.eq(org_id))
-            .offset(offset)
-            .limit(limit)
             .get_results(conn)
             .await?;
         Ok(nodes)
-    }
-
-    // TODO: Check role if user is allowed to delete the node
-    pub async fn belongs_to_user_org(
-        org_id: uuid::Uuid,
-        user_id: uuid::Uuid,
-        conn: &mut AsyncPgConnection,
-    ) -> crate::Result<bool> {
-        let query = orgs_users::table
-            .filter(orgs_users::org_id.eq(org_id))
-            .filter(orgs_users::user_id.eq(user_id));
-        let exists = diesel::select(diesel::dsl::exists(query))
-            .get_result(conn)
-            .await?;
-        Ok(exists)
     }
 
     pub async fn filter(
@@ -534,6 +523,69 @@ impl UpdateNodeMetrics {
                 .execute(conn)
                 .await?;
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models;
+
+    #[tokio::test]
+    async fn can_filter_nodes() -> anyhow::Result<()> {
+        let mut name = String::from("test_");
+        name.push_str(&petname::petname(3, "_"));
+
+        let db = crate::TestDb::setup().await;
+        let blockchain = db.blockchain().await;
+        let user = db.user().await;
+        let org = db.org().await;
+        let req = NewNode {
+            id: uuid::Uuid::new_v4(),
+            org_id: org.id,
+            blockchain_id: blockchain.id,
+            properties: serde_json::to_value(models::NodeProperties {
+                version: None,
+                properties: Some(vec![]),
+            })?,
+            chain_status: NodeChainStatus::Unknown,
+            sync_status: NodeSyncStatus::Syncing,
+            container_status: ContainerStatus::Installing,
+            block_height: None,
+            node_data: None,
+            name,
+            version: "3.3.0",
+            staking_status: NodeStakingStatus::Staked,
+            self_update: false,
+            vcpu_count: 0,
+            mem_size_bytes: 0,
+            disk_size_bytes: 0,
+            network: "some network",
+            node_type: NodeType::Validator,
+            created_by: user.id,
+            scheduler_similarity: None,
+            scheduler_resource: Some(models::ResourceAffinity::MostResources),
+            allow_ips: serde_json::json!([]),
+            deny_ips: serde_json::json!([]),
+        };
+
+        let mut conn = db.conn().await;
+        req.create(None, &mut conn).await.unwrap();
+
+        let filter = models::NodeFilter {
+            status: vec![models::NodeChainStatus::Unknown],
+            node_types: vec![],
+            blockchains: vec![blockchain.id],
+            limit: 10,
+            offset: 0,
+            org_id: org.id,
+        };
+
+        let nodes = models::Node::filter(filter, &mut conn).await?;
+
+        assert_eq!(nodes.len(), 1);
+
         Ok(())
     }
 }

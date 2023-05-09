@@ -20,15 +20,11 @@ pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
 pub use test::TestDb;
 
 mod test {
-    use crate::auth::expiration_provider::ExpirationProvider;
-    use crate::auth::{
-        HostRefreshToken, JwtToken, TokenClaim, TokenRole, TokenType, UserRefreshToken,
-    };
-    use crate::models;
     use crate::models::schema::{blockchains, commands, nodes, orgs};
+    use crate::{auth, models};
     use diesel::migration::MigrationSource;
     use diesel::prelude::*;
-    use diesel_async::pooled_connection::bb8::Pool;
+    use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
     use diesel_async::pooled_connection::AsyncDieselConnectionManager;
     use diesel_async::scoped_futures::ScopedFutureExt;
     use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
@@ -52,9 +48,8 @@ mod test {
     }
 
     impl TestDb {
-        /// Sets up a new test database. That means creating a new db with a random name,
-        /// connecting to that new database and then migrating it and filling it with our seed
-        /// data.
+        /// Sets up a new test database. That means creating a new db with a random name, connecting
+        /// to that new database and then migrating it and filling it with our seed data.
         pub async fn setup() -> TestDb {
             dotenv::dotenv().ok();
 
@@ -101,6 +96,10 @@ mod test {
             }
             db.seed().await;
             db
+        }
+
+        pub async fn conn(&self) -> PooledConnection<'_, AsyncPgConnection> {
+            self.pool.conn().await.unwrap()
         }
 
         async fn tear_down(test_db_name: String, main_db_url: String) {
@@ -169,6 +168,8 @@ mod test {
                 .create(conn)
                 .await
                 .unwrap();
+
+            models::User::confirm(admin.id, conn).await.unwrap();
 
             let host1 = models::NewHost {
                 name: "Host-1",
@@ -253,7 +254,8 @@ mod test {
         }
 
         pub async fn host(&self) -> models::Host {
-            models::Host::find_by_name("Host-1", &mut self.pool.conn().await.unwrap())
+            let mut conn = self.conn().await;
+            models::Host::find_by_name("Host-1", &mut conn)
                 .await
                 .unwrap()
         }
@@ -261,17 +263,15 @@ mod test {
         pub async fn node(&self) -> models::Node {
             nodes::table
                 .limit(1)
-                .get_result(&mut self.pool.conn().await.unwrap())
+                .get_result(&mut self.conn().await)
                 .await
                 .unwrap()
         }
 
         pub async fn org(&self) -> models::Org {
-            use crate::auth::FindableById;
             let id = "08dede71-b97d-47c1-a91d-6ba0997b3cdd".parse().unwrap();
-            models::Org::find_by_id(id, &mut self.pool.conn().await.unwrap())
-                .await
-                .unwrap()
+            let mut conn = self.conn().await;
+            models::Org::find_by_id(id, &mut conn).await.unwrap()
         }
 
         pub async fn command(&self) -> models::Command {
@@ -285,47 +285,42 @@ mod test {
                     commands::node_id.eq(node.id),
                     commands::cmd.eq(models::CommandType::RestartNode),
                 ))
-                .get_result(&mut self.pool.conn().await.unwrap())
+                .get_result(&mut self.conn().await)
                 .await
                 .unwrap()
         }
 
-        pub async fn admin_user(&self) -> models::User {
-            models::User::find_by_email("admin@here.com", &mut self.pool.conn().await.unwrap())
+        pub async fn user(&self) -> models::User {
+            let mut conn = self.conn().await;
+            models::User::find_by_email("admin@here.com", &mut conn)
                 .await
                 .expect("Could not get admin test user from db.")
+        }
+
+        /// This user is unconfirmed.
+        pub async fn unconfirmed_user(&self) -> models::User {
+            let mut conn = self.conn().await;
+            models::User::find_by_email("test@here.com", &mut conn)
+                .await
+                .expect("Could not get pleb test user from db.")
         }
 
         pub async fn blockchain(&self) -> models::Blockchain {
             blockchains::table
                 .filter(blockchains::name.eq("Ethereum"))
-                .get_result(&mut self.pool.conn().await.unwrap())
+                .get_result(&mut self.conn().await)
                 .await
                 .unwrap()
         }
 
-        pub fn user_refresh_token(&self, id: Uuid) -> UserRefreshToken {
-            let claim = TokenClaim::new(
-                id,
-                ExpirationProvider::expiration(TokenType::UserRefresh),
-                TokenType::UserRefresh,
-                TokenRole::User,
-                None,
-            );
-
-            UserRefreshToken::try_new(claim).unwrap()
+        pub fn user_refresh_token(&self, user_id: Uuid) -> auth::Refresh {
+            let iat = chrono::Utc::now();
+            auth::Refresh::new(user_id, iat).unwrap()
         }
 
-        pub fn host_refresh_token(&self, id: Uuid) -> HostRefreshToken {
-            let claim = TokenClaim::new(
-                id,
-                ExpirationProvider::expiration(TokenType::HostRefresh),
-                TokenType::HostRefresh,
-                TokenRole::Service,
-                None,
-            );
-
-            HostRefreshToken::try_new(claim).unwrap()
+        pub fn host_refresh_token(&self, host_id: Uuid) -> auth::Refresh {
+            let iat = chrono::Utc::now();
+            auth::Refresh::new(host_id, iat).unwrap()
         }
 
         fn test_node_properties() -> serde_json::Value {

@@ -1,12 +1,11 @@
 use crate::auth::key_provider::KeyProviderError;
-use crate::auth::TokenError;
 use crate::cloudflare::DnsError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use diesel_async::pooled_connection::bb8::RunError;
 use std::num::TryFromIntError;
-use tonic::Status;
+use tonic::metadata::errors::InvalidMetadataValue;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -48,9 +47,6 @@ pub enum Error {
     #[error("Missing or invalid env param value: {0}")]
     EnvError(dotenv::Error),
 
-    #[error("Error handling token: {0}")]
-    TokenError(TokenError),
-
     #[error("Given user is not yet confirmed")]
     UserConfirmationError,
 
@@ -84,6 +80,12 @@ pub enum Error {
 
     #[error("Could not select a matching host")]
     NoMatchingHostError(String),
+
+    #[error("{0}")]
+    BadMetaData(#[from] InvalidMetadataValue),
+
+    #[error("{0}")]
+    ToStrError(#[from] tonic::metadata::errors::ToStrError),
 }
 
 impl Error {
@@ -137,9 +139,10 @@ impl From<Error> for tonic::Status {
             ValidationError(_) => tonic::Status::invalid_argument(msg),
             NotFoundError(_) => tonic::Status::not_found(msg),
             DuplicateResource { .. } => tonic::Status::invalid_argument(msg),
+            UuidParseError(_) | IpParseError(_) => tonic::Status::invalid_argument(msg),
             InvalidAuthentication(_) => tonic::Status::unauthenticated(msg),
             InsufficientPermissions(_) => tonic::Status::permission_denied(msg),
-            UuidParseError(_) | IpParseError(_) => tonic::Status::invalid_argument(msg),
+            UserConfirmationError => tonic::Status::unauthenticated(msg),
             NoMatchingHostError(_) => tonic::Status::resource_exhausted(msg),
             InvalidArgument(s) => s,
             _ => tonic::Status::internal(msg),
@@ -187,18 +190,6 @@ impl IntoResponse for Error {
         let response = (status_code, Json(self.to_string())).into_response();
         tracing::error!("{:?}", response);
         response
-    }
-}
-
-impl From<TokenError> for Status {
-    fn from(e: TokenError) -> Self {
-        Status::internal(format!("Token encode error {e:?}"))
-    }
-}
-
-impl From<TokenError> for Error {
-    fn from(e: TokenError) -> Self {
-        Error::TokenError(e)
     }
 }
 

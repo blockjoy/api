@@ -1,4 +1,3 @@
-use crate::auth::FindableById;
 use crate::grpc::api;
 use crate::grpc::notification::Notifier;
 use crate::models::schema::commands;
@@ -60,6 +59,11 @@ pub struct Command {
 type Pending = dsl::Filter<commands::table, dsl::IsNull<commands::exit_status>>;
 
 impl Command {
+    pub async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let cmd = commands::table.find(id).get_result(conn).await?;
+        Ok(cmd)
+    }
+
     pub async fn find_by_host(host_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Vec<Command>> {
         let commands = commands::table
             .filter(commands::host_id.eq(host_id))
@@ -111,16 +115,17 @@ impl Command {
         Ok(())
     }
 
+    pub async fn host(&self, conn: &mut AsyncPgConnection) -> Result<super::Host> {
+        super::Host::find_by_id(self.host_id, conn).await
+    }
+
+    pub async fn node(&self, conn: &mut AsyncPgConnection) -> Result<Option<super::Node>> {
+        let Some(node_id) = self.node_id else { return Ok(None) };
+        Ok(Some(super::Node::find_by_id(node_id, conn).await?))
+    }
+
     fn pending() -> Pending {
         commands::table.filter(commands::exit_status.is_null())
-    }
-}
-
-#[axum::async_trait]
-impl FindableById for Command {
-    async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let cmd = commands::table.find(id).get_result(conn).await?;
-        Ok(cmd)
     }
 }
 

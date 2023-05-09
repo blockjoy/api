@@ -1,4 +1,3 @@
-use blockvisor_api::auth::FindableById;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
 
@@ -9,7 +8,6 @@ async fn responds_ok_for_update() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
     let token = tester.host_token(&host);
-    let refresh = tester.refresh_for(&token);
     let node = tester.node().await;
     let node_id = node.id.to_string();
     let req = api::NodeServiceUpdateRequest {
@@ -28,10 +26,7 @@ async fn responds_ok_for_update() {
         }],
     };
 
-    tester
-        .send_with(Service::update, req, token, refresh)
-        .await
-        .unwrap();
+    tester.send_with(Service::update, req, token).await.unwrap();
 
     let mut conn = tester.conn().await;
     let node = models::Node::find_by_id(node_id.parse().unwrap(), &mut conn)
@@ -74,7 +69,7 @@ async fn responds_ok_with_id_for_get() {
 async fn responds_ok_with_valid_data_for_create() {
     let tester = super::Tester::new().await;
     let blockchain = tester.blockchain().await;
-    let user = tester.admin_user().await;
+    let user = tester.user().await;
     let org = tester.org_for(&user).await;
     let req = api::NodeServiceCreateRequest {
         org_id: org.id.to_string(),

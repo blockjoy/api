@@ -1,7 +1,6 @@
 //! This module contains code regarding recovery from failed commands.
 
 use crate::{
-    auth::FindableById,
     grpc::{self, api},
     models,
 };

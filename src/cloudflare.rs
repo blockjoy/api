@@ -76,7 +76,7 @@ impl CloudflareApi {
     pub fn new(origin_ip: String) -> DnsResult<Self> {
         let zone_id = std::env::var("CF_ZONE")?;
         let base_url = std::env::var("CF_BASE_URL")?;
-        let token = KeyProvider::get_var("CF_TOKEN")?.value;
+        let token = KeyProvider::get_var("CF_TOKEN")?;
 
         Ok(Self {
             base_url,

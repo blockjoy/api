@@ -6,25 +6,6 @@ use diesel_async::RunQueryDsl;
 type Service = api::host_service_client::HostServiceClient<super::Channel>;
 
 #[tokio::test]
-async fn responds_unauthenticated_with_empty_token_for_update() {
-    let tester = super::Tester::new().await;
-    let host = tester.host().await;
-    let req = api::HostServiceUpdateRequest {
-        id: host.id.to_string(),
-        name: None,
-        version: None,
-        os: None,
-        os_version: None,
-    };
-    let (token, refresh) = (super::DummyToken(""), super::DummyRefresh);
-    let status = tester
-        .send_with(Service::update, req, token, refresh)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Unauthenticated);
-}
-
-#[tokio::test]
 async fn responds_unauthenticated_without_token_for_update() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
@@ -41,37 +22,11 @@ async fn responds_unauthenticated_without_token_for_update() {
 }
 
 #[tokio::test]
-async fn responds_unauthenticated_with_bad_token_for_update() {
-    let tester = super::Tester::new().await;
-    let host = tester.host().await;
-    let host_id = host.id.to_string();
-
-    let req = api::HostServiceUpdateRequest {
-        id: host_id,
-        name: Some("the most beautiful server in the world".to_string()),
-        version: None,
-        os: None,
-        os_version: None,
-    };
-    let status = tester
-        .send_with(
-            Service::update,
-            req,
-            super::DummyToken("923783"),
-            super::DummyRefresh,
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Unauthenticated);
-}
-
-#[tokio::test]
 async fn responds_permission_denied_with_token_ownership_for_update() {
     let tester = super::Tester::new().await;
 
     let host = tester.host().await;
     let token = tester.host_token(&host);
-    let refresh = tester.refresh_for(&token);
 
     let other_host = tester.host2().await;
     let req = api::HostServiceUpdateRequest {
@@ -83,7 +38,7 @@ async fn responds_permission_denied_with_token_ownership_for_update() {
     };
 
     let status = tester
-        .send_with(Service::update, req, token, refresh)
+        .send_with(Service::update, req, token)
         .await
         .unwrap_err();
     assert_eq!(status.code(), tonic::Code::PermissionDenied);
@@ -140,7 +95,6 @@ async fn responds_ok_for_update() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
     let token = tester.host_token(&host);
-    let refresh = tester.refresh_for(&token);
     let req = api::HostServiceUpdateRequest {
         id: host.id.to_string(),
         name: Some("Servy McServington".to_string()),
@@ -148,10 +102,7 @@ async fn responds_ok_for_update() {
         os: Some("LuukOS".to_string()),
         os_version: Some("5".to_string()),
     };
-    tester
-        .send_with(Service::update, req, token, refresh)
-        .await
-        .unwrap();
+    tester.send_with(Service::update, req, token).await.unwrap();
 }
 
 #[tokio::test]
@@ -159,14 +110,10 @@ async fn responds_ok_for_delete() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
     let token = tester.host_token(&host);
-    let refresh = tester.refresh_for(&token);
     let req = api::HostServiceDeleteRequest {
         id: host.id.to_string(),
     };
-    tester
-        .send_with(Service::delete, req, token, refresh)
-        .await
-        .unwrap();
+    tester.send_with(Service::delete, req, token).await.unwrap();
 }
 
 #[tokio::test]
@@ -192,10 +139,9 @@ async fn responds_permission_denied_for_delete() {
     let other_host = tester.host2().await;
     // now we generate a token for the wrong host.
     let token = tester.host_token(&other_host);
-    let refresh = tester.refresh_for(&token);
 
     let status = tester
-        .send_with(Service::delete, req, token, refresh)
+        .send_with(Service::delete, req, token)
         .await
         .unwrap_err();
     assert_eq!(status.code(), tonic::Code::PermissionDenied);

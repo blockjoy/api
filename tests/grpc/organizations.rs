@@ -1,4 +1,5 @@
 use blockvisor_api::{auth, grpc::api, models};
+use std::collections::HashMap;
 
 type Service = api::org_service_client::OrgServiceClient<super::Channel>;
 
@@ -14,7 +15,7 @@ async fn responds_ok_for_create() {
 #[tokio::test]
 async fn responds_ok_for_get() {
     let tester = super::Tester::new().await;
-    let admin = tester.admin_user().await;
+    let admin = tester.user().await;
     let id = tester.org_for(&admin).await.id.to_string();
     let req = api::OrgServiceGetRequest { id };
     tester.send_admin(Service::get, req).await.unwrap();
@@ -23,7 +24,7 @@ async fn responds_ok_for_get() {
 #[tokio::test]
 async fn responds_ok_for_update() {
     let tester = super::Tester::new().await;
-    let user = tester.admin_user().await;
+    let user = tester.user().await;
     let org_id = tester.org_for(&user).await.id.to_string();
     let req = api::OrgServiceUpdateRequest {
         id: org_id,
@@ -49,7 +50,7 @@ async fn delete_org() {
 #[tokio::test]
 async fn responds_error_for_delete_on_personal_org() {
     let tester = super::Tester::new().await;
-    let user = tester.admin_user().await;
+    let user = tester.user().await;
     let mut conn = tester.conn().await;
     let org = models::Org::find_personal_org(user.id, &mut conn)
         .await
@@ -69,7 +70,7 @@ async fn member_count_works() {
     let tester = super::Tester::new().await;
 
     let tester = &tester;
-    let user = tester.admin_user().await;
+    let user = tester.user().await;
     let org = tester.org().await;
 
     // First we check that we do in fact start out with one member in the org.
@@ -90,13 +91,22 @@ async fn member_count_works() {
     let mut conn = tester.conn().await;
     let invitation = new_invitation.create(&mut conn).await.unwrap();
 
-    let token = auth::InvitationToken::create_for_invitation(&invitation).unwrap();
+    let iat = chrono::Utc::now();
+    let claims = auth::Claims {
+        resource_type: auth::ResourceType::Org,
+        resource_id: invitation.created_for_org,
+        iat,
+        exp: iat + chrono::Duration::minutes(15),
+        endpoints: auth::Endpoints::Multiple(vec![auth::Endpoint::InvitationAccept]),
+        data: HashMap::from([("email".into(), invitation.invitee_email)]),
+    };
+    let jwt = auth::Jwt { claims };
     let req = api::InvitationServiceAcceptRequest {
         invitation_id: invitation.id.to_string(),
     };
 
     tester
-        .send_with(InvService::accept, req, token, super::DummyRefresh)
+        .send_with(InvService::accept, req, jwt)
         .await
         .unwrap();
 
@@ -109,7 +119,9 @@ async fn member_count_works() {
     assert_eq!(n_members, 2);
 
     // Now we perform the same assertion for querying in bulk:
-    let req = api::OrgServiceListRequest { member_id: None };
+    let req = api::OrgServiceListRequest {
+        member_id: Some(user.id.to_string()),
+    };
     let resp = tester.send_admin(Service::list, req).await.unwrap();
     let org_resp = resp
         .orgs

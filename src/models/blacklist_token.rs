@@ -1,5 +1,4 @@
 use super::schema::token_blacklist;
-use crate::auth;
 use crate::Result;
 use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -42,17 +41,21 @@ pub enum TokenType {
     Cookbook,
 }
 
-impl From<auth::TokenType> for TokenType {
-    fn from(value: auth::TokenType) -> Self {
-        match value {
-            auth::TokenType::HostAuth => Self::HostAuth,
-            auth::TokenType::UserAuth => Self::UserAuth,
-            auth::TokenType::UserRefresh => Self::UserRefresh,
-            auth::TokenType::HostRefresh => Self::HostRefresh,
-            auth::TokenType::PwdReset => Self::PwdReset,
-            auth::TokenType::RegistrationConfirmation => Self::RegistrationConfirmation,
-            auth::TokenType::Invitation => Self::Invitation,
-            auth::TokenType::Cookbook => Self::Cookbook,
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn can_blacklist_any_token() {
+        let tester = crate::TestDb::setup().await;
+        let token = "some-fancy-token".to_string();
+        let model = BlacklistToken {
+            token: token.clone(),
+            token_type: TokenType::UserAuth,
+        };
+        let mut conn = tester.conn().await;
+        let blt = model.create(&mut conn).await.unwrap();
+
+        assert_eq!(blt.token, token);
     }
 }

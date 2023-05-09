@@ -1,7 +1,5 @@
-use super::mqtt::MqttAclRequest;
-use crate::auth::{determine_token_by_str, TokenType};
-use crate::http::mqtt::{MqttAclPolicy, MqttHostPolicy, MqttUserPolicy};
-use crate::models;
+use super::mqtt::{MqttAclRequest, MqttPolicy};
+use crate::{auth, models};
 use anyhow::Context;
 use axum::extract::{Extension, Json};
 use axum::http::StatusCode;
@@ -32,11 +30,11 @@ pub async fn mqtt_acl(
 ) -> crate::Result<impl IntoResponse> {
     tracing::info!("Got acl payload: {payload:?}");
 
-    match determine_token_by_str(&payload.username) {
-        Ok(TokenType::UserAuth) => {
-            let policy = MqttUserPolicy { db };
+    match auth::Jwt::decode(&payload.username) {
+        Ok(token) => {
+            let policy = MqttPolicy { db };
             if policy
-                .allow(&payload.username, &payload.topic)
+                .allow(token, &payload.topic)
                 .await
                 .with_context(|| "Could not determine access")?
             {
@@ -45,22 +43,6 @@ pub async fn mqtt_acl(
                 Ok((StatusCode::FORBIDDEN, Json("{}")))
             }
         }
-        Ok(TokenType::HostAuth) => {
-            let policy = MqttHostPolicy { db };
-            if policy
-                .allow(&payload.username, &payload.topic)
-                .await
-                .with_context(|| "Could not determine access")?
-            {
-                Ok((StatusCode::OK, Json("{}")))
-            } else {
-                Ok((StatusCode::FORBIDDEN, Json("{}")))
-            }
-        }
-        Ok(_) => Ok((
-            StatusCode::FORBIDDEN,
-            Json("{ \"message\": \"Not supported\"}"),
-        )),
         Err(_) => Ok((
             StatusCode::UNAUTHORIZED,
             Json("{ \"message\": \"Unknown\"}"),

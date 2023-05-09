@@ -16,7 +16,6 @@ anyhow = "1.0.40"
 argon2 = "0.2.0"
 axum = "0.6"
 base64 = "0.13.0"
-casbin = { version = "2.0.9", default-features = false, features = ["runtime-tokio", "logging", "incremental", "explain"] }
 chrono = { version = "0.4.19", features = ["serde"] }
 cidr-utils = "0.5.10"
 diesel = { version = "2.0.3", default-features = false, features = ["postgres", "without-deprecated", "uuid", "chrono", "serde_json", "network-address", "64-column-tables"] }
@@ -30,7 +29,7 @@ handlebars = "4.3.3"
 hyper = "0.14.20"
 ipnet = "2.7.1"
 ipnetwork = "0.20"
-jsonwebtoken = "7.2.0"
+jsonwebtoken = "8.3.0"
 petname = "1.1.0"
 pin-project = "1.0.11"
 prost = "0.11.6"
@@ -41,8 +40,6 @@ rumqttc = "0.20.0"
 sendgrid = { version = "0.17.4", default-features = false, features = ["rustls", "async"] }
 serde = { version = "1.0.125", features = ["derive"] }
 serde_json = { version = "1.0.81", features = ["raw_value"] }
-strum = "0.24"
-strum_macros = "0.24"
 thiserror = "1.0.24"
 tokio = { version = "1.2.0", default-features = false, features = ["io-util", "sync", "macros", "sync", "rt-multi-thread"] }
 tokio-postgres = "0.7.7"

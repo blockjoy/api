@@ -22,9 +22,12 @@ export CF_TTL=300
 # secret
 export CF_TOKEN=9QjEiXC4B26tgshHZjuZ57kJcjaChSSsDfzUvfYQ
 
+export TOKEN_EXPIRATION_MINS=10
+export REFRESH_TOKEN_EXPIRATION_MINS=10
+
 test: 
 	@docker-compose up -d
-	@cargo test
+	@cargo test --no-fail-fast
 	@docker-compose down
 
 # docker-build:

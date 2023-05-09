@@ -1,5 +1,4 @@
 use super::schema::{orgs, orgs_users, users};
-use crate::auth::{FindableById, Identifiable};
 use crate::models::User;
 use crate::Result;
 use chrono::{DateTime, Utc};
@@ -19,17 +18,14 @@ pub struct Org {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
-#[tonic::async_trait]
-impl FindableById for Org {
-    async fn find_by_id(org_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let org = Org::not_deleted().find(org_id).get_result(conn).await?;
-        Ok(org)
-    }
-}
-
 type NotDeleted = dsl::Filter<orgs::table, dsl::IsNull<orgs::deleted_at>>;
 
 impl Org {
+    pub async fn find_by_id(org_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let org = Org::not_deleted().find(org_id).get_result(conn).await?;
+        Ok(org)
+    }
+
     pub async fn find_by_user(
         org_id: Uuid,
         user_id: Uuid,
@@ -70,6 +66,19 @@ impl Org {
             .inner_join(orgs_users::table)
             .filter(orgs_users::user_id.eq(user_id))
             .select(Org::as_select())
+            .get_results(conn)
+            .await?;
+
+        Ok(orgs)
+    }
+
+    pub async fn memberships(
+        user_id: uuid::Uuid,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<Vec<OrgUser>> {
+        let orgs = orgs_users::table
+            .filter(orgs_users::user_id.eq(user_id))
+            .select(OrgUser::as_select())
             .get_results(conn)
             .await?;
 
@@ -133,7 +142,7 @@ impl Org {
         Ok(users)
     }
 
-    /// Checks if the user is a member
+    /// Checks if the user is a member.
     pub async fn is_member(
         user_id: Uuid,
         org_id: Uuid,
@@ -142,6 +151,23 @@ impl Org {
         let target_user = orgs_users::table
             .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::org_id.eq(org_id));
+        let is_member = diesel::select(dsl::exists(target_user))
+            .get_result(conn)
+            .await?;
+        Ok(is_member)
+    }
+
+    /// Checks if the user is a member with the role `Admin` or above (the other option being
+    /// `Owner`).
+    pub async fn is_admin(
+        user_id: Uuid,
+        org_id: Uuid,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<bool> {
+        let target_user = orgs_users::table
+            .filter(orgs_users::user_id.eq(user_id))
+            .filter(orgs_users::org_id.eq(org_id))
+            .filter(orgs_users::role.eq_any([OrgRole::Admin, OrgRole::Owner]));
         let is_member = diesel::select(dsl::exists(target_user))
             .get_result(conn)
             .await?;
@@ -173,13 +199,13 @@ impl Org {
     }
 
     pub async fn remove_org_user(
-        user_id: Uuid,
-        org_id: Uuid,
+        user: &super::User,
+        org: &Self,
         conn: &mut AsyncPgConnection,
     ) -> Result<()> {
         let org_user = orgs_users::table
-            .filter(orgs_users::user_id.eq(user_id))
-            .filter(orgs_users::org_id.eq(org_id));
+            .filter(orgs_users::user_id.eq(user.id))
+            .filter(orgs_users::org_id.eq(org.id));
         diesel::delete(org_user).execute(conn).await?;
         Ok(())
     }
@@ -196,7 +222,7 @@ impl Org {
         Ok(())
     }
 
-    /// Unmarks the the given organization as deleted
+    /// Unmarks the the given organization as deleted.
     pub async fn restore(org_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
         let to_restore = orgs::table
             .filter(orgs::id.eq(org_id))
@@ -255,7 +281,7 @@ impl<'a> UpdateOrg<'a> {
     }
 }
 
-#[derive(Debug, Queryable)]
+#[derive(Debug, Queryable, Selectable)]
 #[diesel(table_name = orgs_users)]
 pub struct OrgUser {
     pub org_id: Uuid,
@@ -326,11 +352,5 @@ impl Display for OrgRole {
             OrgRole::Owner => write!(f, "owner"),
             OrgRole::Member => write!(f, "member"),
         }
-    }
-}
-
-impl Identifiable for OrgUser {
-    fn get_id(&self) -> Uuid {
-        self.user_id
     }
 }

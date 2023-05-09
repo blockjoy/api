@@ -26,7 +26,7 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
     let tester = setup::Tester::new().await;
     let mut conn = tester.conn().await;
     let blockchain = tester.blockchain().await;
-    let user = tester.admin_user().await;
+    let user = tester.user().await;
     let org = tester.org_for(&user).await;
     let req = api::NodeServiceCreateRequest {
         org_id: org.id.to_string(),
@@ -45,7 +45,7 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
     };
 
     tester.send_admin(Service::create, req).await.unwrap();
-    let nodes = models::Node::find_all_by_org(org.id, 0, 1, &mut conn).await?;
+    let nodes = models::Node::find_all_by_org(org.id, &mut conn).await?;
     let node = nodes.first().unwrap();
 
     assert!(!node.dns_record_id.is_empty());

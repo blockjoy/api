@@ -1,7 +1,7 @@
 use super::setup::*;
 use tonic::transport::Channel;
 
-mod authentication;
+mod auth;
 mod blockchains;
 mod commands;
 mod discovery;

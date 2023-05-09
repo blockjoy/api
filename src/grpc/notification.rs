@@ -65,15 +65,14 @@ impl Notifier {
     }
 
     fn get_mqtt_options() -> Result<rumqttc::MqttOptions> {
-        // let client_id = KeyProvider::get_var("MQTT_CLIENT_ID")?.value;
+        // let client_id = KeyProvider::get_var("MQTT_CLIENT_ID")?;
         let client_id = format!("blockvisor-api-{}", uuid::Uuid::new_v4());
-        let host = KeyProvider::get_var("MQTT_SERVER_ADDRESS")?.value;
+        let host = KeyProvider::get_var("MQTT_SERVER_ADDRESS")?;
         let port = KeyProvider::get_var("MQTT_SERVER_PORT")?
-            .value
             .parse()
             .map_err(|_| anyhow!("Could not parse MQTT_SERVER_PORT as u16"))?;
-        let username = KeyProvider::get_var("MQTT_USERNAME")?.value;
-        let password = KeyProvider::get_var("MQTT_PASSWORD")?.value;
+        let username = KeyProvider::get_var("MQTT_USERNAME")?;
+        let password = KeyProvider::get_var("MQTT_PASSWORD")?;
         let mut options = rumqttc::MqttOptions::new(client_id, host, port);
         options.set_credentials(username, password);
         Ok(options)
@@ -362,7 +361,7 @@ mod tests {
     async fn test_hosts_sender() {
         let db = crate::TestDb::setup().await;
         let host = db.host().await;
-        let user = db.admin_user().await;
+        let user = db.user().await;
 
         let msg = api::HostMessage::created(host.clone(), user.clone())
             .await
@@ -384,9 +383,9 @@ mod tests {
     #[tokio::test]
     async fn test_nodes_sender() {
         let db = crate::TestDb::setup().await;
-        let mut conn = db.pool.conn().await.unwrap();
+        let mut conn = db.conn().await;
         let node = db.node().await;
-        let user = db.admin_user().await;
+        let user = db.user().await;
 
         let msg = api::NodeMessage::created(node.clone(), user.clone(), &mut conn)
             .await
@@ -409,7 +408,7 @@ mod tests {
     async fn test_commands_sender() {
         let db = crate::TestDb::setup().await;
         let command = db.command().await;
-        let mut conn = db.pool.conn().await.unwrap();
+        let mut conn = db.conn().await;
 
         let command = api::Command::from_model(&command, &mut conn).await.unwrap();
         let notifier = Notifier::new().await.unwrap();

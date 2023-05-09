@@ -1,5 +1,4 @@
 use super::schema::node_key_files;
-use crate::auth::FindableById;
 use crate::Result;
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -13,12 +12,17 @@ pub struct NodeKeyFile {
 }
 
 impl NodeKeyFile {
+    pub async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let file = node_key_files::table.find(id).get_result(conn).await?;
+        Ok(file)
+    }
+
     pub async fn find_by_node(
-        node_id: uuid::Uuid,
+        node: &super::Node,
         conn: &mut AsyncPgConnection,
     ) -> Result<Vec<Self>> {
         let files = node_key_files::table
-            .filter(node_key_files::node_id.eq(node_id))
+            .filter(node_key_files::node_id.eq(node.id))
             .get_results(conn)
             .await?;
         Ok(files)
@@ -29,14 +33,6 @@ impl NodeKeyFile {
             .execute(conn)
             .await?;
         Ok(())
-    }
-}
-
-#[tonic::async_trait]
-impl FindableById for NodeKeyFile {
-    async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let file = node_key_files::table.find(id).get_result(conn).await?;
-        Ok(file)
     }
 }
 

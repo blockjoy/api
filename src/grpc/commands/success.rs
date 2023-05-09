@@ -1,6 +1,6 @@
 //! This module contains code regarding registering successful commands.
 
-use crate::{auth::FindableById, models};
+use crate::models;
 use diesel_async::AsyncPgConnection;
 
 /// Some endpoints require some additional action from us when we recieve a success message back

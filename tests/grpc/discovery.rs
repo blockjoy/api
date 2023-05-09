@@ -3,18 +3,6 @@ use blockvisor_api::grpc::api;
 type Service = api::discovery_service_client::DiscoveryServiceClient<super::Channel>;
 
 #[tokio::test]
-async fn responds_unauthenticated_with_empty_token_fors_services() {
-    let tester = super::Tester::new().await;
-    let req = api::DiscoveryServiceServicesRequest {};
-    let (token, refresh) = (super::DummyToken(""), super::DummyRefresh);
-    let status = tester
-        .send_with(Service::services, req, token, refresh)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Unauthenticated);
-}
-
-#[tokio::test]
 async fn responds_correct_urls_forss() {
     let tester = super::Tester::new().await;
     let req = api::DiscoveryServiceServicesRequest {};

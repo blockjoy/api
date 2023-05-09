@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use super::schema::{hosts, nodes};
-use crate::auth::{FindableById, HostAuthToken, Identifiable, JwtToken, Owned, TokenError};
 use crate::cookbook::HardwareRequirements;
 use crate::{Error, Result};
 use anyhow::anyhow;
@@ -60,15 +59,20 @@ pub struct Host {
 }
 
 impl Host {
-    /// Test if given `token` has expired and refresh it using the `refresh_token` if necessary
-    pub fn verify_auth_token(token: HostAuthToken) -> Result<HostAuthToken> {
-        if token.has_expired() {
-            Err(TokenError::Expired.into())
-        } else {
-            // Token is valid, just return what we got
-            // If nothing was updated or changed, we don't even query for the user to save 1 query
-            Ok(token)
-        }
+    pub async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let host = hosts::table.find(id).get_result(conn).await?;
+        Ok(host)
+    }
+
+    pub async fn find_by_ids(
+        ids: impl IntoIterator<Item = uuid::Uuid>,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<Vec<Self>> {
+        let hosts = hosts::table
+            .filter(hosts::id.eq_any(ids))
+            .get_results(conn)
+            .await?;
+        Ok(hosts)
     }
 
     pub async fn toggle_online(
@@ -112,8 +116,12 @@ impl Host {
     }
 
     /// For each provided argument, filters the hosts by that argument.
-    pub async fn filter(os: Option<&str>, conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
-        let mut query = hosts::table.into_boxed();
+    pub async fn filter(
+        org_id: uuid::Uuid,
+        os: Option<&str>,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<Vec<Self>> {
+        let mut query = hosts::table.filter(hosts::org_id.eq(org_id)).into_boxed();
 
         if let Some(os) = os {
             query = query.filter(hosts::os.eq(os));
@@ -213,27 +221,6 @@ impl Host {
         let host_ids: Vec<_> = hosts.into_iter().map(|h| h.host_id).collect();
 
         Self::by_ids(&host_ids, conn).await
-    }
-}
-
-#[axum::async_trait]
-impl FindableById for Host {
-    async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let host = hosts::table.find(id).get_result(conn).await?;
-        Ok(host)
-    }
-}
-
-impl Identifiable for Host {
-    fn get_id(&self) -> Uuid {
-        self.id
-    }
-}
-
-#[axum::async_trait]
-impl Owned<Host, ()> for Host {
-    async fn is_owned_by(&self, resource: Host, _db: ()) -> bool {
-        self.id == resource.id
     }
 }
 

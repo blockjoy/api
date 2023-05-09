@@ -3,15 +3,13 @@
 mod dummy_token;
 mod helper_traits;
 
-use blockvisor_api::auth::{self, JwtToken, TokenRole, TokenType};
+use blockvisor_api::auth;
 use blockvisor_api::models;
 use blockvisor_api::TestDb;
 use diesel_async::pooled_connection::bb8::PooledConnection;
 use diesel_async::AsyncPgConnection;
 pub use dummy_token::*;
-use futures_util::{Stream, StreamExt};
 use helper_traits::GrpcClient;
-use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::future::Future;
@@ -19,9 +17,11 @@ use std::sync::Arc;
 use tempfile::{NamedTempFile, TempPath};
 use tokio::net::{UnixListener, UnixStream};
 use tokio_stream::wrappers::UnixListenerStream;
-use tonic::codec::Streaming;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tonic::Response;
+
+use blockvisor_api::grpc::api::auth_service_client::AuthServiceClient;
+type AuthService = AuthServiceClient<tonic::transport::Channel>;
 
 /// Our integration testing helper struct. Can be created cheaply with `new`, and is able to
 /// receive requests and return responses. Exposes lots of helpers too to make creating new
@@ -73,19 +73,29 @@ impl Tester {
     }
 
     pub async fn conn(&self) -> PooledConnection<'_, AsyncPgConnection> {
-        self.db.pool.conn().await.unwrap()
+        self.db.conn().await
     }
 
     /// Returns an admin user, so a user that has maximal permissions.
-    pub async fn admin_user(&self) -> models::User {
-        self.db.admin_user().await
+    pub async fn user(&self) -> models::User {
+        self.db.user().await
     }
 
-    /// Returns a (auth, refresh) token pair.
-    pub async fn admin_token(&self) -> (impl JwtToken, impl JwtToken) {
-        let auth = self.user_token(&self.admin_user().await).await;
-        let refresh = self.db.user_refresh_token(auth.get_id());
-        (auth, refresh)
+    /// Returns a pleb user, that has the same permissions but it is not confirmed.
+    pub async fn unconfirmed_user(&self) -> models::User {
+        self.db.unconfirmed_user().await
+    }
+
+    /// Returns a auth token for the admin user in the database.
+    pub async fn admin_token(&self) -> auth::Jwt {
+        let admin = self.user().await;
+        self.user_token(&admin).await
+    }
+
+    pub async fn admin_refresh(&self) -> auth::Refresh {
+        let admin = self.user().await;
+        let iat = chrono::Utc::now();
+        auth::Refresh::new(admin.id, iat).unwrap()
     }
 
     pub async fn hosts(&self) -> Vec<models::Host> {
@@ -117,30 +127,33 @@ impl Tester {
             .unwrap()
     }
 
-    pub async fn user_token(&self, user: &models::User) -> impl JwtToken + Clone {
-        let org = self.org_for(user).await;
-        let mut data = HashMap::new();
-        data.insert("org_id".to_string(), org.id.to_string());
-        auth::UserAuthToken::create_token_for(
-            user,
-            TokenType::UserAuth,
-            TokenRole::User,
-            Some(data),
-        )
-        .unwrap()
+    pub async fn user_token(&self, user: &models::User) -> auth::Jwt {
+        let req = blockvisor_api::grpc::api::AuthServiceLoginRequest {
+            email: user.email.clone(),
+            password: "abc12345".to_string(),
+        };
+        let resp = self.send(AuthService::login, req).await.unwrap();
+        auth::Jwt::decode(&resp.token).unwrap()
     }
 
-    pub fn host_token(&self, host: &models::Host) -> impl JwtToken + Clone {
-        auth::HostAuthToken::create_token_for(host, TokenType::HostAuth, TokenRole::User, None)
-            .unwrap()
+    pub fn host_token(&self, host: &models::Host) -> auth::Jwt {
+        let iat = chrono::Utc::now();
+        let claims = auth::Claims {
+            resource_type: auth::ResourceType::Host,
+            resource_id: host.id,
+            iat,
+            exp: (iat + chrono::Duration::minutes(15)),
+            endpoints: auth::Endpoints::Wildcard,
+            data: Default::default(),
+        };
+        auth::Jwt { claims }
     }
 
-    pub fn refresh_for(&self, token: &impl JwtToken) -> impl JwtToken + Clone {
-        self.db.user_refresh_token(token.get_id())
-    }
+    // pub fn refresh_for(&self, token: &impl JwtToken) -> impl JwtToken + Clone {
+    //     self.db.user_refresh_token(token.get_id())
+    // }
 
     pub async fn node(&self) -> models::Node {
-        use blockvisor_api::auth::FindableById;
         let mut conn = self.conn().await;
         let node_id = "cdbbc736-f399-42ab-86cf-617ce983011d".parse().unwrap();
         models::Node::find_by_id(node_id, &mut conn).await.unwrap()
@@ -187,7 +200,7 @@ impl Tester {
         Req: tonic::IntoRequest<In>,
         Client: GrpcClient<Channel> + Debug + 'static,
     {
-        self._send(f, req.into_request()).await
+        self.send_(f, req.into_request()).await
     }
 
     /// Sends the provided request to the provided function, just as `send` would do, but adds the
@@ -204,35 +217,26 @@ impl Tester {
     /// let status = tester.send(Service::some_endpoint, some_data, "").await.unwrap_err();
     /// assert_eq!(status.code(), tonic::Code::Unauthorized);
     /// ```
-    pub async fn send_with<F, In, Req, Resp, Client, AuthTkn, RefreshTkn>(
+    pub async fn send_with<F, In, Req, Resp, Client>(
         &self,
         f: F,
         req: Req,
-        auth: AuthTkn,
-        refresh: RefreshTkn,
+        token: auth::Jwt,
     ) -> Result<Resp, tonic::Status>
     where
         F: for<'any> TestableFunction<'any, In, tonic::Request<In>, Response<Resp>, Client>,
         Req: tonic::IntoRequest<In>,
         Client: GrpcClient<Channel> + Debug + 'static,
-        AuthTkn: JwtToken,
-        RefreshTkn: JwtToken,
     {
         let mut req = req.into_request();
-
-        let auth = format!("Bearer {}", auth.to_base64().unwrap());
+        let auth = format!("Bearer {}", token.encode().unwrap());
         req.metadata_mut()
             .insert("authorization", auth.parse().unwrap());
-
-        let refresh = format!("refresh={}", refresh.encode().unwrap());
-        req.metadata_mut()
-            .insert("cookie", refresh.parse().unwrap());
-
-        self._send(f, req).await
+        self.send_(f, req).await
     }
 
     /// Sends a request with authentication as though the user were an admin. This is the same as
-    /// creating an admin token manually and then calling `tester.send_with(_, _, ...admin_tokens)`.
+    /// creating an admin token manually and then calling `tester.send_with(_, _, admin_token)`.
     pub async fn send_admin<F, In, Req, Resp, Client>(
         &self,
         f: F,
@@ -243,11 +247,11 @@ impl Tester {
         Req: tonic::IntoRequest<In>,
         Client: GrpcClient<Channel> + Debug + 'static,
     {
-        let (auth, refresh) = self.admin_token().await;
-        self.send_with(f, req, auth, refresh).await
+        let token = self.admin_token().await;
+        self.send_with(f, req, token).await
     }
 
-    async fn _send<F, In, Resp, Client>(
+    async fn send_<F, In, Resp, Client>(
         &self,
         f: F,
         req: tonic::Request<In>,
@@ -267,111 +271,6 @@ impl Tester {
             .unwrap();
         let mut client = Client::create(channel);
         let resp: Response<Resp> = f(&mut client, req).await?;
-        Ok(resp.into_inner())
-    }
-
-    /// This endpoint is used to talk to streaming endpoints (which is only CommandFlow for now).
-    /// The types that are used here are a little different compared to the types for the normal
-    /// endpoints, because `tonic` uses different types too. The main difference in api is
-    /// illustrated by this example:
-    ///
-    /// ## Example
-    /// ```rs,ignore
-    /// let stream = tester
-    ///     .open_stream_with(Service::endpoint, tokio_stream::once(data), "token")
-    ///     .await
-    ///     .unwrap();
-    /// let data = stream.assert_receives().await;
-    /// assert_eq!(data, expected);
-    /// ```
-    pub async fn open_stream_with<F, In, Req, Resp, Client, S, AuthTkn, RefreshTkn>(
-        &self,
-        f: F,
-        req: Req,
-        auth: AuthTkn,
-        refresh: RefreshTkn,
-    ) -> Result<Streaming<Resp>, tonic::Status>
-    where
-        F: for<'any> TestableFunction<
-            'any,
-            In,
-            tonic::Request<S>,
-            Response<Streaming<Resp>>,
-            Client,
-        >,
-        Req: tonic::IntoStreamingRequest<Message = In, Stream = S>,
-        Client: GrpcClient<Channel> + Debug + 'static,
-        AuthTkn: JwtToken,
-        RefreshTkn: JwtToken,
-    {
-        let mut req = req.into_streaming_request();
-
-        let auth = format!("Bearer {}", auth.to_base64().unwrap());
-        req.metadata_mut()
-            .insert("authorization", auth.parse().unwrap());
-
-        let refresh = format!("refresh={}", refresh.to_base64().unwrap());
-        req.metadata_mut()
-            .insert("cookie", refresh.parse().unwrap());
-
-        self._open_stream(f, req).await
-    }
-
-    /// This endpoint is used to talk to streaming endpoints (which is only CommandFlow for now).
-    /// The types that are used here are a little different compared to the types for the normal
-    /// endpoints, because `tonic` uses different types too. The main difference in api is
-    /// illustrated by this example:
-    ///
-    /// ## Example
-    /// ```rs,ignore
-    ///
-    /// ```
-    pub async fn open_stream_admin<F, In, Req, Resp, Client, S>(
-        &self,
-        f: F,
-        req: Req,
-    ) -> Result<Streaming<Resp>, tonic::Status>
-    where
-        F: for<'any> TestableFunction<
-            'any,
-            In,
-            tonic::Request<S>,
-            Response<Streaming<Resp>>,
-            Client,
-        >,
-        Req: tonic::IntoStreamingRequest<Message = In, Stream = S>,
-        Client: GrpcClient<Channel> + Debug + 'static,
-    {
-        let (auth, refresh) = self.admin_token().await;
-        self.open_stream_with(f, req, auth, refresh).await
-    }
-
-    pub async fn _open_stream<F, In, S, Resp, Client>(
-        &self,
-        f: F,
-        req: tonic::Request<S>,
-    ) -> Result<Streaming<Resp>, tonic::Status>
-    where
-        F: for<'any> TestableFunction<
-            'any,
-            In,
-            tonic::Request<S>,
-            Response<Streaming<Resp>>,
-            Client,
-        >,
-        Client: GrpcClient<Channel> + Debug + 'static,
-    {
-        let socket = Arc::clone(&self.server_input);
-        let channel = Endpoint::try_from("http://any.url")
-            .unwrap()
-            .connect_with_connector(tower::service_fn(move |_: Uri| {
-                let socket = Arc::clone(&socket);
-                async move { UnixStream::connect(&*socket).await }
-            }))
-            .await
-            .unwrap();
-        let mut client = Client::create(channel);
-        let resp: Response<Streaming<Resp>> = f(&mut client, req).await?;
         Ok(resp.into_inner())
     }
 }
@@ -409,43 +308,3 @@ where
 {
     type Fut = Fut;
 }
-
-/// A extension trait for streams that we can use to do quick and easy assertions.
-#[tonic::async_trait]
-pub trait TestStream: Stream {
-    /// Panics if the stream does not receive the provided element
-    async fn assert_receives(&mut self) -> Self::Item
-    where
-        Self: Unpin,
-    {
-        tokio::select! {
-            elem = self.next() => {
-                match elem {
-                    Some(elem) => elem,
-                    None => panic!("Stream returned None!"),
-                }
-            },
-            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-                panic!("Stream did not receive any elements!");
-            },
-        }
-    }
-
-    /// Panics if the stream receives an element.
-    async fn assert_empty(&mut self)
-    where
-        Self: Unpin,
-        Self::Item: Debug,
-    {
-        tokio::select! {
-            elem = self.next() => {
-                if let Some(elem) = elem {
-                    panic!("Stream received data! `{elem:?}`");
-                }
-            },
-            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => { },
-        }
-    }
-}
-
-impl<T> TestStream for T where T: Stream {}
