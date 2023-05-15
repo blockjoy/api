@@ -56,6 +56,11 @@ impl Tester {
     }
 
     pub async fn new_with(cloudflare_mocked: bool) -> Self {
+        let cloudflare_server = if cloudflare_mocked {
+            Some(Self::mock_cloudflare_api().await)
+        } else {
+            None
+        };
         let db = TestDb::setup().await;
         let pool = db.pool.clone();
         let socket = NamedTempFile::new().unwrap();
@@ -73,12 +78,6 @@ impl Tester {
         });
 
         let socket = Arc::clone(&socket);
-
-        let cloudflare_server = if cloudflare_mocked {
-            Some(Self::mock_cloudflare_api().await)
-        } else {
-            None
-        };
 
         Tester {
             db,
