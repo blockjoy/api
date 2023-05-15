@@ -15,7 +15,7 @@ use mockito::ServerGuard;
 use rand::Rng;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::env::set_var;
+use std::env::{remove_var, set_var};
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
@@ -394,6 +394,7 @@ impl Tester {
         let mut cloudfare_server = mockito::Server::new_async().await;
         let cloudfare_url = cloudfare_server.url();
 
+        remove_var("CF_BASE_URL");
         set_var("CF_BASE_URL", cloudfare_url);
 
         let mut rng = rand::thread_rng();
