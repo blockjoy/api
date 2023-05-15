@@ -88,7 +88,8 @@ impl Blockchain {
         &mut self,
         filter: &super::NodeSelfUpgradeFilter,
     ) -> Result<()> {
-        let supported_node_types = &self.supported_node_types()?;
+        let mut supported_node_types = self.supported_node_types()?;
+
         if supported_node_types
             .iter()
             .any(|x| x.version == filter.version)
@@ -119,12 +120,76 @@ impl Blockchain {
             version: filter.version.clone(),
             properties,
         };
-        supported_node_types.to_owned().push(new_supported_type);
+        supported_node_types.push(new_supported_type);
         self.supported_node_types = serde_json::to_value(supported_node_types)?;
         Ok(())
     }
 
     fn not_deleted() -> NotDeleted {
         blockchains::table.filter(blockchains::status.ne(BlockchainStatus::Deleted))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::models::{
+        Blockchain, BlockchainProperties, BlockchainPropertyUiType, BlockchainPropertyValue,
+        NodeSelfUpgradeFilter, NodeType,
+    };
+
+    fn current_blockchain(version: &str, node_type: NodeType) -> Blockchain {
+        Blockchain {
+            id: uuid::Uuid::new_v4(),
+            name: "blockchain1".to_string(),
+            description: None,
+            status: super::BlockchainStatus::Development,
+            project_url: None,
+            repo_url: None,
+            version: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            supported_node_types: serde_json::to_value(vec![BlockchainProperties {
+                id: node_type as i32,
+                version: version.to_string(),
+                properties: Some(vec![BlockchainPropertyValue {
+                    name: "self-hosted".to_string(),
+                    default: None,
+                    ui_type: BlockchainPropertyUiType::Text,
+                    disabled: false,
+                    required: false,
+                }]),
+            }])
+            .unwrap(),
+        }
+    }
+
+    #[test]
+    fn test_set_new_supported_node_type_version_existing_version() {
+        let node_type = NodeType::Validator;
+        let mut blockchain = current_blockchain("1.0.0", node_type);
+        let filter = NodeSelfUpgradeFilter {
+            blockchain: "blockchain1".to_string(),
+            node_type,
+            version: "1.0.0".to_string(),
+        };
+        assert!(blockchain
+            .set_new_supported_node_type_version(&filter)
+            .is_ok());
+        assert_eq!(blockchain.supported_node_types().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_set_new_supported_node_type_version_non_existing_version() {
+        let node_type = NodeType::Validator;
+        let mut blockchain = current_blockchain("1.0.0", node_type);
+        let filter = NodeSelfUpgradeFilter {
+            blockchain: "blockchain1".to_string(),
+            node_type,
+            version: "2.0.0".to_string(),
+        };
+        assert!(blockchain
+            .set_new_supported_node_type_version(&filter)
+            .is_ok());
+        assert_eq!(blockchain.supported_node_types().unwrap().len(), 2);
     }
 }
