@@ -389,7 +389,7 @@ impl Tester {
         Ok(resp.into_inner())
     }
 
-    async fn mock_cloudflare_api() -> ServerGuard {
+    pub async fn mock_cloudflare_api() -> ServerGuard {
         let mut cloudfare_server = mockito::Server::new_async().await;
         let cloudfare_url = cloudfare_server.url();
 

@@ -10,6 +10,7 @@ type Service = node_service_client::NodeServiceClient<transport::Channel>;
 #[tokio::test]
 async fn can_create_node_dns() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
+    let _cloudflare = setup::Tester::mock_cloudflare_api().await;
 
     let api = CloudflareApi::new("127.0.0.1".to_string())?;
     let mut name = String::from("test_");
