@@ -51,10 +51,13 @@ impl std::ops::DerefMut for Tester {
 }
 
 impl Tester {
+    /// Creates a new tester, with the cloudflare API mocked.
     pub async fn new() -> Self {
         Self::new_with(true).await
     }
 
+    /// Creates a new tester, but with the cloudflare API mocked if `cloudflare_mocked` is `true`.
+    /// WARN: If `false`, the cloudflare API will be called
     pub async fn new_with(cloudflare_mocked: bool) -> Self {
         let db = TestDb::setup().await;
         let pool = db.pool.clone();
