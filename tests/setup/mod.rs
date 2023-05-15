@@ -80,8 +80,6 @@ impl Tester {
                 .unwrap()
         });
 
-        tracing_subscriber::fmt::init();
-
         let socket = Arc::clone(&socket);
 
         Tester {
