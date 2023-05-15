@@ -52,7 +52,7 @@ impl std::ops::DerefMut for Tester {
 
 impl Tester {
     pub async fn new() -> Self {
-        Self::new_with(false).await
+        Self::new_with(true).await
     }
 
     pub async fn new_with(cloudflare_mocked: bool) -> Self {
