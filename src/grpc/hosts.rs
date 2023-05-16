@@ -1,7 +1,23 @@
 use super::api::{self, host_service_server};
 use super::helpers;
+use crate::auth::expiration_provider;
 use crate::{auth, models};
 use diesel_async::scoped_futures::ScopedFutureExt;
+
+/// This is a list of all the endpoints that a user is allowed to access with the jwt that they
+/// generate on login. It does not contain endpoints like confirm, because those are accessed by a
+/// token.
+const HOST_ENDPOINTS: [auth::Endpoint; 13] = [
+    auth::Endpoint::AuthRefresh,
+    auth::Endpoint::BlockchainAll,
+    auth::Endpoint::CommandAll,
+    auth::Endpoint::DiscoveryAll,
+    auth::Endpoint::HostGet,
+    auth::Endpoint::HostList,
+    auth::Endpoint::KeyFileAll,
+    auth::Endpoint::MetricsAll,
+    auth::Endpoint::NodeAll,
+];
 
 #[tonic::async_trait]
 impl host_service_server::HostService for super::GrpcImpl {
@@ -203,10 +219,22 @@ async fn provision(
     let provision = models::HostProvision::find_by_id(&req.otp, conn).await?;
     let new_host = req.as_new(provision)?;
     let host = models::HostProvision::claim(&req.otp, new_host, conn).await?;
-    let api_key = auth::ApiKey::new();
+    let iat = chrono::Utc::now();
+    let exp = expiration_provider::ExpirationProvider::expiration("TOKEN_EXPIRATION_MINS")?;
+    let claims = auth::Claims {
+        resource_type: auth::ResourceType::Host,
+        resource_id: host.id,
+        iat,
+        exp: iat + exp,
+        endpoints: HOST_ENDPOINTS.iter().copied().collect(),
+        data: Default::default(),
+    };
+    let jwt = auth::Jwt { claims };
+    let refresh = auth::Refresh::new(host.id, refresh_exp)?;
     let resp = api::HostServiceProvisionResponse {
         host_id: host.id.to_string(),
-        token: api_key.encode()?,
+        token: jwt.encode()?,
+        refresh: refresh.encode()?,
     };
     Ok(tonic::Response::new(resp))
 }
