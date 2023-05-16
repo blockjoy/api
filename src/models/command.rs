@@ -17,6 +17,7 @@ pub enum CommandType {
     DeleteNode,
     UpdateNode,
     MigrateNode,
+    UpgradeNode,
     GetNodeVersion,
     GetBVSVersion,
     CreateBVS,

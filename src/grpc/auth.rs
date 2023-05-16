@@ -85,7 +85,9 @@ async fn login(
     let exp = expiration_provider::ExpirationProvider::expiration("TOKEN_EXPIRATION_MINS")?;
     let claims = auth::Claims::new_user(user.id, iat, exp, USER_ENDPOINTS);
     let token = auth::Jwt { claims };
-    let refresh = auth::Refresh::new(user.id, iat)?;
+    let refresh_exp =
+        expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_USER_MINS")?;
+    let refresh = auth::Refresh::new(user.id, iat, refresh_exp)?;
     let resp = api::AuthServiceLoginResponse {
         token: token.encode()?,
         refresh: refresh.encode()?,
@@ -106,7 +108,9 @@ async fn confirm(
     let exp = expiration_provider::ExpirationProvider::expiration("TOKEN_EXPIRATION_MINS")?;
     let claims = auth::Claims::new_user(user_id, iat, exp, USER_ENDPOINTS);
     let token = auth::Jwt { claims };
-    let refresh = auth::Refresh::new(user_id, iat)?;
+    let refresh_exp =
+        expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_USER_MINS")?;
+    let refresh = auth::Refresh::new(user_id, iat, refresh_exp)?;
     models::User::confirm(user_id, conn).await?;
     let resp = api::AuthServiceConfirmResponse {
         token: token.encode()?,
@@ -124,7 +128,7 @@ async fn refresh(
 ) -> super::Result<api::AuthServiceRefreshResponse> {
     let refresh = auth::get_refresh(&req)?;
     let req = req.into_inner();
-    let token = auth::Jwt::decode(&req.token)?;
+    let token = auth::Jwt::decode_expired(&req.token)?;
     let refresh = req
         .refresh
         .map(|refresh| auth::Refresh::decode(&refresh))
@@ -168,7 +172,8 @@ async fn refresh(
         data: token.claims.data,
     };
     let token = auth::Jwt { claims };
-    let refresh = auth::Refresh::new(resource_id, iat)?;
+    let refresh_exp = refresh.duration();
+    let refresh = auth::Refresh::new(resource_id, iat, refresh_exp)?;
     let resp = api::AuthServiceRefreshResponse {
         token: token.encode()?,
         refresh: refresh.encode()?,

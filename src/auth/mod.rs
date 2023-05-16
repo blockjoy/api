@@ -110,9 +110,12 @@ mod tests {
     fn test_get_refresh() {
         temp_env::with_var_unset("SECRETS_ROOT", || {
             let iat = chrono::Utc::now();
-            let token = Refresh::new(uuid::Uuid::new_v4(), chrono::Utc::now()).unwrap();
+            let refresh_exp =
+                expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_USER_MINS")
+                    .unwrap();
+            let token =
+                Refresh::new(uuid::Uuid::new_v4(), chrono::Utc::now(), refresh_exp).unwrap();
             let mut req = tonic::Request::new(());
-            println!("{:?}", std::env::var("SECRETS_ROOT"));
             req.metadata_mut()
                 .insert("cookie", token.as_set_cookie(iat).unwrap().parse().unwrap());
             let res = get_refresh(&req).unwrap().unwrap();

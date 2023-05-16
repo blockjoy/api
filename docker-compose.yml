@@ -5,8 +5,13 @@ services:
         image: 'postgres:latest'
         ports:
             - 25432:5432
-            
+
         environment:
             POSTGRES_USER: blockvisor
             POSTGRES_PASSWORD: password
-            POSTGRES_DB: blockvisor_db 
+            POSTGRES_DB: blockvisor_db
+        command:
+            - "postgres"
+            - "-c"
+            - "log_statement=all"
+

@@ -6,7 +6,6 @@ use crate::{auth, models};
 use anyhow::anyhow;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncPgConnection;
-use tonic::Request;
 
 mod recover;
 mod success;
@@ -15,14 +14,14 @@ mod success;
 impl command_service_server::CommandService for super::GrpcImpl {
     async fn create(
         &self,
-        req: Request<api::CommandServiceCreateRequest>,
+        req: tonic::Request<api::CommandServiceCreateRequest>,
     ) -> super::Resp<api::CommandServiceCreateResponse> {
         self.trx(|c| create(self, req, c).scope_boxed()).await
     }
 
     async fn get(
         &self,
-        req: Request<api::CommandServiceGetRequest>,
+        req: tonic::Request<api::CommandServiceGetRequest>,
     ) -> super::Resp<api::CommandServiceGetResponse> {
         let mut conn = self.conn().await?;
         let resp = get(req, &mut conn).await?;
@@ -31,14 +30,14 @@ impl command_service_server::CommandService for super::GrpcImpl {
 
     async fn update(
         &self,
-        req: Request<api::CommandServiceUpdateRequest>,
+        req: tonic::Request<api::CommandServiceUpdateRequest>,
     ) -> super::Resp<api::CommandServiceUpdateResponse> {
         self.trx(|c| update(self, req, c).scope_boxed()).await
     }
 
     async fn pending(
         &self,
-        req: Request<api::CommandServicePendingRequest>,
+        req: tonic::Request<api::CommandServicePendingRequest>,
     ) -> super::Resp<api::CommandServicePendingResponse> {
         let mut conn = self.conn().await?;
         let resp = pending(req, &mut conn).await?;
@@ -48,7 +47,7 @@ impl command_service_server::CommandService for super::GrpcImpl {
 
 async fn create(
     grpc: &super::GrpcImpl,
-    req: Request<api::CommandServiceCreateRequest>,
+    req: tonic::Request<api::CommandServiceCreateRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::CommandServiceCreateResponse> {
     let claims = auth::get_claims(&req, CommandCreate, conn).await?;
@@ -73,7 +72,7 @@ async fn create(
 }
 
 async fn get(
-    req: Request<api::CommandServiceGetRequest>,
+    req: tonic::Request<api::CommandServiceGetRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::CommandServiceGetResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::CommandGet, conn).await?;
@@ -95,7 +94,7 @@ async fn get(
 
 async fn update(
     grpc: &super::GrpcImpl,
-    req: Request<api::CommandServiceUpdateRequest>,
+    req: tonic::Request<api::CommandServiceUpdateRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::CommandServiceUpdateResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::CommandUpdate, conn).await?;
@@ -131,7 +130,7 @@ async fn update(
 }
 
 async fn pending(
-    req: Request<api::CommandServicePendingRequest>,
+    req: tonic::Request<api::CommandServicePendingRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::CommandServicePendingResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::CommandPending, conn).await?;
@@ -255,6 +254,20 @@ impl api::Command {
                     self_update: Some(node.self_update),
                     rules: create_rules_for_node(&node)?,
                 });
+                node_cmd_default_id(cmd)
+            }
+            UpgradeNode => {
+                let node = models::Node::find_by_id(node_id()?, conn).await?;
+                let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
+                let mut image = api::ContainerImage {
+                    protocol: blockchain.name,
+                    node_version: node.version.to_lowercase(),
+                    node_type: 0, // We use the setter to set this field for type-safety
+                    status: 0,    // We use the setter to set this field for type-safety
+                };
+                image.set_node_type(api::NodeType::from_model(node.node_type));
+                image.set_status(api::ContainerImageStatus::Development);
+                let cmd = Command::Upgrade(api::NodeUpgrade { image: Some(image) });
                 node_cmd_default_id(cmd)
             }
             MigrateNode => Err(crate::Error::UnexpectedError(anyhow!("Not implemented"))),

@@ -455,13 +455,8 @@ impl api::NodeServiceUpdateRequest {
             container_status: Some(self.container_status().into_model()),
             self_update: self.self_update,
             address: self.address.as_deref(),
-            // Only pass in `Some` for these fields if the lists are non-empty.
-            allow_ips: (!allow_ips.is_empty())
-                .then(|| serde_json::to_value(allow_ips))
-                .transpose()?,
-            deny_ips: (!deny_ips.is_empty())
-                .then(|| serde_json::to_value(deny_ips))
-                .transpose()?,
+            allow_ips: Some(serde_json::to_value(allow_ips)?),
+            deny_ips: Some(serde_json::to_value(deny_ips)?),
         })
     }
 }

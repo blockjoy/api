@@ -25,9 +25,26 @@ export CF_TOKEN=9QjEiXC4B26tgshHZjuZ57kJcjaChSSsDfzUvfYQ
 export TOKEN_EXPIRATION_MINS=10
 export REFRESH_TOKEN_EXPIRATION_MINS=10
 
-test: 
+test:
 	@docker-compose up -d
 	@cargo test --no-fail-fast
+	@docker-compose down
+
+test-with:
+	@docker-compose up -d
+	@cargo test ${test}
+	@docker-compose down
+
+start-db:
+	@docker-compose up -d
+	@sleep 2
+	@diesel migration run
+	@echo ""
+	@echo " ---------------------------------------------------"
+	@echo "| WARN: PLEASE RUN 'make stop-db' AFTER YOU'RE DONE |"
+	@echo " ---------------------------------------------------"
+
+stop-db:
 	@docker-compose down
 
 # docker-build:

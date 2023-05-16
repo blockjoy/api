@@ -29,6 +29,14 @@ To run:
 cargo test
 ```
 
+### Run specific test
+If you want to use test name pattern matching of `cargo test` but still having the environment set by `Makefile` you could run the following command:
+
+```bash
+make test-with test=my_test_function
+```
+
+
 ## Update protos
 !! Important, before updating the protos, make sure that there are no changes in the local repo.
 

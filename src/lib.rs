@@ -20,6 +20,7 @@ pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
 pub use test::TestDb;
 
 mod test {
+    use crate::auth::expiration_provider;
     use crate::models::schema::{blockchains, commands, nodes, orgs};
     use crate::{auth, models};
     use diesel::migration::MigrationSource;
@@ -100,6 +101,25 @@ mod test {
 
         pub async fn conn(&self) -> PooledConnection<'_, AsyncPgConnection> {
             self.pool.conn().await.unwrap()
+        }
+
+        pub async fn create_node<'a>(
+            node: &models::NewNode<'a>,
+            host_id_param: &uuid::Uuid,
+            ip_add_param: &str,
+            dns_id: &str,
+            conn: &mut AsyncPgConnection,
+        ) {
+            diesel::insert_into(nodes::table)
+                .values((
+                    node,
+                    nodes::host_id.eq(host_id_param),
+                    nodes::ip_addr.eq(ip_add_param),
+                    nodes::dns_record_id.eq(dns_id),
+                ))
+                .execute(conn)
+                .await
+                .unwrap();
         }
 
         async fn tear_down(test_db_name: String, main_db_url: String) {
@@ -315,12 +335,18 @@ mod test {
 
         pub fn user_refresh_token(&self, user_id: Uuid) -> auth::Refresh {
             let iat = chrono::Utc::now();
-            auth::Refresh::new(user_id, iat).unwrap()
+            let refresh_exp =
+                expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_USER_MINS")
+                    .unwrap();
+            auth::Refresh::new(user_id, iat, refresh_exp).unwrap()
         }
 
         pub fn host_refresh_token(&self, host_id: Uuid) -> auth::Refresh {
             let iat = chrono::Utc::now();
-            auth::Refresh::new(host_id, iat).unwrap()
+            let refresh_exp =
+                expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_HOST_MINS")
+                    .unwrap();
+            auth::Refresh::new(host_id, iat, refresh_exp).unwrap()
         }
 
         fn test_node_properties() -> serde_json::Value {

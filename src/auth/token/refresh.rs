@@ -11,8 +11,11 @@ pub struct Refresh {
 }
 
 impl Refresh {
-    pub fn new(resource_id: uuid::Uuid, iat: chrono::DateTime<chrono::Utc>) -> crate::Result<Self> {
-        let exp = expiration_provider::ExpirationProvider::expiration("TOKEN_EXPIRATION_MINS")?;
+    pub fn new(
+        resource_id: uuid::Uuid,
+        iat: chrono::DateTime<chrono::Utc>,
+        exp: chrono::Duration,
+    ) -> crate::Result<Self> {
         Ok(Self {
             resource_id,
             iat,
@@ -41,14 +44,10 @@ impl Refresh {
         Ok(val)
     }
 
-    // pub fn resource(&self) -> Resource {
-    //     match self.resource_type {
-    //         ResourceType::User => Resource::User(self.resource_id),
-    //         ResourceType::Org => Resource::Org(self.resource_id),
-    //         ResourceType::Host => Resource::Host(self.resource_id),
-    //         ResourceType::Node => Resource::Node(self.resource_id),
-    //     }
-    // }
+    /// Returns the longevity of this token.
+    pub fn duration(&self) -> chrono::Duration {
+        self.exp - self.iat
+    }
 
     fn dkey() -> crate::Result<jwt::DecodingKey> {
         let key = key_provider::KeyProvider::jwt_secret()?;

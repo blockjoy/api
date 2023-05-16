@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod babel;
 pub mod blockchains;
 pub mod commands;
 pub mod discovery;
@@ -78,6 +79,7 @@ pub async fn server(db: models::DbPool) -> Router<CorsServer> {
     };
 
     let authentication = api::auth_service_server::AuthServiceServer::new(impler.clone());
+    let babel = api::babel_service_server::BabelServiceServer::new(impler.clone());
     // let billing = api::billings_server::BillingsServer::new(impler.clone());
     let blockchain = api::blockchain_service_server::BlockchainServiceServer::new(impler.clone());
     let command = api::command_service_server::CommandServiceServer::new(impler.clone());
@@ -107,6 +109,7 @@ pub async fn server(db: models::DbPool) -> Router<CorsServer> {
         .layer(middleware)
         .concurrency_limit_per_connection(rate_limiting_settings())
         .add_service(authentication)
+        .add_service(babel)
         .add_service(blockchain)
         .add_service(command)
         .add_service(discovery)
@@ -126,49 +129,6 @@ fn rate_limiting_settings() -> usize {
         .and_then(|s| s.parse().ok())
         .unwrap_or(32)
 }
-
-// pub fn response_with_refresh_token<ResponseBody>(
-//     token: Option<String>,
-//     inner: ResponseBody,
-// ) -> Result<ResponseBody> {
-//     let mut response = tonic::Response::new(inner);
-
-//     if let Some(token) = token {
-//         // here auth fails, if refresh token is expired
-//         let refresh_token = UserRefreshToken::from_encoded::<UserRefreshToken>(
-//             token.as_str(),
-//             TokenType::UserRefresh,
-//             true,
-//         )?;
-//         let exp = NaiveDateTime::from_timestamp_opt(refresh_token.get_expiration(), 0).ok_or_else(
-//             || crate::Error::unexpected("Invalid timestamp while creating refresh token"),
-//         )?;
-//         // let exp = "Fri, 09 Jan 2026 03:15:14 GMT";
-//         let exp = exp.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-
-//         let raw_cookie =
-//             format!("refresh={token}; path=/; expires={exp}; secure; HttpOnly; SameSite=Lax");
-//         let cookie = raw_cookie.parse().map_err(|e: InvalidMetadataValue| {
-//             tracing::error!("error creating cookie: {e:?}");
-//             tonic::Status::internal(e.to_string())
-//         })?;
-
-//         tracing::debug!("Setting refresh cookie");
-
-//         response.metadata_mut().insert("set-cookie", cookie);
-//     } else {
-//         tracing::debug!("NOT setting refresh cookie as no refresh token is available");
-//     }
-
-//     Ok(response)
-// }
-
-// pub fn get_refresh_token<B>(request: &tonic::Request<B>) -> Option<String> {
-//     request
-//         .extensions()
-//         .get::<UserRefreshToken>()
-//         .and_then(|t| t.encode().ok())
-// }
 
 /// Function to convert the datetimes from the database into the API representation of a timestamp.
 pub fn try_dt_to_ts(

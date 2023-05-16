@@ -36,3 +36,21 @@ fn create_firewall_rules(
 
     Ok(rules)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_firewall_rules() {
+        let ips = ["1.2.3.3/32", "1.2.3.3/24", "1.2.3.3", "1.2.3.3/16"];
+        let ips = ips
+            .iter()
+            .map(|ip| models::FilteredIpAddr {
+                ip: ip.to_string(),
+                description: Some("muffin".to_string()),
+            })
+            .collect();
+        create_firewall_rules(ips, Action::Allow).unwrap();
+    }
+}

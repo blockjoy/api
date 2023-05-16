@@ -1,5 +1,6 @@
 use super::node_type::*;
 use super::schema::nodes;
+use super::string_to_array;
 use crate::cloudflare::CloudflareApi;
 use crate::cookbook::get_hw_requirements;
 use anyhow::anyhow;
@@ -117,6 +118,15 @@ pub struct NodeFilter {
     pub status: Vec<NodeChainStatus>,
     pub node_types: Vec<NodeType>,
     pub blockchains: Vec<uuid::Uuid>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NodeSelfUpgradeFilter {
+    pub node_type: NodeType,
+    // blockchain in snake_case.
+    pub blockchain: String,
+    // Semantic versioning.
+    pub version: String,
 }
 
 impl Node {
@@ -246,8 +256,10 @@ impl Node {
     }
 
     pub async fn update(self, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
-        let node = diesel::update(nodes::table.find(self.id))
-            .set((self, nodes::updated_at.eq(chrono::Utc::now())))
+        let mut node_to_update = self.clone();
+        node_to_update.updated_at = chrono::Utc::now();
+        let node = diesel::update(nodes::table.find(node_to_update.id))
+            .set(node_to_update)
             .get_result(conn)
             .await?;
         Ok(node)
@@ -327,6 +339,36 @@ impl Node {
 
     pub fn deny_ips(&self) -> crate::Result<Vec<FilteredIpAddr>> {
         Self::filtered_ip_addrs(self.deny_ips.clone())
+    }
+
+    pub async fn find_all_to_upgrade(
+        filter: &NodeSelfUpgradeFilter,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Vec<Self>> {
+        use super::schema::blockchains;
+
+        let nodes = nodes::table
+            .inner_join(blockchains::table.on(nodes::blockchain_id.eq(blockchains::id)))
+            .filter(
+                nodes::self_update
+                    .eq(true)
+                    .and(nodes::node_type.eq(filter.node_type))
+                    .and(
+                        string_to_array(nodes::version, ".")
+                            .lt(string_to_array(filter.version.to_string(), ".")),
+                    )
+                    .and(blockchains::name.eq(filter.blockchain.to_string())),
+            )
+            .distinct_on(nodes::id)
+            .select(nodes::all_columns)
+            .get_results(conn)
+            .await
+            .map_err(|e| {
+                tracing::error!("Error finding nodes to upgrade: {e}");
+                e
+            })?;
+
+        Ok(nodes)
     }
 
     fn filtered_ip_addrs(value: serde_json::Value) -> crate::Result<Vec<FilteredIpAddr>> {

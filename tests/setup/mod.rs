@@ -10,7 +10,10 @@ use diesel_async::pooled_connection::bb8::PooledConnection;
 use diesel_async::AsyncPgConnection;
 pub use dummy_token::*;
 use helper_traits::GrpcClient;
+use mockito::ServerGuard;
+use rand::Rng;
 use std::convert::TryFrom;
+use std::env::{remove_var, set_var};
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
@@ -30,6 +33,7 @@ type AuthService = AuthServiceClient<tonic::transport::Channel>;
 pub struct Tester {
     db: TestDb,
     server_input: Arc<TempPath>,
+    cloudflare: Arc<Option<ServerGuard>>,
 }
 
 impl std::ops::Deref for Tester {
@@ -47,7 +51,14 @@ impl std::ops::DerefMut for Tester {
 }
 
 impl Tester {
+    /// Creates a new tester, with the cloudflare API mocked.
     pub async fn new() -> Self {
+        Self::new_with(true).await
+    }
+
+    /// Creates a new tester, but with the cloudflare API mocked if `cloudflare_mocked` is `true`.
+    /// WARN: If `false`, the cloudflare API will be called
+    pub async fn new_with(cloudflare_mocked: bool) -> Self {
         let db = TestDb::setup().await;
         let pool = db.pool.clone();
         let socket = NamedTempFile::new().unwrap();
@@ -56,6 +67,11 @@ impl Tester {
 
         let uds = UnixListener::bind(&*socket).unwrap();
         let stream = UnixListenerStream::new(uds);
+        let cloudflare_server = if cloudflare_mocked {
+            Some(Self::mock_cloudflare_api().await)
+        } else {
+            None
+        };
         tokio::spawn(async {
             blockvisor_api::grpc::server(pool)
                 .await
@@ -69,6 +85,7 @@ impl Tester {
         Tester {
             db,
             server_input: socket,
+            cloudflare: Arc::new(cloudflare_server),
         }
     }
 
@@ -95,7 +112,8 @@ impl Tester {
     pub async fn admin_refresh(&self) -> auth::Refresh {
         let admin = self.user().await;
         let iat = chrono::Utc::now();
-        auth::Refresh::new(admin.id, iat).unwrap()
+        let exp = chrono::Duration::minutes(15);
+        auth::Refresh::new(admin.id, iat, exp).unwrap()
     }
 
     pub async fn hosts(&self) -> Vec<models::Host> {
@@ -272,6 +290,35 @@ impl Tester {
         let mut client = Client::create(channel);
         let resp: Response<Resp> = f(&mut client, req).await?;
         Ok(resp.into_inner())
+    }
+
+    pub async fn mock_cloudflare_api() -> ServerGuard {
+        let mut cloudfare_server = mockito::Server::new_async().await;
+        let cloudfare_url = cloudfare_server.url();
+
+        remove_var("CF_BASE_URL");
+        set_var("CF_BASE_URL", cloudfare_url);
+
+        let mut rng = rand::thread_rng();
+        let id_dns = rng.gen_range(200000..5000000);
+        cloudfare_server
+            .mock(
+                "POST",
+                mockito::Matcher::Regex(r"^/zones/.*/dns_records$".to_string()),
+            )
+            .with_status(200)
+            .with_body(format!("{{\"result\":{{\"id\":\"{:x}\"}}}}", id_dns))
+            .create_async()
+            .await;
+        cloudfare_server
+            .mock(
+                "DELETE",
+                mockito::Matcher::Regex(r"^/zones/.*/dns_records/.*$".to_string()),
+            )
+            .with_status(200)
+            .create_async()
+            .await;
+        cloudfare_server
     }
 }
 

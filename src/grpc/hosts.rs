@@ -7,7 +7,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 /// This is a list of all the endpoints that a user is allowed to access with the jwt that they
 /// generate on login. It does not contain endpoints like confirm, because those are accessed by a
 /// token.
-const HOST_ENDPOINTS: [auth::Endpoint; 13] = [
+const HOST_ENDPOINTS: [auth::Endpoint; 9] = [
     auth::Endpoint::AuthRefresh,
     auth::Endpoint::BlockchainAll,
     auth::Endpoint::CommandAll,
@@ -230,7 +230,9 @@ async fn provision(
         data: Default::default(),
     };
     let jwt = auth::Jwt { claims };
-    let refresh = auth::Refresh::new(host.id, refresh_exp)?;
+    let refresh_exp =
+        expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_HOST_MINS")?;
+    let refresh = auth::Refresh::new(host.id, iat, refresh_exp)?;
     let resp = api::HostServiceProvisionResponse {
         host_id: host.id.to_string(),
         token: jwt.encode()?,

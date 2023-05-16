@@ -61,6 +61,7 @@ pub const STAKE_QUOTA_DEFAULT: i64 = 3;
 pub const FEE_BPS_DEFAULT: i64 = 300;
 
 diesel::sql_function!(fn lower(x: diesel::sql_types::Text) -> diesel::sql_types::Text);
+diesel::sql_function!(fn string_to_array(version: diesel::sql_types::Text, split: diesel::sql_types::Text) -> diesel::sql_types::Array<diesel::sql_types::Text>);
 
 /// Our wrapper type for a ref counted postgres pool. We use a wrapper type because the functions
 /// `begin` and `conn` return a `Result<_, sqlx::Error>`. From our controllers we must return a

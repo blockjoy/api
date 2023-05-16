@@ -1,4 +1,5 @@
 use blockvisor_api::grpc::api::auth_service_client;
+use blockvisor_api::grpc::api::babel_service_client;
 use blockvisor_api::grpc::api::blockchain_service_client;
 use blockvisor_api::grpc::api::command_service_client;
 use blockvisor_api::grpc::api::discovery_service_client;
@@ -83,6 +84,12 @@ impl GrpcClient<Channel> for org_service_client::OrgServiceClient<Channel> {
 }
 
 impl GrpcClient<Channel> for user_service_client::UserServiceClient<Channel> {
+    fn create(channel: Channel) -> Self {
+        Self::new(channel)
+    }
+}
+
+impl GrpcClient<Channel> for babel_service_client::BabelServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }

@@ -44,14 +44,14 @@ pub struct NodePropertiesWithId {
 }
 
 /// A list of properties that goes into the `node_type` field of a `node`.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct BlockchainProperties {
     pub id: i32,
     pub version: String,
     pub properties: Option<Vec<BlockchainPropertyValue>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct BlockchainPropertyValue {
     pub name: String,
     pub default: Option<String>,

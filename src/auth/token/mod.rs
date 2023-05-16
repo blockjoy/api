@@ -224,6 +224,9 @@ pub enum Endpoint {
     UserGet = 1101,
     UserUpdate = 1102,
     UserDelete = 1103,
+
+    BabelAll = 1200,
+    BabelNotifiy = 1201,
 }
 
 const SPACE_PER_SERVICE: u64 = 100;

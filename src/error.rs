@@ -86,6 +86,12 @@ pub enum Error {
 
     #[error("{0}")]
     ToStrError(#[from] tonic::metadata::errors::ToStrError),
+
+    #[error("Could not convert babel config to filter for node query {0}")]
+    BabelConfigConvertError(String),
+
+    #[error("One or more nodes could not be upgraded {0}")]
+    UpgradeProcessError(String),
 }
 
 impl Error {
@@ -145,6 +151,8 @@ impl From<Error> for tonic::Status {
             UserConfirmationError => tonic::Status::unauthenticated(msg),
             NoMatchingHostError(_) => tonic::Status::resource_exhausted(msg),
             InvalidArgument(s) => s,
+            BabelConfigConvertError(s) => tonic::Status::invalid_argument(s),
+            UpgradeProcessError(s) => tonic::Status::internal(s),
             _ => tonic::Status::internal(msg),
         }
     }
