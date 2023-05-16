@@ -84,12 +84,16 @@ async fn responds_ok_with_valid_data_for_create() {
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
         placement: Some(api::NodePlacement {
-            placement: Some(api::node_placement::Placement::Scheduler(
-                api::NodeScheduler {
-                    similarity: None,
-                    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
-                },
+            placement: Some(api::node_placement::Placement::HostId(
+                tester.host().await.id.to_string(),
             )),
+            // This was changed it because otherwise it would make a real call to Cookbook which is
+            // not desirable and it would fail because it's not running.
+            //Some(api::node_placement::Placement::Scheduler(
+            //api::NodeScheduler {
+            //    similarity: None,
+            //    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+            //})),
         }),
         allow_ips: vec![api::FilteredIpAddr {
             ip: "127.0.0.1".to_string(),

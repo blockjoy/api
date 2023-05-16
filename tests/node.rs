@@ -41,7 +41,8 @@ async fn can_filter_nodes() -> anyhow::Result<()> {
     };
 
     let mut conn = tester.conn().await;
-    req.create(None, &mut conn).await.unwrap();
+    let host = tester.host().await;
+    req.create(Some(host.id), &mut conn).await.unwrap();
 
     let filter = models::NodeFilter {
         status: vec![models::NodeChainStatus::Unknown],
