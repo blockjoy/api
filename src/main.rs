@@ -24,8 +24,7 @@ fn main() -> anyhow::Result<()> {
 
 fn migrate() {
     let db_url = blockvisor_api::auth::key_provider::KeyProvider::get_var("DATABASE_URL")
-        .expect("DATABASE_URL not set")
-        .to_string();
+        .expect("DATABASE_URL not set");
     diesel::PgConnection::establish(&db_url)
         .expect("Could not migrate database!")
         .run_pending_migrations(blockvisor_api::MIGRATIONS)

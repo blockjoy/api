@@ -12,9 +12,9 @@ impl MailClient {
     pub fn new() -> Self {
         // Don't fail if API key wasn't found
         let sg_api_key = match KeyProvider::get_var("SENDGRID_API_KEY") {
-            Ok(key) => key.to_string(),
+            Ok(key) => key,
             Err(e) => {
-                tracing::error!("Couldn't read SENDGRID_API_KEY env var: {}", e);
+                tracing::error!("Couldn't read SENDGRID_API_KEY env var: {e}");
                 String::default()
             }
         };

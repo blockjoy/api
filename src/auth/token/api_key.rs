@@ -19,12 +19,6 @@ pub struct ApiKey {
 }
 
 impl ApiKey {
-    pub fn new() -> Self {
-        Self {
-            key: "Chris will implement this".to_string(),
-        }
-    }
-
     pub fn encode(self) -> crate::Result<String> {
         Ok(self.key)
     }

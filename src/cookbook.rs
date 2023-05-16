@@ -36,9 +36,7 @@ pub async fn get_hw_requirements(
         node_version,
         status: 1,
     };
-    let cb_url = KeyProvider::get_var("COOKBOOK_URL")
-        .map_err(Error::Key)?
-        .to_string();
+    let cb_url = KeyProvider::get_var("COOKBOOK_URL").map_err(Error::Key)?;
     let cb_token = base64::encode(KeyProvider::get_var("COOKBOOK_TOKEN")?);
     let mut client = cook_book_service_client::CookBookServiceClient::connect(cb_url)
         .await
@@ -76,9 +74,7 @@ pub async fn get_networks(
         node_version,
         status: 1,
     };
-    let cb_url = KeyProvider::get_var("COOKBOOK_URL")
-        .map_err(Error::Key)?
-        .to_string();
+    let cb_url = KeyProvider::get_var("COOKBOOK_URL").map_err(Error::Key)?;
     let cb_token = base64::encode(KeyProvider::get_var("COOKBOOK_TOKEN")?);
     let mut client = cook_book_service_client::CookBookServiceClient::connect(cb_url)
         .await
