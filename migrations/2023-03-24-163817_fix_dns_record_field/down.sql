@@ -1,1 +1,0 @@
-ALTER TABLE nodes ALTER COLUMN dns_record_id SET DEFAULT '';

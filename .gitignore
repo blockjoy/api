@@ -1,11 +1,4 @@
-/target
-/casbin_authorization/target
-.env
 /.idea
-<<<<<<< HEAD
-.vscode
-.DS_Store
-=======
 /compile/target
 blockjoy/.DS_Store
 /clients/ts/package-lock.json
@@ -13,4 +6,3 @@ blockjoy/.DS_Store
 package-lock.json
 node_modules
 generated
->>>>>>> 889eff45 (Squashed 'proto/' changes from 2504f125..84907db6)

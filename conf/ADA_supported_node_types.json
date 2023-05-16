@@ -1,1 +1,0 @@
-[{"id":10,"version":"1.35.5-build.1","properties":[{"name":"self-hosted","ui_type":"switch","default":"false","disabled":true,"required":true}]},{"id":3,"version":"0.0.3","properties":[{"name":"self-hosted","ui_type":"switch","default":"false","disabled":true,"required":true}]}]

@@ -69,17 +69,10 @@ message SupportedNodeProperty {
 }
 
 enum BlockchainNetworkType {
-<<<<<<<< HEAD:proto/blockjoy/v1/blockchain.proto
-  NETWORK_TYPE_UNSPECIFIED = 0;
-  NETWORK_TYPE_DEV = 1;
-  NETWORK_TYPE_TEST = 2;
-  NETWORK_TYPE_MAIN = 3;
-========
   BLOCKCHAIN_NETWORK_TYPE_UNSPECIFIED = 0;
   BLOCKCHAIN_NETWORK_TYPE_DEV = 1;
   BLOCKCHAIN_NETWORK_TYPE_TEST = 2;
   BLOCKCHAIN_NETWORK_TYPE_MAIN = 3;
->>>>>>>> 889eff45 (Squashed 'proto/' changes from 2504f125..84907db6):blockjoy/v1/blockchain.proto
 }
 
 message BlockchainNetwork {
