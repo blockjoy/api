@@ -157,8 +157,7 @@ impl MailClient {
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
         let iat = chrono::Utc::now();
-        let exp =
-            expiration_provider::ExpirationProvider::expiration("PWD_RESET_TOKEN_EXPIRATION_MINS")?;
+        let exp = expiration_provider::ExpirationProvider::expiration("PWD_RESET_EXPIRATION_MINS")?;
         let endpoints = [auth::Endpoint::AuthUpdatePassword];
         let claims = auth::Claims::new_user(user.id, iat, exp, endpoints);
         let token = auth::Jwt { claims };

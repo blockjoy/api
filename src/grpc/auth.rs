@@ -9,9 +9,10 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 /// This is a list of all the endpoints that a user is allowed to access with the jwt that they
 /// generate on login. It does not contain endpoints like confirm, because those are accessed by a
 /// token.
-const USER_ENDPOINTS: [auth::Endpoint; 13] = [
+const USER_ENDPOINTS: [auth::Endpoint; 14] = [
     auth::Endpoint::AuthRefresh,
     auth::Endpoint::AuthUpdatePassword,
+    auth::Endpoint::BabelAll,
     auth::Endpoint::BlockchainAll,
     auth::Endpoint::CommandAll,
     auth::Endpoint::DiscoveryAll,
@@ -93,7 +94,7 @@ async fn login(
         refresh: refresh.encode()?,
     };
     let mut resp = tonic::Response::new(resp);
-    let refresh = refresh.as_set_cookie(iat)?;
+    let refresh = refresh.as_set_cookie()?;
     resp.metadata_mut().insert("set-cookie", refresh.parse()?);
     Ok(resp)
 }
@@ -117,7 +118,7 @@ async fn confirm(
         refresh: refresh.encode()?,
     };
     let mut resp = tonic::Response::new(resp);
-    let refresh = refresh.as_set_cookie(iat)?;
+    let refresh = refresh.as_set_cookie()?;
     resp.metadata_mut().insert("set-cookie", refresh.parse()?);
     Ok(resp)
 }
@@ -179,7 +180,7 @@ async fn refresh(
         refresh: refresh.encode()?,
     };
     let mut resp = tonic::Response::new(resp);
-    let val = refresh.as_set_cookie(iat)?;
+    let val = refresh.as_set_cookie()?;
     resp.metadata_mut().insert("set-cookie", val.parse()?);
     Ok(resp)
 }

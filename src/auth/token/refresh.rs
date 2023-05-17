@@ -1,4 +1,4 @@
-use crate::auth::{expiration_provider, key_provider};
+use crate::auth::key_provider;
 use jsonwebtoken as jwt;
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -48,10 +48,8 @@ impl Refresh {
         Ok(decoded)
     }
 
-    pub fn as_set_cookie(&self, iat: chrono::DateTime<chrono::Utc>) -> crate::Result<String> {
-        let exp =
-            expiration_provider::ExpirationProvider::expiration("REFRESH_TOKEN_EXPIRATION_MINS")?;
-        let exp = (iat + exp).format("%a, %d %b %Y %H:%M:%S GMT");
+    pub fn as_set_cookie(&self) -> crate::Result<String> {
+        let exp = self.exp.format("%a, %d %b %Y %H:%M:%S GMT");
         let tkn = self.encode()?;
         let val = format!("refresh={tkn}; path=/; expires={exp}; secure; HttpOnly; SameSite=Lax");
         Ok(val)

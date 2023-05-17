@@ -67,7 +67,7 @@ async fn responds_ok_with_id_for_get() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_data_for_create() {
-    let tester = super::Tester::new().await;
+    let tester = super::Tester::new_with(true).await;
     let blockchain = tester.blockchain().await;
     let user = tester.user().await;
     let org = tester.org_for(&user).await;
@@ -79,16 +79,11 @@ async fn responds_ok_with_valid_data_for_create() {
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
         placement: Some(api::NodePlacement {
+            // This was changed it because otherwise it would make a real call to Cookbook which is
+            // not desirable and it would fail because it's not running.
             placement: Some(api::node_placement::Placement::HostId(
                 tester.host().await.id.to_string(),
             )),
-            // This was changed it because otherwise it would make a real call to Cookbook which is
-            // not desirable and it would fail because it's not running.
-            //Some(api::node_placement::Placement::Scheduler(
-            //api::NodeScheduler {
-            //    similarity: None,
-            //    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
-            //})),
         }),
         allow_ips: vec![api::FilteredIpAddr {
             ip: "127.0.0.1".to_string(),

@@ -7,8 +7,9 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 /// This is a list of all the endpoints that a user is allowed to access with the jwt that they
 /// generate on login. It does not contain endpoints like confirm, because those are accessed by a
 /// token.
-const HOST_ENDPOINTS: [auth::Endpoint; 9] = [
+const HOST_ENDPOINTS: [auth::Endpoint; 10] = [
     auth::Endpoint::AuthRefresh,
+    auth::Endpoint::BabelAll,
     auth::Endpoint::BlockchainAll,
     auth::Endpoint::CommandAll,
     auth::Endpoint::DiscoveryAll,

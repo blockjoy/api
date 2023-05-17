@@ -68,7 +68,6 @@ mod tests {
     #[test]
     fn test_get_refresh() {
         temp_env::with_var_unset("SECRETS_ROOT", || {
-            let iat = chrono::Utc::now();
             let refresh_exp =
                 expiration_provider::ExpirationProvider::expiration(REFRESH_EXPIRATION_USER_MINS)
                     .unwrap();
@@ -76,7 +75,7 @@ mod tests {
                 Refresh::new(uuid::Uuid::new_v4(), chrono::Utc::now(), refresh_exp).unwrap();
             let mut req = tonic::Request::new(());
             req.metadata_mut()
-                .insert("cookie", token.as_set_cookie(iat).unwrap().parse().unwrap());
+                .insert("cookie", token.as_set_cookie().unwrap().parse().unwrap());
             let res = get_refresh(&req).unwrap().unwrap();
             assert_eq!(token.resource_id, res.resource_id);
         });
