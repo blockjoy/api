@@ -2,7 +2,7 @@ use crate::http::handlers::*;
 use axum::routing::{get, post};
 use axum::Router;
 
-pub fn unauthenticated_routes() -> Router {
+pub fn forbiddenenticated_routes() -> Router {
     let mqtt_router = Router::new()
         // mqtt/auth
         // -> { username: %u => JWT TOKEN }

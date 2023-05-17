@@ -1,7 +1,7 @@
 use crate::auth::{expiration_provider, key_provider};
 use jsonwebtoken as jwt;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Refresh {
     pub resource_id: uuid::Uuid,
     #[serde(with = "super::timestamp")]
@@ -16,10 +16,17 @@ impl Refresh {
         iat: chrono::DateTime<chrono::Utc>,
         exp: chrono::Duration,
     ) -> crate::Result<Self> {
+        // Note that we must uphold the invariant that exp > iat here.
+        let exp = iat + exp;
+        if exp < iat {
+            return Err(crate::Error::unexpected(
+                "api is misconfigured, exp is negative",
+            ));
+        }
         Ok(Self {
             resource_id,
             iat,
-            exp: iat + exp,
+            exp,
         })
     }
 
@@ -31,8 +38,14 @@ impl Refresh {
 
     pub fn decode(raw: &str) -> crate::Result<Self> {
         let validation = jwt::Validation::new(jwt::Algorithm::HS512);
-        let decoded = jwt::decode(raw, &Self::dkey()?, &validation)?;
-        Ok(decoded.claims)
+        let decoded: Self = jwt::decode(raw, &Self::dkey()?, &validation)?.claims;
+        // Note that we must uphold the invariant that exp > iat here.
+        if decoded.exp < decoded.iat {
+            return Err(crate::Error::unexpected(
+                "api is misconfigured, exp is negative",
+            ));
+        }
+        Ok(decoded)
     }
 
     pub fn as_set_cookie(&self, iat: chrono::DateTime<chrono::Utc>) -> crate::Result<String> {
@@ -57,5 +70,23 @@ impl Refresh {
     fn ekey() -> crate::Result<jwt::EncodingKey> {
         let key = key_provider::KeyProvider::jwt_secret()?;
         Ok(jwt::EncodingKey::from_secret(key.as_bytes()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_encode_decode_preserves_token() {
+        let iat = chrono::Utc::now();
+        let refresh = Refresh {
+            resource_id: uuid::Uuid::new_v4(),
+            iat,
+            exp: iat + chrono::Duration::seconds(1),
+        };
+        let encoded = refresh.encode().unwrap();
+        let decoded = Refresh::decode(&encoded).unwrap();
+        assert_eq!(refresh, decoded);
     }
 }

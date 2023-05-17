@@ -60,7 +60,7 @@ async fn create(
 ) -> super::Result<api::OrgServiceCreateResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::OrgCreate, conn).await?;
     let req = req.into_inner();
-    let auth::Resource::User(user_id) = claims.resource() else { super::unauth!("Access denied") };
+    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
     let new_org = models::NewOrg {
         name: &req.name,
         is_personal: false,
@@ -90,7 +90,7 @@ async fn get(
         auth::Resource::Node(node) => models::Node::find_by_id(node, conn).await?.org_id == org_id,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let org = models::Org::find_by_id(org_id, conn).await?;
     let org = api::Org::from_model(org, conn).await?;
@@ -119,7 +119,7 @@ async fn list(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access denied")
+        super::forbidden!("Access denied")
     }
     let orgs = models::Org::filter(member_id, conn).await?;
     let orgs = api::Org::from_models(orgs, conn).await?;
@@ -135,10 +135,10 @@ async fn update(
 ) -> super::Result<api::OrgServiceUpdateResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::OrgUpdate, conn).await?;
     let req = req.into_inner();
-    let auth::Resource::User(user_id) = claims.resource() else { super::unauth!("Access denied") };
+    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
     let org_id = req.id.parse()?;
     if !models::Org::is_member(user_id, org_id, conn).await? {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let update = models::UpdateOrg {
         id: org_id,
@@ -159,14 +159,14 @@ async fn delete(
 ) -> super::Result<api::OrgServiceDeleteResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::OrgDelete, conn).await?;
     let req = req.into_inner();
-    let auth::Resource::User(user_id) = claims.resource() else { super::unauth!("Access denied") };
+    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
     let org_id = req.id.parse()?;
     if !models::Org::is_admin(user_id, org_id, conn).await? {
-        super::unauth!("User {user_id} has insufficient privileges to delete org {org_id}");
+        super::forbidden!("User {user_id} has insufficient privileges to delete org {org_id}");
     }
     let org = models::Org::find_by_id(org_id, conn).await?;
     if org.is_personal {
-        super::unauth!("Can't deleted personal org");
+        super::forbidden!("Can't deleted personal org");
     }
 
     tracing::debug!("Deleting org: {}", org_id);
@@ -185,13 +185,13 @@ async fn remove_member(
 ) -> super::Result<api::OrgServiceRemoveMemberResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::OrgRemoveMember, conn).await?;
     let req = req.into_inner();
-    let auth::Resource::User(caller_id) = claims.resource() else { super::unauth!("Access denied") };
+    let auth::Resource::User(caller_id) = claims.resource() else { super::forbidden!("Access denied") };
     let org_id = req.org_id.parse()?;
     let user_id = req.user_id.parse()?;
     let is_admin = models::Org::is_admin(caller_id, org_id, conn).await?;
     let is_self = caller_id == user_id;
     if !is_admin && !is_self {
-        super::unauth!("User {caller_id} has can't remove user {user_id} from org {org_id}")
+        super::forbidden!("User {caller_id} has can't remove user {user_id} from org {org_id}")
     }
     let user_to_remove = models::User::find_by_id(user_id, conn).await?;
     let org = models::Org::find_by_id(org_id, conn).await?;

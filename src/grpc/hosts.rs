@@ -89,7 +89,7 @@ async fn create(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let new_host = req.as_new()?;
     let host = new_host.create(conn).await?;
@@ -122,7 +122,7 @@ async fn get(
         }
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let host = api::Host::from_model(host).await?;
     let resp = api::HostServiceGetResponse { host: Some(host) };
@@ -143,7 +143,7 @@ async fn list(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let hosts = models::Host::filter(org_id, None, conn).await?;
     let hosts = api::Host::from_models(hosts).await?;
@@ -172,7 +172,7 @@ async fn update(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Not allowed to delete host {host_id}!");
+        super::forbidden!("Not allowed to delete host {host_id}!");
     }
     let updater = req.as_update()?;
     updater.update(conn).await?;
@@ -201,7 +201,7 @@ async fn delete(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Not allowed to delete host {host_id}!");
+        super::forbidden!("Not allowed to delete host {host_id}!");
     }
     models::Host::delete(host_id, conn).await?;
     let resp = api::HostServiceDeleteResponse {};
@@ -223,7 +223,7 @@ async fn provision(
     let new_host = req.as_new(provision)?;
     let host = models::HostProvision::claim(&req.otp, new_host, conn).await?;
     let iat = chrono::Utc::now();
-    let exp = expiration_provider::ExpirationProvider::expiration("TOKEN_EXPIRATION_MINS")?;
+    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
     let claims = auth::Claims {
         resource_type: auth::ResourceType::Host,
         resource_id: host.id,

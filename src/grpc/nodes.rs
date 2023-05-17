@@ -61,7 +61,7 @@ async fn get(
         auth::Resource::Node(node_id) => node.id == node_id,
     };
     if !is_allowed {
-        super::unauth!("Access not allowed")
+        super::forbidden!("Access not allowed")
     }
     let resp = api::NodeServiceGetResponse {
         node: Some(api::Node::from_model(node, conn).await?),
@@ -84,7 +84,7 @@ async fn list(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let nodes = models::Node::filter(filter, conn).await?;
     let nodes = api::Node::from_models(nodes, conn).await?;
@@ -99,7 +99,7 @@ async fn create(
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::NodeServiceCreateResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::NodeCreate, conn).await?;
-    let auth::Resource::User(user_id) = claims.resource() else { super::unauth!("Need user_id!") };
+    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
 
     let user = models::User::find_by_id(user_id, conn).await?;
     let req = req.into_inner();
@@ -110,9 +110,9 @@ async fn create(
     let host_id = req.host_id()?;
     if let Some(host_id) = host_id {
         let host = models::Host::find_by_id(host_id, conn).await?;
-        let Some(org_id) = host.org_id else { super::unauth!("Host must have org_id") };
+        let Some(org_id) = host.org_id else { super::forbidden!("Host must have org_id") };
         if !models::Org::is_member(user.id, org_id, conn).await? {
-            super::unauth!("Must be member of org");
+            super::forbidden!("Must be member of org");
         }
     }
     let node = new_node.create(req.host_id()?, conn).await?;
@@ -140,7 +140,7 @@ async fn update(
         auth::Resource::Node(node_id) => node_id == node.id,
     };
     if !is_allowed {
-        super::unauth!("Access not allowed")
+        super::forbidden!("Access not allowed")
     }
     let update_node = req.as_update()?;
     let user = claims
@@ -160,12 +160,12 @@ async fn delete(
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::NodeServiceDeleteResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::NodeDelete, conn).await?;
-    let auth::Resource::User(user_id) = claims.resource() else { super::unauth!("Need user_id!") };
+    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
 
     if !models::Org::is_member(user_id, node.org_id, conn).await? {
-        super::unauth!("User cannot delete node");
+        super::forbidden!("User cannot delete node");
     }
     // 1. Delete node, if the node belongs to the current user
     // Key files are deleted automatically because of 'on delete cascade' in tables DDL

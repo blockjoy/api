@@ -56,7 +56,7 @@ async fn create(
     let host = req.host(conn).await?;
     let is_allowed = access_allowed(claims, node.as_ref(), &host, conn).await?;
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let command_type = req.command_type()?;
     let command = req
@@ -83,7 +83,7 @@ async fn get(
     let node = command.node(conn).await?;
     let is_allowed = access_allowed(claims, node.as_ref(), &host, conn).await?;
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let command = api::Command::from_model(&command, conn).await?;
     let resp = api::CommandServiceGetResponse {
@@ -104,7 +104,7 @@ async fn update(
     let node = command.node(conn).await?;
     let is_allowed = access_allowed(claims, node.as_ref(), &host, conn).await?;
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let update_cmd = req.as_update()?;
     let cmd = update_cmd.update(conn).await?;
@@ -150,7 +150,7 @@ async fn pending(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let cmds = models::Command::find_pending_by_host(host_id, conn).await?;
     let mut commands = Vec::with_capacity(cmds.len());

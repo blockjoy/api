@@ -65,7 +65,7 @@ async fn create(
         auth::Resource::Node(_) => todo!(),
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let invitation = req.as_new(caller.id, conn).await?.create(conn).await?;
 
@@ -126,7 +126,7 @@ async fn list(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let filter = req.as_filter()?;
     let invitations = models::Invitation::filter(filter, conn).await?;
@@ -154,7 +154,7 @@ async fn accept(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     if invitation.accepted_at.is_some() {
         return Err(Status::failed_precondition("Invitation already accepted").into());
@@ -199,7 +199,7 @@ async fn decline(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     if invitation.accepted_at.is_some() {
         return Err(Status::failed_precondition("Invite is accepted").into());
@@ -230,7 +230,7 @@ async fn revoke(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     if invitation.accepted_at.is_some() {
         return Err(Status::failed_precondition("Invite is accepted").into());

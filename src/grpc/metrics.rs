@@ -51,7 +51,7 @@ async fn node(
         auth::Resource::Node(node_id) => nodes.iter().all(|n| n.id == node_id),
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     models::UpdateNodeMetrics::update_metrics(updates, conn).await?;
     let resp = api::MetricsServiceNodeResponse {};
@@ -83,7 +83,7 @@ async fn host(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     models::UpdateHostMetrics::update_metrics(updates, conn).await?;
     let resp = api::MetricsServiceHostResponse {};

@@ -6,7 +6,7 @@ use diesel_async::RunQueryDsl;
 type Service = api::host_service_client::HostServiceClient<super::Channel>;
 
 #[tokio::test]
-async fn responds_unauthenticated_without_token_for_update() {
+async fn responds_forbiddenenticated_without_token_for_update() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
 
@@ -117,7 +117,7 @@ async fn responds_ok_for_delete() {
 }
 
 #[tokio::test]
-async fn responds_unauthenticated_without_token_for_delete() {
+async fn responds_forbiddenenticated_without_token_for_delete() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
     let req = api::HostServiceDeleteRequest {

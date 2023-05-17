@@ -8,7 +8,7 @@ pub use api_key::ApiKey;
 pub use jwt::Jwt;
 pub use refresh::Refresh;
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Claims {
     pub resource_type: ResourceType,
     pub resource_id: uuid::Uuid,
@@ -70,7 +70,7 @@ impl Resource {
 /// it has created, but a host also has access to all nodes that run on it. They are hierarchically
 /// sorted here, which is to say that a user has multiple orgs, an org has multiple hosts and a host
 /// has multiple nodes.
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ResourceType {
     User,
     Org,
@@ -84,7 +84,7 @@ pub enum ClaimsRole {
     Normal,
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Endpoints {
     #[serde(rename = "*")]

@@ -37,7 +37,7 @@ async fn create(
         auth::Resource::Node(node_id) => node_id == node.id,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let key_files = req
         .key_files
@@ -70,7 +70,7 @@ async fn list(
         auth::Resource::Node(node_id) => node_id == node.id,
     };
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let key_files = models::NodeKeyFile::find_by_node(&node, conn).await?;
     let key_files = api::Keyfile::from_models(key_files);

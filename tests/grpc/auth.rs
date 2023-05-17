@@ -16,7 +16,7 @@ async fn responds_ok_with_valid_credentials_for_login() {
 }
 
 #[tokio::test]
-async fn responds_unauthenticated_with_valid_credentials_for_unconfirmed_user_login() {
+async fn responds_forbiddenenticated_with_valid_credentials_for_unconfirmed_user_login() {
     let tester = super::Tester::new().await;
     let user = tester.unconfirmed_user().await;
     let req = api::AuthServiceLoginRequest {
@@ -89,7 +89,7 @@ async fn responds_ok_with_valid_passwords_for_update_ui_password() {
 }
 
 #[tokio::test]
-async fn responds_unauthenticated_with_invalid_old_password_for_update_ui_password() {
+async fn responds_forbiddenenticated_with_invalid_old_password_for_update_ui_password() {
     let tester = super::Tester::new().await;
     let req = api::AuthServiceUpdateUiPasswordRequest {
         user_id: tester.user().await.id.to_string(),

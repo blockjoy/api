@@ -82,11 +82,11 @@ async fn login(
     let inner = req.into_inner();
     let user = models::User::login(&inner.email, &inner.password, conn).await?;
     let iat = chrono::Utc::now();
-    let exp = expiration_provider::ExpirationProvider::expiration("TOKEN_EXPIRATION_MINS")?;
+    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
     let claims = auth::Claims::new_user(user.id, iat, exp, USER_ENDPOINTS);
     let token = auth::Jwt { claims };
     let refresh_exp =
-        expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_USER_MINS")?;
+        expiration_provider::ExpirationProvider::expiration(auth::REFRESH_EXPIRATION_USER_MINS)?;
     let refresh = auth::Refresh::new(user.id, iat, refresh_exp)?;
     let resp = api::AuthServiceLoginResponse {
         token: token.encode()?,
@@ -103,13 +103,13 @@ async fn confirm(
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::AuthServiceConfirmResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::AuthConfirm, conn).await?;
-    let auth::Resource::User(user_id) = claims.resource() else { super::unauth!("Must be user") };
+    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Must be user") };
     let iat = chrono::Utc::now();
-    let exp = expiration_provider::ExpirationProvider::expiration("TOKEN_EXPIRATION_MINS")?;
+    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
     let claims = auth::Claims::new_user(user_id, iat, exp, USER_ENDPOINTS);
     let token = auth::Jwt { claims };
     let refresh_exp =
-        expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_USER_MINS")?;
+        expiration_provider::ExpirationProvider::expiration(auth::REFRESH_EXPIRATION_USER_MINS)?;
     let refresh = auth::Refresh::new(user_id, iat, refresh_exp)?;
     models::User::confirm(user_id, conn).await?;
     let resp = api::AuthServiceConfirmResponse {
@@ -150,7 +150,7 @@ async fn refresh(
         }
         auth::Resource::Host(host_id) => {
             models::Host::find_by_id(host_id, conn).await?;
-            (auth::ResourceType::Org, host_id)
+            (auth::ResourceType::Host, host_id)
         }
         auth::Resource::Node(node_id) => {
             models::Node::find_by_id(node_id, conn).await?;
@@ -158,11 +158,11 @@ async fn refresh(
         }
     };
     if refresh.resource_id != resource_id {
-        super::unauth!("Jwt and refresh grantee don't match");
+        super::forbidden!("Jwt and refresh grantee don't match");
     }
 
     let iat = chrono::Utc::now();
-    let exp = expiration_provider::ExpirationProvider::expiration("TOKEN_EXPIRATION_MINS")?;
+    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
     let claims = auth::Claims {
         resource_type,
         resource_id,
@@ -212,7 +212,7 @@ async fn update_password(
     let claims = auth::get_claims(&req, AuthUpdatePassword, conn).await?;
     let req = req.into_inner();
     // Only users have passwords; orgs, hosts and nodes do not.
-    let auth::Resource::User(user_id) = claims.resource() else { super::unauth!("Need user_id") };
+    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id") };
     let cur_user = models::User::find_by_id(user_id, conn)
         .await?
         .update_password(&req.password, conn)
@@ -229,12 +229,12 @@ async fn update_ui_password(
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::AuthServiceUpdateUiPasswordResponse> {
     let claims = auth::get_claims(&req, auth::Endpoint::AuthUpdatePassword, conn).await?;
-    let auth::Resource::User(user_id_) = claims.resource() else { super::unauth!("Must be user") };
+    let auth::Resource::User(user_id_) = claims.resource() else { super::forbidden!("Must be user") };
     let req = req.into_inner();
     let user_id = req.user_id.parse()?;
     let is_allowed = user_id == user_id_;
     if !is_allowed {
-        super::unauth!("Can only update your own password");
+        super::forbidden!("Can only update your own password");
     }
     let user = models::User::find_by_id(user_id, conn).await?;
     user.verify_password(&req.old_password)?;

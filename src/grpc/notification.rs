@@ -36,7 +36,7 @@ impl Notifier {
         tokio::spawn(async move {
             loop {
                 match event_loop.poll().await {
-                    Ok(event) => println!("Successful polling event: {event:?}"),
+                    Ok(_) => {}
                     Err(e) => {
                         tracing::warn!("MQTT failure, ignoring and continuing to poll: {e}");
                         tokio::time::sleep(std::time::Duration::from_secs(10)).await;

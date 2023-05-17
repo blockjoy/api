@@ -5,6 +5,10 @@ mod token;
 use diesel_async::AsyncPgConnection;
 pub use token::*;
 
+pub const TOKEN_EXPIRATION_MINS: &str = "TOKEN_EXPIRATION_MINS";
+pub const REFRESH_EXPIRATION_USER_MINS: &str = "REFRESH_EXPIRATION_USER_MINS";
+pub const REFRESH_EXPIRATION_HOST_MINS: &str = "REFRESH_EXPIRATION_HOST_MINS";
+
 /// This function is the workhorse of our authentication process. It takes the extensions of the
 /// request and returns the `Claims` that the authentication process provided.
 pub async fn get_claims<T>(
@@ -51,7 +55,6 @@ pub fn get_refresh<T>(req: &tonic::Request<T>) -> crate::Result<Option<Refresh>>
         Some(meta) => meta.to_str()?,
         None => return Ok(None),
     };
-    println!("{meta}");
     let Some(refresh_idx) = meta.find("refresh=") else { return Ok(None) };
     let Some(end_idx) = meta.find("; ") else { return Ok(None) };
     let refresh = Refresh::decode(&meta[refresh_idx + 8..end_idx])?;
@@ -67,7 +70,7 @@ mod tests {
         temp_env::with_var_unset("SECRETS_ROOT", || {
             let iat = chrono::Utc::now();
             let refresh_exp =
-                expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_USER_MINS")
+                expiration_provider::ExpirationProvider::expiration(REFRESH_EXPIRATION_USER_MINS)
                     .unwrap();
             let token =
                 Refresh::new(uuid::Uuid::new_v4(), chrono::Utc::now(), refresh_exp).unwrap();

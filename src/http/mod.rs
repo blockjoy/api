@@ -1,4 +1,4 @@
-use crate::http::routes::unauthenticated_routes;
+use crate::http::routes::forbiddenenticated_routes;
 use crate::models;
 use axum::{Extension, Router};
 use tower_http::compression::CompressionLayer;
@@ -10,7 +10,7 @@ pub mod mqtt;
 pub mod routes;
 
 pub async fn server(db: models::DbPool) -> Router {
-    unauthenticated_routes()
+    forbiddenenticated_routes()
         // Common layers need to be added first to make it available to ALL routes
         .layer(
             CorsLayer::new()

@@ -529,7 +529,8 @@ mod tests {
         };
 
         let mut conn = db.conn().await;
-        req.create(None, &mut conn).await.unwrap();
+        let host = db.host().await;
+        req.create(Some(host.id), &mut conn).await.unwrap();
 
         let filter = models::NodeFilter {
             status: vec![models::NodeChainStatus::Unknown],

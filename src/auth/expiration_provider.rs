@@ -15,14 +15,15 @@ impl ExpirationProvider {
 
 #[cfg(test)]
 mod tests {
+    use crate::auth;
     use chrono::{Duration, Utc};
 
     #[test]
     fn can_calculate_expiration_time() {
-        temp_env::with_vars(vec![("TOKEN_EXPIRATION_MINS_USER", Some("10"))], || {
+        temp_env::with_vars(vec![(auth::TOKEN_EXPIRATION_MINS, Some("10"))], || {
             let now = Utc::now();
             let duration = Duration::minutes(
-                dotenv::var("TOKEN_EXPIRATION_MINS_USER")
+                dotenv::var(auth::TOKEN_EXPIRATION_MINS)
                     .unwrap()
                     .parse::<i64>()
                     .unwrap(),

@@ -19,6 +19,8 @@
 //! functions _must_ happen from within a transaction, and functions that not mutate may either be\
 //! called from a transaction or from a 'bare' connection.
 
+pub const DATABASE_URL: &str = "DATABASE_URL";
+
 mod blacklist_token;
 mod blockchain;
 mod command;
@@ -71,10 +73,6 @@ diesel::sql_function!(fn string_to_array(version: diesel::sql_types::Text, split
 pub struct DbPool {
     pool: Pool<diesel_async::AsyncPgConnection>,
 }
-
-// /// This is a wrapper type for a database connection that is in a transaction-state, i.e. `BEGIN;`
-// /// has been ran. The same justification as above applies to why we use a wrapper type here.
-// pub struct DbTrx<'a, 'b>(&'a mut PooledConnection<'b, AsyncPgConnection>);
 
 impl DbPool {
     pub fn new(pool: Pool<diesel_async::AsyncPgConnection>) -> Self {

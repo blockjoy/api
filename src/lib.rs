@@ -56,7 +56,7 @@ mod test {
 
             // First we open up a connection to the main db. This is for running the
             // `CREATE DATABASE` query.
-            let main_db_url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
+            let main_db_url = std::env::var(models::DATABASE_URL).expect("Missing DATABASE_URL");
             let db_name = Self::db_name();
             let mut conn = AsyncPgConnection::establish(&main_db_url).await.unwrap();
             diesel::sql_query(&format!("CREATE DATABASE {db_name};"))
@@ -335,9 +335,10 @@ mod test {
 
         pub fn user_refresh_token(&self, user_id: Uuid) -> auth::Refresh {
             let iat = chrono::Utc::now();
-            let refresh_exp =
-                expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_USER_MINS")
-                    .unwrap();
+            let refresh_exp = expiration_provider::ExpirationProvider::expiration(
+                auth::REFRESH_EXPIRATION_USER_MINS,
+            )
+            .unwrap();
             auth::Refresh::new(user_id, iat, refresh_exp).unwrap()
         }
 

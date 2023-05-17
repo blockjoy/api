@@ -51,7 +51,7 @@ type Resp<T, E = tonic::Status> = std::result::Result<tonic::Response<T>, E>;
 
 /// This macro bails out of the current function with a `tonic::Status::permission_denied` error.
 /// The arguments that can be supplied here are the same as the arguments to the format macro.
-macro_rules! unauth {
+macro_rules! forbidden {
     ($msg:literal $(,)?) => {
         return Err(tonic::Status::permission_denied(format!($msg)).into())
     };
@@ -63,7 +63,7 @@ macro_rules! unauth {
     };
 }
 
-use unauth;
+use forbidden;
 
 type TracedServer = Stack<TraceLayer<SharedClassifier<GrpcErrorsAsFailures>>, Identity>;
 type DbServer = Stack<Extension<models::DbPool>, TracedServer>;

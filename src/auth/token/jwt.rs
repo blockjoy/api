@@ -17,19 +17,15 @@ impl Jwt {
 
     pub fn decode(raw: &str) -> crate::Result<Self> {
         let validation = jwt::Validation::new(jwt::Algorithm::HS512);
-        let decoded = jwt::decode(raw, &Self::dkey()?, &validation)?;
-        Ok(Self {
-            claims: decoded.claims,
-        })
+        let claims = jwt::decode(raw, &Self::dkey()?, &validation)?.claims;
+        Ok(Self { claims })
     }
 
     pub fn decode_expired(raw: &str) -> crate::Result<Self> {
         let mut validation = jwt::Validation::new(jwt::Algorithm::HS512);
         validation.validate_exp = false;
-        let decoded = jwt::decode(raw, &Self::dkey()?, &validation)?;
-        Ok(Self {
-            claims: decoded.claims,
-        })
+        let claims = jwt::decode(raw, &Self::dkey()?, &validation)?.claims;
+        Ok(Self { claims })
     }
 
     fn dkey() -> crate::Result<jwt::DecodingKey> {
@@ -40,5 +36,27 @@ impl Jwt {
     fn ekey() -> crate::Result<jwt::EncodingKey> {
         let key = key_provider::KeyProvider::jwt_secret()?;
         Ok(jwt::EncodingKey::from_secret(key.as_bytes()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_encode_decode_preserves_token() {
+        let iat = chrono::Utc::now();
+        let claims = auth::Claims {
+            resource_type: auth::ResourceType::Node,
+            resource_id: uuid::Uuid::new_v4(),
+            iat,
+            exp: iat + chrono::Duration::minutes(15),
+            endpoints: auth::Endpoints::Wildcard,
+            data: Default::default(),
+        };
+        let token = Jwt { claims };
+        let encoded = token.encode().unwrap();
+        let decoded = Jwt::decode(&encoded).unwrap();
+        assert_eq!(token.claims, decoded.claims);
     }
 }

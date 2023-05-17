@@ -51,7 +51,7 @@ async fn get(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access not allowed")
+        super::forbidden!("Access not allowed")
     }
     let resp = api::UserServiceGetResponse {
         user: Some(api::User::from_model(user)?),
@@ -90,7 +90,7 @@ async fn update(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access not allowed")
+        super::forbidden!("Access not allowed")
     }
     let user = req.as_update()?.update(conn).await?;
     let resp = api::UserServiceUpdateResponse {
@@ -113,7 +113,7 @@ async fn delete(
         auth::Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::unauth!("Access not allowed")
+        super::forbidden!("Access not allowed")
     }
     models::User::delete(user.id, conn).await?;
     let resp = api::UserServiceDeleteResponse {};

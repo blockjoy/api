@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub async fn start() -> anyhow::Result<()> {
-    let db_url = KeyProvider::get_var("DATABASE_URL")?;
+    let db_url = KeyProvider::get_var(models::DATABASE_URL)?;
     let db_max_conn: u32 = std::env::var("DB_MAX_CONN")
         .ok()
         .and_then(|s| s.parse().ok())

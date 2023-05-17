@@ -33,7 +33,7 @@ async fn create(
     let org_id = req.org_id.as_ref().map(|id| id.parse()).transpose()?;
     let is_allowed = is_allowed(claims, org_id, conn).await?;
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let new_provision = req.as_new()?;
     let host_provision = new_provision.create(conn).await?;
@@ -52,7 +52,7 @@ async fn get(
     let host_provision = models::HostProvision::find_by_id(&req.id, conn).await?;
     let is_allowed = is_allowed(claims, host_provision.org_id, conn).await?;
     if !is_allowed {
-        super::unauth!("Access denied");
+        super::forbidden!("Access denied");
     }
     let resp = api::HostProvisionServiceGetResponse {
         host_provisions: Some(api::HostProvision::from_model(host_provision)?),
