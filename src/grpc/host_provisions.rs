@@ -112,7 +112,6 @@ impl api::HostProvision {
 impl api::HostProvisionServiceCreateRequest {
     fn as_new(&self) -> crate::Result<models::NewHostProvision> {
         models::NewHostProvision::new(
-            None,
             self.ip_range_from.parse()?,
             self.ip_range_to.parse()?,
             self.ip_gateway.parse()?,

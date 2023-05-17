@@ -6,8 +6,9 @@ mod helper_traits;
 use blockvisor_api::auth;
 use blockvisor_api::models;
 use blockvisor_api::TestDb;
+use diesel::prelude::*;
 use diesel_async::pooled_connection::bb8::PooledConnection;
-use diesel_async::AsyncPgConnection;
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 pub use dummy_token::*;
 use helper_traits::GrpcClient;
 use mockito::ServerGuard;
@@ -117,8 +118,9 @@ impl Tester {
     }
 
     pub async fn hosts(&self) -> Vec<models::Host> {
+        use models::schema::hosts;
         let mut conn = self.conn().await;
-        models::Host::find_all(&mut conn).await.unwrap()
+        hosts::table.get_results(&mut conn).await.unwrap()
     }
 
     pub async fn host(&self) -> models::Host {
@@ -136,12 +138,16 @@ impl Tester {
     }
 
     pub async fn org_for(&self, user: &models::User) -> models::Org {
+        use models::schema::{orgs, orgs_users};
+
         let mut conn = self.conn().await;
-        models::Org::find_all_by_user(user.id, &mut conn)
+        orgs::table
+            .filter(orgs::is_personal.eq(false))
+            .filter(orgs_users::user_id.eq(user.id))
+            .inner_join(orgs_users::table)
+            .select(models::Org::as_select())
+            .get_result(&mut conn)
             .await
-            .unwrap()
-            .into_iter()
-            .find(|o| !o.is_personal)
             .unwrap()
     }
 
@@ -166,10 +172,6 @@ impl Tester {
         };
         auth::Jwt { claims }
     }
-
-    // pub fn refresh_for(&self, token: &impl JwtToken) -> impl JwtToken + Clone {
-    //     self.db.user_refresh_token(token.get_id())
-    // }
 
     pub async fn node(&self) -> models::Node {
         let mut conn = self.conn().await;

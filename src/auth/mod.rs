@@ -1,7 +1,6 @@
 pub mod expiration_provider;
 pub mod key_provider;
 mod token;
-pub mod unauthenticated_paths;
 
 use diesel_async::AsyncPgConnection;
 pub use token::*;
@@ -34,33 +33,6 @@ pub async fn get_claims<T>(
     Ok(claims)
 }
 
-pub async fn get_claims_expired<T>(
-    req: &tonic::Request<T>,
-    endpoint: Endpoint,
-    conn: &mut AsyncPgConnection,
-) -> crate::Result<Claims> {
-    let meta = req
-        .metadata()
-        .get("authorization")
-        .ok_or_else(|| crate::Error::invalid_auth("No JWT or API key"))?
-        .to_str()?;
-    let claims = if let Ok(claims) = claims_from_jwt_expired(meta) {
-        claims
-    } else if let Ok(claims) = claims_from_api_key_expired(meta, conn).await {
-        claims
-    } else {
-        return Err(crate::Error::invalid_auth(
-            "Neither JWT nor API key are valid",
-        ));
-    };
-
-    if !claims.endpoints.includes(endpoint) {
-        return Err(crate::Error::invalid_auth("No access to this endpoint"));
-    }
-
-    Ok(claims)
-}
-
 fn claims_from_jwt(meta: &str) -> crate::Result<Claims> {
     const ERROR_MSG: &str = "Authorization meta must start with `Bearer `";
     let stripped = meta
@@ -70,23 +42,7 @@ fn claims_from_jwt(meta: &str) -> crate::Result<Claims> {
     Ok(jwt.claims)
 }
 
-fn claims_from_jwt_expired(meta: &str) -> crate::Result<Claims> {
-    const ERROR_MSG: &str = "Authorization meta must start with `Bearer `";
-    let stripped = meta
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| crate::Error::invalid_auth(ERROR_MSG))?;
-    let jwt = Jwt::decode(stripped)?;
-    Ok(jwt.claims)
-}
-
 async fn claims_from_api_key(_meta: &str, _conn: &mut AsyncPgConnection) -> crate::Result<Claims> {
-    Err(crate::Error::unexpected("Chris will implement this"))
-}
-
-async fn claims_from_api_key_expired(
-    _meta: &str,
-    _conn: &mut AsyncPgConnection,
-) -> crate::Result<Claims> {
     Err(crate::Error::unexpected("Chris will implement this"))
 }
 

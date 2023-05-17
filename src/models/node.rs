@@ -154,33 +154,6 @@ impl Node {
         Ok(res)
     }
 
-    pub async fn all(conn: &mut AsyncPgConnection) -> crate::Result<Vec<Self>> {
-        let nodes = nodes::table.get_results(conn).await?;
-        Ok(nodes)
-    }
-
-    pub async fn find_all_by_host(
-        host_id: uuid::Uuid,
-        conn: &mut AsyncPgConnection,
-    ) -> crate::Result<Vec<Self>> {
-        let nodes = nodes::table
-            .filter(nodes::host_id.eq(host_id))
-            .get_results(conn)
-            .await?;
-        Ok(nodes)
-    }
-
-    pub async fn find_all_by_org(
-        org_id: uuid::Uuid,
-        conn: &mut AsyncPgConnection,
-    ) -> crate::Result<Vec<Self>> {
-        let nodes = nodes::table
-            .filter(nodes::org_id.eq(org_id))
-            .get_results(conn)
-            .await?;
-        Ok(nodes)
-    }
-
     pub async fn filter(
         filter: NodeFilter,
         conn: &mut AsyncPgConnection,
@@ -208,53 +181,6 @@ impl Node {
         Ok(nodes)
     }
 
-    pub async fn running_nodes_count(
-        org_id: uuid::Uuid,
-        conn: &mut AsyncPgConnection,
-    ) -> crate::Result<i64> {
-        use NodeChainStatus::*;
-        const RUNNING_STATUSES: [NodeChainStatus; 14] = [
-            Broadcasting,
-            Provisioning,
-            Cancelled,
-            Delegating,
-            Delinquent,
-            Earning,
-            Electing,
-            Elected,
-            Exported,
-            Ingesting,
-            Mining,
-            Minting,
-            Processing,
-            Relaying,
-        ];
-        let count = nodes::table
-            .filter(nodes::org_id.eq(org_id))
-            .filter(nodes::chain_status.eq_any(&RUNNING_STATUSES))
-            .count()
-            .get_result(conn)
-            .await?;
-
-        Ok(count)
-    }
-
-    pub async fn halted_nodes_count(
-        org_id: uuid::Uuid,
-        conn: &mut AsyncPgConnection,
-    ) -> crate::Result<i64> {
-        use NodeChainStatus::*;
-        const HALTED_STATUSES: [NodeChainStatus; 4] = [Unknown, Disabled, Removed, Removing];
-        let count = nodes::table
-            .filter(nodes::org_id.eq(org_id))
-            .filter(nodes::chain_status.eq_any(&HALTED_STATUSES))
-            .count()
-            .get_result(conn)
-            .await?;
-
-        Ok(count)
-    }
-
     pub async fn update(self, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
         let mut node_to_update = self.clone();
         node_to_update.updated_at = chrono::Utc::now();
@@ -267,7 +193,7 @@ impl Node {
 
     pub async fn delete(node_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> crate::Result<()> {
         let node = Node::find_by_id(node_id, conn).await?;
-        let cf_api = CloudflareApi::new(node.ip_addr)?;
+        let cf_api = CloudflareApi::new()?;
 
         diesel::delete(nodes::table.find(node_id))
             .execute(conn)
@@ -280,6 +206,7 @@ impl Node {
         Ok(())
     }
 
+    /// Finds the next possible host for this node to be tried on.
     pub async fn find_host(&self, conn: &mut AsyncPgConnection) -> crate::Result<super::Host> {
         let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let requirements =
@@ -378,12 +305,6 @@ impl Node {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct NodeProvision {
-    pub blockchain_id: uuid::Uuid,
-    pub node_type: NodeType,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FilteredIpAddr {
     pub ip: String,
     pub description: Option<String>,
@@ -420,11 +341,6 @@ pub struct NewNode<'a> {
 }
 
 impl NewNode<'_> {
-    pub fn properties(&self) -> crate::Result<super::NodeProperties> {
-        let res = serde_json::from_value(self.properties.clone())?;
-        Ok(res)
-    }
-
     pub async fn create(
         self,
         host_id: Option<uuid::Uuid>,
@@ -446,7 +362,7 @@ impl NewNode<'_> {
 
         let ip_gateway = host.ip_gateway.ip().to_string();
 
-        let cf_api = CloudflareApi::new(ip_addr.clone())?;
+        let cf_api = CloudflareApi::new()?;
         let dns_record_id = cf_api
             .get_node_dns(self.name.clone(), ip_addr.clone())
             .await?;

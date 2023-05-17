@@ -99,7 +99,6 @@ diesel::table! {
         created_at -> Timestamptz,
         claimed_at -> Nullable<Timestamptz>,
         host_id -> Nullable<Uuid>,
-        nodes -> Nullable<Text>,
         ip_range_from -> Nullable<Inet>,
         ip_range_to -> Nullable<Inet>,
         ip_gateway -> Nullable<Inet>,

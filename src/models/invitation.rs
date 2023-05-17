@@ -23,30 +23,6 @@ impl Invitation {
         Ok(invitation)
     }
 
-    pub async fn find_by_creator_for_email(
-        creator_id: uuid::Uuid,
-        invitee_email: &str,
-        conn: &mut AsyncPgConnection,
-    ) -> Result<Self> {
-        let invitation = invitations::table
-            .filter(invitations::created_by_user.eq(creator_id))
-            .filter(invitations::invitee_email.eq(invitee_email))
-            .get_result(conn)
-            .await?;
-        Ok(invitation)
-    }
-
-    pub async fn pending(org_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
-        let pending = invitations::table
-            .filter(invitations::created_for_org.eq(org_id))
-            .filter(invitations::accepted_at.is_null())
-            .filter(invitations::declined_at.is_null())
-            .order_by(invitations::created_at.desc())
-            .get_results(conn)
-            .await?;
-        Ok(pending)
-    }
-
     pub async fn received(email: &str, conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
         let pending = invitations::table
             .filter(invitations::invitee_email.eq(email))

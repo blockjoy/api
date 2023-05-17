@@ -13,16 +13,6 @@ pub struct CreateIpAddress {
     pub host_id: uuid::Uuid,
 }
 
-impl CreateIpAddress {
-    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<IpAddress> {
-        let ip_address = diesel::insert_into(ip_addresses::table)
-            .values(self)
-            .get_result(conn)
-            .await?;
-        Ok(ip_address)
-    }
-}
-
 pub struct NewIpAddressRange {
     from: IpAddr,
     to: IpAddr,
@@ -129,13 +119,6 @@ impl IpAddress {
         let row = ip_addresses::table.filter(ip_addresses::ip.eq(ip));
         let assigned = diesel::select(dsl::exists(row)).get_result(conn).await?;
         Ok(assigned)
-    }
-
-    pub async fn delete(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
-        diesel::delete(ip_addresses::table.find(id))
-            .execute(conn)
-            .await?;
-        Ok(())
     }
 
     pub async fn find_by_node(node_ip: IpAddr, conn: &mut AsyncPgConnection) -> Result<Self> {

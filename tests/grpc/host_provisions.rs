@@ -17,7 +17,6 @@ async fn responds_not_found_without_valid_id_for_get() {
 async fn responds_ok_with_valid_id_for_get() {
     let tester = super::Tester::new().await;
     let new_prov = models::NewHostProvision::new(
-        None,
         "192.168.0.1".parse().unwrap(),
         "192.168.0.10".parse().unwrap(),
         "192.168.0.20".parse().unwrap(),

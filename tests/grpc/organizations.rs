@@ -52,7 +52,7 @@ async fn responds_error_for_delete_on_personal_org() {
     let tester = super::Tester::new().await;
     let user = tester.user().await;
     let mut conn = tester.conn().await;
-    let org = models::Org::find_personal_org(user.id, &mut conn)
+    let org = models::Org::find_personal_org(&user, &mut conn)
         .await
         .unwrap();
     let req = api::OrgServiceDeleteRequest {

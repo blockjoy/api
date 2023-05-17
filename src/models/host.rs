@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::schema::{hosts, nodes};
+use super::schema::hosts;
 use crate::cookbook::HardwareRequirements;
 use crate::{Error, Result};
 use anyhow::anyhow;
@@ -75,37 +75,6 @@ impl Host {
         Ok(hosts)
     }
 
-    pub async fn toggle_online(
-        host_id: Uuid,
-        is_online: bool,
-        conn: &mut AsyncPgConnection,
-    ) -> Result<()> {
-        use ConnectionStatus::{Offline, Online};
-        let status = if is_online { Online } else { Offline };
-
-        diesel::update(hosts::table.find(host_id))
-            .set(hosts::status.eq(status))
-            .execute(conn)
-            .await?;
-
-        Ok(())
-    }
-
-    pub async fn find_all(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
-        let hosts = hosts::table.get_results(conn).await?;
-        Ok(hosts)
-    }
-
-    pub async fn find_by_node(node_id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let host = hosts::table
-            .inner_join(nodes::table)
-            .filter(nodes::id.eq(node_id))
-            .select(hosts::all_columns)
-            .get_result(conn)
-            .await?;
-        Ok(host)
-    }
-
     pub async fn by_ids(ids: &[uuid::Uuid], conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
         let hosts: Vec<Self> = hosts::table
             .filter(hosts::id.eq_any(ids))
@@ -134,18 +103,6 @@ impl Host {
     pub async fn find_by_name(name: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
         let host = hosts::table
             .filter(hosts::name.eq(name))
-            .get_result(conn)
-            .await?;
-        Ok(host)
-    }
-
-    pub async fn update_status(
-        id: Uuid,
-        host: HostStatusRequest,
-        conn: &mut AsyncPgConnection,
-    ) -> Result<Self> {
-        let host = diesel::update(hosts::table.find(id))
-            .set(host)
             .get_result(conn)
             .await?;
         Ok(host)

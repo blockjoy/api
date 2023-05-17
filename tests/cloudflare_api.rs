@@ -12,7 +12,7 @@ async fn can_create_node_dns() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     let _cloudflare = setup::Tester::mock_cloudflare_api().await;
 
-    let api = CloudflareApi::new("127.0.0.1".to_string())?;
+    let api = CloudflareApi::new()?;
     let mut name = String::from("test_");
     name.push_str(petname::petname(3, "_").as_str());
     let id = api.get_node_dns(name, "127.0.0.1".to_string()).await?;
@@ -45,10 +45,10 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
         deny_ips: vec![],
     };
 
-    tester.send_admin(Service::create, req).await.unwrap();
-    let nodes = models::Node::find_all_by_org(org.id, &mut conn).await?;
-    let node = nodes.first().unwrap();
+    let resp = tester.send_admin(Service::create, req).await.unwrap();
 
+    let node_id = resp.node.unwrap().id.parse().unwrap();
+    let node = models::Node::find_by_id(node_id, &mut conn).await.unwrap();
     assert!(!node.dns_record_id.is_empty());
 
     Ok(())
@@ -59,7 +59,7 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
 async fn can_remove_node_dns() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
-    let api = CloudflareApi::new("127.0.0.1".to_string())?;
+    let api = CloudflareApi::new()?;
     let id = "b32dfad93146bf7593b258e3064642c0".to_string();
 
     assert!(api.remove_node_dns(id).await.is_ok());

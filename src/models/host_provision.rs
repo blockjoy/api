@@ -10,7 +10,6 @@ pub struct HostProvision {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub claimed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub host_id: Option<uuid::Uuid>,
-    pub nodes: Option<String>,
     pub ip_range_from: Option<ipnetwork::IpNetwork>,
     pub ip_range_to: Option<ipnetwork::IpNetwork>,
     pub ip_gateway: Option<ipnetwork::IpNetwork>,
@@ -30,24 +29,6 @@ impl HostProvision {
             .await?;
         Ok(host_provision)
     }
-
-    // /// Wrapper for HostProvision::claim, taking ProvisionHostRequest received via gRPC instead of HostCreateRequest
-    // pub async fn claim(
-    //     otp: &str,
-    //     new_host: super::NewHost<'_>,
-    //     request: &api::ProvisionHostRequest,
-    //     conn: &mut AsyncPgConnection,
-    // ) -> Result<super::Host> {
-    //     let host_provision = Self::find_by_id(&request.otp, conn).await?;
-
-    //     if host_provision.is_claimed() {
-    //         return Err(anyhow::anyhow!("Host provision has already been claimed.").into());
-    //     }
-
-    //     let new_host = request.as_new(host_provision)?;
-    //     let prov = HostProvision::claim(&request.otp, new_host, conn).await?;
-    //     Ok(prov)
-    // }
 
     pub async fn claim(
         host_provision_id: &str,
@@ -82,7 +63,6 @@ impl HostProvision {
 #[diesel(table_name = host_provisions)]
 pub struct NewHostProvision {
     id: String,
-    nodes: Option<String>,
     ip_range_from: ipnetwork::IpNetwork,
     ip_range_to: ipnetwork::IpNetwork,
     ip_gateway: ipnetwork::IpNetwork,
@@ -91,16 +71,13 @@ pub struct NewHostProvision {
 
 impl NewHostProvision {
     pub fn new(
-        nodes: Option<Vec<super::NodeProvision>>,
         ip_range_from: std::net::IpAddr,
         ip_range_to: std::net::IpAddr,
         ip_gateway: std::net::IpAddr,
         org_id: Option<uuid::Uuid>,
     ) -> Result<Self> {
-        let nodes = nodes.as_ref().map(serde_json::to_string).transpose()?;
         Ok(Self {
             id: Self::generate_token(),
-            nodes,
             ip_range_from: ip_range_from.into(),
             ip_range_to: ip_range_to.into(),
             ip_gateway: ip_gateway.into(),

@@ -15,29 +15,23 @@ impl ExpirationProvider {
 
 #[cfg(test)]
 mod tests {
-    use crate::Error;
-    use anyhow::anyhow;
     use chrono::{Duration, Utc};
 
     #[test]
-    fn can_calculate_expiration_time() -> anyhow::Result<()> {
+    fn can_calculate_expiration_time() {
         temp_env::with_vars(vec![("TOKEN_EXPIRATION_MINS_USER", Some("10"))], || {
             let now = Utc::now();
             let duration = Duration::minutes(
                 dotenv::var("TOKEN_EXPIRATION_MINS_USER")
-                    .map_err(Error::EnvError)?
+                    .unwrap()
                     .parse::<i64>()
-                    .map_err(|e| {
-                        Error::UnexpectedError(anyhow!("Couldn't parse env var value: {e:?}"))
-                    })?,
+                    .unwrap(),
             );
             let expiration = (now + duration).timestamp();
 
             println!("Now: {}, expires: {}", now.timestamp(), expiration);
             assert_eq!(duration.num_minutes(), 10);
             assert!(expiration > now.timestamp());
-
-            Ok(())
-        })
+        });
     }
 }

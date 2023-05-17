@@ -69,11 +69,10 @@ pub struct CloudflareApi {
     pub base_url: String,
     pub zone_id: String,
     pub token: String,
-    pub origin_ip: String,
 }
 
 impl CloudflareApi {
-    pub fn new(origin_ip: String) -> DnsResult<Self> {
+    pub fn new() -> DnsResult<Self> {
         let zone_id = std::env::var("CF_ZONE")?;
         let base_url = std::env::var("CF_BASE_URL")?;
         let token = KeyProvider::get_var("CF_TOKEN")?;
@@ -82,7 +81,6 @@ impl CloudflareApi {
             base_url,
             zone_id,
             token,
-            origin_ip,
         })
     }
 

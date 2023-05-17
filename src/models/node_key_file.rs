@@ -12,11 +12,6 @@ pub struct NodeKeyFile {
 }
 
 impl NodeKeyFile {
-    pub async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
-        let file = node_key_files::table.find(id).get_result(conn).await?;
-        Ok(file)
-    }
-
     pub async fn find_by_node(
         node: &super::Node,
         conn: &mut AsyncPgConnection,
@@ -26,13 +21,6 @@ impl NodeKeyFile {
             .get_results(conn)
             .await?;
         Ok(files)
-    }
-
-    pub async fn delete(node_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
-        diesel::delete(node_key_files::table.find(node_id))
-            .execute(conn)
-            .await?;
-        Ok(())
     }
 }
 
@@ -45,14 +33,6 @@ pub struct NewNodeKeyFile<'a> {
 }
 
 impl NewNodeKeyFile<'_> {
-    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<NodeKeyFile> {
-        let file = diesel::insert_into(node_key_files::table)
-            .values(self)
-            .get_result(conn)
-            .await?;
-        Ok(file)
-    }
-
     pub async fn bulk_create(
         key_files: Vec<Self>,
         conn: &mut AsyncPgConnection,

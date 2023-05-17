@@ -44,9 +44,6 @@ pub enum Error {
     #[error("Gateway IP mustn't be within the provided range: {0}")]
     IpGatewayError(anyhow::Error),
 
-    #[error("Missing or invalid env param value: {0}")]
-    EnvError(dotenv::Error),
-
     #[error("Given user is not yet confirmed")]
     UserConfirmationError,
 
@@ -65,9 +62,6 @@ pub enum Error {
 
     #[error("Struggles with receiving through channel: {0}")]
     ChannelError(#[from] tokio::sync::broadcast::error::RecvError),
-
-    #[error("User node quota exceeded")]
-    NodeQuota,
 
     #[error("{0}")]
     InvalidArgument(tonic::Status),
@@ -97,10 +91,6 @@ pub enum Error {
 impl Error {
     pub fn validation(msg: impl std::fmt::Display) -> Self {
         Self::ValidationError(msg.to_string())
-    }
-
-    pub fn db_enum(msg: impl std::fmt::Display) -> Self {
-        Self::UnexpectedError(anyhow::anyhow!("Database enum struggle: `{msg}`"))
     }
 
     pub fn invalid_auth(msg: impl std::fmt::Display) -> Self {

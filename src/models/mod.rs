@@ -36,7 +36,6 @@ mod org;
 pub mod schema;
 mod user;
 
-use crate::Result;
 use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
 use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
 use diesel_async::{AsyncConnection, AsyncPgConnection};
@@ -56,9 +55,6 @@ pub use node_scheduler::*;
 pub use node_type::*;
 pub use org::*;
 pub use user::*;
-
-pub const STAKE_QUOTA_DEFAULT: i64 = 3;
-pub const FEE_BPS_DEFAULT: i64 = 300;
 
 diesel::sql_function!(fn lower(x: diesel::sql_types::Text) -> diesel::sql_types::Text);
 diesel::sql_function!(fn string_to_array(version: diesel::sql_types::Text, split: diesel::sql_types::Text) -> diesel::sql_types::Array<diesel::sql_types::Text>);
@@ -106,43 +102,11 @@ impl DbPool {
 
     /// Returns a database connection that is not in a transition state. Use this for read-only
     /// endpoints.
-    pub async fn conn(&self) -> Result<PooledConnection<'_, AsyncPgConnection>> {
+    pub async fn conn(&self) -> crate::Result<PooledConnection<'_, AsyncPgConnection>> {
         Ok(self.pool.get().await?)
     }
 
     pub fn is_closed(&self) -> bool {
         self.pool.state().connections == 0
     }
-
-    pub fn inner(&self) -> &Pool<diesel_async::AsyncPgConnection> {
-        &self.pool
-    }
 }
-
-// pub trait TrxFn<'a, Ret>: FnOnce(&'a mut diesel_async::AsyncPgConnection) -> Self::Fut {
-//     type Fut: 'a + futures_util::Future<Output = crate::Result<Ret>> + Send;
-// }
-
-// /// Implement our test function trait for all functions of the right signature.
-// impl<'a: 'b, 'b, F, Fut, Ret> TrxFn<'a, Ret> for F
-// where
-//     F: FnOnce(&'a mut diesel_async::AsyncPgConnection) -> Fut,
-//     Fut: 'b + futures_util::Future<Output = crate::Result<Ret>> + Send,
-//     Ret: 'static
-// {
-//     type Fut = Fut;
-// }
-
-// impl std::ops::Deref for DbTrx<'_, '_> {
-//     type Target = diesel_async::AsyncPgConnection;
-
-//     fn deref(&self) -> &Self::Target {
-//         &self.0
-//     }
-// }
-
-// impl std::ops::DerefMut for DbTrx<'_, '_> {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         &mut self.0
-//     }
-// }

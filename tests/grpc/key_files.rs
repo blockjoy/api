@@ -22,13 +22,15 @@ async fn responds_ok_with_valid_node_id() {
     let auth = tester.host_token(&host);
     let mut conn = tester.conn().await;
     let node = tester.node().await;
-    let new_node_key_file = models::NewNodeKeyFile {
+    let file = models::NewNodeKeyFile {
         name: "my-key.txt",
         content:
             "asödlfasdf asdfjaöskdjfalsdjföasjdf afa sdffasdfasldfjasödfj asdföalksdföalskdjfa",
         node_id: node.id,
     };
-    new_node_key_file.create(&mut conn).await.unwrap();
+    models::NewNodeKeyFile::bulk_create(vec![file], &mut conn)
+        .await
+        .unwrap();
     let req = api::KeyFileServiceListRequest {
         node_id: node.id.to_string(),
     };
