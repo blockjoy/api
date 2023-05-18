@@ -57,6 +57,12 @@ pub fn get_refresh<T>(req: &tonic::Request<T>) -> crate::Result<Option<Refresh>>
     };
     let Some(refresh_idx) = meta.find("refresh=") else { return Ok(None) };
     let Some(end_idx) = meta.find("; ") else { return Ok(None) };
+    if refresh_idx < end_idx {
+        return Ok(None);
+    };
+    // Note that `refresh + 8` can never cause an out of bounds access, because we found the string
+    // `"refresh="` and then `"; "` after that, so there must be at least 10 characters occuring
+    // after `refresh_idx`
     let refresh = Refresh::decode(&meta[refresh_idx + 8..end_idx])?;
     Ok(Some(refresh))
 }
@@ -78,6 +84,21 @@ mod tests {
                 .insert("cookie", token.as_set_cookie().unwrap().parse().unwrap());
             let res = get_refresh(&req).unwrap().unwrap();
             assert_eq!(token.resource_id, res.resource_id);
+        });
+    }
+
+    #[test]
+    fn test_crafted_evil_refresh() {
+        temp_env::with_var_unset("SECRETS_ROOT", || {
+            let mut req = tonic::Request::new(());
+
+            req.metadata_mut()
+                .insert("cookie", "; refresh=".parse().unwrap());
+            assert_eq!(get_refresh(&req).unwrap(), None);
+
+            req.metadata_mut()
+                .insert("cookie", "refresh=; ".parse().unwrap());
+            assert_eq!(get_refresh(&req).unwrap(), None);
         });
     }
 }

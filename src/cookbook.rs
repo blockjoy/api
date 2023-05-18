@@ -5,8 +5,8 @@ use anyhow::{anyhow, Context};
 use cookbook_grpc::cook_book_service_client;
 use tonic::Request;
 
-const COOKBOOK_URL: &str = "COOKBOOK_URL";
-const COOKBOOK_TOKEN: &str = "COOKBOOK_TOKEN";
+pub const COOKBOOK_URL: &str = "COOKBOOK_URL";
+pub const COOKBOOK_TOKEN: &str = "COOKBOOK_TOKEN";
 
 #[derive(Debug, Clone, Copy)]
 pub struct HardwareRequirements {

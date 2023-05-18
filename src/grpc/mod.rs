@@ -80,7 +80,6 @@ pub async fn server(db: models::DbPool) -> Router<CorsServer> {
 
     let authentication = api::auth_service_server::AuthServiceServer::new(impler.clone());
     let babel = api::babel_service_server::BabelServiceServer::new(impler.clone());
-    // let billing = api::billings_server::BillingsServer::new(impler.clone());
     let blockchain = api::blockchain_service_server::BlockchainServiceServer::new(impler.clone());
     let command = api::command_service_server::CommandServiceServer::new(impler.clone());
     let discovery = api::discovery_service_server::DiscoveryServiceServer::new(impler.clone());

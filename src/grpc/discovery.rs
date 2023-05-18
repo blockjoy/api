@@ -1,5 +1,8 @@
 use super::api::{self, discovery_service_server};
-use crate::auth::{self, key_provider::KeyProvider};
+use crate::{
+    auth::{self, key_provider::KeyProvider},
+    cookbook,
+};
 
 #[tonic::async_trait]
 impl discovery_service_server::DiscoveryService for super::GrpcImpl {
@@ -23,7 +26,7 @@ async fn services(
     let err = |name| move |e| crate::Error::unexpected(format!("Couldn't find {name}: {e}"));
     let response = api::DiscoveryServiceServicesResponse {
         key_service_url: std::env::var("KEY_SERVICE_URL").map_err(err("key service url"))?,
-        registry_url: std::env::var("COOKBOOK_URL").map_err(err("cookbook url"))?,
+        registry_url: std::env::var(cookbook::COOKBOOK_URL).map_err(err("cookbook url"))?,
         notification_url: format!("{mqtt_address}:{mqtt_port}"),
     };
     Ok(tonic::Response::new(response))

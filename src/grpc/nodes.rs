@@ -92,7 +92,6 @@ async fn list(
     Ok(tonic::Response::new(resp))
 }
 
-// AUTHTODO
 async fn create(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::NodeServiceCreateRequest>,
