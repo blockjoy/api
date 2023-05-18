@@ -65,7 +65,6 @@ impl Notifier {
     }
 
     fn get_mqtt_options() -> Result<rumqttc::MqttOptions> {
-        // let client_id = KeyProvider::get_var("MQTT_CLIENT_ID")?;
         let client_id = format!("blockvisor-api-{}", uuid::Uuid::new_v4());
         let host = KeyProvider::get_var("MQTT_SERVER_ADDRESS")?;
         let port = KeyProvider::get_var("MQTT_SERVER_PORT")?
