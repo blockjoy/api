@@ -56,12 +56,13 @@ pub fn get_refresh<T>(req: &tonic::Request<T>) -> crate::Result<Option<Refresh>>
         None => return Ok(None),
     };
     let Some(refresh_idx) = meta.find("refresh=") else { return Ok(None) };
-    let Some(end_idx) = meta.find("; ") else { return Ok(None) };
+    let Some(end_offset) = meta[refresh_idx..].find(';') else { return Ok(None) };
+    let end_idx = refresh_idx + end_offset;
     if refresh_idx < end_idx {
         return Ok(None);
     };
     // Note that `refresh + 8` can never cause an out of bounds access, because we found the string
-    // `"refresh="` and then `"; "` after that, so there must be at least 10 characters occuring
+    // `"refresh="` and then `";"` after that, so there must be at least 10 characters occuring
     // after `refresh_idx`
     let refresh = Refresh::decode(&meta[refresh_idx + 8..end_idx])?;
     Ok(Some(refresh))
@@ -93,11 +94,32 @@ mod tests {
             let mut req = tonic::Request::new(());
 
             req.metadata_mut()
-                .insert("cookie", "; refresh=".parse().unwrap());
+                .insert("cookie", ";refresh=".parse().unwrap());
             assert_eq!(get_refresh(&req).unwrap(), None);
 
             req.metadata_mut()
-                .insert("cookie", "refresh=; ".parse().unwrap());
+                .insert("cookie", "refresh=;".parse().unwrap());
+            assert_eq!(get_refresh(&req).unwrap(), None);
+        });
+    }
+
+    #[test]
+    fn test_extra_cookies() {
+        temp_env::with_var_unset("SECRETS_ROOT", || {
+            let mut req = tonic::Request::new(());
+
+            req.metadata_mut().insert(
+                "cookie",
+                "other_meta=v1; refresh=123; another=v2; ".parse().unwrap(),
+            );
+            assert_eq!(get_refresh(&req).unwrap(), None);
+
+            req.metadata_mut()
+                .insert("cookie", "other_meta=v1; refresh=123".parse().unwrap());
+            assert_eq!(get_refresh(&req).unwrap(), None);
+
+            req.metadata_mut()
+                .insert("cookie", "refresh=123;".parse().unwrap());
             assert_eq!(get_refresh(&req).unwrap(), None);
         });
     }

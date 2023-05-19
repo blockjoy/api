@@ -8,7 +8,6 @@ export DATABASE_URL_NAKED=postgres://blockvisor:password@localhost:25432
 export JWT_SECRET=123456
 export API_SERVICE_SECRET=abc123
 
-export MQTT_CLIENT_ID=1
 export MQTT_SERVER_ADDRESS=35.237.162.218
 export MQTT_SERVER_PORT=1883
 export MQTT_USERNAME=blockvisor-api
