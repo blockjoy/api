@@ -191,9 +191,12 @@ impl Node {
         Ok(node)
     }
 
-    pub async fn delete(node_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> crate::Result<()> {
+    pub async fn delete(
+        node_id: uuid::Uuid,
+        cf_api: &CloudflareApi,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<()> {
         let node = Node::find_by_id(node_id, conn).await?;
-        let cf_api = CloudflareApi::new()?;
 
         diesel::delete(nodes::table.find(node_id))
             .execute(conn)
@@ -344,6 +347,7 @@ impl NewNode<'_> {
     pub async fn create(
         self,
         host_id: Option<uuid::Uuid>,
+        cf_api: &CloudflareApi,
         conn: &mut AsyncPgConnection,
     ) -> crate::Result<Node> {
         let no_sched = || anyhow!("If there is no host_id, the scheduler is required");
@@ -362,7 +366,6 @@ impl NewNode<'_> {
 
         let ip_gateway = host.ip_gateway.ip().to_string();
 
-        let cf_api = CloudflareApi::new()?;
         let dns_record_id = cf_api
             .get_node_dns(self.name.clone(), ip_addr.clone())
             .await?;
@@ -496,6 +499,7 @@ mod tests {
         name.push_str(&petname::petname(3, "_"));
 
         let db = crate::TestDb::setup().await;
+        let cloudflare_api = crate::TestCloudflareApi::new().await.get_cloudflare_api();
         let blockchain = db.blockchain().await;
         let user = db.user().await;
         let org = db.org().await;
@@ -530,7 +534,9 @@ mod tests {
 
         let mut conn = db.conn().await;
         let host = db.host().await;
-        req.create(Some(host.id), &mut conn).await.unwrap();
+        req.create(Some(host.id), &cloudflare_api, &mut conn)
+            .await
+            .unwrap();
 
         let filter = models::NodeFilter {
             status: vec![models::NodeChainStatus::Unknown],

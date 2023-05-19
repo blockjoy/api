@@ -71,6 +71,7 @@ impl CloudflarePayload {
     }
 }
 
+#[derive(Clone)]
 pub struct CloudflareApi {
     pub base_url: String,
     pub zone_id: String,
@@ -78,16 +79,20 @@ pub struct CloudflareApi {
 }
 
 impl CloudflareApi {
-    pub fn new() -> DnsResult<Self> {
+    pub fn new(base_url: String, zone_id: String, token: String) -> Self {
+        Self {
+            base_url,
+            zone_id,
+            token,
+        }
+    }
+
+    pub fn new_with_env() -> DnsResult<Self> {
         let zone_id = std::env::var(CF_ZONE)?;
         let base_url = std::env::var(CF_BASE_URL)?;
         let token = KeyProvider::get_var(CF_TOKEN)?;
 
-        Ok(Self {
-            base_url,
-            zone_id,
-            token,
-        })
+        Ok(Self::new(base_url, zone_id, token))
     }
 
     pub async fn get_node_dns(&self, name: String, origin_ip: String) -> DnsResult<String> {

@@ -114,7 +114,7 @@ async fn create(
             super::forbidden!("Must be member of org");
         }
     }
-    let node = new_node.create(req.host_id()?, conn).await?;
+    let node = new_node.create(req.host_id()?, &grpc.dns, conn).await?;
     create_notification(grpc, &node, conn).await?;
     let created = api::NodeMessage::created(node.clone(), user.clone(), conn).await?;
     grpc.notifier.nodes_sender().send(&created).await?;
@@ -168,7 +168,7 @@ async fn delete(
     }
     // 1. Delete node, if the node belongs to the current user
     // Key files are deleted automatically because of 'on delete cascade' in tables DDL
-    models::Node::delete(node.id, conn).await?;
+    models::Node::delete(node.id, &grpc.dns, conn).await?;
 
     let host_id = node.host_id;
     // 2. Do NOT delete reserved IP addresses, but set assigned to false

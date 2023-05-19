@@ -17,10 +17,12 @@ use error::{Error, Result};
 pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
     diesel_migrations::embed_migrations!();
 
+pub use test::TestCloudflareApi;
 pub use test::TestDb;
 
 mod test {
     use crate::auth::expiration_provider;
+    use crate::cloudflare::CloudflareApi;
     use crate::models::schema::{blockchains, commands, nodes, orgs};
     use crate::{auth, models};
     use diesel::migration::MigrationSource;
@@ -31,6 +33,46 @@ mod test {
     use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
     use rand::Rng;
     use uuid::Uuid;
+
+    pub struct TestCloudflareApi {
+        mock: mockito::ServerGuard,
+    }
+
+    impl TestCloudflareApi {
+        pub async fn new() -> Self {
+            let mock = Self::mock_cloudflare_api().await;
+            Self { mock }
+        }
+
+        pub fn get_cloudflare_api(&self) -> CloudflareApi {
+            CloudflareApi::new(self.mock.url(), "zone_id".to_string(), "token".to_string())
+        }
+
+        async fn mock_cloudflare_api() -> mockito::ServerGuard {
+            let mut cloudfare_server = mockito::Server::new_async().await;
+
+            let mut rng = rand::thread_rng();
+            let id_dns = rng.gen_range(200000..5000000);
+            cloudfare_server
+                .mock(
+                    "POST",
+                    mockito::Matcher::Regex(r"^/zones/.*/dns_records$".to_string()),
+                )
+                .with_status(200)
+                .with_body(format!("{{\"result\":{{\"id\":\"{:x}\"}}}}", id_dns))
+                .create_async()
+                .await;
+            cloudfare_server
+                .mock(
+                    "DELETE",
+                    mockito::Matcher::Regex(r"^/zones/.*/dns_records/.*$".to_string()),
+                )
+                .with_status(200)
+                .create_async()
+                .await;
+            cloudfare_server
+        }
+    }
 
     #[derive(Clone)]
     pub struct TestDb {

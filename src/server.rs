@@ -41,9 +41,10 @@ pub async fn start() -> anyhow::Result<()> {
         .await?;
 
     let db = models::DbPool::new(pool);
+    let cloudflare = super::cloudflare::CloudflareApi::new_with_env()?;
 
     let rest = http_server(db.clone()).await.into_make_service();
-    let grpc = grpc_server(db).await.into_service();
+    let grpc = grpc_server(db, cloudflare).await.into_service();
     let hybrid = hybrid_server(rest, grpc);
 
     Ok(axum::Server::bind(&addr.parse()?).serve(hybrid).await?)

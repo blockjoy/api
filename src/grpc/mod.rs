@@ -19,6 +19,7 @@ pub mod api {
     tonic::include_proto!("blockjoy.v1");
 }
 
+use crate::cloudflare::CloudflareApi;
 use crate::models;
 use axum::Extension;
 use notification::Notifier;
@@ -36,6 +37,7 @@ use tower_http::trace::TraceLayer;
 struct GrpcImpl {
     db: models::DbPool,
     notifier: Notifier,
+    dns: super::cloudflare::CloudflareApi,
 }
 
 impl std::ops::Deref for GrpcImpl {
@@ -69,13 +71,15 @@ type TracedServer = Stack<TraceLayer<SharedClassifier<GrpcErrorsAsFailures>>, Id
 type DbServer = Stack<Extension<models::DbPool>, TracedServer>;
 type CorsServer = Stack<Stack<CorsLayer, DbServer>, Identity>;
 
-pub async fn server(db: models::DbPool) -> Router<CorsServer> {
+pub async fn server(db: models::DbPool, cloudflare: CloudflareApi) -> Router<CorsServer> {
     let notifier = Notifier::new()
         .await
         .expect("Could not set up MQTT notifier!");
+
     let impler = GrpcImpl {
         db: db.clone(),
         notifier,
+        dns: cloudflare,
     };
 
     let authentication = api::auth_service_server::AuthServiceServer::new(impler.clone());

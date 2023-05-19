@@ -2,17 +2,15 @@ mod setup;
 
 use blockvisor_api::cloudflare::CloudflareApi;
 use blockvisor_api::grpc::{api, api::node_service_client};
-use blockvisor_api::models;
+use blockvisor_api::{models, TestCloudflareApi};
 use tonic::transport;
 
 type Service = node_service_client::NodeServiceClient<transport::Channel>;
 
 #[tokio::test]
 async fn can_create_node_dns() -> anyhow::Result<()> {
-    dotenv::dotenv().ok();
-    let _cloudflare = setup::Tester::mock_cloudflare_api().await;
+    let api = TestCloudflareApi::new().await.get_cloudflare_api();
 
-    let api = CloudflareApi::new()?;
     let mut name = String::from("test_");
     name.push_str(petname::petname(3, "_").as_str());
     let id = api.get_node_dns(name, "127.0.0.1".to_string()).await?;
@@ -59,7 +57,7 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
 async fn can_remove_node_dns() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
-    let api = CloudflareApi::new()?;
+    let api = CloudflareApi::new_with_env()?;
     let id = "b32dfad93146bf7593b258e3064642c0".to_string();
 
     assert!(api.remove_node_dns(id).await.is_ok());
