@@ -13,12 +13,6 @@ use std::string::ToString;
 
 pub type DnsResult<T> = Result<T, DnsError>;
 
-const CF_DNS_BASE: &str = "CF_DNS_BASE";
-const CF_TTL: &str = "CF_TTL";
-const CF_ZONE: &str = "CF_ZONE";
-const CF_BASE_URL: &str = "CF_BASE_URL";
-const CF_TOKEN: &str = "CF_TOKEN";
-
 #[derive(Deserialize, Debug)]
 struct CloudflareDnsResult {
     pub id: String,
@@ -57,8 +51,8 @@ pub struct CloudflarePayload {
 
 impl CloudflarePayload {
     pub fn new(node_name: String, origin_ip: String) -> DnsResult<Self> {
-        let name = format!("{node_name}.{}", std::env::var(CF_DNS_BASE)?);
-        let ttl: i64 = std::env::var(CF_TTL)?.parse()?;
+        let name = format!("{node_name}.{}", std::env::var("CF_DNS_BASE")?);
+        let ttl: i64 = std::env::var("CF_TTL")?.parse()?;
 
         Ok(Self {
             r#type: "A".to_string(),
@@ -75,18 +69,20 @@ pub struct CloudflareApi {
     pub base_url: String,
     pub zone_id: String,
     pub token: String,
+    pub origin_ip: String,
 }
 
 impl CloudflareApi {
-    pub fn new() -> DnsResult<Self> {
-        let zone_id = std::env::var(CF_ZONE)?;
-        let base_url = std::env::var(CF_BASE_URL)?;
-        let token = KeyProvider::get_var(CF_TOKEN)?;
+    pub fn new(origin_ip: String) -> DnsResult<Self> {
+        let zone_id = std::env::var("CF_ZONE")?;
+        let base_url = std::env::var("CF_BASE_URL")?;
+        let token = KeyProvider::get_var("CF_TOKEN")?.value;
 
         Ok(Self {
             base_url,
             zone_id,
             token,
+            origin_ip,
         })
     }
 

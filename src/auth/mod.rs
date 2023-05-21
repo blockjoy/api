@@ -1,126 +1,191 @@
 pub mod expiration_provider;
 pub mod key_provider;
-mod token;
+pub mod middleware;
+pub mod token;
+pub mod unauthenticated_paths;
 
-use diesel_async::AsyncPgConnection;
 pub use token::*;
 
-pub const TOKEN_EXPIRATION_MINS: &str = "TOKEN_EXPIRATION_MINS";
-pub const REFRESH_EXPIRATION_USER_MINS: &str = "REFRESH_EXPIRATION_USER_MINS";
-pub const REFRESH_EXPIRATION_HOST_MINS: &str = "REFRESH_EXPIRATION_HOST_MINS";
+use crate::Result as ApiResult;
+use casbin::prelude::*;
+use casbin::Adapter;
+use diesel_async::AsyncPgConnection;
+use std::env;
+use std::env::VarError;
+use std::sync::{Arc, RwLock};
+use thiserror::Error;
+use uuid::Uuid;
 
-/// This function is the workhorse of our authentication process. It takes the extensions of the
-/// request and returns the `Claims` that the authentication process provided.
-pub async fn get_claims<T>(
-    req: &tonic::Request<T>,
-    endpoint: Endpoint,
-    conn: &mut AsyncPgConnection,
-) -> crate::Result<Claims> {
-    let meta = req
-        .metadata()
-        .get("authorization")
-        .ok_or_else(|| crate::Error::invalid_auth("No JWT or API key"))?
-        .to_str()?;
-    let claims = if let Ok(claims) = claims_from_jwt(meta) {
-        claims
-    } else if let Ok(claims) = claims_from_api_key(meta, conn).await {
-        claims
-    } else {
-        let msg = "Neither JWT nor API key are valid";
-        return Err(crate::Error::invalid_auth(msg));
-    };
+#[macro_export]
+macro_rules! is_owned_by {
+    ($r:expr => $o:expr, using $d:expr) => {{
+        $r.is_owned_by($o, $d).await
+    }};
 
-    if !claims.endpoints.includes(endpoint) {
-        return Err(crate::Error::invalid_auth("No access to this endpoint"));
+    ($r:expr => $o:expr) => {{
+        $r.is_owned_by($o, ()).await
+    }};
+}
+
+/// Implement for all objects that shall be used for authorization
+pub trait Authorizable {
+    fn get_role(&self) -> String;
+}
+
+/// Implement for all objects that shall be able to test, if it's "owned" (i.e. has a FK constraint
+/// in the DB) by given resource
+#[axum::async_trait]
+pub trait Owned<T, D> {
+    async fn is_owned_by(&self, resource: T, db: D) -> bool
+    where
+        D: 'static;
+}
+
+pub trait Identifiable {
+    fn get_id(&self) -> uuid::Uuid;
+}
+
+#[axum::async_trait]
+pub trait FindableById: Send + Sync + 'static {
+    async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> ApiResult<Self>
+    where
+        Self: Sized;
+}
+
+pub type AuthorizationResult = std::result::Result<AuthorizationState, AuthorizationError>;
+pub type InitResult = std::result::Result<Authorization, AuthorizationError>;
+
+/// Restrict possible authorization results
+#[derive(Debug)]
+pub enum AuthorizationState {
+    Authorized,
+    Denied,
+}
+
+#[derive(Error, Debug)]
+pub enum AuthorizationError {
+    #[error("Generic Casbin Error: `{0:?}`")]
+    CasbinError(#[from] casbin::error::Error),
+
+    #[error("Insufficient privileges error: `{0:?}`")]
+    InsufficientPriviliges(#[from] casbin::error::PolicyError),
+
+    #[error("Malformed request error: `{0:?}`")]
+    MalformedRequest(#[from] casbin::error::RequestError),
+
+    #[error("Malformed or missing env vars error: `{0:?}`")]
+    MissingEnv(#[from] VarError),
+
+    #[error("Enforcer locked")]
+    LockedError,
+}
+
+/// Holds all data needed for authorization
+#[derive(Debug, Clone)]
+pub struct AuthorizationData {
+    pub(crate) subject: String,
+    pub(crate) object: String,
+    pub(crate) action: String,
+}
+
+impl AuthorizationData {
+    pub fn new(subject: String, object: String, action: String) -> Self {
+        Self {
+            subject,
+            object,
+            action,
+        }
+    }
+}
+
+/// Helper type providing path that can be converted into casbin adapter
+pub struct Policies {
+    path: String,
+}
+
+impl Policies {
+    pub fn new(path: String) -> Self {
+        Self { path }
+    }
+}
+
+pub struct Model {
+    path: String,
+}
+
+impl Model {
+    pub fn new(path: String) -> Self {
+        Self { path }
+    }
+}
+
+#[tonic::async_trait]
+impl TryIntoAdapter for Policies {
+    async fn try_into_adapter(self) -> Result<Box<dyn Adapter>> {
+        Ok(Box::new(FileAdapter::new(self.path)))
+    }
+}
+
+#[tonic::async_trait]
+impl TryIntoModel for Model {
+    async fn try_into_model(self) -> Result<Box<dyn casbin::Model>> {
+        Ok(Box::new(DefaultModel::from_file(self.path).await?))
+    }
+}
+
+/// Convert auth data into 3-tuple needed by Enforcer::enforce
+impl From<AuthorizationData> for (String, String, String) {
+    fn from(auth_data: AuthorizationData) -> Self {
+        (auth_data.subject, auth_data.object, auth_data.action)
+    }
+}
+
+/// Authorization namespace
+/// Implements a simple ACL based authorization solution.
+/// Users must belong to a group, the authorization will be tested
+/// against that group
+#[derive(Clone)]
+pub struct Authorization {
+    // Enforcer is not thread safe, need to protect it with RwLock
+    // @see https://github.com/casbin/casbin-rs/blob/master/README.md
+    enforcer: Arc<RwLock<Enforcer>>,
+}
+
+impl Authorization {
+    /// Creates a new Authorization object using configuration as defined in
+    /// env vars ***CASBIN_MODEL*** and ***CASBIN_POLICIES***
+    pub async fn new() -> InitResult {
+        let model = env::var("CASBIN_MODEL").expect("Couldn't load auth model");
+        let policies = env::var("CASBIN_POLICIES").expect("Couldn't load auth policies");
+
+        match Enforcer::new(Model::new(model), Policies::new(policies)).await {
+            Ok(enforcer) => Ok(Self {
+                enforcer: Arc::new(RwLock::new(enforcer)),
+            }),
+            Err(e) => Err(AuthorizationError::CasbinError(e)),
+        }
     }
 
-    Ok(claims)
-}
-
-fn claims_from_jwt(meta: &str) -> crate::Result<Claims> {
-    const ERROR_MSG: &str = "Authorization meta must start with `Bearer `";
-    let stripped = meta
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| crate::Error::invalid_auth(ERROR_MSG))?;
-    let jwt = Jwt::decode(stripped)?;
-    Ok(jwt.claims)
-}
-
-async fn claims_from_api_key(_meta: &str, _conn: &mut AsyncPgConnection) -> crate::Result<Claims> {
-    Err(crate::Error::unexpected("Chris will implement this"))
-}
-
-pub fn get_refresh<T>(req: &tonic::Request<T>) -> crate::Result<Option<Refresh>> {
-    let meta = match req.metadata().get("Cookie") {
-        Some(meta) => meta.to_str()?,
-        None => return Ok(None),
-    };
-    let Some(refresh_idx) = meta.find("refresh=") else { return Ok(None) };
-    let Some(end_offset) = meta[refresh_idx..].find(';') else { return Ok(None) };
-    let end_idx = refresh_idx + end_offset;
-    if refresh_idx < end_idx {
-        return Ok(None);
-    };
-    // Note that `refresh + 8` can never cause an out of bounds access, because we found the string
-    // `"refresh="` and then `";"` after that, so there must be at least 10 characters occuring
-    // after `refresh_idx`
-    let refresh = Refresh::decode(&meta[refresh_idx + 8..end_idx])?;
-    Ok(Some(refresh))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_get_refresh() {
-        temp_env::with_var_unset("SECRETS_ROOT", || {
-            let refresh_exp =
-                expiration_provider::ExpirationProvider::expiration(REFRESH_EXPIRATION_USER_MINS)
-                    .unwrap();
-            let token =
-                Refresh::new(uuid::Uuid::new_v4(), chrono::Utc::now(), refresh_exp).unwrap();
-            let mut req = tonic::Request::new(());
-            req.metadata_mut()
-                .insert("cookie", token.as_set_cookie().unwrap().parse().unwrap());
-            let res = get_refresh(&req).unwrap().unwrap();
-            assert_eq!(token.resource_id, res.resource_id);
-        });
-    }
-
-    #[test]
-    fn test_crafted_evil_refresh() {
-        temp_env::with_var_unset("SECRETS_ROOT", || {
-            let mut req = tonic::Request::new(());
-
-            req.metadata_mut()
-                .insert("cookie", ";refresh=".parse().unwrap());
-            assert_eq!(get_refresh(&req).unwrap(), None);
-
-            req.metadata_mut()
-                .insert("cookie", "refresh=;".parse().unwrap());
-            assert_eq!(get_refresh(&req).unwrap(), None);
-        });
-    }
-
-    #[test]
-    fn test_extra_cookies() {
-        temp_env::with_var_unset("SECRETS_ROOT", || {
-            let mut req = tonic::Request::new(());
-
-            req.metadata_mut().insert(
-                "cookie",
-                "other_meta=v1; refresh=123; another=v2; ".parse().unwrap(),
-            );
-            assert_eq!(get_refresh(&req).unwrap(), None);
-
-            req.metadata_mut()
-                .insert("cookie", "other_meta=v1; refresh=123".parse().unwrap());
-            assert_eq!(get_refresh(&req).unwrap(), None);
-
-            req.metadata_mut()
-                .insert("cookie", "refresh=123;".parse().unwrap());
-            assert_eq!(get_refresh(&req).unwrap(), None);
-        });
+    /// Test if subject is allowed to perform given action on object
+    ///
+    /// Param: ***subject*** The user object. _NOTE_: Must provide a role!
+    ///
+    /// Param: ***object*** Either the HTTP path or the gRPC method
+    ///
+    /// Param: ***action*** The intended action (CRUD)
+    pub fn try_authorized(&self, auth_data: AuthorizationData) -> AuthorizationResult {
+        match self.enforcer.try_read() {
+            Ok(enforcer) => match enforcer.enforce::<(String, String, String)>(auth_data.into()) {
+                Ok(authorized) => {
+                    if authorized {
+                        Ok(AuthorizationState::Authorized)
+                    } else {
+                        Ok(AuthorizationState::Denied)
+                    }
+                }
+                Err(e) => Err(AuthorizationError::CasbinError(e)),
+            },
+            Err(_) => Err(AuthorizationError::LockedError),
+        }
     }
 }

@@ -1,11 +1,12 @@
 use crate::auth::key_provider::KeyProviderError;
+use crate::auth::TokenError;
 use crate::cloudflare::DnsError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use diesel_async::pooled_connection::bb8::RunError;
 use std::num::TryFromIntError;
-use tonic::metadata::errors::InvalidMetadataValue;
+use tonic::Status;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -44,6 +45,12 @@ pub enum Error {
     #[error("Gateway IP mustn't be within the provided range: {0}")]
     IpGatewayError(anyhow::Error),
 
+    #[error("Missing or invalid env param value: {0}")]
+    EnvError(dotenv::Error),
+
+    #[error("Error handling token: {0}")]
+    TokenError(TokenError),
+
     #[error("Given user is not yet confirmed")]
     UserConfirmationError,
 
@@ -63,6 +70,9 @@ pub enum Error {
     #[error("Struggles with receiving through channel: {0}")]
     ChannelError(#[from] tokio::sync::broadcast::error::RecvError),
 
+    #[error("User node quota exceeded")]
+    NodeQuota,
+
     #[error("{0}")]
     InvalidArgument(tonic::Status),
 
@@ -75,12 +85,6 @@ pub enum Error {
     #[error("Could not select a matching host")]
     NoMatchingHostError(String),
 
-    #[error("{0}")]
-    BadMetaData(#[from] InvalidMetadataValue),
-
-    #[error("{0}")]
-    ToStrError(#[from] tonic::metadata::errors::ToStrError),
-
     #[error("Could not convert babel config to filter for node query {0}")]
     BabelConfigConvertError(String),
 
@@ -91,6 +95,10 @@ pub enum Error {
 impl Error {
     pub fn validation(msg: impl std::fmt::Display) -> Self {
         Self::ValidationError(msg.to_string())
+    }
+
+    pub fn db_enum(msg: impl std::fmt::Display) -> Self {
+        Self::UnexpectedError(anyhow::anyhow!("Database enum struggle: `{msg}`"))
     }
 
     pub fn invalid_auth(msg: impl std::fmt::Display) -> Self {
@@ -135,10 +143,9 @@ impl From<Error> for tonic::Status {
             ValidationError(_) => tonic::Status::invalid_argument(msg),
             NotFoundError(_) => tonic::Status::not_found(msg),
             DuplicateResource { .. } => tonic::Status::invalid_argument(msg),
-            UuidParseError(_) | IpParseError(_) => tonic::Status::invalid_argument(msg),
             InvalidAuthentication(_) => tonic::Status::unauthenticated(msg),
             InsufficientPermissions(_) => tonic::Status::permission_denied(msg),
-            UserConfirmationError => tonic::Status::unauthenticated(msg),
+            UuidParseError(_) | IpParseError(_) => tonic::Status::invalid_argument(msg),
             NoMatchingHostError(_) => tonic::Status::resource_exhausted(msg),
             InvalidArgument(s) => s,
             BabelConfigConvertError(s) => tonic::Status::invalid_argument(s),
@@ -188,6 +195,18 @@ impl IntoResponse for Error {
         let response = (status_code, Json(self.to_string())).into_response();
         tracing::error!("{:?}", response);
         response
+    }
+}
+
+impl From<TokenError> for Status {
+    fn from(e: TokenError) -> Self {
+        Status::internal(format!("Token encode error {e:?}"))
+    }
+}
+
+impl From<TokenError> for Error {
+    fn from(e: TokenError) -> Self {
+        Error::TokenError(e)
     }
 }
 

@@ -1,84 +1,42 @@
 use super::api::{self, host_provision_service_server};
 use super::helpers::required;
+use crate::models;
 use crate::Result;
-use crate::{auth, models};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response};
 
 #[tonic::async_trait]
 impl host_provision_service_server::HostProvisionService for super::GrpcImpl {
-    async fn create(
-        &self,
-        req: Request<api::HostProvisionServiceCreateRequest>,
-    ) -> super::Resp<api::HostProvisionServiceCreateResponse> {
-        self.trx(|c| create(req, c).scope_boxed()).await
-    }
-
     async fn get(
         &self,
-        req: Request<api::HostProvisionServiceGetRequest>,
-    ) -> super::Resp<api::HostProvisionServiceGetResponse> {
+        request: Request<api::HostProvisionServiceGetRequest>,
+    ) -> super::Result<api::HostProvisionServiceGetResponse> {
+        let request = request.into_inner();
+        let host_provision_id = request.id;
         let mut conn = self.conn().await?;
-        let resp = get(req, &mut conn).await?;
-        Ok(resp)
+        let host_provision =
+            models::HostProvision::find_by_id(&host_provision_id, &mut conn).await?;
+        let response = api::HostProvisionServiceGetResponse {
+            host_provisions: Some(api::HostProvision::from_model(host_provision)?),
+        };
+        Ok(Response::new(response))
     }
-}
 
-async fn create(
-    req: Request<api::HostProvisionServiceCreateRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::HostProvisionServiceCreateResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostProvisionCreate, conn).await?;
-    let req = req.into_inner();
-    let org_id = req.org_id.as_ref().map(|id| id.parse()).transpose()?;
-    let is_allowed = is_allowed(claims, org_id, conn).await?;
-    if !is_allowed {
-        super::forbidden!("Access denied");
-    }
-    let new_provision = req.as_new()?;
-    let host_provision = new_provision.create(conn).await?;
-    let resp = api::HostProvisionServiceCreateResponse {
-        host_provision: Some(api::HostProvision::from_model(host_provision)?),
-    };
-    Ok(Response::new(resp))
-}
+    async fn create(
+        &self,
+        request: Request<api::HostProvisionServiceCreateRequest>,
+    ) -> super::Result<api::HostProvisionServiceCreateResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let request = request.into_inner();
+        let new_provision = request.as_new()?;
 
-async fn get(
-    req: Request<api::HostProvisionServiceGetRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::HostProvisionServiceGetResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostProvisionGet, conn).await?;
-    let req = req.into_inner();
-    let host_provision = models::HostProvision::find_by_id(&req.id, conn).await?;
-    let is_allowed = is_allowed(claims, host_provision.org_id, conn).await?;
-    if !is_allowed {
-        super::forbidden!("Access denied");
-    }
-    let resp = api::HostProvisionServiceGetResponse {
-        host_provisions: Some(api::HostProvision::from_model(host_provision)?),
-    };
-    Ok(Response::new(resp))
-}
+        let host_provision = self.trx(|c| new_provision.create(c).scope_boxed()).await?;
 
-async fn is_allowed(
-    claims: auth::Claims,
-    org_id: Option<uuid::Uuid>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> crate::Result<bool> {
-    match claims.resource() {
-        // Users are allowed to manipulate host provisions if they are in the same org as that host
-        // provision.
-        auth::Resource::User(user_id) => {
-            if let Some(org_id) = org_id {
-                models::Org::is_member(user_id, org_id, conn).await
-            } else {
-                Ok(false)
-            }
-        }
-        // Orgs are allowed to manipulate host provisions that belong to that org.
-        auth::Resource::Org(org) => Ok(org_id == Some(org)),
-        // Hosts and nodes are not allowed access to host provisions.
-        auth::Resource::Host(_) | auth::Resource::Node(_) => Ok(false),
+        let response = api::HostProvisionServiceCreateResponse {
+            host_provision: Some(api::HostProvision::from_model(host_provision)?),
+        };
+
+        super::response_with_refresh_token(refresh_token, response)
     }
 }
 
@@ -112,6 +70,7 @@ impl api::HostProvision {
 impl api::HostProvisionServiceCreateRequest {
     fn as_new(&self) -> crate::Result<models::NewHostProvision> {
         models::NewHostProvision::new(
+            None,
             self.ip_range_from.parse()?,
             self.ip_range_to.parse()?,
             self.ip_gateway.parse()?,

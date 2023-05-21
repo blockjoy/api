@@ -1,206 +1,233 @@
 use super::api::{self, node_service_server};
 use super::helpers;
+use crate::auth::FindableById;
 use crate::{auth, models};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::OptionFuture;
 use std::collections::HashMap;
+use tonic::{Request, Status};
 
 #[tonic::async_trait]
 impl node_service_server::NodeService for super::GrpcImpl {
-    async fn create(
-        &self,
-        req: tonic::Request<api::NodeServiceCreateRequest>,
-    ) -> super::Resp<api::NodeServiceCreateResponse> {
-        self.trx(|c| create(self, req, c).scope_boxed()).await
-    }
-
     async fn get(
         &self,
-        req: tonic::Request<api::NodeServiceGetRequest>,
-    ) -> super::Resp<api::NodeServiceGetResponse> {
+        request: Request<api::NodeServiceGetRequest>,
+    ) -> super::Result<api::NodeServiceGetResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let user_id = helpers::try_get_token::<_, auth::UserAuthToken>(&request)
+            .ok()
+            .map(|t| t.id);
+        let host_id = helpers::try_get_token::<_, auth::HostAuthToken>(&request)
+            .ok()
+            .map(|t| t.id);
+        let inner = request.into_inner();
+        let node_id = inner.id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
-        let resp = get(req, &mut conn).await?;
-        Ok(resp)
+        let node = models::Node::find_by_id(node_id, &mut conn).await?;
+
+        let is_allowed = if let Some(user_id) = user_id {
+            models::Org::is_member(user_id, node.org_id, &mut conn).await?
+        } else if let Some(host_id) = host_id {
+            node.host_id == host_id
+        } else {
+            false
+        };
+        if !is_allowed {
+            super::bail_unauthorized!("Access not allowed")
+        }
+
+        let response = api::NodeServiceGetResponse {
+            node: Some(api::Node::from_model(node, &mut conn).await?),
+        };
+        super::response_with_refresh_token(refresh_token, response)
     }
 
     async fn list(
         &self,
-        req: tonic::Request<api::NodeServiceListRequest>,
-    ) -> super::Resp<api::NodeServiceListResponse> {
+        request: Request<api::NodeServiceListRequest>,
+    ) -> super::Result<api::NodeServiceListResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let request = request.into_inner();
         let mut conn = self.conn().await?;
-        let resp = list(req, &mut conn).await?;
-        Ok(resp)
+        let nodes = models::Node::filter(request.as_filter()?, &mut conn).await?;
+        let nodes = api::Node::from_models(nodes, &mut conn).await?;
+        let response = api::NodeServiceListResponse { nodes };
+        super::response_with_refresh_token(refresh_token, response)
+    }
+
+    async fn create(
+        &self,
+        request: Request<api::NodeServiceCreateRequest>,
+    ) -> super::Result<api::NodeServiceCreateResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?.clone();
+        // Check quota
+        let mut conn = self.conn().await?;
+        let user = models::User::find_by_id(token.id, &mut conn).await?;
+
+        if user.staking_quota <= 0 {
+            return Err(Status::resource_exhausted("User node quota exceeded"));
+        }
+
+        let inner = request.into_inner();
+        self.trx(|c| {
+            async move {
+                let new_node = inner.as_new(user.id)?;
+
+                // The host_id will either be determined by the scheduler, or by the host_id.
+                // Therfore we pass in an optional host_id for the node creation to fall back on if
+                // there is no scheduler.
+                let host_id = inner.host_id()?;
+                if let Some(host_id) = host_id {
+                    let host = models::Host::find_by_id(host_id, c).await?;
+                    let Some(org_id) = host.org_id else {
+                        super::bail_unauthorized!("Host must have org_id");
+                    };
+                    if !models::Org::is_member(user.id, org_id, c).await? {
+                        super::bail_unauthorized!("Must be member of org");
+                    }
+                }
+                let node = new_node.create(inner.host_id()?, c).await?;
+
+                create_notification(self, &node, c).await?;
+
+                let update_user = models::UpdateUser {
+                    id: user.id,
+                    first_name: None,
+                    last_name: None,
+                    staking_quota: Some(user.staking_quota - 1),
+                    refresh: None,
+                };
+                update_user.update(c).await?;
+
+                start_notification(self, &node, c).await?;
+
+                let created = api::NodeMessage::created(node.clone(), user.clone(), c).await?;
+                self.notifier.nodes_sender().send(&created).await?;
+
+                let response = api::NodeServiceCreateResponse {
+                    node: Some(api::Node::from_model(node.clone(), c).await?),
+                };
+
+                Ok(super::response_with_refresh_token(refresh_token, response)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn update(
         &self,
-        req: tonic::Request<api::NodeServiceUpdateRequest>,
-    ) -> super::Resp<api::NodeServiceUpdateResponse> {
-        self.trx(|c| update(self, req, c).scope_boxed()).await
+        request: Request<api::NodeServiceUpdateRequest>,
+    ) -> super::Result<api::NodeServiceUpdateResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let user_token = helpers::try_get_token::<_, auth::UserAuthToken>(&request)
+            .ok()
+            .cloned();
+        let host_token = helpers::try_get_token::<_, auth::HostAuthToken>(&request)
+            .ok()
+            .cloned();
+
+        self.trx(|c| {
+            async move {
+                let inner = request.into_inner();
+                let node = models::Node::find_by_id(inner.id.parse()?, c).await?;
+
+                let is_allowed = if let Some(ref user_token) = user_token {
+                    models::Org::is_member(user_token.id, node.org_id, c).await?
+                } else if let Some(host_token) = host_token {
+                    node.host_id == host_token.id
+                } else {
+                    false
+                };
+
+                if !is_allowed {
+                    super::bail_unauthorized!("Access not allowed")
+                }
+
+                let update_node = inner.as_update()?;
+                let user = user_token.map(|tkn| models::User::find_by_id(tkn.id, c));
+                let user = OptionFuture::from(user).await.transpose()?;
+                let node = update_node.update(c).await?;
+
+                let msg = api::NodeMessage::updated(node, user, c).await?;
+                self.notifier.nodes_sender().send(&msg).await?;
+
+                let response = api::NodeServiceUpdateResponse {};
+                Ok(super::response_with_refresh_token(refresh_token, response)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn delete(
         &self,
-        req: tonic::Request<api::NodeServiceDeleteRequest>,
-    ) -> super::Resp<api::NodeServiceDeleteResponse> {
-        self.trx(|c| delete(self, req, c).scope_boxed()).await
+        request: Request<api::NodeServiceDeleteRequest>,
+    ) -> super::Result<api::NodeServiceDeleteResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let user_id = helpers::try_get_token::<_, auth::UserAuthToken>(&request)?.id;
+        let inner = request.into_inner();
+        self.trx(|c| {
+            async move {
+                let node_id = inner.id.parse()?;
+                let node = models::Node::find_by_id(node_id, c).await?;
+
+                if !models::Node::belongs_to_user_org(node.org_id, user_id, c).await? {
+                    super::bail_unauthorized!("User cannot delete node");
+                }
+                // 1. Delete node, if the node belongs to the current user
+                // Key files are deleted automatically because of 'on delete cascade' in tables DDL
+                models::Node::delete(node_id, c).await?;
+
+                let host_id = node.host_id;
+                // 2. Do NOT delete reserved IP addresses, but set assigned to false
+                let ip_addr = node
+                    .ip_addr
+                    .parse()
+                    .map_err(|_| Status::internal("invalid ip"))?;
+                let ip = models::IpAddress::find_by_node(ip_addr, c).await?;
+
+                models::IpAddress::unassign(ip.id, host_id, c).await?;
+
+                // Delete all pending commands for this node: there are not useable anymore
+                models::Command::delete_pending(node_id, c).await?;
+
+                // Send delete node command
+                let node_id = node_id.to_string();
+                let new_command = models::NewCommand {
+                    host_id: node.host_id,
+                    cmd: models::CommandType::DeleteNode,
+                    sub_cmd: Some(&node_id),
+                    // Note that the `node_id` goes into the `sub_cmd` field, not the node_id
+                    // field, because the node was just deleted.
+                    node_id: None,
+                };
+                let cmd = new_command.create(c).await?;
+
+                let user = models::User::find_by_id(user_id, c).await?;
+                let update_user = models::UpdateUser {
+                    id: user.id,
+                    first_name: None,
+                    last_name: None,
+                    staking_quota: Some(user.staking_quota + 1),
+                    refresh: None,
+                };
+                update_user.update(c).await?;
+
+                let cmd = api::Command::from_model(&cmd, c).await?;
+                self.notifier.commands_sender().send(&cmd).await?;
+
+                let deleted = api::NodeMessage::deleted(node, user);
+                self.notifier.nodes_sender().send(&deleted).await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await?;
+        let resp = api::NodeServiceDeleteResponse {};
+        super::response_with_refresh_token(refresh_token, resp)
     }
-}
-
-async fn get(
-    req: tonic::Request<api::NodeServiceGetRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::NodeServiceGetResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::NodeCreate, conn).await?;
-    let req = req.into_inner();
-    let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
-        auth::Resource::Org(org_id) => node.org_id == org_id,
-        auth::Resource::Host(host_id) => node.host_id == host_id,
-        auth::Resource::Node(node_id) => node.id == node_id,
-    };
-    if !is_allowed {
-        super::forbidden!("Access not allowed")
-    }
-    let resp = api::NodeServiceGetResponse {
-        node: Some(api::Node::from_model(node, conn).await?),
-    };
-    Ok(tonic::Response::new(resp))
-}
-
-async fn list(
-    req: tonic::Request<api::NodeServiceListRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::NodeServiceListResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::NodeList, conn).await?;
-    let filter = req.into_inner().as_filter()?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
-            models::Org::is_member(user_id, filter.org_id, conn).await?
-        }
-        auth::Resource::Org(org_id) => filter.org_id == org_id,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
-    };
-    if !is_allowed {
-        super::forbidden!("Access denied");
-    }
-    let nodes = models::Node::filter(filter, conn).await?;
-    let nodes = api::Node::from_models(nodes, conn).await?;
-    let resp = api::NodeServiceListResponse { nodes };
-    Ok(tonic::Response::new(resp))
-}
-
-async fn create(
-    grpc: &super::GrpcImpl,
-    req: tonic::Request<api::NodeServiceCreateRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::NodeServiceCreateResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::NodeCreate, conn).await?;
-    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
-
-    let user = models::User::find_by_id(user_id, conn).await?;
-    let req = req.into_inner();
-    let new_node = req.as_new(user.id)?;
-    // The host_id will either be determined by the scheduler, or by the host_id.
-    // Therfore we pass in an optional host_id for the node creation to fall back on if
-    // there is no scheduler.
-    let host_id = req.host_id()?;
-    if let Some(host_id) = host_id {
-        let host = models::Host::find_by_id(host_id, conn).await?;
-        let Some(org_id) = host.org_id else { super::forbidden!("Host must have org_id") };
-        if !models::Org::is_member(user.id, org_id, conn).await? {
-            super::forbidden!("Must be member of org");
-        }
-    }
-    let node = new_node.create(req.host_id()?, conn).await?;
-    create_notification(grpc, &node, conn).await?;
-    let created = api::NodeMessage::created(node.clone(), user.clone(), conn).await?;
-    grpc.notifier.nodes_sender().send(&created).await?;
-    let resp = api::NodeServiceCreateResponse {
-        node: Some(api::Node::from_model(node.clone(), conn).await?),
-    };
-    Ok(tonic::Response::new(resp))
-}
-
-async fn update(
-    grpc: &super::GrpcImpl,
-    req: tonic::Request<api::NodeServiceUpdateRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::NodeServiceUpdateResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::NodeUpdate, conn).await?;
-    let req = req.into_inner();
-    let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
-        auth::Resource::Org(org_id) => org_id == node.org_id,
-        auth::Resource::Host(host_id) => host_id == node.host_id,
-        auth::Resource::Node(node_id) => node_id == node.id,
-    };
-    if !is_allowed {
-        super::forbidden!("Access not allowed")
-    }
-    let update_node = req.as_update()?;
-    let user = claims
-        .resource()
-        .map_user(|id| models::User::find_by_id(id, conn));
-    let user = OptionFuture::from(user).await.transpose()?;
-    let node = update_node.update(conn).await?;
-    let msg = api::NodeMessage::updated(node, user, conn).await?;
-    grpc.notifier.nodes_sender().send(&msg).await?;
-    let resp = api::NodeServiceUpdateResponse {};
-    Ok(tonic::Response::new(resp))
-}
-
-async fn delete(
-    grpc: &super::GrpcImpl,
-    req: tonic::Request<api::NodeServiceDeleteRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::NodeServiceDeleteResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::NodeDelete, conn).await?;
-    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
-    let req = req.into_inner();
-    let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
-
-    if !models::Org::is_member(user_id, node.org_id, conn).await? {
-        super::forbidden!("User cannot delete node");
-    }
-    // 1. Delete node, if the node belongs to the current user
-    // Key files are deleted automatically because of 'on delete cascade' in tables DDL
-    models::Node::delete(node.id, conn).await?;
-
-    let host_id = node.host_id;
-    // 2. Do NOT delete reserved IP addresses, but set assigned to false
-    let ip_addr = node.ip_addr.parse()?;
-    let ip = models::IpAddress::find_by_node(ip_addr, conn).await?;
-
-    models::IpAddress::unassign(ip.id, host_id, conn).await?;
-
-    // Delete all pending commands for this node: there are not useable anymore
-    models::Command::delete_pending(node.id, conn).await?;
-
-    // Send delete node command
-    let node_id = node.id.to_string();
-    let new_command = models::NewCommand {
-        host_id: node.host_id,
-        cmd: models::CommandType::DeleteNode,
-        sub_cmd: Some(&node_id),
-        // Note that the `node_id` goes into the `sub_cmd` field, not the node_id
-        // field, because the node was just deleted.
-        node_id: None,
-    };
-    let cmd = new_command.create(conn).await?;
-
-    let user = models::User::find_by_id(user_id, conn).await?;
-
-    let cmd = api::Command::from_model(&cmd, conn).await?;
-    grpc.notifier.commands_sender().send(&cmd).await?;
-
-    let deleted = api::NodeMessage::deleted(node, user);
-    grpc.notifier.nodes_sender().send(&deleted).await?;
-    let resp = api::NodeServiceDeleteResponse {};
-    Ok(tonic::Response::new(resp))
 }
 
 impl api::Node {

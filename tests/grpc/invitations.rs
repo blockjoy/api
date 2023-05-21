@@ -1,12 +1,11 @@
-use blockvisor_api::auth;
+use blockvisor_api::auth::{self, FindableById};
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
-use std::collections::HashMap;
 
 type Service = api::invitation_service_client::InvitationServiceClient<super::Channel>;
 
-async fn create_invitation(tester: &super::Tester) -> models::Invitation {
-    let user = tester.user().await;
+async fn create_invitation(tester: &super::Tester) -> anyhow::Result<models::Invitation> {
+    let user = tester.admin_user().await;
     let org = tester.org().await;
     let new_invitation = models::NewInvitation {
         created_by_user: user.id,
@@ -16,7 +15,8 @@ async fn create_invitation(tester: &super::Tester) -> models::Invitation {
         invitee_email: "test@here.com",
     };
     let mut conn = tester.conn().await;
-    new_invitation.create(&mut conn).await.unwrap()
+    let inv = new_invitation.create(&mut conn).await.unwrap();
+    Ok(inv)
 }
 
 #[tokio::test]
@@ -42,8 +42,8 @@ async fn responds_ok_for_create() {
 #[tokio::test]
 async fn responds_ok_for_list_pending() {
     let tester = super::Tester::new().await;
-    let invitation = create_invitation(&tester).await;
-    let user = tester.user().await;
+    let invitation = create_invitation(&tester).await.unwrap();
+    let user = tester.admin_user().await;
     let org = tester.org_for(&user).await;
     let req = api::InvitationServiceListRequest {
         org_id: Some(org.id.to_string()),
@@ -64,8 +64,8 @@ async fn responds_ok_for_list_pending() {
 #[tokio::test]
 async fn responds_ok_for_list_received() {
     let tester = super::Tester::new().await;
-    let invitation = create_invitation(&tester).await;
-    let user = tester.user().await;
+    let invitation = create_invitation(&tester).await.unwrap();
+    let user = tester.admin_user().await;
     let req = api::InvitationServiceListRequest {
         invitee_id: Some(user.id.to_string()),
         ..Default::default()
@@ -83,48 +83,39 @@ async fn responds_ok_for_list_received() {
 #[tokio::test]
 async fn responds_ok_for_accept() {
     let tester = super::Tester::new().await;
-    let invitation = create_invitation(&tester).await;
-    let iat = chrono::Utc::now();
-    let claims = auth::Claims {
-        resource_type: auth::ResourceType::Org,
-        resource_id: invitation.created_for_org,
-        iat,
-        exp: iat + chrono::Duration::minutes(15),
-        endpoints: auth::Endpoints::Multiple(vec![auth::Endpoint::InvitationAccept]),
-        data: HashMap::from([("email".into(), invitation.invitee_email)]),
-    };
-    let jwt = auth::Jwt { claims };
-    let req: api::InvitationServiceAcceptRequest = api::InvitationServiceAcceptRequest {
+    let invitation = create_invitation(&tester).await.unwrap();
+    let token = auth::InvitationToken::create_for_invitation(&invitation).unwrap();
+    let req = api::InvitationServiceAcceptRequest {
         invitation_id: invitation.id.to_string(),
     };
-    tester.send_with(Service::accept, req, jwt).await.unwrap();
+
+    tester
+        .send_with(Service::accept, req, token, super::DummyRefresh)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn responds_ok_for_decline() {
     let tester = super::Tester::new().await;
-    let invitation = create_invitation(&tester).await;
-    let iat = chrono::Utc::now();
-    let claims = auth::Claims {
-        resource_type: auth::ResourceType::Org,
-        resource_id: invitation.created_for_org,
-        iat,
-        exp: iat + chrono::Duration::minutes(15),
-        endpoints: auth::Endpoints::Multiple(vec![auth::Endpoint::InvitationDecline]),
-        data: HashMap::from([("email".into(), invitation.invitee_email)]),
-    };
-    let jwt = auth::Jwt { claims };
+    let invitation = create_invitation(&tester).await.unwrap();
+    let token = auth::InvitationToken::create_for_invitation(&invitation).unwrap();
+
     let req = api::InvitationServiceDeclineRequest {
         invitation_id: invitation.id.to_string(),
     };
-    tester.send_with(Service::decline, req, jwt).await.unwrap();
+
+    tester
+        .send_with(Service::decline, req, token, super::DummyRefresh)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn responds_ok_for_revoke() {
     let tester = super::Tester::new().await;
-    let invitation = create_invitation(&tester).await;
-    let user = tester.user().await;
+    let invitation = create_invitation(&tester).await.unwrap();
+    let user = tester.admin_user().await;
     let mut conn = tester.conn().await;
     let org = models::Org::find_by_id(invitation.created_for_org, &mut conn)
         .await

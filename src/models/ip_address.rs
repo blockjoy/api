@@ -13,6 +13,16 @@ pub struct CreateIpAddress {
     pub host_id: uuid::Uuid,
 }
 
+impl CreateIpAddress {
+    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<IpAddress> {
+        let ip_address = diesel::insert_into(ip_addresses::table)
+            .values(self)
+            .get_result(conn)
+            .await?;
+        Ok(ip_address)
+    }
+}
+
 pub struct NewIpAddressRange {
     from: IpAddr,
     to: IpAddr,
@@ -121,6 +131,13 @@ impl IpAddress {
         Ok(assigned)
     }
 
+    pub async fn delete(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
+        diesel::delete(ip_addresses::table.find(id))
+            .execute(conn)
+            .await?;
+        Ok(())
+    }
+
     pub async fn find_by_node(node_ip: IpAddr, conn: &mut AsyncPgConnection) -> Result<Self> {
         let ip = ipnetwork::IpNetwork::new(node_ip, 32)?;
         let ip = ip_addresses::table
@@ -146,46 +163,5 @@ impl UpdateIpAddress {
             .get_result(conn)
             .await?;
         Ok(ip)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[tokio::test]
-    async fn should_create_ip_range() -> anyhow::Result<()> {
-        let db = crate::TestDb::setup().await;
-        let new_range = NewIpAddressRange::try_new(
-            "192.129.0.10".parse().unwrap(),
-            "192.129.0.20".parse().unwrap(),
-            db.host().await.id,
-        )?;
-        let mut conn = db.conn().await;
-        let range = new_range.create(&mut conn).await?;
-        assert_eq!(range.len(), 11);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[should_panic]
-    async fn should_fail_creating_ip_range() {
-        let db = crate::TestDb::setup().await;
-        NewIpAddressRange::try_new(
-            "192.129.0.20".parse().unwrap(),
-            "192.129.0.10".parse().unwrap(),
-            db.host().await.id,
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn should_fail_if_ip_in_range() {
-        let ref_ip = "192.168.0.15".parse().unwrap();
-        let from_ip = "192.168.0.10".parse().unwrap();
-        let to_ip = "192.168.0.10".parse().unwrap();
-
-        assert!(!IpAddress::in_range(ref_ip, from_ip, to_ip));
     }
 }

@@ -1,248 +1,116 @@
 use super::api::{self, host_service_server};
-use super::helpers;
-use crate::auth::expiration_provider;
-use crate::{auth, models};
+use super::helpers::{self, try_get_token};
+use crate::auth::{FindableById, HostAuthToken, JwtToken, TokenRole, TokenType};
+use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
-
-/// This is a list of all the endpoints that a user is allowed to access with the jwt that they
-/// generate on login. It does not contain endpoints like confirm, because those are accessed by a
-/// token.
-const HOST_ENDPOINTS: [auth::Endpoint; 10] = [
-    auth::Endpoint::AuthRefresh,
-    auth::Endpoint::BabelAll,
-    auth::Endpoint::BlockchainAll,
-    auth::Endpoint::CommandAll,
-    auth::Endpoint::DiscoveryAll,
-    auth::Endpoint::HostGet,
-    auth::Endpoint::HostList,
-    auth::Endpoint::KeyFileAll,
-    auth::Endpoint::MetricsAll,
-    auth::Endpoint::NodeAll,
-];
+use tonic::{Request, Response};
 
 #[tonic::async_trait]
 impl host_service_server::HostService for super::GrpcImpl {
-    async fn create(
-        &self,
-        req: tonic::Request<api::HostServiceCreateRequest>,
-    ) -> super::Resp<api::HostServiceCreateResponse> {
-        self.trx(|c| create(req, c).scope_boxed()).await
-    }
-
     /// Get a host by id.
     async fn get(
         &self,
-        req: tonic::Request<api::HostServiceGetRequest>,
-    ) -> super::Resp<api::HostServiceGetResponse> {
+        request: Request<api::HostServiceGetRequest>,
+    ) -> super::Result<api::HostServiceGetResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let request = request.into_inner();
+        let host_id = request.id.parse().map_err(crate::Error::from)?;
         let mut conn = self.conn().await?;
-        let resp = get(req, &mut conn).await?;
-        Ok(resp)
+        let host = models::Host::find_by_id(host_id, &mut conn).await?;
+        let host = api::Host::from_model(host).await?;
+        let response = api::HostServiceGetResponse { host: Some(host) };
+        super::response_with_refresh_token(refresh_token, response)
     }
 
     async fn list(
         &self,
-        req: tonic::Request<api::HostServiceListRequest>,
-    ) -> super::Resp<api::HostServiceListResponse> {
+        request: Request<api::HostServiceListRequest>,
+    ) -> super::Result<api::HostServiceListResponse> {
+        let refresh_token = super::get_refresh_token(&request);
         let mut conn = self.conn().await?;
-        let resp = list(req, &mut conn).await?;
-        Ok(resp)
+        let hosts = models::Host::filter(None, &mut conn).await?;
+        let hosts = api::Host::from_models(hosts).await?;
+        let response = api::HostServiceListResponse { hosts };
+        super::response_with_refresh_token(refresh_token, response)
+    }
+
+    async fn create(
+        &self,
+        request: Request<api::HostServiceCreateRequest>,
+    ) -> super::Result<api::HostServiceCreateResponse> {
+        let request = request.into_inner();
+        let new_host = request.as_new()?;
+        let host = self.trx(|c| new_host.create(c).scope_boxed()).await?;
+        let host = api::Host::from_model(host).await?;
+        let response = api::HostServiceCreateResponse { host: Some(host) };
+
+        Ok(Response::new(response))
     }
 
     async fn update(
         &self,
-        req: tonic::Request<api::HostServiceUpdateRequest>,
-    ) -> super::Resp<api::HostServiceUpdateResponse> {
-        self.trx(|c| update(req, c).scope_boxed()).await
+        request: Request<api::HostServiceUpdateRequest>,
+    ) -> super::Result<api::HostServiceUpdateResponse> {
+        let host_token = try_get_token::<_, HostAuthToken>(&request)?.clone();
+        let request = request.into_inner();
+        let host_id = request.id.parse().map_err(crate::Error::from)?;
+        let is_allowed = host_token.id == host_id;
+        if !is_allowed {
+            super::bail_unauthorized!("Not allowed to delete host {host_id}!");
+        }
+        let updater = request.as_update()?;
+        self.trx(|c| updater.update(c).scope_boxed()).await?;
+        let response = api::HostServiceUpdateResponse {};
+        Ok(Response::new(response))
     }
 
     async fn delete(
         &self,
-        req: tonic::Request<api::HostServiceDeleteRequest>,
-    ) -> super::Resp<api::HostServiceDeleteResponse> {
-        self.trx(|c| delete(req, c).scope_boxed()).await
+        request: Request<api::HostServiceDeleteRequest>,
+    ) -> super::Result<api::HostServiceDeleteResponse> {
+        let host_token = try_get_token::<_, HostAuthToken>(&request)?.clone();
+        let request = request.into_inner();
+        let host_id = request.id.parse().map_err(crate::Error::from)?;
+        let is_allowed = host_token.id == host_id;
+        if !is_allowed {
+            super::bail_unauthorized!("Not allowed to delete host {host_id}!");
+        }
+        self.trx(|c| models::Host::delete(host_id, c).scope_boxed())
+            .await?;
+        let response = api::HostServiceDeleteResponse {};
+
+        Ok(Response::new(response))
     }
 
     async fn provision(
         &self,
-        req: tonic::Request<api::HostServiceProvisionRequest>,
-    ) -> super::Resp<api::HostServiceProvisionResponse> {
-        self.trx(|c| provision(req, c).scope_boxed()).await
-    }
-}
+        request: Request<api::HostServiceProvisionRequest>,
+    ) -> super::Result<api::HostServiceProvisionResponse> {
+        let request = request.into_inner();
 
-async fn create(
-    req: tonic::Request<api::HostServiceCreateRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::HostServiceCreateResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostCreate, conn).await?;
-    let req = req.into_inner();
-    let org_id = req.org_id.as_ref().map(|id| id.parse()).transpose()?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
-            if let Some(org_id) = org_id {
-                models::Org::is_member(user_id, org_id, conn).await?
-            } else {
-                false
-            }
-        }
-        auth::Resource::Org(org) => org_id == Some(org),
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
-    };
-    if !is_allowed {
-        super::forbidden!("Access denied");
+        let host = self
+            .trx(|c| {
+                async move {
+                    let provision = models::HostProvision::find_by_id(&request.otp, c).await?;
+                    let new_host = request.as_new(provision)?;
+                    models::HostProvision::claim(&request.otp, new_host, c).await
+                }
+                .scope_boxed()
+            })
+            .await?;
+        let token: HostAuthToken = JwtToken::create_token_for::<models::Host>(
+            &host,
+            TokenType::HostAuth,
+            TokenRole::Service,
+            None,
+        )?;
+        let token = token.encode()?;
+        let result = api::HostServiceProvisionResponse {
+            host_id: host.id.to_string(),
+            token,
+        };
+        Ok(Response::new(result))
     }
-    let new_host = req.as_new()?;
-    let host = new_host.create(conn).await?;
-    let host = api::Host::from_model(host).await?;
-    let resp = api::HostServiceCreateResponse { host: Some(host) };
-    Ok(tonic::Response::new(resp))
-}
-
-/// Get a host by id.
-async fn get(
-    req: tonic::Request<api::HostServiceGetRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::HostServiceGetResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostGet, conn).await?;
-    let req = req.into_inner();
-    let host_id = req.id.parse()?;
-    let host = models::Host::find_by_id(host_id, conn).await?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
-            if let Some(org_id) = host.org_id {
-                models::Org::is_member(user_id, org_id, conn).await?
-            } else {
-                false
-            }
-        }
-        auth::Resource::Org(org) => host.org_id == Some(org),
-        auth::Resource::Host(host_id) => host.id == host_id,
-        auth::Resource::Node(node_id) => {
-            models::Node::find_by_id(node_id, conn).await?.host_id == host.id
-        }
-    };
-    if !is_allowed {
-        super::forbidden!("Access denied");
-    }
-    let host = api::Host::from_model(host).await?;
-    let resp = api::HostServiceGetResponse { host: Some(host) };
-    Ok(tonic::Response::new(resp))
-}
-
-async fn list(
-    req: tonic::Request<api::HostServiceListRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::HostServiceListResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostList, conn).await?;
-    let req = req.into_inner();
-    let org_id = req.org_id.parse()?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => models::Org::is_member(user_id, org_id, conn).await?,
-        auth::Resource::Org(org_id_) => org_id == org_id_,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
-    };
-    if !is_allowed {
-        super::forbidden!("Access denied");
-    }
-    let hosts = models::Host::filter(org_id, None, conn).await?;
-    let hosts = api::Host::from_models(hosts).await?;
-    let resp = api::HostServiceListResponse { hosts };
-    Ok(tonic::Response::new(resp))
-}
-
-async fn update(
-    req: tonic::Request<api::HostServiceUpdateRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::HostServiceUpdateResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostUpdate, conn).await?;
-    let req = req.into_inner();
-    let host_id = req.id.parse()?;
-    let host = models::Host::find_by_id(host_id, conn).await?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
-            if let Some(org_id) = host.org_id {
-                models::Org::is_member(user_id, org_id, conn).await?
-            } else {
-                false
-            }
-        }
-        auth::Resource::Org(org_id) => Some(org_id) == host.org_id,
-        auth::Resource::Host(host_id) => host_id == host.id,
-        auth::Resource::Node(_) => false,
-    };
-    if !is_allowed {
-        super::forbidden!("Not allowed to delete host {host_id}!");
-    }
-    let updater = req.as_update()?;
-    updater.update(conn).await?;
-    let resp = api::HostServiceUpdateResponse {};
-    Ok(tonic::Response::new(resp))
-}
-
-async fn delete(
-    req: tonic::Request<api::HostServiceDeleteRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::HostServiceDeleteResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostDelete, conn).await?;
-    let req = req.into_inner();
-    let host_id = req.id.parse()?;
-    let host = models::Host::find_by_id(host_id, conn).await?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
-            if let Some(org_id) = host.org_id {
-                models::Org::is_member(user_id, org_id, conn).await?
-            } else {
-                false
-            }
-        }
-        auth::Resource::Org(org_id) => Some(org_id) == host.org_id,
-        auth::Resource::Host(host_id) => host_id == host.id,
-        auth::Resource::Node(_) => false,
-    };
-    if !is_allowed {
-        super::forbidden!("Not allowed to delete host {host_id}!");
-    }
-    models::Host::delete(host_id, conn).await?;
-    let resp = api::HostServiceDeleteResponse {};
-
-    Ok(tonic::Response::new(resp))
-}
-
-async fn provision(
-    req: tonic::Request<api::HostServiceProvisionRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::HostServiceProvisionResponse> {
-    // This endpoint does not have any auth checking in it. This is because the access here is
-    // granted using the OTP of the request.
-    let req = req.into_inner();
-    let provision = models::HostProvision::find_by_id(&req.otp, conn).await?;
-    if provision.is_claimed() {
-        return Err(tonic::Status::failed_precondition("Provision is already claimed").into());
-    }
-    let new_host = req.as_new(provision)?;
-    let host = models::HostProvision::claim(&req.otp, new_host, conn).await?;
-    let iat = chrono::Utc::now();
-    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
-    let claims = auth::Claims {
-        resource_type: auth::ResourceType::Host,
-        resource_id: host.id,
-        iat,
-        exp: iat + exp,
-        endpoints: HOST_ENDPOINTS.iter().copied().collect(),
-        data: Default::default(),
-    };
-    let jwt = auth::Jwt { claims };
-    let refresh_exp =
-        expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_HOST_MINS")?;
-    let refresh = auth::Refresh::new(host.id, iat, refresh_exp)?;
-    let resp = api::HostServiceProvisionResponse {
-        host_id: host.id.to_string(),
-        token: jwt.encode()?,
-        refresh: refresh.encode()?,
-    };
-    Ok(tonic::Response::new(resp))
 }
 
 impl api::Host {

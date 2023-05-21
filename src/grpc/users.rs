@@ -1,123 +1,99 @@
 use super::api::{self, user_service_server};
-use crate::auth;
-use crate::mail;
+use super::helpers::{required, try_get_token};
+use crate::auth::{JwtToken, UserAuthToken};
+use crate::mail::MailClient;
 use crate::models;
+use crate::models::User;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
 impl user_service_server::UserService for super::GrpcImpl {
-    async fn create(
-        &self,
-        req: tonic::Request<api::UserServiceCreateRequest>,
-    ) -> super::Resp<api::UserServiceCreateResponse> {
-        self.trx(|c| create(req, c).scope_boxed()).await
-    }
-
     async fn get(
         &self,
-        req: tonic::Request<api::UserServiceGetRequest>,
-    ) -> super::Resp<api::UserServiceGetResponse> {
+        request: Request<api::UserServiceGetRequest>,
+    ) -> super::Result<api::UserServiceGetResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let token = try_get_token::<_, UserAuthToken>(&request)?.clone();
         let mut conn = self.conn().await?;
-        let resp = get(req, &mut conn).await?;
-        Ok(resp)
+        let user = token.try_get_user(token.id, &mut conn).await?;
+        let response = api::UserServiceGetResponse {
+            user: Some(api::User::from_model(user)?),
+        };
+
+        super::response_with_refresh_token(refresh_token, response)
+    }
+
+    async fn create(
+        &self,
+        request: Request<api::UserServiceCreateRequest>,
+    ) -> super::Result<api::UserServiceCreateResponse> {
+        let inner = request.into_inner();
+        let new_user = inner.as_new()?;
+        let new_user = self.trx(|c| new_user.create(c).scope_boxed()).await?;
+
+        MailClient::new()
+            .registration_confirmation(&new_user)
+            .await?;
+
+        let response = api::UserServiceCreateResponse {
+            user: Some(api::User::from_model(new_user.clone())?),
+        };
+
+        Ok(Response::new(response))
     }
 
     async fn update(
         &self,
-        req: tonic::Request<api::UserServiceUpdateRequest>,
-    ) -> super::Resp<api::UserServiceUpdateResponse> {
-        self.trx(|c| update(req, c).scope_boxed()).await
+        request: Request<api::UserServiceUpdateRequest>,
+    ) -> super::Result<api::UserServiceUpdateResponse> {
+        let refresh_token = super::get_refresh_token(&request);
+        let token = request
+            .extensions()
+            .get::<UserAuthToken>()
+            .ok_or_else(required("auth token"))?
+            .clone();
+        self.trx(|c| {
+            async move {
+                let user_id = token.try_get_user(token.id, c).await?.id;
+                let inner = request.into_inner();
+
+                // Check if current user is the same as the one to be updated
+                if user_id.to_string() != inner.id {
+                    super::bail_unauthorized!("You are not allowed to update this user");
+                }
+                let user = inner.as_update()?.update(c).await?;
+                let resp = api::UserServiceUpdateResponse {
+                    user: Some(api::User::from_model(user)?),
+                };
+
+                Ok(super::response_with_refresh_token(refresh_token, resp)?)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn delete(
         &self,
-        req: tonic::Request<api::UserServiceDeleteRequest>,
-    ) -> super::Resp<api::UserServiceDeleteResponse> {
-        self.trx(|c| delete(req, c).scope_boxed()).await
-    }
-}
-
-async fn get(
-    req: tonic::Request<api::UserServiceGetRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::UserServiceGetResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::UserGet, conn).await?;
-    let req = req.into_inner();
-    let user = models::User::find_by_id(req.id.parse()?, conn).await?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => user_id == user.id,
-        auth::Resource::Org(_) => false,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
-    };
-    if !is_allowed {
-        super::forbidden!("Access not allowed")
-    }
-    let resp = api::UserServiceGetResponse {
-        user: Some(api::User::from_model(user)?),
-    };
-    Ok(tonic::Response::new(resp))
-}
-
-async fn create(
-    req: tonic::Request<api::UserServiceCreateRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::UserServiceCreateResponse> {
-    // This endpoint doesn't require authentication.
-    let inner = req.into_inner();
-    let new_user = inner.as_new()?;
-    let new_user = new_user.create(conn).await?;
-    mail::MailClient::new()
-        .registration_confirmation(&new_user)
+        request: Request<api::UserServiceDeleteRequest>,
+    ) -> Result<Response<api::UserServiceDeleteResponse>, Status> {
+        let refresh_token = super::get_refresh_token(&request);
+        let token = request
+            .extensions()
+            .get::<UserAuthToken>()
+            .ok_or_else(required("auth token"))?;
+        self.trx(|c| {
+            async move {
+                let user_id = token.try_get_user(token.id, c).await?.id;
+                User::delete(user_id, c).await
+            }
+            .scope_boxed()
+        })
         .await?;
-    let resp = api::UserServiceCreateResponse {
-        user: Some(api::User::from_model(new_user.clone())?),
-    };
-    Ok(tonic::Response::new(resp))
-}
-
-async fn update(
-    req: tonic::Request<api::UserServiceUpdateRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::UserServiceUpdateResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::UserUpdate, conn).await?;
-    let req = req.into_inner();
-    let user = models::User::find_by_id(req.id.parse()?, conn).await?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => user_id == user.id,
-        auth::Resource::Org(_) => false,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
-    };
-    if !is_allowed {
-        super::forbidden!("Access not allowed")
+        let resp = api::UserServiceDeleteResponse {};
+        super::response_with_refresh_token(refresh_token, resp)
     }
-    let user = req.as_update()?.update(conn).await?;
-    let resp = api::UserServiceUpdateResponse {
-        user: Some(api::User::from_model(user)?),
-    };
-    Ok(tonic::Response::new(resp))
-}
-
-async fn delete(
-    req: tonic::Request<api::UserServiceDeleteRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::UserServiceDeleteResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::UserUpdate, conn).await?;
-    let req = req.into_inner();
-    let user = models::User::find_by_id(req.id.parse()?, conn).await?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => user_id == user.id,
-        auth::Resource::Org(_) => false,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
-    };
-    if !is_allowed {
-        super::forbidden!("Access not allowed")
-    }
-    models::User::delete(user.id, conn).await?;
-    let resp = api::UserServiceDeleteResponse {};
-    Ok(tonic::Response::new(resp))
 }
 
 impl api::User {
@@ -151,6 +127,10 @@ impl api::UserServiceUpdateRequest {
             id: self.id.parse()?,
             first_name: self.first_name.as_deref(),
             last_name: self.last_name.as_deref(),
+
+            // For obvious reasons, users are not allowed to update these fields
+            staking_quota: None,
+            refresh: None,
         })
     }
 }

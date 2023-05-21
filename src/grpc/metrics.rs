@@ -4,9 +4,8 @@
 //! time new ones are provided. This makes sure that the database doesn't grow overly large.
 
 use super::api::{self, metrics_service_server};
-use crate::{auth, models};
+use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use std::collections::HashSet;
 
 #[tonic::async_trait]
 impl metrics_service_server::MetricsService for super::GrpcImpl {
@@ -15,79 +14,35 @@ impl metrics_service_server::MetricsService for super::GrpcImpl {
     /// query for this whole list of metrics that comes in.
     async fn node(
         &self,
-        req: tonic::Request<api::MetricsServiceNodeRequest>,
-    ) -> super::Resp<api::MetricsServiceNodeResponse> {
-        self.trx(|c| node(req, c).scope_boxed()).await
+        request: tonic::Request<api::MetricsServiceNodeRequest>,
+    ) -> super::Result<api::MetricsServiceNodeResponse> {
+        let request = request.into_inner();
+        let updates = request
+            .metrics
+            .into_iter()
+            .map(|(k, v)| v.as_metrics_update(&k))
+            .collect::<crate::Result<_>>()?;
+        self.trx(|c| models::UpdateNodeMetrics::update_metrics(updates, c).scope_boxed())
+            .await?;
+        let resp = api::MetricsServiceNodeResponse {};
+        Ok(tonic::Response::new(resp))
     }
 
     async fn host(
         &self,
-        req: tonic::Request<api::MetricsServiceHostRequest>,
-    ) -> super::Resp<api::MetricsServiceHostResponse> {
-        self.trx(|c| host(req, c).scope_boxed()).await
+        request: tonic::Request<api::MetricsServiceHostRequest>,
+    ) -> super::Result<api::MetricsServiceHostResponse> {
+        let request = request.into_inner();
+        let updates = request
+            .metrics
+            .into_iter()
+            .map(|(k, v)| v.as_metrics_update(&k))
+            .collect::<crate::Result<_>>()?;
+        self.trx(|c| models::UpdateHostMetrics::update_metrics(updates, c).scope_boxed())
+            .await?;
+        let resp = api::MetricsServiceHostResponse {};
+        Ok(tonic::Response::new(resp))
     }
-}
-
-async fn node(
-    req: tonic::Request<api::MetricsServiceNodeRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::MetricsServiceNodeResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::MetricsNode, conn).await?;
-    let req = req.into_inner();
-    let updates: Vec<models::UpdateNodeMetrics> = req
-        .metrics
-        .into_iter()
-        .map(|(k, v)| v.as_metrics_update(&k))
-        .collect::<crate::Result<_>>()?;
-    let nodes = models::Node::find_by_ids(updates.iter().map(|u| u.id), conn).await?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
-            let memberships = models::Org::memberships(user_id, conn).await?;
-            let org_ids: HashSet<_> = memberships.into_iter().map(|ou| ou.org_id).collect();
-            nodes.iter().all(|n| org_ids.contains(&n.org_id))
-        }
-        auth::Resource::Org(org_id) => nodes.iter().all(|n| n.org_id == org_id),
-        auth::Resource::Host(host_id) => nodes.iter().all(|n| n.host_id == host_id),
-        auth::Resource::Node(node_id) => nodes.iter().all(|n| n.id == node_id),
-    };
-    if !is_allowed {
-        super::forbidden!("Access denied");
-    }
-    models::UpdateNodeMetrics::update_metrics(updates, conn).await?;
-    let resp = api::MetricsServiceNodeResponse {};
-    Ok(tonic::Response::new(resp))
-}
-
-async fn host(
-    req: tonic::Request<api::MetricsServiceHostRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::MetricsServiceHostResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::MetricsNode, conn).await?;
-    let req = req.into_inner();
-    let updates: Vec<models::UpdateHostMetrics> = req
-        .metrics
-        .into_iter()
-        .map(|(k, v)| v.as_metrics_update(&k))
-        .collect::<crate::Result<_>>()?;
-    let hosts = models::Host::find_by_ids(updates.iter().map(|u| u.id), conn).await?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
-            let memberships = models::Org::memberships(user_id, conn).await?;
-            let org_ids: HashSet<_> = memberships.into_iter().map(|ou| ou.org_id).collect();
-            hosts
-                .iter()
-                .all(|h: &models::Host| h.org_id.map(|id| org_ids.contains(&id)).unwrap_or(false))
-        }
-        auth::Resource::Org(org_id) => hosts.iter().all(|h| h.org_id == Some(org_id)),
-        auth::Resource::Host(host_id) => hosts.iter().all(|h| h.id == host_id),
-        auth::Resource::Node(_) => false,
-    };
-    if !is_allowed {
-        super::forbidden!("Access denied");
-    }
-    models::UpdateHostMetrics::update_metrics(updates, conn).await?;
-    let resp = api::MetricsServiceHostResponse {};
-    Ok(tonic::Response::new(resp))
 }
 
 impl api::NodeMetrics {

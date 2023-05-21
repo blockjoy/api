@@ -1,12 +1,10 @@
 use crate::auth::key_provider::KeyProvider;
+use crate::auth::TokenType;
 use crate::grpc::api;
 use crate::{Error, Result as ApiResult};
 use anyhow::{anyhow, Context};
 use cookbook_grpc::cook_book_service_client;
 use tonic::Request;
-
-pub const COOKBOOK_URL: &str = "COOKBOOK_URL";
-pub const COOKBOOK_TOKEN: &str = "COOKBOOK_TOKEN";
 
 #[derive(Debug, Clone, Copy)]
 pub struct HardwareRequirements {
@@ -39,8 +37,14 @@ pub async fn get_hw_requirements(
         node_version,
         status: 1,
     };
-    let cb_url = KeyProvider::get_var(COOKBOOK_URL).map_err(Error::Key)?;
-    let cb_token = base64::encode(KeyProvider::get_var(COOKBOOK_TOKEN)?);
+    let cb_url = KeyProvider::get_var("COOKBOOK_URL")
+        .map_err(Error::Key)?
+        .to_string();
+    let cb_token = base64::encode(
+        KeyProvider::get_secret(TokenType::Cookbook)
+            .map_err(Error::Key)?
+            .to_string(),
+    );
     let mut client = cook_book_service_client::CookBookServiceClient::connect(cb_url)
         .await
         .map_err(|e| Error::UnexpectedError(anyhow!("Can't connect to cookbook: {e}")))?;
@@ -77,8 +81,14 @@ pub async fn get_networks(
         node_version,
         status: 1,
     };
-    let cb_url = KeyProvider::get_var(COOKBOOK_URL).map_err(Error::Key)?;
-    let cb_token = base64::encode(KeyProvider::get_var(COOKBOOK_TOKEN)?);
+    let cb_url = KeyProvider::get_var("COOKBOOK_URL")
+        .map_err(Error::Key)?
+        .to_string();
+    let cb_token = base64::encode(
+        KeyProvider::get_secret(TokenType::Cookbook)
+            .map_err(Error::Key)?
+            .to_string(),
+    );
     let mut client = cook_book_service_client::CookBookServiceClient::connect(cb_url)
         .await
         .with_context(|| "Can't connect to cookbook")?;

@@ -1,4 +1,4 @@
-pub mod auth;
+pub mod authentication;
 pub mod babel;
 pub mod blockchains;
 pub mod commands;
@@ -11,7 +11,7 @@ pub mod key_files;
 pub mod metrics;
 pub mod nodes;
 pub mod notification;
-pub mod orgs;
+pub mod organizations;
 pub mod users;
 
 #[allow(clippy::large_enum_variant)]
@@ -19,13 +19,20 @@ pub mod api {
     tonic::include_proto!("blockjoy.v1");
 }
 
+use crate::auth::{
+    middleware::AuthorizationService, unauthenticated_paths::UnauthenticatedPaths, Authorization,
+    JwtToken, TokenType, UserRefreshToken,
+};
 use crate::models;
 use axum::Extension;
+use chrono::NaiveDateTime;
 use notification::Notifier;
 use std::env;
+use tonic::metadata::errors::InvalidMetadataValue;
 use tonic::transport::server::Router;
 use tonic::transport::Server;
 use tower::layer::util::{Identity, Stack};
+use tower_http::auth::AsyncRequireAuthorizationLayer;
 use tower_http::classify::{GrpcErrorsAsFailures, SharedClassifier};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -46,12 +53,10 @@ impl std::ops::Deref for GrpcImpl {
     }
 }
 
-type Result<T> = crate::Result<tonic::Response<T>>;
-type Resp<T, E = tonic::Status> = std::result::Result<tonic::Response<T>, E>;
+type Result<T, E = tonic::Status> = std::result::Result<tonic::Response<T>, E>;
 
-/// This macro bails out of the current function with a `tonic::Status::permission_denied` error.
-/// The arguments that can be supplied here are the same as the arguments to the format macro.
-macro_rules! forbidden {
+#[macro_export]
+macro_rules! bail_unauthorized {
     ($msg:literal $(,)?) => {
         return Err(tonic::Status::permission_denied(format!($msg)).into())
     };
@@ -63,13 +68,30 @@ macro_rules! forbidden {
     };
 }
 
-use forbidden;
+use bail_unauthorized;
 
 type TracedServer = Stack<TraceLayer<SharedClassifier<GrpcErrorsAsFailures>>, Identity>;
 type DbServer = Stack<Extension<models::DbPool>, TracedServer>;
-type CorsServer = Stack<Stack<CorsLayer, DbServer>, Identity>;
+type UnauthServer = Stack<Extension<UnauthenticatedPaths>, DbServer>;
+type AuthServer = Stack<AsyncRequireAuthorizationLayer<AuthorizationService>, UnauthServer>;
+type CorsServer = Stack<Stack<CorsLayer, AuthServer>, Identity>;
 
 pub async fn server(db: models::DbPool) -> Router<CorsServer> {
+    // Add unauthenticated paths. TODO: Should this reside in some config file?
+    let unauthenticated = UnauthenticatedPaths::new(vec![
+        // This path is unauthenticated because you need to have the OTP to create a new host, and
+        // that is used instead of the normal machinery.
+        "/blockjoy.v1.HostService/Provision",
+        // The following paths are for users to create and manage their accounts, so should not
+        // require authentication either.
+        "/blockjoy.v1.AuthService/Login",
+        "/blockjoy.v1.AuthService/ResetPassword",
+        "/blockjoy.v1.UserService/Create",
+    ]);
+    let enforcer = Authorization::new()
+        .await
+        .expect("Could not create Authorization!");
+    let auth_service = AuthorizationService::new(enforcer);
     let notifier = Notifier::new()
         .await
         .expect("Could not set up MQTT notifier!");
@@ -79,6 +101,7 @@ pub async fn server(db: models::DbPool) -> Router<CorsServer> {
     };
 
     let authentication = api::auth_service_server::AuthServiceServer::new(impler.clone());
+    // let billing = api::billings_server::BillingsServer::new(impler.clone());
     let babel = api::babel_service_server::BabelServiceServer::new(impler.clone());
     let blockchain = api::blockchain_service_server::BlockchainServiceServer::new(impler.clone());
     let command = api::command_service_server::CommandServiceServer::new(impler.clone());
@@ -101,6 +124,8 @@ pub async fn server(db: models::DbPool) -> Router<CorsServer> {
     let middleware = tower::ServiceBuilder::new()
         .layer(TraceLayer::new_for_grpc())
         .layer(Extension(db))
+        .layer(Extension(unauthenticated))
+        .layer(AsyncRequireAuthorizationLayer::new(auth_service))
         .layer(cors_rules)
         .into_inner();
 
@@ -127,6 +152,49 @@ fn rate_limiting_settings() -> usize {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(32)
+}
+
+pub fn response_with_refresh_token<ResponseBody>(
+    token: Option<String>,
+    inner: ResponseBody,
+) -> Result<ResponseBody> {
+    let mut response = tonic::Response::new(inner);
+
+    if let Some(token) = token {
+        // here auth fails, if refresh token is expired
+        let refresh_token = UserRefreshToken::from_encoded::<UserRefreshToken>(
+            token.as_str(),
+            TokenType::UserRefresh,
+            true,
+        )?;
+        let exp = NaiveDateTime::from_timestamp_opt(refresh_token.get_expiration(), 0).ok_or_else(
+            || crate::Error::unexpected("Invalid timestamp while creating refresh token"),
+        )?;
+        // let exp = "Fri, 09 Jan 2026 03:15:14 GMT";
+        let exp = exp.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+
+        let raw_cookie =
+            format!("refresh={token}; path=/; expires={exp}; secure; HttpOnly; SameSite=Lax");
+        let cookie = raw_cookie.parse().map_err(|e: InvalidMetadataValue| {
+            tracing::error!("error creating cookie: {e:?}");
+            tonic::Status::internal(e.to_string())
+        })?;
+
+        tracing::debug!("Setting refresh cookie");
+
+        response.metadata_mut().insert("set-cookie", cookie);
+    } else {
+        tracing::debug!("NOT setting refresh cookie as no refresh token is available");
+    }
+
+    Ok(response)
+}
+
+pub fn get_refresh_token<B>(request: &tonic::Request<B>) -> Option<String> {
+    request
+        .extensions()
+        .get::<UserRefreshToken>()
+        .and_then(|t| t.encode().ok())
 }
 
 /// Function to convert the datetimes from the database into the API representation of a timestamp.

@@ -7,7 +7,8 @@ type Service = api::metrics_service_client::MetricsServiceClient<super::Channel>
 async fn responds_ok_for_write_node() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
-    let jwt = tester.host_token(&host);
+    let auth = tester.host_token(&host);
+    let refresh = tester.refresh_for(&auth);
     let node = tester.node().await;
     let mut metrics = std::collections::HashMap::new();
     let metric = api::NodeMetrics {
@@ -20,7 +21,10 @@ async fn responds_ok_for_write_node() {
     };
     metrics.insert(node.id.to_string(), metric);
     let req = api::MetricsServiceNodeRequest { metrics };
-    tester.send_with(Service::node, req, jwt).await.unwrap();
+    tester
+        .send_with(Service::node, req, auth, refresh)
+        .await
+        .unwrap();
     let node = tester.node().await;
     assert_eq!(node.block_height, Some(10));
     assert_eq!(node.block_age, Some(5));
@@ -37,18 +41,22 @@ async fn responds_ok_for_write_node() {
 async fn responds_ok_for_write_node_empty() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
-    let jwt = tester.host_token(&host);
+    let auth = tester.host_token(&host);
+    let refresh = tester.refresh_for(&auth);
     let metrics = std::collections::HashMap::new();
     let req = api::MetricsServiceNodeRequest { metrics };
-    tester.send_with(Service::node, req, jwt).await.unwrap();
+    tester
+        .send_with(Service::node, req, auth, refresh)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn responds_ok_for_write_host() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
-    let jwt = tester.host_token(&host);
-
+    let auth = tester.host_token(&host);
+    let refresh = tester.refresh_for(&auth);
     let mut metrics = std::collections::HashMap::new();
     let metric = api::HostMetrics {
         used_cpu: Some(201),
@@ -63,7 +71,10 @@ async fn responds_ok_for_write_host() {
     };
     metrics.insert(host.id.to_string(), metric);
     let req = api::MetricsServiceHostRequest { metrics };
-    tester.send_with(Service::host, req, jwt).await.unwrap();
+    tester
+        .send_with(Service::host, req, auth, refresh)
+        .await
+        .unwrap();
     let host = tester.host().await;
     assert_eq!(host.used_cpu, Some(201));
     assert_eq!(host.used_memory, Some(1123123123123));
@@ -80,9 +91,12 @@ async fn responds_ok_for_write_host() {
 async fn responds_ok_for_write_host_empty() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
-    let jwt = tester.host_token(&host);
-
+    let auth = tester.host_token(&host);
+    let refresh = tester.refresh_for(&auth);
     let metrics = std::collections::HashMap::new();
     let req = api::MetricsServiceHostRequest { metrics };
-    tester.send_with(Service::host, req, jwt).await.unwrap();
+    tester
+        .send_with(Service::host, req, auth, refresh)
+        .await
+        .unwrap();
 }

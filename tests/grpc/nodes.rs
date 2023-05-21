@@ -1,3 +1,4 @@
+use blockvisor_api::auth::FindableById;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
 
@@ -8,6 +9,7 @@ async fn responds_ok_for_update() {
     let tester = super::Tester::new().await;
     let host = tester.host().await;
     let token = tester.host_token(&host);
+    let refresh = tester.refresh_for(&token);
     let node = tester.node().await;
     let node_id = node.id.to_string();
     let req = api::NodeServiceUpdateRequest {
@@ -26,7 +28,10 @@ async fn responds_ok_for_update() {
         }],
     };
 
-    tester.send_with(Service::update, req, token).await.unwrap();
+    tester
+        .send_with(Service::update, req, token, refresh)
+        .await
+        .unwrap();
 
     let mut conn = tester.conn().await;
     let node = models::Node::find_by_id(node_id.parse().unwrap(), &mut conn)
@@ -67,9 +72,9 @@ async fn responds_ok_with_id_for_get() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_data_for_create() {
-    let tester = super::Tester::new_with(true).await;
+    let tester = super::Tester::new().await;
     let blockchain = tester.blockchain().await;
-    let user = tester.user().await;
+    let user = tester.admin_user().await;
     let org = tester.org_for(&user).await;
     let req = api::NodeServiceCreateRequest {
         org_id: org.id.to_string(),
@@ -79,11 +84,16 @@ async fn responds_ok_with_valid_data_for_create() {
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
         placement: Some(api::NodePlacement {
-            // This was changed it because otherwise it would make a real call to Cookbook which is
-            // not desirable and it would fail because it's not running.
             placement: Some(api::node_placement::Placement::HostId(
                 tester.host().await.id.to_string(),
             )),
+            // This was changed it because otherwise it would make a real call to Cookbook which is
+            // not desirable and it would fail because it's not running.
+            //Some(api::node_placement::Placement::Scheduler(
+            //api::NodeScheduler {
+            //    similarity: None,
+            //    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+            //})),
         }),
         allow_ips: vec![api::FilteredIpAddr {
             ip: "127.0.0.1".to_string(),

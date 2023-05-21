@@ -1,4 +1,4 @@
-use blockvisor_api::{models, server};
+use blockvisor_api::server;
 use diesel::Connection;
 use diesel_migrations::MigrationHarness;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -23,8 +23,9 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn migrate() {
-    let db_url = blockvisor_api::auth::key_provider::KeyProvider::get_var(models::DATABASE_URL)
-        .expect("DATABASE_URL not set");
+    let db_url = blockvisor_api::auth::key_provider::KeyProvider::get_var("DATABASE_URL")
+        .expect("DATABASE_URL not set")
+        .to_string();
     diesel::PgConnection::establish(&db_url)
         .expect("Could not migrate database!")
         .run_pending_migrations(blockvisor_api::MIGRATIONS)

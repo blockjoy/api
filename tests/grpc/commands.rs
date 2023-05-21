@@ -1,3 +1,4 @@
+use blockvisor_api::auth::FindableById;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
 
@@ -21,7 +22,6 @@ async fn create_command(
 }
 
 #[tokio::test]
-#[ignore]
 async fn can_create_each_variant() {
     use api::command_service_create_request::Command::*;
 
@@ -101,13 +101,17 @@ async fn responds_ok_for_update() {
         .await
         .unwrap();
     let token = tester.host_token(&host);
+    let refresh = tester.refresh_for(&token);
     let req = api::CommandServiceUpdateRequest {
         id: cmd.id.to_string(),
         response: Some("hugo boss".to_string()),
         exit_code: Some(98),
     };
 
-    tester.send_with(Service::update, req, token).await.unwrap();
+    tester
+        .send_with(Service::update, req, token, refresh)
+        .await
+        .unwrap();
 
     let cmd = models::Command::find_by_id(cmd.id, &mut conn)
         .await
@@ -143,11 +147,15 @@ async fn responds_ok_for_pending() {
     let host = models::Host::find_by_id(cmd.host_id, &mut conn)
         .await
         .unwrap();
-    let jwt = tester.host_token(&host);
+    let token = tester.host_token(&host);
+    let refresh = tester.refresh_for(&token);
     let req = api::CommandServicePendingRequest {
         host_id: host.id.to_string(),
         filter_type: None,
     };
 
-    tester.send_with(Service::pending, req, jwt).await.unwrap();
+    tester
+        .send_with(Service::pending, req, token, refresh)
+        .await
+        .unwrap();
 }

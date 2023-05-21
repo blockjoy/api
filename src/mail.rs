@@ -1,5 +1,7 @@
 use crate::auth::key_provider::KeyProvider;
-use crate::auth::{self, expiration_provider};
+use crate::auth::{
+    InvitationToken, JwtToken, PwdResetToken, RegistrationConfirmationToken, TokenRole, TokenType,
+};
 use crate::models;
 use anyhow::anyhow;
 use std::collections::HashMap;
@@ -12,9 +14,9 @@ impl MailClient {
     pub fn new() -> Self {
         // Don't fail if API key wasn't found
         let sg_api_key = match KeyProvider::get_var("SENDGRID_API_KEY") {
-            Ok(key) => key,
+            Ok(key) => key.to_string(),
             Err(e) => {
-                tracing::error!("Couldn't read SENDGRID_API_KEY env var: {e}");
+                tracing::error!("Couldn't read SENDGRID_API_KEY env var: {}", e);
                 String::default()
             }
         };
@@ -45,17 +47,20 @@ impl MailClient {
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
+        let mut token_data = HashMap::<String, String>::new();
 
-        let iat = chrono::Utc::now();
-        let exp =
-            expiration_provider::ExpirationProvider::expiration("REGISTRATION_CONFIRMATION_MINS")?;
-        let endpoints = [auth::Endpoint::AuthConfirm];
-        let claims = auth::Claims::new_user(user.id, iat, exp, endpoints);
-        let token = auth::Jwt { claims }.encode()?;
+        token_data.insert("email".to_string(), user.email.clone());
 
+        let confirmation_token = RegistrationConfirmationToken::create_token_for(
+            user,
+            TokenType::RegistrationConfirmation,
+            TokenRole::User,
+            Some(token_data),
+        )?
+        .encode()?;
         let base_url =
             dotenv::var("UI_BASE_URL").map_err(|e| anyhow!("UI_BASE_URL can't be read: {e}"))?;
-        let link = format!("{base_url}/verified?token={token}");
+        let link = format!("{base_url}/verified?token={confirmation_token}");
         let mut context = HashMap::new();
         context.insert("link".to_owned(), link);
 
@@ -110,31 +115,20 @@ impl MailClient {
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
-        let iat = chrono::Utc::now();
-
-        let exp = expiration_provider::ExpirationProvider::expiration("INVITATION_MINS")?;
-        let endpoints = [
-            auth::Endpoint::InvitationAccept,
-            auth::Endpoint::InvitationDecline,
-        ];
-        // A little bit lame but not that big of a deal: the id of the invitation as the id of the
-        // user because there is no user here yet.
-        let claims = auth::Claims::new_user(invitation.id, iat, exp, endpoints);
-        let token = auth::Jwt { claims }.encode()?;
+        let confirmation_token = InvitationToken::create_for_invitation(invitation)?.encode()?;
         let base_url =
             dotenv::var("UI_BASE_URL").map_err(|e| anyhow!("UI_BASE_URL can't be read: {e}"))?;
-        let accept_link = format!("{base_url}/accept-invite?token={token}");
-        let decline_link = format!("{base_url}/decline-invite?token={token}");
+        let accept_link = format!("{base_url}/accept-invite?token={confirmation_token}");
+        let decline_link = format!("{base_url}/decline-invite?token={confirmation_token}");
         let inviter = format!(
             "{} {} ({})",
             inviter.first_name, inviter.last_name, inviter.email
         );
-        let context = HashMap::from([
-            ("inviter".to_owned(), inviter),
-            ("accept_link".to_owned(), accept_link),
-            ("decline_link".to_owned(), decline_link),
-            ("expiration".to_owned(), expiration.to_string()),
-        ]);
+        let mut context = HashMap::new();
+        context.insert("inviter".to_owned(), inviter);
+        context.insert("accept_link".to_owned(), accept_link);
+        context.insert("decline_link".to_owned(), decline_link);
+        context.insert("expiration".to_owned(), expiration.to_string());
 
         self.send_mail(
             &templates,
@@ -156,15 +150,17 @@ impl MailClient {
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
-        let iat = chrono::Utc::now();
-        let exp = expiration_provider::ExpirationProvider::expiration("PWD_RESET_EXPIRATION_MINS")?;
-        let endpoints = [auth::Endpoint::AuthUpdatePassword];
-        let claims = auth::Claims::new_user(user.id, iat, exp, endpoints);
-        let token = auth::Jwt { claims };
+        let token: PwdResetToken = JwtToken::create_token_for::<models::User>(
+            user,
+            TokenType::PwdReset,
+            TokenRole::User,
+            None,
+        )?;
         let base_url =
             dotenv::var("UI_BASE_URL").map_err(|e| anyhow!("UI_BASE_URL can't be read: {e}"))?;
         let link = format!("{}/password_reset?token={}", base_url, token.encode()?);
-        let context = HashMap::from([("link".to_string(), link)]);
+        let mut context = HashMap::new();
+        context.insert("link".to_owned(), link);
 
         self.send_mail(
             &templates,

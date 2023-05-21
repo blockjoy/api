@@ -1,4 +1,11 @@
-use crate::mail;
+use crate::auth::expiration_provider::ExpirationProvider;
+use crate::auth::{
+    token::TokenError, FindableById, Identifiable, JwtToken, TokenClaim, TokenRole, TokenType,
+    UserAuthToken, UserRefreshToken,
+};
+use crate::mail::MailClient;
+use crate::{Error, Result};
+use anyhow::anyhow;
 use argon2::{
     password_hash::{PasswordHasher, SaltString},
     Argon2,
@@ -18,7 +25,9 @@ pub struct User {
     pub email: String,
     pub hashword: String,
     pub salt: String,
+    pub refresh: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub staking_quota: i64,
     pub first_name: String,
     pub last_name: String,
     pub confirmed_at: Option<DateTime<Utc>>,
@@ -28,12 +37,49 @@ pub struct User {
 type NotDeleted = dsl::Filter<users::table, dsl::IsNull<users::deleted_at>>;
 
 impl User {
-    pub async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
-        let user = User::not_deleted().find(id).get_result(conn).await?;
-        Ok(user)
+    /// Test if given `token` has expired and refresh it using the `refresh_token` if necessary
+    pub async fn verify_and_refresh_auth_token(
+        token: UserAuthToken,
+        refresh_token: UserRefreshToken,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<(Option<User>, UserAuthToken, UserRefreshToken)> {
+        if token.has_expired() && refresh_token.has_expired() {
+            Err(crate::Error::from(TokenError::Expired))
+        } else if token.has_expired() && !refresh_token.has_expired() {
+            // Generate new auth token
+            let claim = TokenClaim::new(
+                token.get_id(),
+                ExpirationProvider::expiration(TokenType::UserAuth),
+                TokenType::UserAuth,
+                TokenRole::User,
+                Some(token.data),
+            );
+            let token = UserAuthToken::try_new(claim)?;
+
+            let claim = TokenClaim::new(
+                token.get_id(),
+                ExpirationProvider::expiration(TokenType::UserRefresh),
+                TokenType::UserRefresh,
+                TokenRole::User,
+                None,
+            );
+            let refresh_token = UserRefreshToken::try_new(claim)?;
+            let user =
+                Self::set_refresh(refresh_token.get_id(), &refresh_token.encode()?, conn).await?;
+
+            Ok((Some(user), token, refresh_token))
+        } else if !token.has_expired() && refresh_token.has_expired() {
+            Err(crate::Error::from(TokenError::RefreshTokenError(anyhow!(
+                "Refresh token expired"
+            ))))
+        } else {
+            // Token is valid, just return what we got
+            // If nothing was updated or changed, we don't even query for the user to save 1 query
+            Ok((None, token, refresh_token))
+        }
     }
 
-    pub fn verify_password(&self, password: &str) -> crate::Result<()> {
+    pub fn verify_password(&self, password: &str) -> Result<()> {
         let argon2 = Argon2::default();
         let parsed_hash = argon2.hash_password_simple(password.as_bytes(), &self.salt)?;
 
@@ -43,15 +89,20 @@ impl User {
             }
         }
 
-        Err(crate::Error::invalid_auth("Invalid email or password."))
+        Err(Error::invalid_auth("Invalid email or password."))
     }
 
-    pub async fn email_reset_password(&self, conn: &mut AsyncPgConnection) -> crate::Result<()> {
-        let client = mail::MailClient::new();
+    // pub async fn reset_password(_conn: &mut AsyncPgConnection, _req: &PwdResetInfo) -> Result<User> {
+    //     // TODO: use new auth
+    //     unimplemented!()
+    // }
+
+    pub async fn email_reset_password(&self, conn: &mut AsyncPgConnection) -> Result<()> {
+        let client = MailClient::new();
         client.reset_password(self, conn).await
     }
 
-    pub async fn find_all(conn: &mut AsyncPgConnection) -> crate::Result<Vec<Self>> {
+    pub async fn find_all(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
         let users = users::table.get_results(conn).await?;
         Ok(users)
     }
@@ -59,7 +110,7 @@ impl User {
     pub async fn find_by_ids(
         user_ids: &[uuid::Uuid],
         conn: &mut AsyncPgConnection,
-    ) -> crate::Result<Vec<Self>> {
+    ) -> Result<Vec<Self>> {
         let users = Self::not_deleted()
             .filter(users::id.eq_any(user_ids))
             .get_results(conn)
@@ -67,9 +118,17 @@ impl User {
         Ok(users)
     }
 
-    pub async fn find_by_email(email: &str, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
+    pub async fn find_by_email(email: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
         let users = Self::not_deleted()
             .filter(super::lower(users::email).eq(&email.to_lowercase()))
+            .get_result(conn)
+            .await?;
+        Ok(users)
+    }
+
+    pub async fn find_by_refresh(refresh: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let users = Self::not_deleted()
+            .filter(users::refresh.eq(refresh))
             .get_result(conn)
             .await?;
         Ok(users)
@@ -79,7 +138,7 @@ impl User {
         &self,
         password: &str,
         conn: &mut AsyncPgConnection,
-    ) -> crate::Result<Self> {
+    ) -> Result<Self> {
         let argon2 = Argon2::default();
         let salt = SaltString::generate(&mut OsRng);
         if let Some(hashword) = argon2
@@ -95,53 +154,50 @@ impl User {
                 .await?;
             Ok(user)
         } else {
-            Err(crate::Error::ValidationError(
-                "Invalid password.".to_string(),
-            ))
+            Err(Error::ValidationError("Invalid password.".to_string()))
         }
     }
 
     /// Check if user can be found by email, is confirmed and has provided a valid password
-    pub async fn login(
-        email: &str,
-        password: &str,
-        conn: &mut AsyncPgConnection,
-    ) -> crate::Result<Self> {
+    pub async fn login(email: &str, password: &str, conn: &mut AsyncPgConnection) -> Result<Self> {
         let user = Self::find_by_email(email, conn)
             .await
-            .map_err(|_e| crate::Error::invalid_auth("Email or password is invalid."))?;
+            .map_err(|_e| Error::invalid_auth("Email or password is invalid."))?;
 
         if User::is_confirmed(user.id, conn).await? {
-            user.verify_password(password)?;
-            Ok(user)
+            match user.verify_password(password) {
+                Ok(_) => Ok(user),
+                Err(e) => Err(e),
+            }
         } else {
-            Err(crate::Error::UserConfirmationError)
+            Err(Error::UserConfirmationError)
         }
     }
 
-    pub async fn confirm(user_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> crate::Result<()> {
+    pub async fn set_refresh(
+        id: uuid::Uuid,
+        refresh_token: &str,
+        conn: &mut AsyncPgConnection,
+    ) -> Result<User> {
+        let user = diesel::update(users::table.find(id))
+            .set(users::refresh.eq(refresh_token))
+            .get_result(conn)
+            .await?;
+        Ok(user)
+    }
+
+    pub async fn confirm(user_id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
         let target_user = Self::not_deleted()
             .find(user_id)
             .filter(users::confirmed_at.is_null());
-        let n_updated = diesel::update(target_user)
+        let user = diesel::update(target_user)
             .set(users::confirmed_at.eq(chrono::Utc::now()))
-            .execute(conn)
+            .get_result(conn)
             .await?;
-        if n_updated == 0 {
-            // This is the slow path, now we find out what went wrong. We either propagate the
-            // NotFound error generated by is_confirmed or we handle the cases where the row user
-            // was already cofirmed.
-            if Self::is_confirmed(user_id, conn).await? {
-                Err(crate::Error::validation("user was already confirmed"))
-            } else {
-                Err(crate::Error::unexpected("could not update row"))
-            }
-        } else {
-            Ok(())
-        }
+        Ok(user)
     }
 
-    pub async fn is_confirmed(id: Uuid, conn: &mut AsyncPgConnection) -> crate::Result<bool> {
+    pub async fn is_confirmed(id: Uuid, conn: &mut AsyncPgConnection) -> Result<bool> {
         let is_confirmed = Self::not_deleted()
             .find(id)
             .select(users::confirmed_at.is_not_null())
@@ -151,7 +207,22 @@ impl User {
     }
 
     /// Mark user deleted if no more nodes belong to it
-    pub async fn delete(id: Uuid, conn: &mut AsyncPgConnection) -> crate::Result<()> {
+    pub async fn delete(id: Uuid, conn: &mut AsyncPgConnection) -> Result<()> {
+        // TODO THOMAS: doesn't this mean that you cannot delete any users from organizations that
+        // have nodes?
+        // sqlx::query_as::<_, User>(
+        //     r#"
+        //     UPDATE users u SET
+        //         deleted_at = now()
+        //     WHERE id = $1
+        //         AND (SELECT (COUNT(*) > 0) as delete_me from nodes LEFT JOIN orgs_users ou on u.id = ou.user_id)
+        //     RETURNING *"#,
+        // )
+        // .bind(id)
+        // .fetch_one(tx)
+        // .await
+        // .map_err(crate::Error::from)
+
         diesel::update(users::table.find(id))
             .set(users::deleted_at.eq(chrono::Utc::now()))
             .execute(conn)
@@ -191,7 +262,7 @@ impl<'a> NewUser<'a> {
         first_name: &'a str,
         last_name: &'a str,
         password: &'a str,
-    ) -> crate::Result<Self> {
+    ) -> Result<Self> {
         let argon2 = Argon2::default();
         let salt = SaltString::generate(&mut OsRng);
         if let Some(hashword) = argon2
@@ -208,16 +279,14 @@ impl<'a> NewUser<'a> {
 
             create_user
                 .validate()
-                .map_err(|e| crate::Error::ValidationError(e.to_string()))?;
+                .map_err(|e| Error::ValidationError(e.to_string()))?;
             Ok(create_user)
         } else {
-            Err(crate::Error::ValidationError(
-                "Invalid password.".to_string(),
-            ))
+            Err(Error::ValidationError("Invalid password.".to_string()))
         }
     }
 
-    pub async fn create(self, conn: &mut AsyncPgConnection) -> crate::Result<User> {
+    pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<User> {
         let user: User = diesel::insert_into(users::table)
             .values(self)
             .get_result(conn)
@@ -239,10 +308,12 @@ pub struct UpdateUser<'a> {
     pub id: uuid::Uuid,
     pub first_name: Option<&'a str>,
     pub last_name: Option<&'a str>,
+    pub staking_quota: Option<i64>,
+    pub refresh: Option<&'a str>,
 }
 
 impl<'a> UpdateUser<'a> {
-    pub async fn update(self, conn: &mut AsyncPgConnection) -> crate::Result<User> {
+    pub async fn update(self, conn: &mut AsyncPgConnection) -> Result<User> {
         let user = diesel::update(users::table.find(self.id))
             .set(self)
             .get_result(conn)
@@ -260,6 +331,45 @@ pub struct UserLogin {
     pub(crate) staking_quota: i64,
     pub(crate) token: String,
 }
+
+#[axum::async_trait]
+impl FindableById for User {
+    async fn find_by_id(id: Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
+        let user = User::not_deleted().find(id).get_result(conn).await?;
+        Ok(user)
+    }
+}
+
+impl Identifiable for User {
+    fn get_id(&self) -> Uuid {
+        self.id
+    }
+}
+
+// #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+// pub struct UserSummary {
+//     pub id: Uuid,
+//     pub email: String,
+//     pub pay_address: Option<String>,
+//     pub staking_quota: i64,
+//     pub fee_bps: i64,
+//     pub validator_count: i64,
+//     pub rewards_total: i64,
+//     pub invoices_total: i64,
+//     pub payments_total: i64,
+//     pub joined_at: DateTime<Utc>,
+// }
+
+// impl UserSummary {
+//     pub fn balance(&self) -> i64 {
+//         self.invoices_total - self.payments_total
+//     }
+// }
+// #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+// pub struct PasswordResetRequest {
+//     #[validate(email)]
+//     pub email: String,
+// }
 
 #[derive(Debug, Clone, Queryable)]
 pub struct UserPayAddress {
