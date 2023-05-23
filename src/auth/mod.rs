@@ -99,7 +99,7 @@ mod tests {
 
             req.metadata_mut()
                 .insert("cookie", "refresh=;".parse().unwrap());
-            assert_eq!(get_refresh(&req).unwrap(), None);
+            assert!(get_refresh(&req).is_err());
         });
     }
 
@@ -112,7 +112,7 @@ mod tests {
                 "cookie",
                 "other_meta=v1; refresh=123; another=v2; ".parse().unwrap(),
             );
-            assert_eq!(get_refresh(&req).unwrap(), None);
+            assert!(get_refresh(&req).is_err());
 
             req.metadata_mut()
                 .insert("cookie", "other_meta=v1; refresh=123".parse().unwrap());
@@ -120,7 +120,7 @@ mod tests {
 
             req.metadata_mut()
                 .insert("cookie", "refresh=123;".parse().unwrap());
-            assert_eq!(get_refresh(&req).unwrap(), None);
+            assert!(get_refresh(&req).is_err());
         });
     }
 }
