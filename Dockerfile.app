@@ -20,6 +20,5 @@ FROM alpine:latest
 RUN apk add --no-cache libgcc libpq
 
 COPY --from=build /usr/src/api/target/release/blockvisor_api /usr/bin/api
-COPY --from=build /usr/src/api/conf /etc/api/conf
 
 CMD ["api"]
