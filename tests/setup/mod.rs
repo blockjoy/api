@@ -96,11 +96,10 @@ impl Tester {
 
     /// Returns the cloudflare API, if it was mocked.
     pub async fn cloudflare(&self) -> Option<CloudflareApi> {
-        if let Some(cf) = self.cloudflare.as_ref() {
-            Some(cf.get_cloudflare_api().clone())
-        } else {
-            None
-        }
+        self.cloudflare
+            .as_ref()
+            .as_ref()
+            .map(|cf| cf.get_cloudflare_api())
     }
 
     pub async fn conn(&self) -> PooledConnection<'_, AsyncPgConnection> {
