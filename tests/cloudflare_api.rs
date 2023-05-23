@@ -58,7 +58,7 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
 async fn can_remove_node_dns() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
-    let api = CloudflareApi::new_with_env()?;
+    let api = CloudflareApi::new_from_env()?;
     let id = "b32dfad93146bf7593b258e3064642c0".to_string();
 
     assert!(api.remove_node_dns(id).await.is_ok());

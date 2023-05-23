@@ -74,7 +74,7 @@ impl Tester {
             Some(mock)
         } else {
             cloudflare_api =
-                CloudflareApi::new_with_env().expect("Error trying to set cloudflare api");
+                CloudflareApi::new_from_env().expect("Error trying to set cloudflare api");
             None
         };
         tokio::spawn(async {
