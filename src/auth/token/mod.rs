@@ -8,6 +8,8 @@ pub use api_key::ApiKey;
 pub use jwt::Jwt;
 pub use refresh::Refresh;
 
+use self::timestamp::remove_nanos;
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Claims {
     pub resource_type: ResourceType,
@@ -21,6 +23,25 @@ pub struct Claims {
 }
 
 impl Claims {
+    pub fn new(
+        resource_type: ResourceType,
+        resource_id: uuid::Uuid,
+        iat: chrono::DateTime<chrono::Utc>,
+        exp: chrono::Duration,
+        endpoints: Endpoints,
+        data: HashMap<String, String>,
+    ) -> crate::Result<Self> {
+        let expirable = Expirable::new(iat, exp)?;
+        Ok(Self {
+            resource_type,
+            resource_id,
+            iat: expirable.iat(),
+            exp: expirable.exp(),
+            endpoints,
+            data,
+        })
+    }
+
     pub fn resource(&self) -> Resource {
         match self.resource_type {
             ResourceType::User => Resource::User(self.resource_id),
@@ -119,6 +140,35 @@ impl FromIterator<Endpoint> for Endpoints {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct Expirable {
+    iat: chrono::DateTime<chrono::Utc>,
+    exp: chrono::DateTime<chrono::Utc>,
+}
+
+impl Expirable {
+    pub fn new(iat: chrono::DateTime<chrono::Utc>, exp: chrono::Duration) -> crate::Result<Self> {
+        let iat = remove_nanos(&iat)?;
+        let exp = iat + exp;
+        // Note that we must uphold the invariant that exp > iat here.
+        if exp < iat {
+            return Err(crate::Error::unexpected(
+                "Expiration time is less than issue time",
+            ));
+        }
+
+        Ok(Self { iat, exp })
+    }
+
+    pub fn iat(&self) -> chrono::DateTime<chrono::Utc> {
+        self.iat
+    }
+
+    pub fn exp(&self) -> chrono::DateTime<chrono::Utc> {
+        self.exp
+    }
+}
+
 mod timestamp {
     use chrono::TimeZone;
     use serde::{self, Deserialize, Deserializer, Serializer};
@@ -136,11 +186,24 @@ mod timestamp {
         D: Deserializer<'de>,
     {
         let i = i64::deserialize(deserializer)?;
-        match chrono::Utc.timestamp_opt(i, 0) {
-            chrono::LocalResult::None => Err(serde::de::Error::custom("Invalid timestamp")),
-            chrono::LocalResult::Single(t) => Ok(t),
-            chrono::LocalResult::Ambiguous(t, _) => Ok(t),
-        }
+        remove_nanos_timestamp(i).map_err(|e| serde::de::Error::custom(e.to_string()))
+    }
+
+    pub fn remove_nanos(
+        date: &chrono::DateTime<chrono::Utc>,
+    ) -> crate::Result<chrono::DateTime<chrono::Utc>> {
+        remove_nanos_timestamp(date.timestamp())
+    }
+
+    pub fn remove_nanos_timestamp(ts: i64) -> crate::Result<chrono::DateTime<chrono::Utc>> {
+        let ts_without_nanos = match chrono::Utc.timestamp_opt(ts, 0) {
+            chrono::LocalResult::None => {
+                return Err(crate::Error::unexpected("Timestamp is negative"))
+            }
+            chrono::LocalResult::Single(ts_singles) => ts_singles,
+            chrono::LocalResult::Ambiguous(ts_amb, _) => ts_amb,
+        };
+        Ok(ts_without_nanos)
     }
 }
 

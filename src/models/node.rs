@@ -499,7 +499,8 @@ mod tests {
         name.push_str(&petname::petname(3, "_"));
 
         let db = crate::TestDb::setup().await;
-        let cloudflare_api = crate::TestCloudflareApi::new().await.get_cloudflare_api();
+        let cloudflare = crate::TestCloudflareApi::new().await;
+        let cloudflare_api = cloudflare.get_cloudflare_api();
         let blockchain = db.blockchain().await;
         let user = db.user().await;
         let org = db.org().await;

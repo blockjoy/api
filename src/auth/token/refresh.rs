@@ -1,6 +1,8 @@
 use crate::auth::key_provider;
 use jsonwebtoken as jwt;
 
+use super::Expirable;
+
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Refresh {
     pub resource_id: uuid::Uuid,
@@ -16,17 +18,11 @@ impl Refresh {
         iat: chrono::DateTime<chrono::Utc>,
         exp: chrono::Duration,
     ) -> crate::Result<Self> {
-        // Note that we must uphold the invariant that exp > iat here.
-        let exp = iat + exp;
-        if exp < iat {
-            return Err(crate::Error::unexpected(
-                "api is misconfigured, exp is negative",
-            ));
-        }
+        let expirable = Expirable::new(iat, exp)?;
         Ok(Self {
             resource_id,
-            iat,
-            exp,
+            iat: expirable.iat(),
+            exp: expirable.exp(),
         })
     }
 
@@ -77,12 +73,12 @@ mod tests {
 
     #[test]
     fn test_encode_decode_preserves_token() {
-        let iat = chrono::Utc::now();
-        let refresh = Refresh {
-            resource_id: uuid::Uuid::new_v4(),
-            iat,
-            exp: iat + chrono::Duration::seconds(1),
-        };
+        let refresh = Refresh::new(
+            uuid::Uuid::new_v4(),
+            chrono::Utc::now(),
+            chrono::Duration::seconds(1),
+        )
+        .unwrap();
         let encoded = refresh.encode().unwrap();
         let decoded = Refresh::decode(&encoded).unwrap();
         assert_eq!(refresh, decoded);

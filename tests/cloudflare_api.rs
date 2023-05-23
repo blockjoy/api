@@ -9,7 +9,8 @@ type Service = node_service_client::NodeServiceClient<transport::Channel>;
 
 #[tokio::test]
 async fn can_create_node_dns() -> anyhow::Result<()> {
-    let api = TestCloudflareApi::new().await.get_cloudflare_api();
+    let cloudflare = TestCloudflareApi::new().await;
+    let api = cloudflare.get_cloudflare_api();
 
     let mut name = String::from("test_");
     name.push_str(petname::petname(3, "_").as_str());
