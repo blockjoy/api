@@ -87,7 +87,7 @@ impl CloudflareApi {
         }
     }
 
-    pub fn new_with_env() -> DnsResult<Self> {
+    pub fn new_from_env() -> DnsResult<Self> {
         let zone_id = std::env::var(CF_ZONE)?;
         let base_url = std::env::var(CF_BASE_URL)?;
         let token = KeyProvider::get_var(CF_TOKEN)?;

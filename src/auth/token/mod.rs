@@ -140,6 +140,10 @@ impl FromIterator<Endpoint> for Endpoints {
     }
 }
 
+// `Expirable` is a helper struct that is used to ensure that the `iat` and `exp` fields are valid
+// for other structs that use them. Valid means the following:
+// - It first sanitize `iat` to remove nanoseconds, since JWTs only support second precision.
+// - It ensures that `exp` is greater than `iat`.
 #[derive(Clone, PartialEq, Eq)]
 struct Expirable {
     iat: chrono::DateTime<chrono::Utc>,
@@ -147,6 +151,10 @@ struct Expirable {
 }
 
 impl Expirable {
+    // `iat` is the issue time, and `exp` is the duration after `iat` that the token is valid for.
+    // Note that `exp` is a duration, not an absolute time.
+    // This function returns an error if `exp` is less than `iat` or if `iat` could not be
+    // sanitized without nanoseconds precision.
     pub fn new(iat: chrono::DateTime<chrono::Utc>, exp: chrono::Duration) -> crate::Result<Self> {
         let iat = remove_nanos(&iat)?;
         let exp = iat + exp;
@@ -195,7 +203,7 @@ mod timestamp {
         remove_nanos_timestamp(date.timestamp())
     }
 
-    pub fn remove_nanos_timestamp(ts: i64) -> crate::Result<chrono::DateTime<chrono::Utc>> {
+    fn remove_nanos_timestamp(ts: i64) -> crate::Result<chrono::DateTime<chrono::Utc>> {
         let ts_without_nanos = match chrono::Utc.timestamp_opt(ts, 0) {
             chrono::LocalResult::None => {
                 return Err(crate::Error::unexpected("Timestamp is negative"))
