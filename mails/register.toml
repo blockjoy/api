@@ -277,7 +277,7 @@ html = """
                       >
                         <img
                           style="width: 64px; height: 64px"
-                          src="https://tools.stakejoy.com/blockjoy_transparent.png"
+                          src="https://cdn.jsdelivr.net/npm/blockjoy-assets@1.0.3/images/blockjoy_transparent.png"
                         />
                       </td>
                     </tr>
