@@ -12,7 +12,7 @@ impl invitation_service_server::InvitationService for super::GrpcImpl {
         &self,
         req: Request<api::InvitationServiceCreateRequest>,
     ) -> super::Resp<api::InvitationServiceCreateResponse> {
-        self.trx(|c| create(req, c).scope_boxed()).await
+        self.trx(|c| create(self, req, c).scope_boxed()).await
     }
 
     async fn list(
@@ -35,18 +35,19 @@ impl invitation_service_server::InvitationService for super::GrpcImpl {
         &self,
         req: Request<api::InvitationServiceDeclineRequest>,
     ) -> super::Resp<api::InvitationServiceDeclineResponse> {
-        self.trx(|c| decline(req, c).scope_boxed()).await
+        self.trx(|c| decline(self, req, c).scope_boxed()).await
     }
 
     async fn revoke(
         &self,
         req: Request<api::InvitationServiceRevokeRequest>,
     ) -> super::Resp<api::InvitationServiceRevokeResponse> {
-        self.trx(|c| revoke(req, c).scope_boxed()).await
+        self.trx(|c| revoke(self, req, c).scope_boxed()).await
     }
 }
 
 async fn create(
+    grpc: &super::GrpcImpl,
     req: Request<api::InvitationServiceCreateRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::InvitationServiceCreateResponse> {
@@ -91,6 +92,9 @@ async fn create(
                 .await?;
         }
     }
+    let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
+    let msg = api::OrgMessage::invitation_created(org, invitation)?;
+    grpc.notifier.orgs_sender().send(&msg).await?;
     let resp = api::InvitationServiceCreateResponse {};
     Ok(tonic::Response::new(resp))
 }
@@ -179,13 +183,14 @@ async fn accept(
     .await?;
     let org = models::Org::find_by_id(org_user.org_id, conn).await?;
     let user = models::User::find_by_id(org_user.user_id, conn).await?;
-    let msg = api::OrgMessage::updated(org, user, conn).await?;
+    let msg = api::OrgMessage::invitation_accepted(org, invitation, user)?;
     grpc.notifier.orgs_sender().send(&msg).await?;
     let resp = api::InvitationServiceAcceptResponse {};
     Ok(tonic::Response::new(resp))
 }
 
 async fn decline(
+    grpc: &super::GrpcImpl,
     req: Request<api::InvitationServiceDeclineRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::InvitationServiceDeclineResponse> {
@@ -216,12 +221,16 @@ async fn decline(
     }
 
     invitation.decline(conn).await?;
+    let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
+    let msg = api::OrgMessage::invitation_declined(org, invitation)?;
+    grpc.notifier.orgs_sender().send(&msg).await?;
 
     let resp = api::InvitationServiceDeclineResponse {};
     Ok(tonic::Response::new(resp))
 }
 
 async fn revoke(
+    grpc: &super::GrpcImpl,
     req: Request<api::InvitationServiceRevokeRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::InvitationServiceRevokeResponse> {
@@ -246,6 +255,9 @@ async fn revoke(
         return Err(Status::failed_precondition("Invite is declined").into());
     }
     invitation.revoke(conn).await?;
+    let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
+    let msg = api::OrgMessage::invitation_declined(org, invitation)?;
+    grpc.notifier.orgs_sender().send(&msg).await?;
     let resp = api::InvitationServiceRevokeResponse {};
     Ok(tonic::Response::new(resp))
 }
@@ -279,7 +291,7 @@ impl api::Invitation {
         models.into_iter().map(Self::from_model).collect()
     }
 
-    fn from_model(model: models::Invitation) -> crate::Result<Self> {
+    pub fn from_model(model: models::Invitation) -> crate::Result<Self> {
         let mut invitation = Self {
             id: model.id.to_string(),
             created_by: model.created_by_user.to_string(),

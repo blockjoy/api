@@ -77,7 +77,7 @@ impl Invitation {
         Ok(invitation)
     }
 
-    pub async fn decline(self, conn: &mut AsyncPgConnection) -> Result<Self> {
+    pub async fn decline(&self, conn: &mut AsyncPgConnection) -> Result<Self> {
         let invitation = diesel::update(invitations::table.find(self.id))
             .set(invitations::declined_at.eq(chrono::Utc::now()))
             .get_result(conn)
@@ -85,7 +85,7 @@ impl Invitation {
         Ok(invitation)
     }
 
-    pub async fn revoke(self, conn: &mut AsyncPgConnection) -> Result<()> {
+    pub async fn revoke(&self, conn: &mut AsyncPgConnection) -> Result<()> {
         diesel::delete(invitations::table.find(self.id))
             .execute(conn)
             .await?;

@@ -170,6 +170,9 @@ impl api::OrgMessage {
             Created(api::OrgCreated { org, .. }) => org.as_ref()?.id.parse().ok(),
             Updated(api::OrgUpdated { org, .. }) => org.as_ref()?.id.parse().ok(),
             Deleted(api::OrgDeleted { org_id, .. }) => org_id.parse().ok(),
+            InvitationCreated(api::InvitationCreated { org_id, .. }) => org_id.parse().ok(),
+            InvitationAccepted(api::InvitationAccepted { org_id, .. }) => org_id.parse().ok(),
+            InvitationDeclined(api::InvitationDeclined { org_id, .. }) => org_id.parse().ok(),
         }
     }
 
@@ -214,6 +217,54 @@ impl api::OrgMessage {
                 deleted_by_email: user.email,
             })),
         }
+    }
+
+    pub fn invitation_created(
+        model: models::Org,
+        invitation: models::Invitation,
+    ) -> crate::Result<Self> {
+        let invitation = api::Invitation::from_model(invitation)?;
+        Ok(Self {
+            message: Some(org_message::Message::InvitationCreated(
+                api::InvitationCreated {
+                    org_id: model.id.to_string(),
+                    invitation: Some(invitation),
+                },
+            )),
+        })
+    }
+
+    pub fn invitation_accepted(
+        model: models::Org,
+        invitation: models::Invitation,
+        user: models::User,
+    ) -> crate::Result<Self> {
+        let invitation = api::Invitation::from_model(invitation)?;
+        let user = api::User::from_model(user)?;
+        Ok(Self {
+            message: Some(org_message::Message::InvitationAccepted(
+                api::InvitationAccepted {
+                    org_id: model.id.to_string(),
+                    invitation: Some(invitation),
+                    user: Some(user),
+                },
+            )),
+        })
+    }
+
+    pub fn invitation_declined(
+        model: models::Org,
+        invitation: models::Invitation,
+    ) -> crate::Result<Self> {
+        let invitation = api::Invitation::from_model(invitation)?;
+        Ok(Self {
+            message: Some(org_message::Message::InvitationDeclined(
+                api::InvitationDeclined {
+                    org_id: model.id.to_string(),
+                    invitation: Some(invitation),
+                },
+            )),
+        })
     }
 }
 
