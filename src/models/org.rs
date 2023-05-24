@@ -138,6 +138,25 @@ impl Org {
         Ok(())
     }
 
+    pub async fn node_counts(
+        orgs: &[Self],
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<HashMap<uuid::Uuid, u64>> {
+        use super::schema::nodes;
+
+        let org_ids: Vec<_> = orgs.iter().map(|o| o.id).collect();
+        let counts: Vec<(uuid::Uuid, i64)> = nodes::table
+            .filter(nodes::org_id.eq_any(org_ids))
+            .group_by(nodes::org_id)
+            .select((nodes::org_id, dsl::count(nodes::id)))
+            .get_results(conn)
+            .await?;
+        counts
+            .into_iter()
+            .map(|(id, count)| Ok((id, count.try_into()?)))
+            .collect()
+    }
+
     fn not_deleted() -> NotDeleted {
         orgs::table.filter(orgs::deleted_at.is_null())
     }

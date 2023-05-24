@@ -228,6 +228,8 @@ impl api::Org {
             .map(|u| (u.id, u))
             .collect();
 
+        let node_counts = models::Org::node_counts(&models, conn).await?;
+
         // Finally we can loop over the models to construct the final list of messages we set out to
         // create.
         models
@@ -257,6 +259,7 @@ impl api::Org {
                             org
                         })
                         .collect(),
+                    node_count: node_counts.get(&model.id).copied().unwrap_or(0),
                 })
             })
             .collect()
