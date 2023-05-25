@@ -1,5 +1,5 @@
 # Build container
-FROM gcr.io/blockjoy-deployer/builder/blockvisor-api:latest as build
+FROM us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api-builder:latest as build
 
 ENV RUSTFLAGS -Ctarget-feature=-crt-static
 
