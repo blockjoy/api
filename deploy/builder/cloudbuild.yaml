@@ -4,4 +4,4 @@ steps:
            'us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api-builder', 
            './Dockerfile.builder']
     images:
-- 'us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api-builder:latest'
+      - 'us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api-builder:latest'
