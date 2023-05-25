@@ -1,6 +1,5 @@
 # Build container
-#FROM gcr.io/blockjoy/blockvisor_api as build
-FROM bv-api-base-test:latest as build
+FROM gcr.io/blockjoy/builder/blockvisor-api:latest as build
 
 ENV RUSTFLAGS -Ctarget-feature=-crt-static
 
