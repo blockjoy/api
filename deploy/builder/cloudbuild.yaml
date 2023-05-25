@@ -5,3 +5,7 @@ steps:
            '.']
 images:
   - 'us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api-builder:latest'
+options:
+  pool:
+    name: 'projects/blockjoy-deployer/locations/us-east1/workerPools/blockjoy'
+timeout: 3600s
