@@ -1,7 +1,7 @@
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 
-           'us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api-builder:latest', 
-           './Dockerfile.builder']
+           'us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api-builder:latest', '-f','./Dockerfile.builder'
+           '.']
 images:
   - 'us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api-builder:latest'
