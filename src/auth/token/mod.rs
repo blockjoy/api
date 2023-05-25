@@ -235,6 +235,7 @@ pub enum Endpoint {
     AuthRefresh = 2,
     AuthResetPassword = 3,
     AuthUpdatePassword = 4,
+    AuthUpdateUiPassword = 5,
 
     BlockchainAll = 100,
     BlockchainList = 101,

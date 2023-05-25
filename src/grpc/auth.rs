@@ -3,7 +3,6 @@ use crate::auth::Endpoint::AuthUpdatePassword;
 use crate::auth::{self, expiration_provider};
 use crate::mail::MailClient;
 use crate::models;
-use auth::Endpoint::AuthResetPassword;
 use diesel_async::scoped_futures::ScopedFutureExt;
 
 /// This is a list of all the endpoints that a user is allowed to access with the jwt that they
@@ -11,7 +10,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 /// token.
 const USER_ENDPOINTS: [auth::Endpoint; 14] = [
     auth::Endpoint::AuthRefresh,
-    auth::Endpoint::AuthUpdatePassword,
+    auth::Endpoint::AuthUpdateUiPassword,
     auth::Endpoint::BabelAll,
     auth::Endpoint::BlockchainAll,
     auth::Endpoint::CommandAll,
@@ -191,7 +190,6 @@ async fn reset_password(
     req: tonic::Request<api::AuthServiceResetPasswordRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::AuthServiceResetPasswordResponse> {
-    auth::get_claims(&req, AuthResetPassword, conn).await?;
     let req = req.into_inner();
     // We are going to query the user and send them an email, but when something goes wrong we
     // are not going to return an error. This hides whether or not a user is registered with
@@ -229,7 +227,7 @@ async fn update_ui_password(
     req: tonic::Request<api::AuthServiceUpdateUiPasswordRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::AuthServiceUpdateUiPasswordResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::AuthUpdatePassword, conn).await?;
+    let claims = auth::get_claims(&req, auth::Endpoint::AuthUpdateUiPassword, conn).await?;
     let auth::Resource::User(user_id_) = claims.resource() else { super::forbidden!("Must be user") };
     let req = req.into_inner();
     let user_id = req.user_id.parse()?;
