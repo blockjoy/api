@@ -1,16 +1,16 @@
-# syntax=docker/dockerfile:1.3-labs
 # Build container
-FROM rust:alpine as build
-
-# We are indirectly depending on libbrotli.
-RUN apk update && apk add protobuf libc-dev protobuf-dev protoc libpq-dev
-
-WORKDIR /usr/src/api
-COPY . .
+FROM gcr.io/blockjoy-deployer/builder/blockvisor-api:latest as build
 
 ENV RUSTFLAGS -Ctarget-feature=-crt-static
+
+WORKDIR /usr/src/api
+
+## Build the project
+COPY . /usr/src/api/
 RUN cargo build --release
-RUN strip target/release/blockvisor_api
+
+#RUN strip api/target/release/blockvisor_api
+RUN strip /usr/src/api/target/release/blockvisor_api
 
 # Slim output image not containing any build tools / artefacts
 FROM alpine:latest
