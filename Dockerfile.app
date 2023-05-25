@@ -4,7 +4,6 @@ FROM gcr.io/blockjoy-deployer/builder/blockvisor-api:latest as build
 ENV RUSTFLAGS -Ctarget-feature=-crt-static
 
 WORKDIR /usr/src/api
-# Cache dependencies
 
 ## Build the project
 COPY . /usr/src/api/
