@@ -3,7 +3,7 @@ use crate::{
     auth::{self, expiration_provider},
     models,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_async::{scoped_futures::ScopedFutureExt, AsyncPgConnection};
 
 /// This is a list of all the endpoints that a user is allowed to access with the jwt that they
 /// generate on login. It does not contain endpoints like confirm, because those are accessed by a
@@ -62,38 +62,50 @@ impl host_service_server::HostService for super::GrpcImpl {
     ) -> super::Resp<api::HostServiceDeleteResponse> {
         self.trx(|c| delete(req, c).scope_boxed()).await
     }
+}
 
-    // async fn provision(
-    //     &self,
-    //     req: tonic::Request<api::HostServiceProvisionRequest>,
-    // ) -> super::Resp<api::HostServiceProvisionResponse> {
-    //     self.trx(|c| provision(req, c).scope_boxed()).await
-    // }
+async fn resource_id(
+    claims: Option<auth::Claims>,
+    token: &str,
+    org_id: Option<uuid::Uuid>,
+    conn: &mut AsyncPgConnection,
+) -> crate::Result<uuid::Uuid> {
+    if let Some(claims) = claims {
+        match claims.resource() {
+            auth::Resource::User(user_id) => {
+                if let Some(org_id) = org_id {
+                    if models::Org::is_member(user_id, org_id, conn).await? {
+                        return Ok(user_id);
+                    }
+                }
+            }
+            auth::Resource::Org(org) if org_id == Some(org) => return Ok(org),
+            auth::Resource::Org(_) => {}
+            auth::Resource::Host(_) => {}
+            auth::Resource::Node(_) => {}
+        }
+    } else {
+        if let Some(org_id) = org_id {
+            let org_user = models::OrgUser::by_token(token, conn).await?;
+            if models::Org::is_member(org_user.user_id, org_id, conn).await? {
+                return Ok(org_id);
+            }
+        }
+    }
+    super::forbidden!("Access denied")
 }
 
 async fn create(
     req: tonic::Request<api::HostServiceCreateRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::HostServiceCreateResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostCreate, conn).await?;
+    // Authentication here can either be granted either through the claims or through the
+    // provision_token.
+    let claims = auth::get_claims(&req, auth::Endpoint::HostCreate, conn).await;
     let req = req.into_inner();
     let org_id = req.org_id.as_ref().map(|id| id.parse()).transpose()?;
-    let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
-            if let Some(org_id) = org_id {
-                models::Org::is_member(user_id, org_id, conn).await?
-            } else {
-                false
-            }
-        }
-        auth::Resource::Org(org) => org_id == Some(org),
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
-    };
-    if !is_allowed {
-        super::forbidden!("Access denied");
-    }
-    let new_host = req.as_new()?;
+    let new_host =
+        req.as_new(resource_id(claims.ok(), &req.provision_token, org_id, conn).await?)?;
     let host = new_host.create(conn).await?;
     let iat = chrono::Utc::now();
     let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
@@ -262,7 +274,7 @@ impl api::Host {
 }
 
 impl api::HostServiceCreateRequest {
-    pub fn as_new(&self) -> crate::Result<models::NewHost<'_>> {
+    pub fn as_new(&self, user_id: uuid::Uuid) -> crate::Result<models::NewHost<'_>> {
         Ok(models::NewHost {
             name: &self.name,
             version: &self.version,
@@ -277,6 +289,7 @@ impl api::HostServiceCreateRequest {
             ip_range_to: self.ip_range_to.parse()?,
             ip_gateway: self.ip_gateway.parse()?,
             org_id: self.org_id.as_ref().map(|s| s.parse()).transpose()?,
+            created_by: user_id,
         })
     }
 }

@@ -246,6 +246,14 @@ impl OrgUser {
         Ok(org_user)
     }
 
+    pub async fn by_token(token: &str, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
+        let org_user = orgs_users::table
+            .filter(orgs_users::host_provision_token.eq(token))
+            .get_result(conn)
+            .await?;
+        Ok(org_user)
+    }
+
     pub async fn reset_token(&self, conn: &mut AsyncPgConnection) -> crate::Result<String> {
         let token = Self::token();
         let to_update = orgs_users::table

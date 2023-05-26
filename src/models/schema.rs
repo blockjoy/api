@@ -124,6 +124,7 @@ diesel::table! {
         uptime -> Nullable<Int8>,
         host_type -> Nullable<EnumHostType>,
         org_id -> Nullable<Uuid>,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -276,6 +277,7 @@ diesel::table! {
 diesel::joinable!(commands -> hosts (host_id));
 diesel::joinable!(commands -> nodes (node_id));
 diesel::joinable!(hosts -> orgs (org_id));
+diesel::joinable!(hosts -> users (created_by));
 diesel::joinable!(invitations -> orgs (created_for_org));
 diesel::joinable!(invitations -> users (created_by_user));
 diesel::joinable!(ip_addresses -> hosts (host_id));

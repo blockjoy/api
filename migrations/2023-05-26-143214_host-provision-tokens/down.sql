@@ -1,4 +1,5 @@
 -- This file should undo anything in `up.sql`
+ALTER TABLE hosts DROP COLUMN created_by;
 
 ALTER TABLE orgs_users DROP COLUMN host_provision_token;
 

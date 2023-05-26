@@ -223,7 +223,7 @@ mod test {
             let user = models::NewUser::new("test@here.com", "Luuk", "Tester", "abc12345").unwrap();
             let admin = models::NewUser::new("admin@here.com", "Mr", "Admin", "abc12345").unwrap();
 
-            let _user = user.create(conn).await.unwrap();
+            let user = user.create(conn).await.unwrap();
             let admin = admin.create(conn).await.unwrap();
 
             models::NewOrgUser::new(org_id, admin.id, models::OrgRole::Admin)
@@ -247,6 +247,7 @@ mod test {
                 ip_range_to: "192.168.0.100".parse().unwrap(),
                 ip_gateway: "192.168.0.1".parse().unwrap(),
                 org_id: None,
+                created_by: user.id,
             };
 
             host1.create(conn).await.unwrap();
@@ -265,6 +266,7 @@ mod test {
                 ip_range_to: "192.12.0.20".parse().unwrap(),
                 ip_gateway: "192.12.0.1".parse().unwrap(),
                 org_id: Some(org_id),
+                created_by: user.id,
             };
 
             let host2 = host2.create(conn).await.unwrap();
