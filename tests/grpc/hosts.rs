@@ -45,39 +45,23 @@ async fn responds_permission_denied_with_token_ownership_for_update() {
 }
 
 #[tokio::test]
-async fn responds_not_found_for_wrong_provision_token() {
-    let tester = super::Tester::new().await;
-    let req = api::HostServiceProvisionRequest {
-        provision_token: "unknown-provision-token".into(),
-        status: api::HostConnectionStatus::Online.into(),
-        name: "tester".to_string(),
-        version: "3".to_string(),
-        cpu_count: 2,
-        mem_size_bytes: 2,
-        disk_size_bytes: 2,
-        os: "LuukOS".to_string(),
-        os_version: "4".to_string(),
-        ip: "192.186.1.3".to_string(),
-    };
-    let status = tester.send(Service::provision, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::NotFound);
-}
+async fn responds_ok_for_create() {
+    type OrgService = api::org_service_client::OrgServiceClient<super::Channel>;
 
-#[tokio::test]
-async fn responds_ok_for_provision() {
     let tester = super::Tester::new().await;
-    let from = "172.168.0.1".parse().unwrap();
-    let to = "172.168.0.10".parse().unwrap();
-    let gateway = "172.168.0.100".parse().unwrap();
-    let mut conn = tester.conn().await;
-    let host_provision = models::NewHostProvision::new(from, to, gateway, None)
-        .unwrap()
-        .create(&mut conn)
+    let org_id = tester.org().await.id.to_string();
+    let req = api::OrgServiceGetProvisionTokenRequest {
+        org_id: org_id.clone(),
+        user_id: tester.user().await.id.to_string(),
+    };
+    let pwd = tester
+        .send_admin(OrgService::get_provision_token, req)
         .await
-        .unwrap();
-    let req = api::HostServiceProvisionRequest {
-        provision_token: host_provision.id,
-        status: api::HostConnectionStatus::Online.into(),
+        .unwrap()
+        .token;
+    let tester = super::Tester::new().await;
+    let req = api::HostServiceCreateRequest {
+        provision_token: pwd,
         name: "tester".to_string(),
         version: "3".to_string(),
         cpu_count: 2,
@@ -85,9 +69,13 @@ async fn responds_ok_for_provision() {
         disk_size_bytes: 2,
         os: "LuukOS".to_string(),
         os_version: "4".to_string(),
-        ip: "192.186.1.3".to_string(),
+        ip_addr: "172.168.0.1".to_string(),
+        ip_range_from: "172.168.0.1".to_string(),
+        ip_range_to: "172.168.0.10".to_string(),
+        ip_gateway: "72.168.0.100".to_string(),
+        org_id: Some(org_id),
     };
-    tester.send(Service::provision, req).await.unwrap();
+    tester.send(Service::create, req).await.unwrap();
 }
 
 #[tokio::test]

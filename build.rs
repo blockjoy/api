@@ -15,7 +15,6 @@ fn main() {
                 "blockjoy/v1/blockchain.proto",
                 "blockjoy/v1/command.proto",
                 "blockjoy/v1/discovery.proto",
-                "blockjoy/v1/host_provision.proto",
                 "blockjoy/v1/host.proto",
                 "blockjoy/v1/invitation.proto",
                 "blockjoy/v1/key_file.proto",

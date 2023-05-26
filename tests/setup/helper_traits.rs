@@ -3,7 +3,6 @@ use blockvisor_api::grpc::api::babel_service_client;
 use blockvisor_api::grpc::api::blockchain_service_client;
 use blockvisor_api::grpc::api::command_service_client;
 use blockvisor_api::grpc::api::discovery_service_client;
-use blockvisor_api::grpc::api::host_provision_service_client;
 use blockvisor_api::grpc::api::host_service_client;
 use blockvisor_api::grpc::api::invitation_service_client;
 use blockvisor_api::grpc::api::key_file_service_client;
@@ -36,12 +35,6 @@ impl GrpcClient<Channel> for command_service_client::CommandServiceClient<Channe
 }
 
 impl GrpcClient<Channel> for discovery_service_client::DiscoveryServiceClient<Channel> {
-    fn create(channel: Channel) -> Self {
-        Self::new(channel)
-    }
-}
-
-impl GrpcClient<Channel> for host_provision_service_client::HostProvisionServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }

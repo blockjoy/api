@@ -51,6 +51,24 @@ impl org_service_server::OrgService for super::GrpcImpl {
         self.trx(|c| remove_member(self, req, c).scope_boxed())
             .await
     }
+
+    async fn get_provision_token(
+        &self,
+        req: tonic::Request<api::OrgServiceGetProvisionTokenRequest>,
+    ) -> super::Resp<api::OrgServiceGetProvisionTokenResponse> {
+        let mut conn = self.conn().await?;
+        let resp = get_provision_token(req, &mut conn).await?;
+        Ok(resp)
+    }
+
+    async fn reset_provision_token(
+        &self,
+        req: tonic::Request<api::OrgServiceResetProvisionTokenRequest>,
+    ) -> super::Resp<api::OrgServiceResetProvisionTokenResponse> {
+        let mut conn = self.conn().await?;
+        let resp = reset_provision_token(req, &mut conn).await?;
+        Ok(resp)
+    }
 }
 
 async fn create(
@@ -204,6 +222,57 @@ async fn remove_member(
     let msg = api::OrgMessage::updated(org, user, conn).await?;
     grpc.notifier.orgs_sender().send(&msg).await?;
     let resp = api::OrgServiceRemoveMemberResponse {};
+    Ok(tonic::Response::new(resp))
+}
+
+async fn get_provision_token(
+    req: tonic::Request<api::OrgServiceGetProvisionTokenRequest>,
+    conn: &mut diesel_async::AsyncPgConnection,
+) -> super::Result<api::OrgServiceGetProvisionTokenResponse> {
+    let claims = auth::get_claims(&req, auth::Endpoint::OrgGetProvisionToken, conn).await?;
+    let req = req.into_inner();
+    let user_id = req.user_id.parse()?;
+    let org_id = req.org_id.parse()?;
+    let is_allowed = match claims.resource() {
+        auth::Resource::User(user_id_) => {
+            user_id_ == user_id && models::Org::is_member(user_id, org_id, conn).await?
+        }
+        auth::Resource::Org(_) => false,
+        auth::Resource::Host(_) => false,
+        auth::Resource::Node(_) => false,
+    };
+    if is_allowed {
+        super::forbidden!("Access denied");
+    }
+    let org_user = models::OrgUser::by_user_org(user_id, org_id, conn).await?;
+    let resp = api::OrgServiceGetProvisionTokenResponse {
+        token: org_user.host_provision_token,
+    };
+    Ok(tonic::Response::new(resp))
+}
+
+async fn reset_provision_token(
+    req: tonic::Request<api::OrgServiceResetProvisionTokenRequest>,
+    conn: &mut diesel_async::AsyncPgConnection,
+) -> super::Result<api::OrgServiceResetProvisionTokenResponse> {
+    let claims = auth::get_claims(&req, auth::Endpoint::OrgResetProvisionToken, conn).await?;
+    let req = req.into_inner();
+    let user_id = req.user_id.parse()?;
+    let org_id = req.org_id.parse()?;
+    let is_allowed = match claims.resource() {
+        auth::Resource::User(user_id_) => {
+            user_id_ == user_id && models::Org::is_member(user_id, org_id, conn).await?
+        }
+        auth::Resource::Org(_) => false,
+        auth::Resource::Host(_) => false,
+        auth::Resource::Node(_) => false,
+    };
+    if is_allowed {
+        super::forbidden!("Access denied");
+    }
+    let org_user = models::OrgUser::by_user_org(user_id, org_id, conn).await?;
+    let token = org_user.reset_token(conn).await?;
+    let resp = api::OrgServiceResetProvisionTokenResponse { token };
     Ok(tonic::Response::new(resp))
 }
 

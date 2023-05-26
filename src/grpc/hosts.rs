@@ -1,7 +1,8 @@
 use super::api::{self, host_service_server};
-use super::helpers;
-use crate::auth::expiration_provider;
-use crate::{auth, models};
+use crate::{
+    auth::{self, expiration_provider},
+    models,
+};
 use diesel_async::scoped_futures::ScopedFutureExt;
 
 /// This is a list of all the endpoints that a user is allowed to access with the jwt that they
@@ -62,12 +63,12 @@ impl host_service_server::HostService for super::GrpcImpl {
         self.trx(|c| delete(req, c).scope_boxed()).await
     }
 
-    async fn provision(
-        &self,
-        req: tonic::Request<api::HostServiceProvisionRequest>,
-    ) -> super::Resp<api::HostServiceProvisionResponse> {
-        self.trx(|c| provision(req, c).scope_boxed()).await
-    }
+    // async fn provision(
+    //     &self,
+    //     req: tonic::Request<api::HostServiceProvisionRequest>,
+    // ) -> super::Resp<api::HostServiceProvisionResponse> {
+    //     self.trx(|c| provision(req, c).scope_boxed()).await
+    // }
 }
 
 async fn create(
@@ -94,8 +95,25 @@ async fn create(
     }
     let new_host = req.as_new()?;
     let host = new_host.create(conn).await?;
+    let iat = chrono::Utc::now();
+    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
+    let claims = auth::Claims {
+        resource_type: auth::ResourceType::Host,
+        resource_id: host.id,
+        iat,
+        exp: iat + exp,
+        endpoints: HOST_ENDPOINTS.iter().copied().collect(),
+        data: Default::default(),
+    };
+    let token = auth::Jwt { claims };
+    let exp = expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_HOST_MINS")?;
+    let refresh = auth::Refresh::new(host.id, iat, exp)?;
     let host = api::Host::from_model(host).await?;
-    let resp = api::HostServiceCreateResponse { host: Some(host) };
+    let resp = api::HostServiceCreateResponse {
+        host: Some(host),
+        token: token.encode()?,
+        refresh: refresh.encode()?,
+    };
     Ok(tonic::Response::new(resp))
 }
 
@@ -210,41 +228,6 @@ async fn delete(
     Ok(tonic::Response::new(resp))
 }
 
-async fn provision(
-    req: tonic::Request<api::HostServiceProvisionRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
-) -> super::Result<api::HostServiceProvisionResponse> {
-    // This endpoint does not have any auth checking in it. This is because the access here is
-    // granted using the provision token of the request.
-    let req = req.into_inner();
-    let provision = models::HostProvision::find_by_id(&req.provision_token, conn).await?;
-    if provision.is_claimed() {
-        return Err(tonic::Status::failed_precondition("Provision is already claimed").into());
-    }
-    let new_host = req.as_new(provision)?;
-    let host = models::HostProvision::claim(&req.provision_token, new_host, conn).await?;
-    let iat = chrono::Utc::now();
-    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
-    let claims = auth::Claims {
-        resource_type: auth::ResourceType::Host,
-        resource_id: host.id,
-        iat,
-        exp: iat + exp,
-        endpoints: HOST_ENDPOINTS.iter().copied().collect(),
-        data: Default::default(),
-    };
-    let jwt = auth::Jwt { claims };
-    let refresh_exp =
-        expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_HOST_MINS")?;
-    let refresh = auth::Refresh::new(host.id, iat, refresh_exp)?;
-    let resp = api::HostServiceProvisionResponse {
-        host_id: host.id.to_string(),
-        token: jwt.encode()?,
-        refresh: refresh.encode()?,
-    };
-    Ok(tonic::Response::new(resp))
-}
-
 impl api::Host {
     pub async fn from_models(models: Vec<models::Host>) -> crate::Result<Vec<Self>> {
         models
@@ -318,53 +301,9 @@ impl api::HostServiceUpdateRequest {
     }
 }
 
-impl api::HostServiceProvisionRequest {
-    pub fn as_new(&self, provision: models::HostProvision) -> crate::Result<models::NewHost<'_>> {
-        let new_host = models::NewHost {
-            name: &self.name,
-            version: &self.version,
-            cpu_count: self.cpu_count.try_into()?,
-            mem_size_bytes: self.mem_size_bytes.try_into()?,
-            disk_size_bytes: self.disk_size_bytes.try_into()?,
-            os: &self.os,
-            os_version: &self.os_version,
-            ip_addr: &self.ip,
-            status: self.status().into_model()?,
-            ip_range_from: provision
-                .ip_range_from
-                .ok_or_else(helpers::required("provision.ip_range_from"))?,
-            ip_range_to: provision
-                .ip_range_to
-                .ok_or_else(helpers::required("provision.ip_range_to"))?,
-            ip_gateway: provision
-                .ip_gateway
-                .ok_or_else(helpers::required("provision.ip_gateway"))?,
-            org_id: provision.org_id,
-        };
-        Ok(new_host)
-    }
-}
-
 impl api::HostStatus {
     fn from_model(_model: models::ConnectionStatus) -> Self {
         // todo
         Self::Unspecified
-    }
-}
-
-impl api::HostConnectionStatus {
-    fn _from_model(model: models::ConnectionStatus) -> Self {
-        match model {
-            models::ConnectionStatus::Online => Self::Online,
-            models::ConnectionStatus::Offline => Self::Offline,
-        }
-    }
-
-    fn into_model(self) -> crate::Result<models::ConnectionStatus> {
-        match self {
-            Self::Unspecified => Err(crate::Error::unexpected("Unspecified ConnectionStatus")),
-            Self::Online => Ok(models::ConnectionStatus::Online),
-            Self::Offline => Ok(models::ConnectionStatus::Offline),
-        }
     }
 }

@@ -291,6 +291,8 @@ pub enum Endpoint {
     OrgUpdate = 1004,
     OrgDelete = 1005,
     OrgRemoveMember = 1006,
+    OrgGetProvisionToken = 1007,
+    OrgResetProvisionToken = 1008,
 
     UserAll = 1100,
     UserGet = 1101,

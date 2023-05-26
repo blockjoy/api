@@ -3,29 +3,15 @@
 //! interact with. There may exist multiple models for a given table, for example models that are
 //! used for updating rows often do not contain all of the columns, whereas models that are used
 //! for selecting usually do.
-//!
-//! ### Database Connection Type
-//! We want our endpoints to be atomic, meaning that if an api call succeeds, it will succeed in
-//! its entirety. When it fails, it must not have modified the state of the database. To this end
-//! we distinguish between two different types of function that interact with the database. Those
-//! that mutate, i.e. perform queries using INSERT, UPDATE or DELETE, and those that do not, i.e.
-//! those that only do SELECT. To ensure atomicity, the functions that mutate _must_ be called from
-//! within a transaction. There is no easy way to ensure that this happens automatically, but we
-//! can at least keep the responsibility of verifying this contained to this module. The way we
-//! enforce this is by having the functions that mutate accept a database connection of a different
-//! type than those that do  not mutate. Functions that mutate state will accept their database
-//! connection argument as  `conn: &mut AsyncPgConnection`, whereas functions that do not mutate take
-//! `conn: &mut AsyncPgConnection` as their database connection. This ensures that mutating
-//! functions _must_ happen from within a transaction, and functions that not mutate may either be\
-//! called from a transaction or from a 'bare' connection.
 
+/// This is the name of the environment variable that is used to retrieve the database url. It is
+/// exported as a constant to prevent typos.
 pub const DATABASE_URL: &str = "DATABASE_URL";
 
 mod blacklist_token;
 mod blockchain;
 mod command;
 mod host;
-mod host_provision;
 mod invitation;
 mod ip_address;
 mod node;
@@ -46,7 +32,6 @@ pub use blacklist_token::*;
 pub use blockchain::*;
 pub use command::*;
 pub use host::*;
-pub use host_provision::*;
 pub use invitation::*;
 pub use ip_address::*;
 pub use node::*;

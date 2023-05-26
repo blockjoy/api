@@ -211,6 +211,7 @@ pub struct OrgUser {
     pub role: OrgRole,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub host_provision_token: String,
 }
 
 impl OrgUser {
@@ -230,6 +231,40 @@ impl OrgUser {
             res.entry(org_user.org_id).or_default().push(org_user)
         }
         Ok(res)
+    }
+
+    pub async fn by_user_org(
+        user_id: uuid::Uuid,
+        org_id: uuid::Uuid,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Self> {
+        let org_user = orgs_users::table
+            .filter(orgs_users::user_id.eq(user_id))
+            .filter(orgs_users::org_id.eq(org_id))
+            .get_result(conn)
+            .await?;
+        Ok(org_user)
+    }
+
+    pub async fn reset_token(&self, conn: &mut AsyncPgConnection) -> crate::Result<String> {
+        let token = Self::token();
+        let to_update = orgs_users::table
+            .filter(orgs_users::user_id.eq(self.user_id))
+            .filter(orgs_users::org_id.eq(self.org_id));
+        diesel::update(to_update)
+            .set(orgs_users::host_provision_token.eq(&token))
+            .execute(conn)
+            .await?;
+        Ok(token)
+    }
+
+    fn token() -> String {
+        use rand::Rng;
+        rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(12)
+            .map(char::from)
+            .collect()
     }
 }
 
@@ -252,7 +287,7 @@ impl NewOrgUser {
 
     pub async fn create(self, conn: &mut AsyncPgConnection) -> Result<OrgUser> {
         let org_user = diesel::insert_into(orgs_users::table)
-            .values(self)
+            .values((self, orgs_users::host_provision_token.eq(OrgUser::token())))
             .get_result(conn)
             .await?;
         Ok(org_user)
