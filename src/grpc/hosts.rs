@@ -3,7 +3,7 @@ use crate::{
     auth::{self, expiration_provider},
     models,
 };
-use diesel_async::{scoped_futures::ScopedFutureExt, AsyncPgConnection};
+use diesel_async::scoped_futures::ScopedFutureExt;
 
 /// This is a list of all the endpoints that a user is allowed to access with the jwt that they
 /// generate on login. It does not contain endpoints like confirm, because those are accessed by a
@@ -64,48 +64,32 @@ impl host_service_server::HostService for super::GrpcImpl {
     }
 }
 
-async fn resource_id(
-    claims: Option<auth::Claims>,
-    token: &str,
-    org_id: Option<uuid::Uuid>,
-    conn: &mut AsyncPgConnection,
-) -> crate::Result<uuid::Uuid> {
-    if let Some(claims) = claims {
-        match claims.resource() {
-            auth::Resource::User(user_id) => {
-                if let Some(org_id) = org_id {
-                    if models::Org::is_member(user_id, org_id, conn).await? {
-                        return Ok(user_id);
-                    }
-                }
-            }
-            auth::Resource::Org(org) if org_id == Some(org) => return Ok(org),
-            auth::Resource::Org(_) => {}
-            auth::Resource::Host(_) => {}
-            auth::Resource::Node(_) => {}
-        }
-    } else {
-        if let Some(org_id) = org_id {
-            let org_user = models::OrgUser::by_token(token, conn).await?;
-            if models::Org::is_member(org_user.user_id, org_id, conn).await? {
-                return Ok(org_id);
-            }
-        }
-    }
-    super::forbidden!("Access denied")
-}
-
 async fn create(
     req: tonic::Request<api::HostServiceCreateRequest>,
     conn: &mut diesel_async::AsyncPgConnection,
 ) -> super::Result<api::HostServiceCreateResponse> {
-    // Authentication here can either be granted either through the claims or through the
-    // provision_token.
-    let claims = auth::get_claims(&req, auth::Endpoint::HostCreate, conn).await;
     let req = req.into_inner();
     let org_id = req.org_id.as_ref().map(|id| id.parse()).transpose()?;
-    let new_host =
-        req.as_new(resource_id(claims.ok(), &req.provision_token, org_id, conn).await?)?;
+    // We retrieve the id of the caller from the token that was used.
+    let caller_id = if let Some(org_id) = org_id {
+        // First we find the org and user that correspond to this token.
+        let org_user = models::OrgUser::by_token(&req.provision_token, conn)
+            .await
+            .map_err(|_| tonic::Status::permission_denied("Invalid token"))?;
+        // Now we check that the user belonging to this token is actually a member of the requested
+        // organization.
+        if org_user.org_id == org_id {
+            org_user.user_id
+        } else {
+            super::forbidden!("Access denied: not a member of this org");
+        }
+    } else {
+        // The API doesn't require an org_id to be supplied. This is for forwards compatibility with
+        // requests create hosts which do not have an org_id and can be used by any one. However,
+        // for now we just retrurn an error here.
+        super::forbidden!("Access denied: org_id is required");
+    };
+    let new_host = req.as_new(caller_id)?;
     let host = new_host.create(conn).await?;
     let iat = chrono::Utc::now();
     let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;

@@ -222,6 +222,9 @@ impl NewHost<'_> {
             )));
         }
 
+        dbg!(super::User::find_all(conn).await?);
+        dbg!(&self);
+
         let host: Host = diesel::insert_into(hosts::table)
             .values(self)
             .get_result(conn)

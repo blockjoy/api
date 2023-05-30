@@ -59,7 +59,6 @@ async fn responds_ok_for_create() {
         .await
         .unwrap()
         .token;
-    let tester = super::Tester::new().await;
     let req = api::HostServiceCreateRequest {
         provision_token: pwd,
         name: "tester".to_string(),
