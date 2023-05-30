@@ -85,14 +85,15 @@ async fn responds_ok_for_accept() {
     let tester = super::Tester::new().await;
     let invitation = create_invitation(&tester).await;
     let iat = chrono::Utc::now();
-    let claims = auth::Claims {
-        resource_type: auth::ResourceType::Org,
-        resource_id: invitation.created_for_org,
+    let claims = auth::Claims::new_with_data(
+        auth::ResourceType::Org,
+        invitation.created_for_org,
         iat,
-        exp: iat + chrono::Duration::minutes(15),
-        endpoints: auth::Endpoints::Multiple(vec![auth::Endpoint::InvitationAccept]),
-        data: HashMap::from([("email".into(), invitation.invitee_email)]),
-    };
+        chrono::Duration::minutes(15),
+        auth::Endpoints::Single(auth::Endpoint::InvitationAccept),
+        HashMap::from([("email".into(), invitation.invitee_email)]),
+    )
+    .unwrap();
     let jwt = auth::Jwt { claims };
     let req: api::InvitationServiceAcceptRequest = api::InvitationServiceAcceptRequest {
         invitation_id: invitation.id.to_string(),
@@ -105,14 +106,15 @@ async fn responds_ok_for_decline() {
     let tester = super::Tester::new().await;
     let invitation = create_invitation(&tester).await;
     let iat = chrono::Utc::now();
-    let claims = auth::Claims {
-        resource_type: auth::ResourceType::Org,
-        resource_id: invitation.created_for_org,
+    let claims = auth::Claims::new_with_data(
+        auth::ResourceType::Org,
+        invitation.created_for_org,
         iat,
-        exp: iat + chrono::Duration::minutes(15),
-        endpoints: auth::Endpoints::Multiple(vec![auth::Endpoint::InvitationDecline]),
-        data: HashMap::from([("email".into(), invitation.invitee_email)]),
-    };
+        chrono::Duration::minutes(15),
+        auth::Endpoints::Single(auth::Endpoint::InvitationDecline),
+        HashMap::from([("email".into(), invitation.invitee_email)]),
+    )
+    .unwrap();
     let jwt = auth::Jwt { claims };
     let req = api::InvitationServiceDeclineRequest {
         invitation_id: invitation.id.to_string(),

@@ -1,3 +1,4 @@
+use self::timestamp::remove_nanos;
 use std::collections::HashMap;
 
 mod api_key;
@@ -8,22 +9,37 @@ pub use api_key::ApiKey;
 pub use jwt::Jwt;
 pub use refresh::Refresh;
 
-use self::timestamp::remove_nanos;
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Claims {
     pub resource_type: ResourceType,
     pub resource_id: uuid::Uuid,
     #[serde(with = "timestamp")]
-    pub iat: chrono::DateTime<chrono::Utc>,
+    iat: chrono::DateTime<chrono::Utc>,
     #[serde(with = "timestamp")]
-    pub exp: chrono::DateTime<chrono::Utc>,
+    exp: chrono::DateTime<chrono::Utc>,
     pub endpoints: Endpoints,
     pub data: HashMap<String, String>,
 }
 
 impl Claims {
     pub fn new(
+        resource_type: ResourceType,
+        resource_id: uuid::Uuid,
+        iat: chrono::DateTime<chrono::Utc>,
+        exp: chrono::Duration,
+        endpoints: Endpoints,
+    ) -> crate::Result<Self> {
+        Self::new_with_data(
+            resource_type,
+            resource_id,
+            iat,
+            exp,
+            endpoints,
+            Default::default(),
+        )
+    }
+
+    pub fn new_with_data(
         resource_type: ResourceType,
         resource_id: uuid::Uuid,
         iat: chrono::DateTime<chrono::Utc>,
@@ -56,15 +72,13 @@ impl Claims {
         iat: chrono::DateTime<chrono::Utc>,
         exp: chrono::Duration,
         endpoints: impl IntoIterator<Item = Endpoint>,
-    ) -> Self {
-        Self {
-            resource_type: ResourceType::User,
-            resource_id: user_id,
-            iat,
-            exp: iat + exp,
-            endpoints: endpoints.into_iter().collect(),
-            data: HashMap::new(),
-        }
+    ) -> crate::Result<Self> {
+        let endpoints = endpoints.into_iter().collect();
+        Self::new(ResourceType::User, user_id, iat, exp, endpoints)
+    }
+
+    pub fn exp(&self) -> chrono::DateTime<chrono::Utc> {
+        self.exp
     }
 }
 

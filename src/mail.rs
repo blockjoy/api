@@ -50,7 +50,7 @@ impl MailClient {
         let exp =
             expiration_provider::ExpirationProvider::expiration("REGISTRATION_CONFIRMATION_MINS")?;
         let endpoints = [auth::Endpoint::AuthConfirm];
-        let claims = auth::Claims::new_user(user.id, iat, exp, endpoints);
+        let claims = auth::Claims::new_user(user.id, iat, exp, endpoints)?;
         let token = auth::Jwt { claims }.encode()?;
 
         let base_url =
@@ -119,7 +119,7 @@ impl MailClient {
         ];
         // A little bit lame but not that big of a deal: the id of the invitation as the id of the
         // user because there is no user here yet.
-        let claims = auth::Claims::new_user(invitation.id, iat, exp, endpoints);
+        let claims = auth::Claims::new_user(invitation.id, iat, exp, endpoints)?;
         let token = auth::Jwt { claims }.encode()?;
         let base_url =
             dotenv::var("UI_BASE_URL").map_err(|e| anyhow!("UI_BASE_URL can't be read: {e}"))?;
@@ -159,7 +159,7 @@ impl MailClient {
         let iat = chrono::Utc::now();
         let exp = expiration_provider::ExpirationProvider::expiration("PWD_RESET_EXPIRATION_MINS")?;
         let endpoints = [auth::Endpoint::AuthUpdatePassword];
-        let claims = auth::Claims::new_user(user.id, iat, exp, endpoints);
+        let claims = auth::Claims::new_user(user.id, iat, exp, endpoints)?;
         let token = auth::Jwt { claims };
         let base_url =
             dotenv::var("UI_BASE_URL").map_err(|e| anyhow!("UI_BASE_URL can't be read: {e}"))?;

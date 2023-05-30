@@ -44,14 +44,13 @@ async fn responds_ok_with_valid_credentials_for_confirm() {
     let tester = super::Tester::new().await;
     let user = tester.unconfirmed_user().await;
     let iat = chrono::Utc::now();
-    let claims = auth::Claims {
-        resource_type: auth::ResourceType::User,
-        resource_id: user.id,
+    let claims = auth::Claims::new_user(
+        user.id,
         iat,
-        exp: iat + chrono::Duration::minutes(15),
-        endpoints: auth::Endpoints::Single(auth::Endpoint::AuthConfirm),
-        data: Default::default(),
-    };
+        chrono::Duration::minutes(15),
+        [auth::Endpoint::AuthConfirm],
+    )
+    .unwrap();
     let jwt = auth::Jwt { claims };
     let req = api::AuthServiceConfirmRequest {};
     tester.send_with(Service::confirm, req, jwt).await.unwrap();

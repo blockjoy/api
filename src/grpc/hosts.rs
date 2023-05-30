@@ -92,15 +92,13 @@ async fn create(
     let new_host = req.as_new(caller_id)?;
     let host = new_host.create(conn).await?;
     let iat = chrono::Utc::now();
-    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
-    let claims = auth::Claims {
-        resource_type: auth::ResourceType::Host,
-        resource_id: host.id,
+    let claims = auth::Claims::new(
+        auth::ResourceType::Host,
+        host.id,
         iat,
-        exp: iat + exp,
-        endpoints: HOST_ENDPOINTS.iter().copied().collect(),
-        data: Default::default(),
-    };
+        expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?,
+        HOST_ENDPOINTS.iter().copied().collect(),
+    )?;
     let token = auth::Jwt { claims };
     let exp = expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_HOST_MINS")?;
     let refresh = auth::Refresh::new(host.id, iat, exp)?;

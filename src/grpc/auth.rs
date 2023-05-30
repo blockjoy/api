@@ -83,7 +83,7 @@ async fn login(
     let user = models::User::login(&inner.email, &inner.password, conn).await?;
     let iat = chrono::Utc::now();
     let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
-    let claims = auth::Claims::new_user(user.id, iat, exp, USER_ENDPOINTS);
+    let claims = auth::Claims::new_user(user.id, iat, exp, USER_ENDPOINTS)?;
     let token = auth::Jwt { claims };
     let refresh_exp =
         expiration_provider::ExpirationProvider::expiration(auth::REFRESH_EXPIRATION_USER_MINS)?;
@@ -106,7 +106,7 @@ async fn confirm(
     let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Must be user") };
     let iat = chrono::Utc::now();
     let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
-    let claims = auth::Claims::new_user(user_id, iat, exp, USER_ENDPOINTS);
+    let claims = auth::Claims::new_user(user_id, iat, exp, USER_ENDPOINTS)?;
     let token = auth::Jwt { claims };
     let refresh_exp =
         expiration_provider::ExpirationProvider::expiration(auth::REFRESH_EXPIRATION_USER_MINS)?;
@@ -163,14 +163,14 @@ async fn refresh(
 
     let iat = chrono::Utc::now();
     let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
-    let claims = auth::Claims {
+    let claims = auth::Claims::new_with_data(
         resource_type,
         resource_id,
         iat,
-        exp: iat + exp,
-        endpoints: token.claims.endpoints,
-        data: token.claims.data,
-    };
+        exp,
+        token.claims.endpoints,
+        token.claims.data,
+    )?;
     let token = auth::Jwt { claims };
     let refresh_exp = refresh.duration();
     let refresh = auth::Refresh::new(resource_id, iat, refresh_exp)?;

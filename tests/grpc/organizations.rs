@@ -92,14 +92,15 @@ async fn member_count_works() {
     let invitation = new_invitation.create(&mut conn).await.unwrap();
 
     let iat = chrono::Utc::now();
-    let claims = auth::Claims {
-        resource_type: auth::ResourceType::Org,
-        resource_id: invitation.created_for_org,
+    let claims = auth::Claims::new_with_data(
+        auth::ResourceType::Org,
+        invitation.created_for_org,
         iat,
-        exp: iat + chrono::Duration::minutes(15),
-        endpoints: auth::Endpoints::Multiple(vec![auth::Endpoint::InvitationAccept]),
-        data: HashMap::from([("email".into(), invitation.invitee_email)]),
-    };
+        chrono::Duration::minutes(15),
+        auth::Endpoints::Multiple(vec![auth::Endpoint::InvitationAccept]),
+        HashMap::from([("email".into(), invitation.invitee_email)]),
+    )
+    .unwrap();
     let jwt = auth::Jwt { claims };
     let req = api::InvitationServiceAcceptRequest {
         invitation_id: invitation.id.to_string(),

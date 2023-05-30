@@ -53,7 +53,6 @@ mod tests {
                 iat,
                 chrono::Duration::minutes(15),
                 auth::Endpoints::Wildcard,
-                Default::default(),
             )
             .unwrap();
             let token = Jwt { claims };

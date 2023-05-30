@@ -174,14 +174,14 @@ impl Tester {
 
     pub fn host_token(&self, host: &models::Host) -> auth::Jwt {
         let iat = chrono::Utc::now();
-        let claims = auth::Claims {
-            resource_type: auth::ResourceType::Host,
-            resource_id: host.id,
+        let claims = auth::Claims::new(
+            auth::ResourceType::Host,
+            host.id,
             iat,
-            exp: (iat + chrono::Duration::minutes(15)),
-            endpoints: auth::Endpoints::Wildcard,
-            data: Default::default(),
-        };
+            chrono::Duration::minutes(15),
+            auth::Endpoints::Wildcard,
+        )
+        .unwrap();
         auth::Jwt { claims }
     }
 
