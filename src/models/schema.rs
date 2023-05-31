@@ -2,6 +2,10 @@
 
 pub mod sql_types {
     #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "blockchain_property_ui_type"))]
+    pub struct BlockchainPropertyUiType;
+
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_blockchain_status"))]
     pub struct EnumBlockchainStatus;
 
@@ -60,6 +64,24 @@ pub mod sql_types {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::EnumNodeType;
+    use super::sql_types::BlockchainPropertyUiType;
+
+    blockchain_properties (id) {
+        id -> Uuid,
+        blockchain_id -> Uuid,
+        version -> Text,
+        node_type -> EnumNodeType,
+        name -> Text,
+        default -> Nullable<Text>,
+        ui_type -> BlockchainPropertyUiType,
+        disabled -> Bool,
+        required -> Bool,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::EnumBlockchainStatus;
 
     blockchains (id) {
@@ -72,7 +94,6 @@ diesel::table! {
         version -> Nullable<Text>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        supported_node_types -> Jsonb,
     }
 }
 
@@ -178,6 +199,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    node_properties (id) {
+        id -> Uuid,
+        node_id -> Uuid,
+        blockchain_property_id -> Uuid,
+        value -> Text,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::EnumNodeSyncStatus;
     use super::sql_types::EnumNodeChainStatus;
@@ -205,7 +235,6 @@ diesel::table! {
         chain_status -> EnumNodeChainStatus,
         staking_status -> Nullable<EnumNodeStakingStatus>,
         container_status -> EnumContainerStatus,
-        properties -> Jsonb,
         ip_gateway -> Text,
         self_update -> Bool,
         block_age -> Nullable<Int8>,
@@ -274,6 +303,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(blockchain_properties -> blockchains (blockchain_id));
 diesel::joinable!(commands -> hosts (host_id));
 diesel::joinable!(commands -> nodes (node_id));
 diesel::joinable!(hosts -> orgs (org_id));
@@ -282,6 +312,8 @@ diesel::joinable!(invitations -> orgs (created_for_org));
 diesel::joinable!(invitations -> users (created_by_user));
 diesel::joinable!(ip_addresses -> hosts (host_id));
 diesel::joinable!(node_key_files -> nodes (node_id));
+diesel::joinable!(node_properties -> blockchain_properties (blockchain_property_id));
+diesel::joinable!(node_properties -> nodes (node_id));
 diesel::joinable!(nodes -> blockchains (blockchain_id));
 diesel::joinable!(nodes -> hosts (host_id));
 diesel::joinable!(nodes -> orgs (org_id));
@@ -290,6 +322,7 @@ diesel::joinable!(orgs_users -> orgs (org_id));
 diesel::joinable!(orgs_users -> users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    blockchain_properties,
     blockchains,
     commands,
     hosts,
@@ -297,6 +330,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     ip_addresses,
     node_key_files,
     node_logs,
+    node_properties,
     nodes,
     orgs,
     orgs_users,

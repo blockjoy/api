@@ -267,7 +267,7 @@ async fn reset_provision_token(
         auth::Resource::Host(_) => false,
         auth::Resource::Node(_) => false,
     };
-    if is_allowed {
+    if !is_allowed {
         super::forbidden!("Access denied");
     }
     let org_user = models::OrgUser::by_user_org(user_id, org_id, conn).await?;

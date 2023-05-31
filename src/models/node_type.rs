@@ -1,7 +1,6 @@
 use crate::Error;
 
-// TODO: This should not have to implement serialize anymore.
-#[derive(Debug, Clone, Copy, diesel_derive_enum::DbEnum, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumNodeType"]
 pub enum NodeType {
     Unknown = 0,

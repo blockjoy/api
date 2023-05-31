@@ -23,7 +23,6 @@ pub struct BlockchainNetwork {
     pub(crate) network_type: api::BlockchainNetworkType,
 }
 
-#[allow(clippy::derive_partial_eq_without_eq)]
 pub mod cookbook_grpc {
     tonic::include_proto!("blockjoy.api.v1.babel");
 }

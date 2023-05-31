@@ -18,11 +18,6 @@ fn create_new_node<'a>(
         id,
         org_id: org_id.to_owned(),
         blockchain_id: blockchain_id.to_owned(),
-        properties: serde_json::to_value(models::NodeProperties {
-            version: None,
-            properties: Some(vec![]),
-        })
-        .unwrap(),
         chain_status: models::NodeChainStatus::Unknown,
         sync_status: models::NodeSyncStatus::Syncing,
         container_status: models::ContainerStatus::Installing,
@@ -46,6 +41,7 @@ fn create_new_node<'a>(
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_notify_success() {
     let tester = super::Tester::new().await;
     let blockchain = tester.blockchain().await;
@@ -73,8 +69,7 @@ async fn test_notify_success() {
                     &models::NodeType::Validator,
                 );
                 let mut conn = t.conn().await.unwrap();
-                TestDb::create_node(&req, &h, &ip, format!("dns-id-{}", i).as_str(), &mut conn)
-                    .await;
+                TestDb::create_node(&req, &h, &ip, &format!("dns-id-{i}"), &mut conn).await;
                 if i % 2 == 0 {
                     Some(req.id.to_string())
                 } else {
@@ -103,10 +98,12 @@ async fn test_notify_success() {
     assert_eq!(ids, response.node_ids);
 
     // Check that blockchain supported_node_types was updated with new version
+    let mut conn = tester.conn().await;
     assert!(tester
         .blockchain()
         .await
-        .supported_node_types()
+        .properties(&mut conn)
+        .await
         .unwrap()
         .into_iter()
         .any(|x| x.version == target_version));

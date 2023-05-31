@@ -1,9 +1,10 @@
 use super::schema::blockchains;
-use super::BlockchainPropertyValue;
-use crate::Result;
 use diesel::{dsl, prelude::*};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use tracing::log::warn;
+
+mod property;
+pub use property::{BlockchainProperty, BlockchainPropertyUiType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumBlockchainStatus"]
@@ -26,19 +27,13 @@ pub struct Blockchain {
     pub version: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
-    supported_node_types: serde_json::Value,
 }
 
 type NotDeleted =
     dsl::Filter<blockchains::table, dsl::NotEq<blockchains::status, BlockchainStatus>>;
 
 impl Blockchain {
-    pub fn supported_node_types(&self) -> Result<Vec<super::BlockchainProperties>> {
-        let res = serde_json::from_value(self.supported_node_types.clone())?;
-        Ok(res)
-    }
-
-    pub async fn find_all(conn: &mut AsyncPgConnection) -> Result<Vec<Self>> {
+    pub async fn find_all(conn: &mut AsyncPgConnection) -> crate::Result<Vec<Self>> {
         let chains = Self::not_deleted()
             .order_by(super::lower(blockchains::name))
             .get_results(conn)
@@ -47,7 +42,7 @@ impl Blockchain {
         Ok(chains)
     }
 
-    pub async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> Result<Self> {
+    pub async fn find_by_id(id: uuid::Uuid, conn: &mut AsyncPgConnection) -> crate::Result<Self> {
         let chain = Self::not_deleted().find(id).get_result(conn).await?;
 
         Ok(chain)
@@ -56,7 +51,7 @@ impl Blockchain {
     pub async fn find_by_ids(
         ids: &[uuid::Uuid],
         conn: &mut AsyncPgConnection,
-    ) -> Result<Vec<Self>> {
+    ) -> crate::Result<Vec<Self>> {
         let chains = Self::not_deleted()
             .filter(blockchains::id.eq_any(ids))
             .order_by(super::lower(blockchains::name))
@@ -66,7 +61,7 @@ impl Blockchain {
         Ok(chains)
     }
 
-    pub async fn find_by_name(blockchain: &str, c: &mut AsyncPgConnection) -> Result<Self> {
+    pub async fn find_by_name(blockchain: &str, c: &mut AsyncPgConnection) -> crate::Result<Self> {
         blockchains::table
             .filter(super::lower(blockchains::name).eq(super::lower(blockchain)))
             .first(c)
@@ -74,7 +69,14 @@ impl Blockchain {
             .map_err(Into::into)
     }
 
-    pub async fn update(&self, c: &mut AsyncPgConnection) -> Result<Self> {
+    pub async fn properties(
+        &self,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Vec<BlockchainProperty>> {
+        BlockchainProperty::by_blockchain(self, conn).await
+    }
+
+    pub async fn update(&self, c: &mut AsyncPgConnection) -> crate::Result<Self> {
         let mut self_to_update = self.clone();
         self_to_update.updated_at = chrono::Utc::now();
         diesel::update(blockchains::table.find(self_to_update.id))
@@ -84,44 +86,46 @@ impl Blockchain {
             .map_err(Into::into)
     }
 
-    pub fn set_new_supported_node_type_version(
-        &mut self,
+    /// Adds a new supported blockchain version for the provided (blockchain, node_type) combination
+    /// by copying the required blockchain properties from an older version.
+    pub async fn add_version(
+        &self,
         filter: &super::NodeSelfUpgradeFilter,
-    ) -> Result<()> {
-        let mut supported_node_types = self.supported_node_types()?;
-
-        if supported_node_types
-            .iter()
-            .any(|x| x.version == filter.version)
-        {
-            warn!(
-                "Node type version {} already exists in blockchain {}",
-                filter.blockchain, filter.version
-            );
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<()> {
+        let mut current_props =
+            BlockchainProperty::by_blockchain_node_type_recent(self, filter.node_type, conn)
+                .await?;
+        if current_props.iter().any(|x| x.version == filter.version) {
+            let (blockchain_id, version) = (filter.blockchain_id, &filter.version);
+            warn!("Node type version {blockchain_id} already exists in blockchain {version}");
             return Ok(());
         }
-        let previous_node_type = supported_node_types
-            .iter()
-            .find(|x| x.id == filter.node_type as i32);
-        let properties: Option<Vec<BlockchainPropertyValue>>;
-        if let Some(previous_node_type) = previous_node_type {
-            properties = previous_node_type.properties.clone();
+        let old_version = current_props.pop().map(|prop| prop.version);
+        let to_add = if let Some(old_version) = old_version {
+            current_props
+                .into_iter()
+                .filter(|prop| prop.version == old_version)
+                .map(|prop| BlockchainProperty {
+                    id: uuid::Uuid::new_v4(),
+                    version: filter.version.clone(),
+                    ..prop
+                })
+                .collect()
         } else {
-            properties = Some(vec![BlockchainPropertyValue {
+            vec![BlockchainProperty {
+                id: uuid::Uuid::new_v4(),
+                blockchain_id: filter.blockchain_id,
+                version: filter.version.clone(),
+                node_type: filter.node_type,
                 name: "self-hosted".to_string(),
                 default: None,
                 ui_type: super::BlockchainPropertyUiType::Text,
                 disabled: false,
                 required: false,
-            }]);
-        }
-        let new_supported_type = super::BlockchainProperties {
-            id: filter.node_type as i32,
-            version: filter.version.clone(),
-            properties,
+            }]
         };
-        supported_node_types.push(new_supported_type);
-        self.supported_node_types = serde_json::to_value(supported_node_types)?;
+        BlockchainProperty::bulk_create(to_add, conn).await?;
         Ok(())
     }
 
@@ -132,64 +136,39 @@ impl Blockchain {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::{
-        Blockchain, BlockchainProperties, BlockchainPropertyUiType, BlockchainPropertyValue,
-        NodeSelfUpgradeFilter, NodeType,
-    };
+    use crate::models::{NodeSelfUpgradeFilter, NodeType};
 
-    fn current_blockchain(version: &str, node_type: NodeType) -> Blockchain {
-        Blockchain {
-            id: uuid::Uuid::new_v4(),
-            name: "blockchain1".to_string(),
-            description: None,
-            status: super::BlockchainStatus::Development,
-            project_url: None,
-            repo_url: None,
-            version: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            supported_node_types: serde_json::to_value(vec![BlockchainProperties {
-                id: node_type as i32,
-                version: version.to_string(),
-                properties: Some(vec![BlockchainPropertyValue {
-                    name: "self-hosted".to_string(),
-                    default: None,
-                    ui_type: BlockchainPropertyUiType::Text,
-                    disabled: false,
-                    required: false,
-                }]),
-            }])
-            .unwrap(),
-        }
+    #[tokio::test]
+    async fn test_add_version_existing_version() {
+        let db = crate::TestDb::setup().await;
+        let mut conn = db.conn().await;
+        let node_type = NodeType::Validator;
+        let blockchain = db.blockchain().await;
+        let n_properties = blockchain.properties(&mut conn).await.unwrap().len();
+        let filter = NodeSelfUpgradeFilter {
+            blockchain_id: blockchain.id,
+            node_type,
+            version: "3.3.0".to_string(),
+        };
+        blockchain.add_version(&filter, &mut conn).await.unwrap();
+        let n_properties_new_final = blockchain.properties(&mut conn).await.unwrap().len();
+        assert_eq!(n_properties, n_properties_new_final);
     }
 
-    #[test]
-    fn test_set_new_supported_node_type_version_existing_version() {
+    #[tokio::test]
+    async fn test_add_version_non_existing_version() {
+        let db = crate::TestDb::setup().await;
+        let mut conn = db.conn().await;
         let node_type = NodeType::Validator;
-        let mut blockchain = current_blockchain("1.0.0", node_type);
+        let blockchain = db.blockchain().await;
+        let n_properties = blockchain.properties(&mut conn).await.unwrap().len();
         let filter = NodeSelfUpgradeFilter {
-            blockchain: "blockchain1".to_string(),
+            blockchain_id: blockchain.id,
             node_type,
             version: "1.0.0".to_string(),
         };
-        assert!(blockchain
-            .set_new_supported_node_type_version(&filter)
-            .is_ok());
-        assert_eq!(blockchain.supported_node_types().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn test_set_new_supported_node_type_version_non_existing_version() {
-        let node_type = NodeType::Validator;
-        let mut blockchain = current_blockchain("1.0.0", node_type);
-        let filter = NodeSelfUpgradeFilter {
-            blockchain: "blockchain1".to_string(),
-            node_type,
-            version: "2.0.0".to_string(),
-        };
-        assert!(blockchain
-            .set_new_supported_node_type_version(&filter)
-            .is_ok());
-        assert_eq!(blockchain.supported_node_types().unwrap().len(), 2);
+        blockchain.add_version(&filter, &mut conn).await.unwrap();
+        let n_properties_new_final = blockchain.properties(&mut conn).await.unwrap().len();
+        assert_eq!(n_properties + 1, n_properties_new_final);
     }
 }

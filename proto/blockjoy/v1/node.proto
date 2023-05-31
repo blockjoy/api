@@ -302,10 +302,8 @@ enum UiType {
 
 message NodeProperty {
   string name = 1;
-  string label = 2;
-  string description = 3;
-  UiType ui_type = 4;
-  bool disabled = 5;
-  bool required = 6;
-  optional string value = 7;
+  UiType ui_type = 2;
+  bool disabled = 3;
+  bool required = 4;
+  string value = 5;
 }

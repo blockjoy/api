@@ -6,7 +6,7 @@ type Service = api::blockchain_service_client::BlockchainServiceClient<super::Ch
 async fn responds_ok_for_get_existing() {
     let tester = super::Tester::new().await;
     let req = api::BlockchainServiceGetRequest {
-        id: "1fdbf4c3-ff16-489a-8d3d-87c8620b963c".to_string(),
+        id: "ab5d8cfc-77b1-4265-9fee-ba71ba9de092".to_string(),
     };
     tester.send_admin(Service::get, req).await.unwrap();
 }

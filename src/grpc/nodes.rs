@@ -102,6 +102,7 @@ async fn create(
 
     let user = models::User::find_by_id(user_id, conn).await?;
     let req = req.into_inner();
+    let blockchain = models::Blockchain::find_by_id(req.blockchain_id.parse()?, conn).await?;
     let new_node = req.as_new(user.id)?;
     // The host_id will either be determined by the scheduler, or by the host_id.
     // Therfore we pass in an optional host_id for the node creation to fall back on if
@@ -115,6 +116,22 @@ async fn create(
         }
     }
     let node = new_node.create(req.host_id()?, &grpc.dns, conn).await?;
+    // The user sends in the properties in a key-value style, that is,
+    // { property name: property value }. We want to store this as
+    // { property id: property value }. In order to map property names to property ids we can use
+    // the id to name map, and then flip the keys and values to create an id to name map. Note that
+    // this requires the names to be unique, but we expect this to be the case.
+    let name_to_id_map = models::BlockchainProperty::id_to_name_map(
+        &blockchain,
+        node.node_type,
+        &node.version,
+        conn,
+    )
+    .await?
+    .into_iter()
+    .map(|(k, v)| (v, k))
+    .collect();
+    models::NodeProperty::bulk_create(req.properties(&node, name_to_id_map)?, conn).await?;
     create_notification(grpc, &node, conn).await?;
     start_notification(grpc, &node, conn).await?;
     let created = api::NodeMessage::created(node.clone(), user.clone(), conn).await?;
@@ -217,7 +234,15 @@ impl api::Node {
             .created_by
             .map(|u_id| models::User::find_by_id(u_id, conn));
         let user = OptionFuture::from(user_fut).await.transpose()?;
-        Self::new(node, &blockchain, user.as_ref())
+        let nprops = models::NodeProperty::by_node(&node, conn).await?;
+        let bprops = models::BlockchainProperty::by_node_props(&nprops, conn).await?;
+        let bprops: HashMap<_, _> = bprops.into_iter().map(|prop| (prop.id, prop)).collect();
+        let props = nprops
+            .into_iter()
+            .map(|nprop| (nprop.blockchain_property_id, nprop))
+            .map(|(blockchain_property_id, nprop)| (nprop, bprops[&blockchain_property_id].clone()))
+            .collect();
+        Self::new(node, &blockchain, user.as_ref(), props)
     }
 
     /// This function is used to create many ui nodes from many database nodes. The same
@@ -240,14 +265,27 @@ impl api::Node {
             .map(|u| (u.id, u))
             .collect();
 
+        let nprops = models::NodeProperty::by_nodes(&nodes, conn).await?;
+        let bprops = models::BlockchainProperty::by_node_props(&nprops, conn).await?;
+        let bprops: HashMap<_, _> = bprops.into_iter().map(|prop| (prop.id, prop)).collect();
+        let mut props_map: HashMap<uuid::Uuid, Vec<(_, _)>> = HashMap::new();
+        for nprop in nprops {
+            let blockchain_property_id = nprop.blockchain_property_id;
+            props_map
+                .entry(nprop.node_id)
+                .or_default()
+                .push((nprop, bprops[&blockchain_property_id].clone()));
+        }
+
         nodes
             .into_iter()
-            .map(|n| (n.blockchain_id, n.created_by, n))
-            .map(|(b_id, u_id, n)| {
+            .map(|n| (n.id, n.blockchain_id, n.created_by, n))
+            .map(|(n_id, b_id, u_id, n)| {
                 Self::new(
                     n,
                     &blockchains[&b_id],
                     u_id.and_then(|u_id| users.get(&u_id)),
+                    props_map[&n_id].clone(),
                 )
             })
             .collect()
@@ -258,15 +296,13 @@ impl api::Node {
         node: models::Node,
         blockchain: &models::Blockchain,
         user: Option<&models::User>,
+        properties: Vec<(models::NodeProperty, models::BlockchainProperty)>,
     ) -> crate::Result<Self> {
         use api::{ContainerStatus, NodeStatus, NodeType, StakingStatus, SyncStatus};
 
-        let properties = node
-            .properties()?
-            .properties
+        let properties = properties
             .into_iter()
-            .flatten()
-            .map(api::NodeProperty::from_model)
+            .map(|(nprop, bprop)| api::NodeProperty::from_model(nprop, bprop))
             .collect();
 
         let placement = node
@@ -335,15 +371,6 @@ impl api::Node {
 
 impl api::NodeServiceCreateRequest {
     pub fn as_new(&self, user_id: uuid::Uuid) -> crate::Result<models::NewNode<'_>> {
-        let properties = self
-            .properties
-            .iter()
-            .map(|p| api::NodeProperty::into_model(p.clone()))
-            .collect::<crate::Result<_>>()?;
-        let properties = models::NodeProperties {
-            version: Some(self.version.clone()),
-            properties: Some(properties),
-        };
         let placement = self
             .placement
             .as_ref()
@@ -371,7 +398,6 @@ impl api::NodeServiceCreateRequest {
             name: petname::Petnames::large().generate_one(3, "_"),
             version: &self.version,
             blockchain_id: self.blockchain_id.parse()?,
-            properties: serde_json::to_value(properties)?,
             block_height: None,
             node_data: None,
             chain_status: models::NodeChainStatus::Provisioning,
@@ -408,6 +434,28 @@ impl api::NodeServiceCreateRequest {
             api::node_placement::Placement::Scheduler(_) => Ok(None),
             api::node_placement::Placement::HostId(id) => Ok(Some(id.parse()?)),
         }
+    }
+
+    fn properties(
+        &self,
+        node: &models::Node,
+        name_to_id_map: HashMap<String, uuid::Uuid>,
+    ) -> crate::Result<Vec<models::NodeProperty>> {
+        self.properties
+            .iter()
+            .map(|prop| {
+                let err = || crate::Error::unexpected(format!("No prop named {} found", prop.name));
+                Ok(models::NodeProperty {
+                    id: uuid::Uuid::new_v4(),
+                    node_id: node.id,
+                    blockchain_property_id: name_to_id_map
+                        .get(&prop.name)
+                        .copied()
+                        .ok_or_else(err)?,
+                    value: prop.value.clone(),
+                })
+            })
+            .collect()
     }
 }
 
@@ -628,31 +676,16 @@ impl api::SyncStatus {
 }
 
 impl api::NodeProperty {
-    fn from_model(model: models::NodePropertyValue) -> Self {
+    fn from_model(model: models::NodeProperty, bprop: models::BlockchainProperty) -> Self {
         let mut prop = Self {
-            name: model.name,
-            label: model.label,
-            description: model.description,
+            name: bprop.name,
             ui_type: 0,
-            disabled: model.disabled,
-            required: model.required,
+            disabled: bprop.disabled,
+            required: bprop.required,
             value: model.value,
         };
-        prop.set_ui_type(api::UiType::from_model(model.ui_type));
+        prop.set_ui_type(api::UiType::from_model(bprop.ui_type));
         prop
-    }
-
-    fn into_model(self) -> crate::Result<models::NodePropertyValue> {
-        let ui_type = self.ui_type().into_model()?;
-        Ok(models::NodePropertyValue {
-            name: self.name,
-            label: self.label,
-            description: self.description,
-            ui_type,
-            disabled: self.disabled,
-            required: self.required,
-            value: self.value,
-        })
     }
 }
 

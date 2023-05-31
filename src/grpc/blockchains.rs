@@ -33,7 +33,7 @@ async fn get(
     let id = req.id.parse()?;
     let blockchain = models::Blockchain::find_by_id(id, conn).await?;
     let resp = api::BlockchainServiceGetResponse {
-        blockchain: Some(api::Blockchain::from_model(blockchain)?),
+        blockchain: Some(api::Blockchain::from_model(blockchain, conn).await?),
     };
     Ok(tonic::Response::new(resp))
 }
@@ -50,21 +50,16 @@ async fn list(
 
     // This list will contain the dto's that are sent over gRPC after the information from
     // cookbook has been added to them.
-    let mut grpc_blockchains = blockchains
-        .iter()
-        .cloned()
-        .map(api::Blockchain::from_model)
-        .collect::<crate::Result<Vec<_>>>()?;
+    let mut grpc_blockchains = api::Blockchain::from_models(blockchains.clone(), conn).await?;
 
     // Now we need to combine this info with the networks that are stored in the cookbook
     // service. Since we want to do this in parallel, this list will contain a number of futures
     // that each resolve to a list of networks for that blockchain.
     let mut network_futs = vec![];
     for blockchain in &blockchains {
-        for node_properties in blockchain.supported_node_types()? {
+        for node_properties in blockchain.properties(conn).await? {
             let name = blockchain.name.clone();
-            let node_type = node_properties.id.try_into();
-            let node_type = node_type.unwrap_or(models::NodeType::Unknown).to_string();
+            let node_type = node_properties.node_type.to_string();
             let version = node_properties.version.clone();
             network_futs.push(try_get_networks(blockchain.id, name, node_type, version));
         }
@@ -118,55 +113,86 @@ async fn try_get_networks(
 }
 
 impl api::Blockchain {
-    fn from_model(model: models::Blockchain) -> crate::Result<Self> {
-        let nodes_types = model
-            .supported_node_types()?
-            .into_iter()
-            .map(api::SupportedNodeType::from_model)
-            .collect::<crate::Result<_>>()?;
+    async fn from_models(
+        models: Vec<models::Blockchain>,
+        conn: &mut diesel_async::AsyncPgConnection,
+    ) -> crate::Result<Vec<Self>> {
+        let properties = models::BlockchainProperty::by_blockchains(&models, conn).await?;
+        let mut properties_map: HashMap<uuid::Uuid, Vec<_>> = HashMap::new();
+        for property in properties {
+            properties_map
+                .entry(property.blockchain_id)
+                .or_default()
+                .push(property);
+        }
 
-        let mut blockchain = Self {
-            id: model.id.to_string(),
-            name: model.name,
-            // TODO: make this column mandatory
-            description: model.description.unwrap_or_default(),
-            status: 0, // We use the setter to set this field for type-safety
-            project_url: model.project_url,
-            repo_url: model.repo_url,
-            version: model.version,
-            nodes_types,
-            created_at: Some(super::try_dt_to_ts(model.created_at)?),
-            updated_at: Some(super::try_dt_to_ts(model.updated_at)?),
-            networks: vec![],
-        };
-        blockchain.set_status(api::BlockchainStatus::from_model(model.status));
-        Ok(blockchain)
+        models
+            .into_iter()
+            .map(|model| {
+                let properties = properties_map.get(&model.id).cloned().unwrap_or_default();
+                let mut blockchain = Self {
+                    id: model.id.to_string(),
+                    name: model.name,
+                    // TODO: make this column mandatory
+                    description: model.description.unwrap_or_default(),
+                    status: 0, // We use the setter to set this field for type-safety
+                    project_url: model.project_url,
+                    repo_url: model.repo_url,
+                    version: model.version,
+                    nodes_types: api::SupportedNodeType::from_models(properties)?,
+                    created_at: Some(super::try_dt_to_ts(model.created_at)?),
+                    updated_at: Some(super::try_dt_to_ts(model.updated_at)?),
+                    networks: vec![],
+                };
+                blockchain.set_status(api::BlockchainStatus::from_model(model.status));
+                Ok(blockchain)
+            })
+            .collect()
+    }
+
+    async fn from_model(
+        model: models::Blockchain,
+        conn: &mut diesel_async::AsyncPgConnection,
+    ) -> crate::Result<Self> {
+        Ok(Self::from_models(vec![model], conn).await?[0].clone())
     }
 }
 
 impl api::SupportedNodeType {
-    fn from_model(model: models::BlockchainProperties) -> crate::Result<Self> {
-        let mut props = api::SupportedNodeType {
-            node_type: 0, // We use the setter to set this field for type-safety
-            version: model.version,
-            properties: model
-                .properties
-                .unwrap_or_default()
-                .into_iter()
-                .map(api::SupportedNodeProperty::from_model)
-                .collect(),
-        };
-        let model = models::NodeType::try_from(model.id)?;
-        props.set_node_type(api::NodeType::from_model(model));
-        Ok(props)
+    fn from_models(models: Vec<models::BlockchainProperty>) -> crate::Result<Vec<Self>> {
+        // First we partition the properties by version
+        let mut properties: HashMap<(models::NodeType, &str), Vec<_>> = HashMap::new();
+        for model in &models {
+            properties
+                .entry((model.node_type, &model.version))
+                .or_default()
+                .push(model);
+        }
+
+        models
+            .iter()
+            .map(|model| {
+                let properties = &properties[&(model.node_type, model.version.as_str())];
+                let mut props = api::SupportedNodeType {
+                    node_type: 0, // We use the setter to set this field for type-safety
+                    version: model.version.to_string(),
+                    properties: properties
+                        .iter()
+                        .map(|prop| api::SupportedNodeProperty::from_model(prop))
+                        .collect(),
+                };
+                props.set_node_type(api::NodeType::from_model(model.node_type));
+                Ok(props)
+            })
+            .collect()
     }
 }
 
 impl api::SupportedNodeProperty {
-    fn from_model(model: models::BlockchainPropertyValue) -> Self {
+    fn from_model(model: &models::BlockchainProperty) -> Self {
         let mut prop = SupportedNodeProperty {
-            name: model.name,
-            default: model.default,
+            name: model.name.clone(),
+            default: model.default.clone(),
             ui_type: 0, // We use the setter to set this field for type-safety
             disabled: model.disabled,
             required: model.required,

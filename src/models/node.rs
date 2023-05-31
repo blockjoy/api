@@ -8,6 +8,9 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
+mod property;
+pub use property::NodeProperty;
+
 /// ContainerStatus reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumContainerStatus"]
@@ -91,7 +94,6 @@ pub struct Node {
     pub chain_status: NodeChainStatus,
     pub staking_status: Option<NodeStakingStatus>,
     pub container_status: ContainerStatus,
-    properties: serde_json::Value,
     pub ip_gateway: String,
     pub self_update: bool,
     pub block_age: Option<i64>,
@@ -123,8 +125,7 @@ pub struct NodeFilter {
 #[derive(Clone, Debug)]
 pub struct NodeSelfUpgradeFilter {
     pub node_type: NodeType,
-    // blockchain in snake_case.
-    pub blockchain: String,
+    pub blockchain_id: uuid::Uuid,
     // Semantic versioning.
     pub version: String,
 }
@@ -149,9 +150,11 @@ impl Node {
         Ok(node)
     }
 
-    pub fn properties(&self) -> crate::Result<super::NodeProperties> {
-        let res = serde_json::from_value(self.properties.clone())?;
-        Ok(res)
+    pub async fn properties(
+        &self,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<Vec<NodeProperty>> {
+        NodeProperty::by_node(self, conn).await
     }
 
     pub async fn filter(
@@ -279,16 +282,10 @@ impl Node {
 
         let nodes = nodes::table
             .inner_join(blockchains::table.on(nodes::blockchain_id.eq(blockchains::id)))
-            .filter(
-                nodes::self_update
-                    .eq(true)
-                    .and(nodes::node_type.eq(filter.node_type))
-                    .and(
-                        string_to_array(nodes::version, ".")
-                            .lt(string_to_array(filter.version.to_string(), ".")),
-                    )
-                    .and(blockchains::name.eq(filter.blockchain.to_string())),
-            )
+            .filter(nodes::self_update)
+            .filter(nodes::node_type.eq(filter.node_type))
+            .filter(string_to_array(nodes::version, ".").lt(string_to_array(&filter.version, ".")))
+            .filter(blockchains::id.eq(filter.blockchain_id))
             .distinct_on(nodes::id)
             .select(nodes::all_columns)
             .get_results(conn)
@@ -321,7 +318,6 @@ pub struct NewNode<'a> {
     pub name: String,
     pub version: &'a str,
     pub blockchain_id: uuid::Uuid,
-    pub properties: serde_json::Value,
     pub block_height: Option<i64>,
     pub node_data: Option<serde_json::Value>,
     pub chain_status: NodeChainStatus,
@@ -508,10 +504,6 @@ mod tests {
             id: uuid::Uuid::new_v4(),
             org_id: org.id,
             blockchain_id: blockchain.id,
-            properties: serde_json::to_value(models::NodeProperties {
-                version: None,
-                properties: Some(vec![]),
-            })?,
             chain_status: NodeChainStatus::Unknown,
             sync_status: NodeSyncStatus::Syncing,
             container_status: ContainerStatus::Installing,

@@ -1,7 +1,9 @@
 use super::api::{self, babel_service_server};
+use super::helpers::required;
 use crate::auth;
 use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_async::AsyncPgConnection;
 use tracing::log::{debug, info};
 
 // Implement the Babel service
@@ -25,14 +27,12 @@ async fn notify(
     let _claims = auth::get_claims(&req, auth::Endpoint::BabelNotifiy, conn).await?;
     let req = req.into_inner();
     debug!("New Request Version: {:?}", req);
-    let filter = req.clone().try_into()?;
+    let filter = req.info_filter(conn).await?;
     let nodes_to_upgrade = models::Node::find_all_to_upgrade(&filter, conn).await?;
     debug!("Nodes to upgrade: {nodes_to_upgrade:?}",);
 
-    let mut blockchain = models::Blockchain::find_by_name(&filter.blockchain, conn).await?;
-    blockchain.set_new_supported_node_type_version(&filter)?;
-    blockchain.update(conn).await?;
-    debug!("Blockchain updated with new supported types: {blockchain:?}",);
+    let blockchain = models::Blockchain::find_by_id(filter.blockchain_id, conn).await?;
+    blockchain.add_version(&filter, conn).await?;
     let mut node_ids = vec![];
     for mut node in nodes_to_upgrade {
         let node_id = node.id.to_string();
@@ -58,25 +58,20 @@ async fn notify(
     Ok(tonic::Response::new(resp))
 }
 
-impl TryFrom<api::BabelServiceNotifyRequest> for models::NodeSelfUpgradeFilter {
-    type Error = crate::Error;
-
-    fn try_from(req: api::BabelServiceNotifyRequest) -> crate::Result<Self> {
-        req.config
-            .map(|conf| {
-                let node_type: models::NodeType = conf.node_type.parse().map_err(|e| {
-                    crate::Error::BabelConfigConvertError(format!("Cannot convert node_type {e:?}"))
-                })?;
-                Ok(models::NodeSelfUpgradeFilter {
-                    version: conf.node_version,
-                    node_type,
-                    blockchain: conf.protocol,
-                })
-            })
-            .unwrap_or_else(|| {
-                Err(crate::Error::BabelConfigConvertError(
-                    "No config provided".into(),
-                ))
-            })
+impl api::BabelServiceNotifyRequest {
+    async fn info_filter(
+        self,
+        conn: &mut AsyncPgConnection,
+    ) -> crate::Result<models::NodeSelfUpgradeFilter> {
+        let conf = self.config.ok_or_else(required("config"))?;
+        let node_type: models::NodeType = conf.node_type.parse().map_err(|e| {
+            crate::Error::BabelConfigConvertError(format!("Cannot convert node_type {e}"))
+        })?;
+        let blockchain = models::Blockchain::find_by_name(&conf.protocol, conn).await?;
+        Ok(models::NodeSelfUpgradeFilter {
+            version: conf.node_version,
+            node_type,
+            blockchain_id: blockchain.id,
+        })
     }
 }

@@ -191,20 +191,14 @@ mod test {
         }
 
         async fn seed_(conn: &mut diesel_async::AsyncPgConnection) -> crate::Result<()> {
-            diesel::sql_query("INSERT INTO blockchains (id,name,status,supported_node_types) values ('1fdbf4c3-ff16-489a-8d3d-87c8620b963c','Helium', 'production', '[]')")
+            diesel::sql_query("INSERT INTO blockchains (id, name, status) values ('ab5d8cfc-77b1-4265-9fee-ba71ba9de092','Ethereum', 'production');")
                 .execute(conn)
                 .await.unwrap();
-            diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Ethereum', 'production', '[{\"id\":3,\"version\": \"3.3.0\", \"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]}]');")
-                .execute(conn)
-                .await.unwrap();
-            // let blockchain: models::Blockchain = diesel::sql_query("INSERT INTO blockchains (name,status,supported_node_types) values ('Helium', 'production', '[{\"id\":3, \"version\": \"0.0.3\",\"properties\":[{\"name\":\"keystore-file\",\"ui_type\":\"key-upload\",\"default\":\"\",\"disabled\":false,\"required\":true},{\"name\":\"self-hosted\",\"ui_type\":\"switch\",\"default\":\"false\",\"disabled\":true,\"required\":true}]}]') RETURNING *;")
-            let blockchain: models::Blockchain = diesel::insert_into(blockchains::table)
-                .values((
-                    blockchains::name.eq("Helium"),
-                    blockchains::status.eq(models::BlockchainStatus::Production),
-                    blockchains::supported_node_types
-                        .eq(serde_json::json!([Self::test_node_properties()])),
-                ))
+            diesel::sql_query("INSERT INTO blockchain_properties VALUES ('5972a35a-333c-421f-ab64-a77f4ae17533', 'ab5d8cfc-77b1-4265-9fee-ba71ba9de092', '3.3.0', 'validator', 'keystore-file', NULL, 'file_upload', FALSE, FALSE);").execute(conn).await.unwrap();
+            diesel::sql_query("INSERT INTO blockchain_properties VALUES ('a989ad08-b455-4a57-9fe0-696405947e48', 'ab5d8cfc-77b1-4265-9fee-ba71ba9de092', '3.3.0', 'validator', 'self-hosted',   NULL, 'switch',      FALSE, FALSE);").execute(conn).await.unwrap();
+            let blockchain_id: uuid::Uuid = "ab5d8cfc-77b1-4265-9fee-ba71ba9de092".parse().unwrap();
+            let blockchain: models::Blockchain = blockchains::table
+                .filter(blockchains::id.eq(blockchain_id))
                 .get_result(conn)
                 .await
                 .unwrap();
@@ -297,7 +291,6 @@ mod test {
                     nodes::org_id.eq(org_id),
                     nodes::host_id.eq(host2.id),
                     nodes::blockchain_id.eq(blockchain.id),
-                    nodes::properties.eq(Self::test_node_properties()),
                     nodes::block_age.eq(0),
                     nodes::consensus.eq(true),
                     nodes::chain_status.eq(models::NodeChainStatus::Broadcasting),
@@ -312,6 +305,9 @@ mod test {
                     nodes::version.eq("3.3.0"),
                 ))
                 .execute(conn)
+                .await
+                .unwrap();
+            models::NodeProperty::bulk_create(Self::test_node_properties(node_id), conn)
                 .await
                 .unwrap();
             Ok(())
@@ -394,31 +390,21 @@ mod test {
             auth::Refresh::new(host_id, iat, refresh_exp).unwrap()
         }
 
-        fn test_node_properties() -> serde_json::Value {
-            serde_json::json!({
-                "id": 3,
-                "version": "0.0.3",
-                "properties": [
-                    {
-                        "name": "keystore-file",
-                        "label": "some-label",
-                        "description": "please put your file here",
-                        "ui_type": "key-upload",
-                        "disabled": false,
-                        "required": true,
-                        "default": "wow!"
-                    },
-                    {
-                        "name": "self-hosted",
-                        "label": "some-better-label",
-                        "description": "check if you want to self-host",
-                        "ui_type": "switch",
-                        "disabled": true,
-                        "required": true,
-                        "default": "hank"
-                    },
-                ],
-            })
+        fn test_node_properties(node_id: uuid::Uuid) -> Vec<models::NodeProperty> {
+            vec![
+                models::NodeProperty {
+                    id: uuid::Uuid::new_v4(),
+                    node_id,
+                    blockchain_property_id: "5972a35a-333c-421f-ab64-a77f4ae17533".parse().unwrap(),
+                    value: "Sneaky file content".to_string(),
+                },
+                models::NodeProperty {
+                    id: uuid::Uuid::new_v4(),
+                    node_id,
+                    blockchain_property_id: "a989ad08-b455-4a57-9fe0-696405947e48".parse().unwrap(),
+                    value: "false".to_string(),
+                },
+            ]
         }
     }
 }

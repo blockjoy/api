@@ -277,6 +277,13 @@ impl api::Command {
             CreateNode => {
                 let node = models::Node::find_by_id(node_id()?, conn).await?;
                 let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
+                let id_to_name_map = models::BlockchainProperty::id_to_name_map(
+                    &blockchain,
+                    node.node_type,
+                    &node.version,
+                    conn,
+                )
+                .await?;
                 let mut image = api::ContainerImage {
                     protocol: blockchain.name,
                     node_version: node.version.to_lowercase(),
@@ -287,10 +294,11 @@ impl api::Command {
                 image.set_status(api::ContainerImageStatus::Development);
                 let network = api::Parameter::new("network", &node.network);
                 let properties = node
-                    .properties()?
-                    .iter_props()
-                    .flat_map(|p| p.value.as_ref().map(|v| (&p.name, v)))
-                    .map(|(name, value)| api::Parameter::new(name, value))
+                    .properties(conn)
+                    .await?
+                    .into_iter()
+                    .map(|p| (&id_to_name_map[&p.blockchain_property_id], p.value))
+                    .map(|(name, value)| api::Parameter::new(name, &value))
                     .chain([network])
                     .collect();
                 let mut node_create = api::NodeCreate {
