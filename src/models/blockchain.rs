@@ -98,7 +98,7 @@ impl Blockchain {
                 .await?;
         if current_props.iter().any(|x| x.version == filter.version) {
             let (blockchain_id, version) = (filter.blockchain_id, &filter.version);
-            warn!("Node type version {blockchain_id} already exists in blockchain {version}");
+            warn!("Node type version {version} already exists in blockchain {blockchain_id}");
             return Ok(());
         }
         let old_version = current_props.pop().map(|prop| prop.version);
