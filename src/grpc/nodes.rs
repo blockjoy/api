@@ -234,6 +234,9 @@ impl api::Node {
             .created_by
             .map(|u_id| models::User::find_by_id(u_id, conn));
         let user = OptionFuture::from(user_fut).await.transpose()?;
+
+        // We need to get both the node properties and the blockchain properties to construct the
+        // final dto. First we query both, and then we zip them together.
         let nprops = models::NodeProperty::by_node(&node, conn).await?;
         let bprops = models::BlockchainProperty::by_node_props(&nprops, conn).await?;
         let bprops: HashMap<_, _> = bprops.into_iter().map(|prop| (prop.id, prop)).collect();
@@ -242,6 +245,7 @@ impl api::Node {
             .map(|nprop| (nprop.blockchain_property_id, nprop))
             .map(|(blockchain_property_id, nprop)| (nprop, bprops[&blockchain_property_id].clone()))
             .collect();
+
         Self::new(node, &blockchain, user.as_ref(), props)
     }
 
