@@ -476,6 +476,7 @@ impl api::NodeServiceListRequest {
                 .iter()
                 .map(|id| id.parse())
                 .collect::<Result<_, _>>()?,
+            host_id: self.host_id.as_ref().map(|id| id.parse()).transpose()?,
         })
     }
 }

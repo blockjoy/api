@@ -120,6 +120,7 @@ pub struct NodeFilter {
     pub status: Vec<NodeChainStatus>,
     pub node_types: Vec<NodeType>,
     pub blockchains: Vec<uuid::Uuid>,
+    pub host_id: Option<uuid::Uuid>,
 }
 
 #[derive(Clone, Debug)]
@@ -178,6 +179,10 @@ impl Node {
 
         if !filter.node_types.is_empty() {
             query = query.filter(nodes::node_type.eq_any(&filter.node_types));
+        }
+
+        if let Some(host_id) = filter.host_id {
+            query = query.filter(nodes::host_id.eq(host_id));
         }
 
         let nodes = query.get_results(conn).await?;
@@ -538,6 +543,7 @@ mod tests {
             limit: 10,
             offset: 0,
             org_id: org.id,
+            host_id: Some(host.id),
         };
 
         let nodes = models::Node::filter(filter, &mut conn).await?;

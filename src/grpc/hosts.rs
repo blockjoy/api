@@ -71,7 +71,7 @@ async fn create(
     let req = req.into_inner();
     let org_id = req.org_id.as_ref().map(|id| id.parse()).transpose()?;
     // We retrieve the id of the caller from the token that was used.
-    let caller_id = if let Some(org_id) = org_id {
+    let (caller_id, org_id) = if let Some(org_id) = org_id {
         // First we find the org and user that correspond to this token.
         let org_user = models::OrgUser::by_token(&req.provision_token, conn)
             .await
@@ -79,17 +79,18 @@ async fn create(
         // Now we check that the user belonging to this token is actually a member of the requested
         // organization.
         if org_user.org_id == org_id {
-            org_user.user_id
+            (org_user.user_id, org_id)
         } else {
             super::forbidden!("Access denied: not a member of this org");
         }
     } else {
-        // The API doesn't require an org_id to be supplied. This is for forwards compatibility with
-        // requests create hosts which do not have an org_id and can be used by any one. However,
-        // for now we just retrurn an error here.
-        super::forbidden!("Access denied: org_id is required");
+        // First we find the org and user that correspond to this token.
+        let org_user = models::OrgUser::by_token(&req.provision_token, conn)
+            .await
+            .map_err(|_| tonic::Status::permission_denied("Invalid token"))?;
+        (org_user.user_id, org_user.org_id)
     };
-    let new_host = req.as_new(caller_id)?;
+    let new_host = req.as_new(caller_id, org_id)?;
     let host = new_host.create(conn).await?;
     let iat = chrono::Utc::now();
     let claims = auth::Claims::new(
@@ -256,7 +257,11 @@ impl api::Host {
 }
 
 impl api::HostServiceCreateRequest {
-    pub fn as_new(&self, user_id: uuid::Uuid) -> crate::Result<models::NewHost<'_>> {
+    pub fn as_new(
+        &self,
+        user_id: uuid::Uuid,
+        org_id: uuid::Uuid,
+    ) -> crate::Result<models::NewHost<'_>> {
         Ok(models::NewHost {
             name: &self.name,
             version: &self.version,
@@ -270,7 +275,7 @@ impl api::HostServiceCreateRequest {
             ip_range_from: self.ip_range_from.parse()?,
             ip_range_to: self.ip_range_to.parse()?,
             ip_gateway: self.ip_gateway.parse()?,
-            org_id: self.org_id.as_ref().map(|s| s.parse()).transpose()?,
+            org_id: Some(org_id),
             created_by: user_id,
         })
     }
