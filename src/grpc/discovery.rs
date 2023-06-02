@@ -1,7 +1,7 @@
 use super::api::{self, discovery_service_server};
 use crate::{
     auth::{self, key_provider::KeyProvider},
-    cookbook, models,
+    models,
 };
 
 #[tonic::async_trait]

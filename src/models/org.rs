@@ -92,30 +92,26 @@ impl Org {
     }
 
     pub async fn add_member(
+        &self,
         user_id: Uuid,
-        org_id: Uuid,
         role: OrgRole,
         conn: &mut super::Conn,
     ) -> Result<OrgUser> {
-        NewOrgUser::new(org_id, user_id, role).create(conn).await
+        NewOrgUser::new(self.id, user_id, role).create(conn).await
     }
 
-    pub async fn remove_org_user(
-        user: &super::User,
-        org: &Self,
-        conn: &mut super::Conn,
-    ) -> Result<()> {
+    pub async fn remove_member(&self, user: &super::User, conn: &mut super::Conn) -> Result<()> {
         let org_user = orgs_users::table
             .filter(orgs_users::user_id.eq(user.id))
-            .filter(orgs_users::org_id.eq(org.id));
+            .filter(orgs_users::org_id.eq(self.id));
         diesel::delete(org_user).execute(conn).await?;
         Ok(())
     }
 
     /// Marks the the given organization as deleted
-    pub async fn delete(org_id: Uuid, conn: &mut super::Conn) -> Result<()> {
+    pub async fn delete(&self, conn: &mut super::Conn) -> Result<()> {
         let to_delete = orgs::table
-            .filter(orgs::id.eq(org_id))
+            .filter(orgs::id.eq(self.id))
             .filter(orgs::is_personal.eq(false));
         diesel::update(to_delete)
             .set(orgs::deleted_at.eq(chrono::Utc::now()))

@@ -1,8 +1,7 @@
 use super::node_type::*;
 use super::schema::nodes;
 use super::string_to_array;
-use crate::cloudflare::CloudflareApi;
-use crate::cookbook::get_hw_requirements;
+use crate::{cloudflare::CloudflareApi, cookbook};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -212,11 +211,16 @@ impl Node {
     }
 
     /// Finds the next possible host for this node to be tried on.
-    pub async fn find_host(&self, conn: &mut super::Conn) -> crate::Result<super::Host> {
+    pub async fn find_host(
+        &self,
+        cookbook: &cookbook::Cookbook,
+        conn: &mut super::Conn,
+    ) -> crate::Result<super::Host> {
         let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
-        let requirements =
-            get_hw_requirements(chain.name, self.node_type.to_string(), self.version.clone())
-                .await?;
+        let requirements = cookbook
+            .rhai_metadata(&chain.name, &self.node_type.to_string(), &self.version)
+            .await?
+            .requirements;
 
         let candidates = match self.scheduler() {
             Some(scheduler) => {
@@ -341,15 +345,16 @@ pub struct NewNode<'a> {
 impl NewNode<'_> {
     pub async fn create(
         self,
-        host_id: Option<uuid::Uuid>,
+        host: Option<super::Host>,
         cf_api: &CloudflareApi,
+        cookbook: &cookbook::Cookbook,
         conn: &mut super::Conn,
     ) -> crate::Result<Node> {
         let no_sched = || anyhow!("If there is no host_id, the scheduler is required");
-        let host = match host_id {
-            Some(id) => super::Host::find_by_id(id, conn).await?,
+        let host = match host {
+            Some(host) => host,
             None => {
-                self.find_host(self.scheduler().ok_or_else(no_sched)?, conn)
+                self.find_host(self.scheduler().ok_or_else(no_sched)?, cookbook, conn)
                     .await?
             }
         };
@@ -388,17 +393,17 @@ impl NewNode<'_> {
     pub async fn find_host(
         &self,
         scheduler: super::NodeScheduler,
+        cookbook: &cookbook::Cookbook,
         conn: &mut super::Conn,
     ) -> crate::Result<super::Host> {
         use crate::Error::NoMatchingHostError;
 
         let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
-        let requirements = get_hw_requirements(
-            chain.name,
-            self.node_type.to_string(),
-            self.version.to_string(),
-        )
-        .await?;
+
+        let requirements = cookbook
+            .rhai_metadata(&chain.name, &self.node_type.to_string(), &self.version)
+            .await?
+            .requirements;
         let candidates = super::Host::host_candidates(
             requirements,
             self.blockchain_id,
@@ -523,7 +528,8 @@ mod tests {
 
         let mut conn = db.conn().await;
         let host = db.host().await;
-        req.create(Some(host.id), &cloudflare_api, &mut conn)
+        let host_id = host.id;
+        req.create(Some(host), &cloudflare_api, todo!(), &mut conn)
             .await
             .unwrap();
 
@@ -534,7 +540,7 @@ mod tests {
             limit: 10,
             offset: 0,
             org_id: org.id,
-            host_id: Some(host.id),
+            host_id: Some(host_id),
         };
 
         let nodes = models::Node::filter(filter, &mut conn).await?;

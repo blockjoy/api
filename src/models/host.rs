@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-
 use super::schema::hosts;
-use crate::cookbook::HardwareRequirements;
-use crate::{Error, Result};
+use crate::{cookbook::script::HardwareRequirements, Error, Result};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
@@ -170,9 +168,9 @@ impl Host {
         ", order_by = scheduler.order_clause());
 
         let hosts: Vec<HostCandidate> = diesel::sql_query(query)
-            .bind::<BigInt, _>(requirements.vcpu_count)
-            .bind::<BigInt, _>(requirements.mem_size_mb * 1000 * 1000)
-            .bind::<BigInt, _>(requirements.disk_size_gb * 1000 * 1000 * 1000)
+            .bind::<BigInt, _>(requirements.vcpu_count as i64)
+            .bind::<BigInt, _>(requirements.mem_size_mb as i64 * 1000 * 1000)
+            .bind::<BigInt, _>(requirements.disk_size_gb as i64 * 1000 * 1000 * 1000)
             .bind::<Uuid, _>(blockchain_id)
             .bind::<EnumNodeType, _>(node_type)
             .bind::<Uuid, _>(org_id)

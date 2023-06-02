@@ -136,18 +136,22 @@ async fn create(
     let req = req.into_inner();
     let blockchain = models::Blockchain::find_by_id(req.blockchain_id.parse()?, conn).await?;
     let new_node = req.as_new(user.id)?;
-    // The host_id will either be determined by the scheduler, or by the host_id.
-    // Therfore we pass in an optional host_id for the node creation to fall back on if
-    // there is no scheduler.
+    // The host_id will either be determined by the scheduler, or by the host_id.  Therfore we pass
+    // in an optional host_id for the node creation to fall back on if there is no scheduler.
     let host_id = req.host_id()?;
-    if let Some(host_id) = host_id {
+    let host = if let Some(host_id) = host_id {
         let host = models::Host::find_by_id(host_id, conn).await?;
         let Some(org_id) = host.org_id else { super::forbidden!("Host must have org_id") };
         if !models::Org::is_member(user.id, org_id, conn).await? {
             super::forbidden!("Must be member of org");
         }
-    }
-    let node = new_node.create(req.host_id()?, &grpc.dns, conn).await?;
+        Some(host)
+    } else {
+        None
+    };
+    let node = new_node
+        .create(host, &grpc.dns, &grpc.cookbook, conn)
+        .await?;
     // The user sends in the properties in a key-value style, that is,
     // { property name: property value }. We want to store this as
     // { property id: property value }. In order to map property names to property ids we can use

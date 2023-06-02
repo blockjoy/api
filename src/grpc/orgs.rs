@@ -201,7 +201,7 @@ async fn delete(
     }
 
     tracing::debug!("Deleting org: {}", org_id);
-    models::Org::delete(org_id, conn).await?;
+    org.delete(conn).await?;
     let user = models::User::find_by_id(user_id, conn).await?;
     let msg = api::OrgMessage::deleted(org, user);
     let resp = api::OrgServiceDeleteResponse {};
@@ -227,7 +227,7 @@ async fn remove_member(
     }
     let user_to_remove = models::User::find_by_id(user_id, conn).await?;
     let org = models::Org::find_by_id(org_id, conn).await?;
-    models::Org::remove_org_user(&user_to_remove, &org, conn).await?;
+    org.remove_member(&user_to_remove, conn).await?;
     // In case a user needs to be re-invited later, we also remove the (already accepted) invites
     // from the database. This is to prevent them from running into a unique constraint when they
     // are invited again.

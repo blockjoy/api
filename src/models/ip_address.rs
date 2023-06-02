@@ -75,7 +75,8 @@ impl IpAddress {
             .filter(ip_addresses::host_id.eq(host_id))
             .filter(ip_addresses::is_assigned.eq(false))
             .get_result(conn)
-            .await?;
+            .await
+            .map_err(|_| crate::Error::unexpected("No more ip's available"))?;
 
         Self::assign(ip.id, host_id, conn).await
     }

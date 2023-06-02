@@ -86,6 +86,9 @@ pub enum Error {
 
     #[error("One or more nodes could not be upgraded {0}")]
     UpgradeProcessError(String),
+
+    #[error("Storage error: {0}")]
+    S3(#[from] aws_sdk_s3::error::SdkError<aws_sdk_s3::operation::get_object::GetObjectError>),
 }
 
 impl Error {

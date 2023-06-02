@@ -132,7 +132,7 @@ async fn responds_ok_for_revoke() {
         .await
         .unwrap();
     // If the user is already added, thats okay
-    let _ = models::Org::add_member(user.id, org.id, models::OrgRole::Admin, &mut conn).await;
+    let _ = models::Org::add_member(&org, user.id, models::OrgRole::Admin, &mut conn).await;
     let req = api::InvitationServiceRevokeRequest {
         invitation_id: invitation.id.to_string(),
     };

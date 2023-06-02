@@ -80,7 +80,7 @@ async fn recover_created(
     };
 
     // 3. We now find the host that is next in line, and assign our node to that host.
-    let Ok(host) = node.find_host(conn).await else {
+    let Ok(host) = node.find_host(&impler.cookbook, conn).await else {
         // We were unable to find a new host. This may happen because the system is out of resources
         // or because we have retried to many times. Either way we have to log that this retry was
         // canceled.

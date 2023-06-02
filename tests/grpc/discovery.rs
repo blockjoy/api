@@ -14,10 +14,6 @@ async fn responds_correct_urls_forss() {
         std::env::var("KEY_SERVICE_URL").unwrap()
     );
     assert_eq!(
-        response.registry_url,
-        std::env::var("COOKBOOK_URL").unwrap()
-    );
-    assert_eq!(
         response.notification_url,
         format!(
             "mqtt://{}:{}",

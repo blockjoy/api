@@ -1,5 +1,6 @@
 use super::api::{self, blockchain_service_server, SupportedNodeProperty};
-use crate::cookbook::get_networks;
+use crate::cookbook;
+use crate::cookbook::script::NetType;
 use crate::models;
 use futures_util::future::join_all;
 use std::collections::HashMap;
@@ -20,7 +21,7 @@ impl blockchain_service_server::BlockchainService for super::GrpcImpl {
         req: tonic::Request<api::BlockchainServiceListRequest>,
     ) -> super::Resp<api::BlockchainServiceListResponse> {
         let mut conn = self.conn().await?;
-        let resp = list(req, &mut conn).await?;
+        let resp = list(&self, req, &mut conn).await?;
         Ok(resp)
     }
 }
@@ -39,6 +40,7 @@ async fn get(
 }
 
 async fn list(
+    grpc: &super::GrpcImpl,
     _: tonic::Request<api::BlockchainServiceListRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::BlockchainServiceListResponse> {
@@ -61,7 +63,13 @@ async fn list(
             let name = blockchain.name.clone();
             let node_type = node_properties.node_type.to_string();
             let version = node_properties.version.clone();
-            network_futs.push(try_get_networks(blockchain.id, name, node_type, version));
+            network_futs.push(try_get_networks(
+                &grpc.cookbook,
+                blockchain.id,
+                name,
+                node_type,
+                version,
+            ));
         }
     }
     let networks = join_all(network_futs).await;
@@ -94,6 +102,7 @@ async fn list(
 /// because calls to cookbook sometimes fail and we don't want this whole endpoint to crash when
 /// cookbook is having a sad day.
 async fn try_get_networks(
+    cookbook: &cookbook::Cookbook,
     blockchain_id: uuid::Uuid,
     name: String,
     node_type: String,
@@ -102,8 +111,24 @@ async fn try_get_networks(
     // We prepare an error message because we are moving all the arguments used to construct it.
     let err_msg = format!("Could not get networks for {name} {node_type} version {version:?}");
 
-    let networks = match get_networks(name, node_type, version).await {
-        Ok(nets) => nets.into_iter().map(Into::into).collect(),
+    let networks = match cookbook.rhai_metadata(&name, &node_type, &version).await {
+        Ok(meta) => meta
+            .nets
+            .into_iter()
+            .map(|(name, network)| {
+                let mut net = api::BlockchainNetwork {
+                    name,
+                    url: network.url,
+                    net_type: 0, // we use a setter
+                };
+                net.set_net_type(match network.net_type {
+                    NetType::Dev => api::BlockchainNetworkType::Dev,
+                    NetType::Test => api::BlockchainNetworkType::Test,
+                    NetType::Main => api::BlockchainNetworkType::Main,
+                });
+                net
+            })
+            .collect(),
         Err(e) => {
             tracing::error!("{err_msg}: {e}");
             vec![]

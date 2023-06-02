@@ -24,7 +24,7 @@ mod test {
     use crate::auth::expiration_provider;
     use crate::cloudflare::CloudflareApi;
     use crate::models::schema::{blockchains, commands, nodes, orgs};
-    use crate::{auth, models};
+    use crate::{auth, cookbook, models};
     use diesel::migration::MigrationSource;
     use diesel::prelude::*;
     use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
@@ -71,6 +71,39 @@ mod test {
                 .create_async()
                 .await;
             cloudfare_server
+        }
+    }
+
+    pub struct TestCookbook {
+        mock: mockito::ServerGuard,
+    }
+
+    impl TestCookbook {
+        pub async fn new() -> Self {
+            let mock = Self::mock_cookbook().await;
+            Self { mock }
+        }
+
+        pub fn get_cookbook(&self) -> cookbook::Cookbook {
+            cookbook::Cookbook {
+                prefix: "chainz".to_string(),
+                bucket: "mrs bucket".to_string(),
+                expiration: std::time::Duration::from_secs(123),
+                client: todo!(),
+                engine: todo!(),
+            }
+        }
+
+        async fn mock_cookbook() -> mockito::ServerGuard {
+            let mut cookbook_server = mockito::Server::new_async().await;
+
+            cookbook_server
+                .mock("POST", mockito::Matcher::Regex(r"todo$".to_string()))
+                .with_status(200)
+                .with_body("todo")
+                .create_async()
+                .await;
+            cookbook_server
         }
     }
 

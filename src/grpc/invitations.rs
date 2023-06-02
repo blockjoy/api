@@ -193,15 +193,12 @@ async fn accept(
     }
 
     let invitation = invitation.accept(conn).await?;
+    let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
     // Only registered users can accept an invitation
     let new_member = models::User::find_by_email(&invitation.invitee_email, conn).await?;
-    let org_user = models::Org::add_member(
-        new_member.id,
-        invitation.created_for_org,
-        models::OrgRole::Member,
-        conn,
-    )
-    .await?;
+    let org_user = org
+        .add_member(new_member.id, models::OrgRole::Member, conn)
+        .await?;
     let org = models::Org::find_by_id(org_user.org_id, conn).await?;
     let user = models::User::find_by_id(org_user.user_id, conn).await?;
     let msg = api::OrgMessage::invitation_accepted(org, invitation, user)?;

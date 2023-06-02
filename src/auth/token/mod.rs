@@ -315,6 +315,17 @@ pub enum Endpoint {
 
     BabelAll = 1200,
     BabelNotifiy = 1201,
+
+    CookbookAll = 1300,
+    CookbookRetrievePlugin = 1301,
+    CookbookRetrieveImage = 1302,
+    CookbookRetrieveKernel = 1303,
+    CookbookRequirements = 1304,
+    CookbookNetConfigurations = 1305,
+    CookbookListBabelVersions = 1306,
+    CookbookAddStage = 1307,
+    CookbookRemoveStage = 1308,
+    CookbookDelete = 1309,
 }
 
 const SPACE_PER_SERVICE: u64 = 100;
