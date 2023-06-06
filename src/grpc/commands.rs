@@ -9,13 +9,22 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 mod recover;
 mod success;
 
+struct CommandResult<T> {
+    commands: Vec<api::Command>,
+    resp: tonic::Response<T>,
+}
+
 #[tonic::async_trait]
 impl command_service_server::CommandService for super::GrpcImpl {
     async fn create(
         &self,
         req: tonic::Request<api::CommandServiceCreateRequest>,
     ) -> super::Resp<api::CommandServiceCreateResponse> {
-        self.trx(|c| create(self, req, c).scope_boxed()).await
+        let result = self.trx(|c| create(req, c).scope_boxed()).await?;
+        for command in &result.commands {
+            self.notifier.commands_sender().send(command).await?;
+        }
+        Ok(result.resp)
     }
 
     async fn get(
@@ -31,7 +40,11 @@ impl command_service_server::CommandService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::CommandServiceUpdateRequest>,
     ) -> super::Resp<api::CommandServiceUpdateResponse> {
-        self.trx(|c| update(self, req, c).scope_boxed()).await
+        let result = self.trx(|c| update(req, c).scope_boxed()).await?;
+        for command in &result.commands {
+            self.notifier.commands_sender().send(command).await?;
+        }
+        Ok(result.resp)
     }
 
     async fn pending(
@@ -45,10 +58,9 @@ impl command_service_server::CommandService for super::GrpcImpl {
 }
 
 async fn create(
-    grpc: &super::GrpcImpl,
     req: tonic::Request<api::CommandServiceCreateRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::CommandServiceCreateResponse> {
+) -> crate::Result<CommandResult<api::CommandServiceCreateResponse>> {
     let claims = auth::get_claims(&req, CommandCreate, conn).await?;
     let req = req.into_inner();
     let node = req.node(conn).await?;
@@ -63,11 +75,13 @@ async fn create(
         .create(conn)
         .await?;
     let command = api::Command::from_model(&command, conn).await?;
-    grpc.notifier.commands_sender().send(&command).await?;
-    let resp = api::CommandServiceCreateResponse {
-        command: Some(command),
-    };
-    Ok(tonic::Response::new(resp))
+    let resp = tonic::Response::new(api::CommandServiceCreateResponse {
+        command: Some(command.clone()),
+    });
+    Ok(CommandResult {
+        commands: vec![command],
+        resp,
+    })
 }
 
 async fn get(
@@ -92,10 +106,9 @@ async fn get(
 }
 
 async fn update(
-    grpc: &super::GrpcImpl,
     req: tonic::Request<api::CommandServiceUpdateRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::CommandServiceUpdateResponse> {
+) -> crate::Result<CommandResult<api::CommandServiceUpdateResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::CommandUpdate, conn).await?;
     let req = req.into_inner();
     let command = models::Command::find_by_id(req.id.parse()?, conn).await?;
@@ -107,6 +120,7 @@ async fn update(
     }
     let update_cmd = req.as_update()?;
     let cmd = update_cmd.update(conn).await?;
+    let mut commands = vec![];
     match cmd.exit_status {
         Some(0) => {
             // Some responses require us to register success.
@@ -117,15 +131,21 @@ async fn update(
             // We got back an error status code. In practice, blockvisord sends 0 for
             // success and 1 for failure, but we treat every non-zero exit code as an
             // error, not just 1.
-            recover::recover(grpc, &cmd, conn).await;
+            if let Ok(cmds) = recover::recover(&cmd, conn).await {
+                commands.extend(cmds);
+            }
         }
         None => {}
     }
     let command = api::Command::from_model(&cmd, conn).await?;
+    commands.push(command.clone());
     let resp = api::CommandServiceUpdateResponse {
         command: Some(command),
     };
-    Ok(tonic::Response::new(resp))
+    Ok(CommandResult {
+        commands,
+        resp: tonic::Response::new(resp),
+    })
 }
 
 async fn pending(

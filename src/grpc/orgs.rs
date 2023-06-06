@@ -3,13 +3,20 @@ use crate::{auth, models};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
+struct OrgResult<T> {
+    org_msg: api::OrgMessage,
+    resp: tonic::Response<T>,
+}
+
 #[tonic::async_trait]
 impl org_service_server::OrgService for super::GrpcImpl {
     async fn create(
         &self,
         req: tonic::Request<api::OrgServiceCreateRequest>,
     ) -> super::Resp<api::OrgServiceCreateResponse> {
-        self.trx(|c| create(self, req, c).scope_boxed()).await
+        let result = self.trx(|c| create(req, c).scope_boxed()).await?;
+        self.notifier.orgs_sender().send(&result.org_msg).await?;
+        Ok(result.resp)
     }
 
     async fn get(
@@ -34,22 +41,27 @@ impl org_service_server::OrgService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::OrgServiceUpdateRequest>,
     ) -> super::Resp<api::OrgServiceUpdateResponse> {
-        self.trx(|c| update(self, req, c).scope_boxed()).await
+        let result = self.trx(|c| update(req, c).scope_boxed()).await?;
+        self.notifier.orgs_sender().send(&result.org_msg).await?;
+        Ok(result.resp)
     }
 
     async fn delete(
         &self,
         req: tonic::Request<api::OrgServiceDeleteRequest>,
     ) -> super::Resp<api::OrgServiceDeleteResponse> {
-        self.trx(|c| delete(self, req, c).scope_boxed()).await
+        let result = self.trx(|c| delete(req, c).scope_boxed()).await?;
+        self.notifier.orgs_sender().send(&result.org_msg).await?;
+        Ok(result.resp)
     }
 
     async fn remove_member(
         &self,
         req: tonic::Request<api::OrgServiceRemoveMemberRequest>,
     ) -> super::Resp<api::OrgServiceRemoveMemberResponse> {
-        self.trx(|c| remove_member(self, req, c).scope_boxed())
-            .await
+        let result = self.trx(|c| remove_member(req, c).scope_boxed()).await?;
+        self.notifier.orgs_sender().send(&result.org_msg).await?;
+        Ok(result.resp)
     }
 
     async fn get_provision_token(
@@ -72,10 +84,9 @@ impl org_service_server::OrgService for super::GrpcImpl {
 }
 
 async fn create(
-    grpc: &super::GrpcImpl,
     req: tonic::Request<api::OrgServiceCreateRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::OrgServiceCreateResponse> {
+) -> crate::Result<OrgResult<api::OrgServiceCreateResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::OrgCreate, conn).await?;
     let req = req.into_inner();
     let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
@@ -85,11 +96,13 @@ async fn create(
     };
     let user = models::User::find_by_id(user_id, conn).await?;
     let org = new_org.create(user.id, conn).await?;
-    let msg = api::OrgMessage::created(org.clone(), user, conn).await?;
-    let org = api::Org::from_model(org, conn).await?;
-    grpc.notifier.orgs_sender().send(&msg).await?;
+    let org = api::Org::from_model(org.clone(), conn).await?;
+    let msg = api::OrgMessage::created(org.clone(), user);
     let resp = api::OrgServiceCreateResponse { org: Some(org) };
-    Ok(tonic::Response::new(resp))
+    Ok(OrgResult {
+        resp: tonic::Response::new(resp),
+        org_msg: msg,
+    })
 }
 
 async fn get(
@@ -146,10 +159,9 @@ async fn list(
 }
 
 async fn update(
-    grpc: &super::GrpcImpl,
     req: tonic::Request<api::OrgServiceUpdateRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::OrgServiceUpdateResponse> {
+) -> crate::Result<OrgResult<api::OrgServiceUpdateResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::OrgUpdate, conn).await?;
     let req = req.into_inner();
     let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
@@ -161,19 +173,21 @@ async fn update(
         id: org_id,
         name: req.name.as_deref(),
     };
-    let org = update.update(conn).await?;
+    let org_model = update.update(conn).await?;
     let user = models::User::find_by_id(user_id, conn).await?;
-    let msg = api::OrgMessage::updated(org, user, conn).await?;
-    grpc.notifier.orgs_sender().send(&msg).await?;
+    let org = api::Org::from_model(org_model, conn).await?;
+    let msg = api::OrgMessage::updated(org, user);
     let resp = api::OrgServiceUpdateResponse {};
-    Ok(tonic::Response::new(resp))
+    Ok(OrgResult {
+        resp: tonic::Response::new(resp),
+        org_msg: msg,
+    })
 }
 
 async fn delete(
-    grpc: &super::GrpcImpl,
     req: tonic::Request<api::OrgServiceDeleteRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::OrgServiceDeleteResponse> {
+) -> crate::Result<OrgResult<api::OrgServiceDeleteResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::OrgDelete, conn).await?;
     let req = req.into_inner();
     let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
@@ -190,16 +204,17 @@ async fn delete(
     models::Org::delete(org_id, conn).await?;
     let user = models::User::find_by_id(user_id, conn).await?;
     let msg = api::OrgMessage::deleted(org, user);
-    grpc.notifier.orgs_sender().send(&msg).await?;
     let resp = api::OrgServiceDeleteResponse {};
-    Ok(tonic::Response::new(resp))
+    Ok(OrgResult {
+        resp: tonic::Response::new(resp),
+        org_msg: msg,
+    })
 }
 
 async fn remove_member(
-    grpc: &super::GrpcImpl,
     req: tonic::Request<api::OrgServiceRemoveMemberRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::OrgServiceRemoveMemberResponse> {
+) -> crate::Result<OrgResult<api::OrgServiceRemoveMemberResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::OrgRemoveMember, conn).await?;
     let req = req.into_inner();
     let auth::Resource::User(caller_id) = claims.resource() else { super::forbidden!("Access denied") };
@@ -217,12 +232,15 @@ async fn remove_member(
     // from the database. This is to prevent them from running into a unique constraint when they
     // are invited again.
     models::Invitation::remove_by_org_user(&user_to_remove.email, org_id, conn).await?;
-    let org = models::Org::find_by_id(org_id, conn).await?;
+    let org_model = models::Org::find_by_id(org_id, conn).await?;
     let user = models::User::find_by_id(caller_id, conn).await?;
-    let msg = api::OrgMessage::updated(org, user, conn).await?;
-    grpc.notifier.orgs_sender().send(&msg).await?;
+    let org = api::Org::from_model(org_model, conn).await?;
+    let msg = api::OrgMessage::updated(org, user);
     let resp = api::OrgServiceRemoveMemberResponse {};
-    Ok(tonic::Response::new(resp))
+    Ok(OrgResult {
+        resp: tonic::Response::new(resp),
+        org_msg: msg,
+    })
 }
 
 async fn get_provision_token(

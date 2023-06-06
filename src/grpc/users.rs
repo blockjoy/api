@@ -10,7 +10,17 @@ impl user_service_server::UserService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::UserServiceCreateRequest>,
     ) -> super::Resp<api::UserServiceCreateResponse> {
-        self.trx(|c| create(req, c).scope_boxed()).await
+        let inner = req.into_inner();
+        let new_user = inner.as_new()?;
+        let mut conn = self.conn().await?;
+        let new_user = new_user.create(&mut conn).await?;
+        mail::MailClient::new()
+            .registration_confirmation(&new_user)
+            .await?;
+        let resp = api::UserServiceCreateResponse {
+            user: Some(api::User::from_model(new_user.clone())?),
+        };
+        Ok(tonic::Response::new(resp))
     }
 
     async fn get(
@@ -55,23 +65,6 @@ async fn get(
     }
     let resp = api::UserServiceGetResponse {
         user: Some(api::User::from_model(user)?),
-    };
-    Ok(tonic::Response::new(resp))
-}
-
-async fn create(
-    req: tonic::Request<api::UserServiceCreateRequest>,
-    conn: &mut models::Conn,
-) -> super::Result<api::UserServiceCreateResponse> {
-    // This endpoint doesn't require authentication.
-    let inner = req.into_inner();
-    let new_user = inner.as_new()?;
-    let new_user = new_user.create(conn).await?;
-    mail::MailClient::new()
-        .registration_confirmation(&new_user)
-        .await?;
-    let resp = api::UserServiceCreateResponse {
-        user: Some(api::User::from_model(new_user.clone())?),
     };
     Ok(tonic::Response::new(resp))
 }

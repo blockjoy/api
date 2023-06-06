@@ -175,36 +175,28 @@ impl api::OrgMessage {
         }
     }
 
-    pub async fn created(
-        model: models::Org,
-        user: models::User,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Self> {
-        Ok(Self {
+    pub fn created(model: api::Org, user: models::User) -> Self {
+        Self {
             message: Some(org_message::Message::Created(api::OrgCreated {
                 // Over MQTT, there is no current user so we pass None as a second argument.
-                org: Some(api::Org::from_model(model, conn).await?),
+                org: Some(model),
                 created_by: user.id.to_string(),
                 created_by_name: format!("{} {}", user.first_name, user.last_name),
                 created_by_email: user.email,
             })),
-        })
+        }
     }
 
-    pub async fn updated(
-        model: models::Org,
-        user: models::User,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Self> {
-        Ok(Self {
+    pub fn updated(model: api::Org, user: models::User) -> Self {
+        Self {
             message: Some(org_message::Message::Updated(api::OrgUpdated {
                 // Over MQTT, there is no current user so we pass None as a second argument.
-                org: Some(api::Org::from_model(model, conn).await?),
+                org: Some(model),
                 updated_by: user.id.to_string(),
                 updated_by_name: format!("{} {}", user.first_name, user.last_name),
                 updated_by_email: user.email,
             })),
-        })
+        }
     }
 
     pub fn deleted(model: models::Org, user: models::User) -> Self {
@@ -339,19 +331,15 @@ impl api::NodeMessage {
         }
     }
 
-    pub async fn created(
-        model: models::Node,
-        user: models::User,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Self> {
-        Ok(Self {
+    pub fn created(model: api::Node, user: models::User) -> Self {
+        Self {
             message: Some(node_message::Message::Created(api::NodeCreated {
-                node: Some(api::Node::from_model(model, conn).await?),
+                node: Some(model),
                 created_by: user.id.to_string(),
                 created_by_name: format!("{} {}", user.first_name, user.last_name),
                 created_by_email: user.email,
             })),
-        })
+        }
     }
 
     pub async fn updated(
@@ -436,9 +424,10 @@ mod tests {
         let node = db.node().await;
         let user = db.user().await;
 
-        let msg = api::NodeMessage::created(node.clone(), user.clone(), &mut conn)
+        let node_model = api::Node::from_model(node.clone(), &mut conn)
             .await
             .unwrap();
+        let msg = api::NodeMessage::created(node_model.clone(), user.clone());
         let notifier = Notifier::new().await.unwrap();
         notifier.nodes_sender().send(&msg).await.unwrap();
 

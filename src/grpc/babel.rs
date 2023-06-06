@@ -5,6 +5,11 @@ use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tracing::log::{debug, info};
 
+struct BabelResult<T> {
+    commands: Vec<api::Command>,
+    resp: tonic::Response<T>,
+}
+
 // Implement the Babel service
 #[tonic::async_trait]
 impl babel_service_server::BabelService for super::GrpcImpl {
@@ -13,15 +18,18 @@ impl babel_service_server::BabelService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::BabelServiceNotifyRequest>,
     ) -> super::Resp<api::BabelServiceNotifyResponse> {
-        self.trx(|c| notify(self, req, c).scope_boxed()).await
+        let result = self.trx(|c| notify(req, c).scope_boxed()).await?;
+        for command in &result.commands {
+            self.notifier.commands_sender().send(command).await?;
+        }
+        Ok(result.resp)
     }
 }
 
 async fn notify(
-    grpc: &super::GrpcImpl,
     req: tonic::Request<api::BabelServiceNotifyRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::BabelServiceNotifyResponse> {
+) -> crate::Result<BabelResult<api::BabelServiceNotifyResponse>> {
     // TODO: decide who is allowed to call this endpoint
     let _claims = auth::get_claims(&req, auth::Endpoint::BabelNotifiy, conn).await?;
     let req = req.into_inner();
@@ -33,6 +41,7 @@ async fn notify(
     let blockchain = models::Blockchain::find_by_id(filter.blockchain_id, conn).await?;
     blockchain.add_version(&filter, conn).await?;
     let mut node_ids = vec![];
+    let mut commands = vec![];
     for mut node in nodes_to_upgrade {
         let node_id = node.id.to_string();
         node.version = filter.version.clone();
@@ -47,14 +56,17 @@ async fn notify(
         debug!("Node updated: {:?}", node_updated);
         let cmd = new_command.create(conn).await?;
         let command = api::Command::from_model(&cmd, conn).await?;
-        grpc.notifier.commands_sender().send(&command).await?;
+        commands.push(command.clone());
         debug!("Command sent: {:?}", command);
         node_ids.push(node_id);
     }
 
     info!("Nodes to be upgraded has been processed: {node_ids:?}",);
     let resp = api::BabelServiceNotifyResponse { node_ids };
-    Ok(tonic::Response::new(resp))
+    Ok(BabelResult {
+        commands,
+        resp: tonic::Response::new(resp),
+    })
 }
 
 impl api::BabelServiceNotifyRequest {

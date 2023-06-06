@@ -1,5 +1,7 @@
 //! This module contains code regarding recovery from failed commands.
 
+use std::vec;
+
 use crate::{
     grpc::{self, api},
     models,
@@ -11,23 +13,26 @@ use crate::{
 /// make our best effort to recover. If a command won't send but it not essential for process, we
 /// ignore and continue.
 pub(super) async fn recover(
-    impler: &grpc::GrpcImpl,
     failed_cmd: &models::Command,
     conn: &mut models::Conn,
-) {
+) -> crate::Result<Vec<api::Command>> {
     if failed_cmd.cmd == models::CommandType::CreateNode {
-        recover_created(impler, failed_cmd, conn).await;
+        recover_created(failed_cmd, conn).await
+    } else {
+        Ok(vec![])
     }
 }
 
 async fn recover_created(
-    impler: &grpc::GrpcImpl,
     failed_cmd: &models::Command,
     conn: &mut models::Conn,
-) {
+) -> crate::Result<Vec<api::Command>> {
+    let mut vec = vec![];
     let Some(node_id) = failed_cmd.node_id else {
         tracing::error!("`CreateNode` command has no node id!");
-        return;
+        return Err(crate::Error::ValidationError (
+            "CreateNode command has no node id".to_string(),
+        ));
     };
     // Recovery from a failed delete looks like this:
     // 1. Send a message to blockvisord to delete the old node.
@@ -40,15 +45,19 @@ async fn recover_created(
     //    blockvisord, or mark the current node as failed and send an MQTT message to the front end.
     let Ok(mut node) = models::Node::find_by_id(node_id, conn).await else {
         tracing::error!("Could not get node for node_id {node_id}");
-        return;
+        return Err(crate::Error::ValidationError (
+            "Could not get node for node_id".to_string(),
+        ));
     };
     let Ok(blockchain) = models::Blockchain::find_by_id(node.blockchain_id, conn).await else {
         tracing::error!("Could not get blockchain for node {node_id}");
-        return;
+        return Err(crate::Error::ValidationError (
+            "Could not get blockchain for node".to_string(),
+        ));
     };
 
     // 1. We send a delete to blockvisord to help it with cleanup.
-    send_delete(impler, &node, conn).await;
+    send_delete(&node, &mut vec, conn).await;
 
     // 2. We make a note in the node_logs table that creating our node failed. This may
     //    be unexpected, but we abort here when we fail to create that log. This is because the logs
@@ -65,7 +74,9 @@ async fn recover_created(
     };
     let Ok(_) = new_log.create(conn).await else {
         tracing::error!("Failed to create deployment log entry!");
-        return;
+        return Err(crate::Error::ValidationError (
+            "Failed to create deployment log entry".to_string(),
+        ));
     };
 
     // 3. We now find the host that is next in line, and assign our node to that host.
@@ -84,25 +95,46 @@ async fn recover_created(
         };
         let Ok(_) = new_log.create(conn).await else {
             tracing::error!("Failed to create cancelation log entry!");
-            return;
+            return Err(crate::Error::ValidationError (
+                "Failed to create cancelation log entry".to_string(),
+            ));
         };
-        return;
+        return Ok(vec![]);
     };
     node.host_id = host.id;
     let Ok(node) = node.update(conn).await else {
         tracing::error!("Could not update node!");
-        return;
+        return Err(crate::Error::ValidationError (
+            "Could not update node".to_string(),
+        ));
     };
 
     // 4. We notify blockvisor of our retry via an MQTT message.
-    let _ = grpc::nodes::create_notification(impler, &node, conn).await;
+    if let Ok(cmd) = grpc::nodes::create_notification(&node, conn).await {
+        if let Ok(create_cmd) = api::Command::from_model(&cmd, conn).await {
+            vec.push(create_cmd.clone());
+        } else {
+            tracing::error!("Could not convert node create command to gRPC repr while recovering");
+        }
+    } else {
+        tracing::error!("Could not create node create command while recovering");
+    }
     // we also start the node.
-    let _ = grpc::nodes::start_notification(impler, &node, conn).await;
+    if let Ok(cmd) = grpc::nodes::start_notification(&node, conn).await {
+        if let Ok(start_cmd) = api::Command::from_model(&cmd, conn).await {
+            vec.push(start_cmd.clone());
+        } else {
+            tracing::error!("Could not convert node start command to gRPC repr while recovering");
+        }
+    } else {
+        tracing::error!("Could not create node start command while recovering");
+    }
+    Ok(vec)
 }
 
 /// Send a delete message to blockvisord, to delete the given node. We do this to assist blockvisord
 /// to clean up after a failed node create.
-async fn send_delete(impler: &grpc::GrpcImpl, node: &models::Node, conn: &mut models::Conn) {
+async fn send_delete(node: &models::Node, vec: &mut Vec<api::Command>, conn: &mut models::Conn) {
     let cmd = models::NewCommand {
         host_id: node.host_id,
         cmd: models::CommandType::DeleteNode,
@@ -117,5 +149,5 @@ async fn send_delete(impler: &grpc::GrpcImpl, node: &models::Node, conn: &mut mo
         tracing::error!("Could not convert node delete command to gRPC repr while recovering");
         return;
     };
-    let _ = impler.notifier.commands_sender().send(&cmd).await;
+    vec.push(cmd.clone());
 }

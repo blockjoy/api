@@ -25,6 +25,10 @@ export TOKEN_EXPIRATION_MINS=10
 export REFRESH_TOKEN_EXPIRATION_MINS=10
 export REFRESH_EXPIRATION_USER_MINS=1200
 export REFRESH_EXPIRATION_HOST_MINS=43200
+export INVITATION_MINS=120
+export COOKBOOK_URL=http://localhost:8080
+export REGISTRATION_CONFIRMATION_MINS=120
+export UI_BASE_URL=http://localhost:3000
 
 test:
 	@docker-compose up -d
@@ -34,6 +38,11 @@ test:
 test-with:
 	@docker-compose up -d
 	@cargo test ${test}
+	@docker-compose down
+
+test-flag:
+	@docker-compose up -d
+	@cargo test --test ${test}
 	@docker-compose down
 
 start-db:

@@ -5,13 +5,32 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::OptionFuture;
 use std::collections::HashMap;
 
+struct NodeCommandResult<T> {
+    commands: Vec<api::Command>,
+    node_message: api::NodeMessage,
+    resp: tonic::Response<T>,
+}
+
+struct NodeResult<T> {
+    node_message: api::NodeMessage,
+    resp: tonic::Response<T>,
+}
+
 #[tonic::async_trait]
 impl node_service_server::NodeService for super::GrpcImpl {
     async fn create(
         &self,
         req: tonic::Request<api::NodeServiceCreateRequest>,
     ) -> super::Resp<api::NodeServiceCreateResponse> {
-        self.trx(|c| create(self, req, c).scope_boxed()).await
+        let result = self.trx(|c| create(self, req, c).scope_boxed()).await?;
+        for command in result.commands {
+            self.notifier.commands_sender().send(&command).await?;
+        }
+        self.notifier
+            .nodes_sender()
+            .send(&result.node_message)
+            .await?;
+        Ok(result.resp)
     }
 
     async fn get(
@@ -36,14 +55,27 @@ impl node_service_server::NodeService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::NodeServiceUpdateRequest>,
     ) -> super::Resp<api::NodeServiceUpdateResponse> {
-        self.trx(|c| update(self, req, c).scope_boxed()).await
+        let result = self.trx(|c| update(req, c).scope_boxed()).await?;
+        self.notifier
+            .nodes_sender()
+            .send(&result.node_message)
+            .await?;
+        Ok(result.resp)
     }
 
     async fn delete(
         &self,
         req: tonic::Request<api::NodeServiceDeleteRequest>,
     ) -> super::Resp<api::NodeServiceDeleteResponse> {
-        self.trx(|c| delete(self, req, c).scope_boxed()).await
+        let result = self.trx(|c| delete(self, req, c).scope_boxed()).await?;
+        for command in result.commands {
+            self.notifier.commands_sender().send(&command).await?;
+        }
+        self.notifier
+            .nodes_sender()
+            .send(&result.node_message)
+            .await?;
+        Ok(result.resp)
     }
 }
 
@@ -96,7 +128,7 @@ async fn create(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::NodeServiceCreateRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::NodeServiceCreateResponse> {
+) -> crate::Result<NodeCommandResult<api::NodeServiceCreateResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::NodeCreate, conn).await?;
     let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
 
@@ -132,21 +164,30 @@ async fn create(
     .map(|(k, v)| (v, k))
     .collect();
     models::NodeProperty::bulk_create(req.properties(&node, name_to_id_map)?, conn).await?;
-    create_notification(grpc, &node, conn).await?;
-    start_notification(grpc, &node, conn).await?;
-    let created = api::NodeMessage::created(node.clone(), user.clone(), conn).await?;
-    grpc.notifier.nodes_sender().send(&created).await?;
+    let mut vec_commands = Vec::new();
+    let create_notif = create_notification(&node, conn).await?;
+    let create_cmd = api::Command::from_model(&create_notif, conn).await?;
+    vec_commands.push(create_cmd);
+    let start_notif = start_notification(&node, conn).await?;
+    let start_cmd = api::Command::from_model(&start_notif, conn).await?;
+    vec_commands.push(start_cmd);
+    let node_api = api::Node::from_model(node, conn).await?;
+    let created = api::NodeMessage::created(node_api.clone(), user.clone());
     let resp = api::NodeServiceCreateResponse {
-        node: Some(api::Node::from_model(node.clone(), conn).await?),
+        node: Some(node_api),
     };
-    Ok(tonic::Response::new(resp))
+
+    Ok(NodeCommandResult {
+        resp: tonic::Response::new(resp),
+        commands: vec_commands,
+        node_message: created,
+    })
 }
 
 async fn update(
-    grpc: &super::GrpcImpl,
     req: tonic::Request<api::NodeServiceUpdateRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::NodeServiceUpdateResponse> {
+) -> crate::Result<NodeResult<api::NodeServiceUpdateResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::NodeUpdate, conn).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
@@ -166,16 +207,18 @@ async fn update(
     let user = OptionFuture::from(user).await.transpose()?;
     let node = update_node.update(conn).await?;
     let msg = api::NodeMessage::updated(node, user, conn).await?;
-    grpc.notifier.nodes_sender().send(&msg).await?;
     let resp = api::NodeServiceUpdateResponse {};
-    Ok(tonic::Response::new(resp))
+    Ok(NodeResult {
+        resp: tonic::Response::new(resp),
+        node_message: msg,
+    })
 }
 
 async fn delete(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::NodeServiceDeleteRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::NodeServiceDeleteResponse> {
+) -> crate::Result<NodeCommandResult<api::NodeServiceDeleteResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::NodeDelete, conn).await?;
     let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
     let req = req.into_inner();
@@ -213,12 +256,14 @@ async fn delete(
     let user = models::User::find_by_id(user_id, conn).await?;
 
     let cmd = api::Command::from_model(&cmd, conn).await?;
-    grpc.notifier.commands_sender().send(&cmd).await?;
 
     let deleted = api::NodeMessage::deleted(node, user);
-    grpc.notifier.nodes_sender().send(&deleted).await?;
     let resp = api::NodeServiceDeleteResponse {};
-    Ok(tonic::Response::new(resp))
+    Ok(NodeCommandResult {
+        resp: tonic::Response::new(resp),
+        commands: vec![cmd],
+        node_message: deleted,
+    })
 }
 
 impl api::Node {
@@ -745,41 +790,29 @@ impl api::FilteredIpAddr {
 }
 
 pub(super) async fn create_notification(
-    impler: &super::GrpcImpl,
     node: &models::Node,
     conn: &mut models::Conn,
-) -> crate::Result<()> {
+) -> crate::Result<models::Command> {
     let new_command = models::NewCommand {
         host_id: node.host_id,
         cmd: models::CommandType::CreateNode,
         sub_cmd: None,
         node_id: Some(node.id),
     };
-    let cmd = new_command.create(conn).await?;
-    impler
-        .notifier
-        .commands_sender()
-        .send(&api::Command::from_model(&cmd, conn).await?)
-        .await
+    new_command.create(conn).await
 }
 
 pub(super) async fn start_notification(
-    impler: &super::GrpcImpl,
     node: &models::Node,
     conn: &mut models::Conn,
-) -> crate::Result<()> {
+) -> crate::Result<models::Command> {
     let new_command = models::NewCommand {
         host_id: node.host_id,
         cmd: models::CommandType::RestartNode,
         sub_cmd: None,
         node_id: Some(node.id),
     };
-    let cmd = new_command.create(conn).await?;
-    impler
-        .notifier
-        .commands_sender()
-        .send(&api::Command::from_model(&cmd, conn).await?)
-        .await
+    new_command.create(conn).await
 }
 
 impl api::node_scheduler::SimilarNodeAffinity {
