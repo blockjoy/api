@@ -112,7 +112,7 @@ async fn recover_created(
     // 4. We notify blockvisor of our retry via an MQTT message.
     if let Ok(cmd) = grpc::nodes::create_notification(&node, conn).await {
         if let Ok(create_cmd) = api::Command::from_model(&cmd, conn).await {
-            vec.push(create_cmd.clone());
+            vec.push(create_cmd)
         } else {
             tracing::error!("Could not convert node create command to gRPC repr while recovering");
         }
@@ -122,7 +122,7 @@ async fn recover_created(
     // we also start the node.
     if let Ok(cmd) = grpc::nodes::start_notification(&node, conn).await {
         if let Ok(start_cmd) = api::Command::from_model(&cmd, conn).await {
-            vec.push(start_cmd.clone());
+            vec.push(start_cmd);
         } else {
             tracing::error!("Could not convert node start command to gRPC repr while recovering");
         }
@@ -149,5 +149,5 @@ async fn send_delete(node: &models::Node, vec: &mut Vec<api::Command>, conn: &mu
         tracing::error!("Could not convert node delete command to gRPC repr while recovering");
         return;
     };
-    vec.push(cmd.clone());
+    vec.push(cmd);
 }
