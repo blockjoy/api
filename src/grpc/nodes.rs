@@ -165,10 +165,10 @@ async fn create(
     .collect();
     models::NodeProperty::bulk_create(req.properties(&node, name_to_id_map)?, conn).await?;
     let mut vec_commands = Vec::new();
-    let create_notif = create_notification(&node, conn).await?;
+    let create_notif = create_create_node_command(&node, conn).await?;
     let create_cmd = api::Command::from_model(&create_notif, conn).await?;
     vec_commands.push(create_cmd);
-    let start_notif = start_notification(&node, conn).await?;
+    let start_notif = create_restart_node_command(&node, conn).await?;
     let start_cmd = api::Command::from_model(&start_notif, conn).await?;
     vec_commands.push(start_cmd);
     let node_api = api::Node::from_model(node, conn).await?;
@@ -789,7 +789,7 @@ impl api::FilteredIpAddr {
     }
 }
 
-pub(super) async fn create_notification(
+pub(super) async fn create_create_node_command(
     node: &models::Node,
     conn: &mut models::Conn,
 ) -> crate::Result<models::Command> {
@@ -802,7 +802,7 @@ pub(super) async fn create_notification(
     new_command.create(conn).await
 }
 
-pub(super) async fn start_notification(
+pub(super) async fn create_restart_node_command(
     node: &models::Node,
     conn: &mut models::Conn,
 ) -> crate::Result<models::Command> {

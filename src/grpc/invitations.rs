@@ -6,8 +6,8 @@ use crate::{auth, mail, models};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Status};
 
-struct InvResult<T> {
-    msg: api::OrgMessage,
+struct InvitationServiceResult<T> {
+    commands: Vec<api::OrgMessage>,
     resp: tonic::Response<T>,
 }
 
@@ -18,7 +18,9 @@ impl invitation_service_server::InvitationService for super::GrpcImpl {
         req: Request<api::InvitationServiceCreateRequest>,
     ) -> super::Resp<api::InvitationServiceCreateResponse> {
         let result = self.trx(|c| create(req, c).scope_boxed()).await?;
-        self.notifier.orgs_sender().send(&result.msg).await?;
+        for msg in result.commands {
+            self.notifier.orgs_sender().send(&msg).await?;
+        }
         Ok(result.resp)
     }
 
@@ -36,7 +38,9 @@ impl invitation_service_server::InvitationService for super::GrpcImpl {
         req: Request<api::InvitationServiceAcceptRequest>,
     ) -> super::Resp<api::InvitationServiceAcceptResponse> {
         let result = self.trx(|c| accept(req, c).scope_boxed()).await?;
-        self.notifier.orgs_sender().send(&result.msg).await?;
+        for msg in result.commands {
+            self.notifier.orgs_sender().send(&msg).await?;
+        }
         Ok(result.resp)
     }
 
@@ -45,7 +49,9 @@ impl invitation_service_server::InvitationService for super::GrpcImpl {
         req: Request<api::InvitationServiceDeclineRequest>,
     ) -> super::Resp<api::InvitationServiceDeclineResponse> {
         let result = self.trx(|c| decline(req, c).scope_boxed()).await?;
-        self.notifier.orgs_sender().send(&result.msg).await?;
+        for msg in result.commands {
+            self.notifier.orgs_sender().send(&msg).await?;
+        }
         Ok(result.resp)
     }
 
@@ -54,7 +60,9 @@ impl invitation_service_server::InvitationService for super::GrpcImpl {
         req: Request<api::InvitationServiceRevokeRequest>,
     ) -> super::Resp<api::InvitationServiceRevokeResponse> {
         let result = self.trx(|c| revoke(req, c).scope_boxed()).await?;
-        self.notifier.orgs_sender().send(&result.msg).await?;
+        for msg in result.commands {
+            self.notifier.orgs_sender().send(&msg).await?;
+        }
         Ok(result.resp)
     }
 }
@@ -62,7 +70,7 @@ impl invitation_service_server::InvitationService for super::GrpcImpl {
 async fn create(
     req: Request<api::InvitationServiceCreateRequest>,
     conn: &mut models::Conn,
-) -> crate::Result<InvResult<api::InvitationServiceCreateResponse>> {
+) -> crate::Result<InvitationServiceResult<api::InvitationServiceCreateResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::InvitationCreate, conn).await?;
     let req = req.into_inner();
     // In principle, it is allowed for resources other than a user to create an invite, but we
@@ -107,8 +115,8 @@ async fn create(
     let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
     let msg = api::OrgMessage::invitation_created(org, invitation)?;
     let resp = api::InvitationServiceCreateResponse {};
-    Ok(InvResult {
-        msg,
+    Ok(InvitationServiceResult {
+        commands: vec![msg],
         resp: tonic::Response::new(resp),
     })
 }
@@ -157,7 +165,7 @@ async fn list(
 async fn accept(
     req: Request<api::InvitationServiceAcceptRequest>,
     conn: &mut models::Conn,
-) -> crate::Result<InvResult<api::InvitationServiceAcceptResponse>> {
+) -> crate::Result<InvitationServiceResult<api::InvitationServiceAcceptResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::InvitationAccept, conn).await?;
     let req = req.into_inner();
     let invitation = models::Invitation::find_by_id(req.invitation_id.parse()?, conn).await?;
@@ -198,8 +206,8 @@ async fn accept(
     let user = models::User::find_by_id(org_user.user_id, conn).await?;
     let msg = api::OrgMessage::invitation_accepted(org, invitation, user)?;
     let resp = api::InvitationServiceAcceptResponse {};
-    Ok(InvResult {
-        msg,
+    Ok(InvitationServiceResult {
+        commands: vec![msg],
         resp: tonic::Response::new(resp),
     })
 }
@@ -207,7 +215,7 @@ async fn accept(
 async fn decline(
     req: Request<api::InvitationServiceDeclineRequest>,
     conn: &mut models::Conn,
-) -> crate::Result<InvResult<api::InvitationServiceDeclineResponse>> {
+) -> crate::Result<InvitationServiceResult<api::InvitationServiceDeclineResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::InvitationDecline, conn).await?;
     let req = req.into_inner();
     let invitation = models::Invitation::find_by_id(req.invitation_id.parse()?, conn).await?;
@@ -238,8 +246,8 @@ async fn decline(
     let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
     let msg = api::OrgMessage::invitation_declined(org, invitation)?;
     let resp = api::InvitationServiceDeclineResponse {};
-    Ok(InvResult {
-        msg,
+    Ok(InvitationServiceResult {
+        commands: vec![msg],
         resp: tonic::Response::new(resp),
     })
 }
@@ -247,7 +255,7 @@ async fn decline(
 async fn revoke(
     req: Request<api::InvitationServiceRevokeRequest>,
     conn: &mut models::Conn,
-) -> crate::Result<InvResult<api::InvitationServiceRevokeResponse>> {
+) -> crate::Result<InvitationServiceResult<api::InvitationServiceRevokeResponse>> {
     let claims = auth::get_claims(&req, auth::Endpoint::InvitationRevoke, conn).await?;
     let req = req.into_inner();
     let invitation = models::Invitation::find_by_id(req.invitation_id.parse()?, conn).await?;
@@ -272,8 +280,8 @@ async fn revoke(
     let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
     let msg = api::OrgMessage::invitation_declined(org, invitation)?;
     let resp = api::InvitationServiceRevokeResponse {};
-    Ok(InvResult {
-        msg,
+    Ok(InvitationServiceResult {
+        commands: vec![msg],
         resp: tonic::Response::new(resp),
     })
 }

@@ -110,21 +110,24 @@ async fn recover_created(
     };
 
     // 4. We notify blockvisor of our retry via an MQTT message.
-    if let Ok(cmd) = grpc::nodes::create_notification(&node, conn).await {
+    if let Ok(cmd) = grpc::nodes::create_create_node_command(&node, conn).await {
         if let Ok(create_cmd) = api::Command::from_model(&cmd, conn).await {
             vec.push(create_cmd)
         } else {
-            tracing::error!("Could not convert node create command to gRPC repr while recovering");
+            tracing::error!("Could not convert node create command to gRPC repr while recovering. Command: {:?}", cmd);
         }
     } else {
         tracing::error!("Could not create node create command while recovering");
     }
     // we also start the node.
-    if let Ok(cmd) = grpc::nodes::start_notification(&node, conn).await {
+    if let Ok(cmd) = grpc::nodes::create_restart_node_command(&node, conn).await {
         if let Ok(start_cmd) = api::Command::from_model(&cmd, conn).await {
             vec.push(start_cmd);
         } else {
-            tracing::error!("Could not convert node start command to gRPC repr while recovering");
+            tracing::error!(
+                "Could not convert node start command to gRPC repr while recovering. Command {:?}",
+                cmd
+            );
         }
     } else {
         tracing::error!("Could not create node start command while recovering");
@@ -134,7 +137,11 @@ async fn recover_created(
 
 /// Send a delete message to blockvisord, to delete the given node. We do this to assist blockvisord
 /// to clean up after a failed node create.
-async fn send_delete(node: &models::Node, vec: &mut Vec<api::Command>, conn: &mut models::Conn) {
+async fn send_delete(
+    node: &models::Node,
+    commands: &mut Vec<api::Command>,
+    conn: &mut models::Conn,
+) {
     let cmd = models::NewCommand {
         host_id: node.host_id,
         cmd: models::CommandType::DeleteNode,
@@ -149,5 +156,5 @@ async fn send_delete(node: &models::Node, vec: &mut Vec<api::Command>, conn: &mu
         tracing::error!("Could not convert node delete command to gRPC repr while recovering");
         return;
     };
-    vec.push(cmd);
+    commands.push(cmd);
 }
