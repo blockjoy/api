@@ -1,5 +1,9 @@
+use std::ops::DerefMut;
+
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
+use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 
 type Service = api::node_service_client::NodeServiceClient<super::Channel>;
 
@@ -43,6 +47,7 @@ async fn responds_ok_for_update() {
     let denied = node.deny_ips().unwrap()[0].clone();
     assert_eq!(denied.ip, "127.0.0.2");
     assert_eq!(denied.description.unwrap(), "wow so denied");
+    validate_command(&tester).await;
 }
 
 #[tokio::test]
@@ -53,6 +58,7 @@ async fn responds_not_found_without_any_for_get() {
     };
     let status = tester.send_admin(Service::get, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::NotFound);
+    validate_command(&tester).await;
 }
 
 #[tokio::test]
@@ -63,6 +69,7 @@ async fn responds_ok_with_id_for_get() {
         id: node.id.to_string(),
     };
     tester.send_admin(Service::get, req).await.unwrap();
+    validate_command(&tester).await;
 }
 
 #[tokio::test]
@@ -110,6 +117,7 @@ async fn responds_ok_with_valid_data_for_create() {
     let denied = node.deny_ips[0].clone();
     assert_eq!(denied.ip, "127.0.0.2");
     assert_eq!(denied.description.unwrap(), "wow so denied");
+    validate_command(&tester).await;
 }
 
 #[tokio::test]
@@ -137,6 +145,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    validate_command(&tester).await;
 }
 
 #[tokio::test]
@@ -153,6 +162,7 @@ async fn responds_ok_with_valid_data_for_update() {
         deny_ips: vec![],
     };
     tester.send_admin(Service::update, req).await.unwrap();
+    validate_command(&tester).await;
 }
 
 #[tokio::test]
@@ -166,6 +176,7 @@ async fn responds_internal_with_invalid_data_for_update() {
     };
     let status = tester.send_admin(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    validate_command(&tester).await;
 }
 
 #[tokio::test]
@@ -179,6 +190,7 @@ async fn responds_not_found_with_invalid_id_for_update() {
     };
     let status = tester.send_admin(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::NotFound, "{status:?}");
+    validate_command(&tester).await;
 }
 
 #[tokio::test]
@@ -189,4 +201,24 @@ async fn responds_ok_with_valid_data_for_delete() {
         id: node.id.to_string(),
     };
     tester.send_admin(Service::delete, req).await.unwrap();
+    validate_command(&tester).await;
+}
+
+async fn validate_command(tester: &super::Tester) {
+    let mut conn = tester.conn().await;
+    let commands_empty: Vec<models::Command> = models::schema::commands::table
+        .filter(
+            models::schema::commands::node_id
+                .is_null()
+                .and(models::schema::commands::cmd.ne(models::CommandType::DeleteNode))
+                .or(models::schema::commands::cmd
+                    .eq(models::CommandType::DeleteNode)
+                    .and(models::schema::commands::sub_cmd.is_null())
+                    .and(models::schema::commands::node_id.is_null())),
+        )
+        .load::<models::Command>(conn.deref_mut())
+        .await
+        .unwrap();
+
+    assert_eq!(commands_empty.len(), 0);
 }
