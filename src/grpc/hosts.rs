@@ -8,7 +8,7 @@ use crate::{auth, models};
 /// This is a list of all the endpoints that a user is allowed to access with the jwt that they
 /// generate on login. It does not contain endpoints like confirm, because those are accessed by a
 /// token.
-const HOST_ENDPOINTS: [Endpoint; 10] = [
+const HOST_ENDPOINTS: [Endpoint; 11] = [
     Endpoint::AuthRefresh,
     Endpoint::BabelAll,
     Endpoint::BlockchainAll,
@@ -16,6 +16,7 @@ const HOST_ENDPOINTS: [Endpoint; 10] = [
     Endpoint::DiscoveryAll,
     Endpoint::HostGet,
     Endpoint::HostList,
+    Endpoint::HostUpdate,
     Endpoint::KeyFileAll,
     Endpoint::MetricsAll,
     Endpoint::NodeAll,

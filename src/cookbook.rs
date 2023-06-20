@@ -48,7 +48,6 @@ pub async fn get_hw_requirements(
 
     let response = client.requirements(request).await?;
     let inner = response.into_inner();
-
     Ok(HardwareRequirements {
         vcpu_count: inner.vcpu_count,
         mem_size_mb: inner.mem_size_mb,
