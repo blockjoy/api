@@ -6,6 +6,7 @@ use futures_util::future::OptionFuture;
 use super::api::{self, node_service_server};
 use super::helpers;
 use crate::auth::token::{Endpoint, Resource};
+use crate::cookbook::script::HardwareRequirements;
 use crate::{auth, models};
 
 struct NodeCommandResult<T> {
@@ -136,9 +137,23 @@ async fn create(
     let user = models::User::find_by_id(user_id, conn).await?;
     let req = req.into_inner();
     let blockchain = models::Blockchain::find_by_id(req.blockchain_id.parse()?, conn).await?;
-    let new_node = req.as_new(user.id)?;
-    // The host_id will either be determined by the scheduler, or by the host_id.  Therfore we pass
-    // in an optional host_id for the node creation to fall back on if there is no scheduler.
+    // let reqs = cookbook::get_hw_requirements(
+    //     &conn.context.config.cookbook,
+    //     blockchain.name.clone(),
+    //     req.node_type().as_str_name()[10..].to_lowercase(),
+    //     req.node_type().as_str_name()[10..].to_lowercase().clone(),
+    // )
+    // .await?;
+    let node_type = req.node_type().as_str_name()[10..].to_lowercase();
+    let reqs = grpc
+        .cookbook
+        .rhai_metadata(&blockchain.name, &node_type, &req.version)
+        .await?
+        .requirements;
+    let new_node = req.as_new(user.id, reqs)?;
+    // The host_id will either be determined by the scheduler, or by the host_id.
+    // Therfore we pass in an optional host_id for the node creation to fall back on if
+    // there is no scheduler.
     let host_id = req.host_id()?;
     let host = if let Some(host_id) = host_id {
         let host = models::Host::find_by_id(host_id, conn).await?;
@@ -421,7 +436,11 @@ impl api::Node {
 }
 
 impl api::NodeServiceCreateRequest {
-    pub fn as_new(&self, user_id: uuid::Uuid) -> crate::Result<models::NewNode<'_>> {
+    pub fn as_new(
+        &self,
+        user_id: uuid::Uuid,
+        req: HardwareRequirements,
+    ) -> crate::Result<models::NewNode<'_>> {
         let placement = self
             .placement
             .as_ref()
@@ -456,9 +475,9 @@ impl api::NodeServiceCreateRequest {
             staking_status: models::NodeStakingStatus::Unknown,
             container_status: models::ContainerStatus::Unknown,
             self_update: false,
-            vcpu_count: 0,
-            mem_size_bytes: 0,
-            disk_size_bytes: 0,
+            vcpu_count: req.vcpu_count.try_into()?,
+            mem_size_bytes: (req.mem_size_mb * 1000 * 1000).try_into()?,
+            disk_size_bytes: (req.disk_size_gb * 1000 * 1000 * 1000).try_into()?,
             network: &self.network,
             node_type: self.node_type().into_model(),
             allow_ips: serde_json::to_value(allow_ips)?,
