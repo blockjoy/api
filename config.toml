@@ -14,6 +14,8 @@ root = "backet"
 url = "https://r2.dev"
 expiration = "1h"
 aws_region = "eu-west-2"
+aws_access_key_id = "<your value>"
+aws_secret_access_key = "<your value>"
 
 [database]
 url = "postgres://blockvisor:password@localhost:25432/blockvisor_db"

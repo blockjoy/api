@@ -125,6 +125,8 @@ mod test {
                 r2_url: self.mock.url().parse().unwrap(),
                 presigned_url_expiration: "1d".parse().unwrap(),
                 region: "eu-west-3".to_string(),
+                key_id: "not actually a".parse().unwrap(),
+                key: "key".parse().unwrap(),
             };
             Arc::new(config)
         }

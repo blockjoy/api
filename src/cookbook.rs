@@ -1,4 +1,5 @@
 use anyhow::Context;
+use aws_sdk_s3::config::Credentials;
 
 use crate::config;
 use crate::grpc::{api, helpers::required};
@@ -21,6 +22,13 @@ impl Cookbook {
         let s3_config = aws_sdk_s3::Config::builder()
             .endpoint_url(config.r2_url.to_string())
             .region(aws_sdk_s3::config::Region::new(config.region.clone()))
+            .credentials_provider(Credentials::new(
+                config.key_id.as_str(),
+                config.key.as_str(),
+                None,
+                None,
+                "Custom Provided Credentials",
+            ))
             .build();
         let client = aws_sdk_s3::Client::from_conf(s3_config);
 
@@ -46,13 +54,14 @@ impl Cookbook {
     ) -> crate::Result<Vec<u8>> {
         let prefix = &self.prefix;
         let file = format!("{prefix}/{protocol}/{node_type}/{node_version}/{file}");
-        let response = self
-            .client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(&file)
-            .send()
-            .await?;
+        let response = dbg!(
+            self.client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(&file)
+                .send()
+                .await
+        )?;
         let metadata = response.metadata().ok_or_else(required("metadata"))?;
         if !metadata.contains_key("status") {
             let err = format!("File {file} not does not exist");

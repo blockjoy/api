@@ -16,6 +16,10 @@ const PRESIGNED_URL_EXPIRATION_SECS_VAR: &str = "PRESIGNED_URL_EXPIRATION_SECS";
 const PRESIGNED_URL_EXPIRATION_SECS_ENTRY: &str = "cookbook.expiration";
 const REGION_VAR: &str = "AWS_REGION";
 const REGION_ENTRY: &str = "cookbook.aws_region";
+const AWS_ACCESS_KEY_ID_VAR: &str = "AWS_ACCESS_KEY_ID";
+const AWS_ACCESS_KEY_ID_ENTRY: &str = "cookbook.aws_access_key_id";
+const AWS_SECRET_ACCESS_KEY_ENTRY: &str = "AWS_SECRET_ACCESS_KEY";
+const AWS_SECRET_ACCESS_KEY_VAR: &str = "cookbook.aws_secret_access_key";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -41,6 +45,8 @@ pub struct Config {
     pub r2_url: Url,
     pub presigned_url_expiration: super::HumanTime,
     pub region: String,
+    pub key_id: super::Redacted<String>,
+    pub key: super::Redacted<String>,
 }
 
 impl TryFrom<&Provider> for Config {
@@ -65,6 +71,12 @@ impl TryFrom<&Provider> for Config {
                 .map_err(Error::ReadExpiration)?,
             region: provider
                 .read(REGION_VAR, REGION_ENTRY)
+                .map_err(Error::ReadRegion)?,
+            key_id: provider
+                .read(AWS_ACCESS_KEY_ID_VAR, AWS_ACCESS_KEY_ID_ENTRY)
+                .map_err(Error::ReadRegion)?,
+            key: provider
+                .read(AWS_SECRET_ACCESS_KEY_ENTRY, AWS_SECRET_ACCESS_KEY_VAR)
                 .map_err(Error::ReadRegion)?,
         })
     }

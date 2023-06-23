@@ -201,7 +201,7 @@ impl IntoResponse for Error {
     }
 }
 
-pub fn error_chain_fmt(
+fn error_chain_fmt(
     e: &impl std::error::Error,
     f: &mut std::fmt::Formatter<'_>,
 ) -> std::fmt::Result {
