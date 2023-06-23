@@ -14,6 +14,8 @@ const R2_URL_VAR: &str = "R2_URL";
 const R2_URL_ENTRY: &str = "cookbook.url";
 const PRESIGNED_URL_EXPIRATION_SECS_VAR: &str = "PRESIGNED_URL_EXPIRATION_SECS";
 const PRESIGNED_URL_EXPIRATION_SECS_ENTRY: &str = "cookbook.expiration";
+const REGION_VAR: &str = "AWS_REGION";
+const REGION_ENTRY: &str = "cookbook.aws_region";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -27,6 +29,8 @@ pub enum Error {
     ReadUrl(provider::Error),
     /// Failed to parse {R2_URL_VAR:?}: {0}
     ReadExpiration(provider::Error),
+    /// Failed to parse {REGION_VAR:?}: {0}
+    ReadRegion(provider::Error),
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,6 +40,7 @@ pub struct Config {
     pub r2_root: String,
     pub r2_url: Url,
     pub presigned_url_expiration: super::HumanTime,
+    pub region: String,
 }
 
 impl TryFrom<&Provider> for Config {
@@ -58,6 +63,9 @@ impl TryFrom<&Provider> for Config {
                     PRESIGNED_URL_EXPIRATION_SECS_ENTRY,
                 )
                 .map_err(Error::ReadExpiration)?,
+            region: provider
+                .read(REGION_VAR, REGION_ENTRY)
+                .map_err(Error::ReadRegion)?,
         })
     }
 }

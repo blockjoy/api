@@ -124,6 +124,7 @@ mod test {
                 r2_root: "news".to_string(),
                 r2_url: self.mock.url().parse().unwrap(),
                 presigned_url_expiration: "1d".parse().unwrap(),
+                region: "eu-west-3".to_string(),
             };
             Arc::new(config)
         }

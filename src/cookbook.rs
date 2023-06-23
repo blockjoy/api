@@ -20,6 +20,7 @@ impl Cookbook {
     pub fn new(config: &config::cookbook::Config) -> Self {
         let s3_config = aws_sdk_s3::Config::builder()
             .endpoint_url(config.r2_url.to_string())
+            .region(aws_sdk_s3::config::Region::new(config.region.clone()))
             .build();
         let client = aws_sdk_s3::Client::from_conf(s3_config);
 
