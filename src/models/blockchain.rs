@@ -1,27 +1,16 @@
 use super::schema::blockchains;
-use diesel::{dsl, prelude::*};
+use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use tracing::log::warn;
 
 mod property;
 pub use property::{BlockchainProperty, BlockchainPropertyUiType};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
-#[ExistingTypePath = "crate::models::schema::sql_types::EnumBlockchainStatus"]
-pub enum BlockchainStatus {
-    Development,
-    Alpha,
-    Beta,
-    Production,
-    Deleted,
-}
-
 #[derive(Clone, Debug, Queryable, Identifiable, AsChangeset)]
 pub struct Blockchain {
     pub id: uuid::Uuid,
     pub name: String,
     pub description: Option<String>,
-    pub status: BlockchainStatus,
     pub project_url: Option<String>,
     pub repo_url: Option<String>,
     pub version: Option<String>,
@@ -29,12 +18,9 @@ pub struct Blockchain {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-type NotDeleted =
-    dsl::Filter<blockchains::table, dsl::NotEq<blockchains::status, BlockchainStatus>>;
-
 impl Blockchain {
     pub async fn find_all(conn: &mut super::Conn) -> crate::Result<Vec<Self>> {
-        let chains = Self::not_deleted()
+        let chains = blockchains::table
             .order_by(super::lower(blockchains::name))
             .get_results(conn)
             .await?;
@@ -43,7 +29,7 @@ impl Blockchain {
     }
 
     pub async fn find_by_id(id: uuid::Uuid, conn: &mut super::Conn) -> crate::Result<Self> {
-        let chain = Self::not_deleted().find(id).get_result(conn).await?;
+        let chain = blockchains::table.find(id).get_result(conn).await?;
 
         Ok(chain)
     }
@@ -52,7 +38,7 @@ impl Blockchain {
         ids: &[uuid::Uuid],
         conn: &mut super::Conn,
     ) -> crate::Result<Vec<Self>> {
-        let chains = Self::not_deleted()
+        let chains = blockchains::table
             .filter(blockchains::id.eq_any(ids))
             .order_by(super::lower(blockchains::name))
             .get_results(conn)
@@ -135,19 +121,19 @@ impl Blockchain {
         BlockchainProperty::bulk_create(to_add, conn).await?;
         Ok(())
     }
-
-    fn not_deleted() -> NotDeleted {
-        blockchains::table.filter(blockchains::status.ne(BlockchainStatus::Deleted))
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::config::Context;
     use crate::models::{NodeSelfUpgradeFilter, NodeType};
+    use crate::TestDb;
 
     #[tokio::test]
     async fn test_add_version_existing_version() {
-        let db = crate::TestDb::setup().await;
+        let context = Context::new_with_default_toml().unwrap();
+        let db = TestDb::setup(context).await;
+
         let mut conn = db.conn().await;
         let node_type = NodeType::Validator;
         let blockchain = db.blockchain().await;
@@ -164,8 +150,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_version_non_existing_version() {
-        let db = crate::TestDb::setup().await;
+        let context = Context::new_with_default_toml().unwrap();
+        let db = TestDb::setup(context).await;
         let mut conn = db.conn().await;
+
         let node_type = NodeType::Validator;
         let blockchain = db.blockchain().await;
         let n_properties = blockchain.properties(&mut conn).await.unwrap().len();

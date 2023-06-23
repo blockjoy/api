@@ -156,9 +156,9 @@ impl Host {
         WHERE
             -- These are our hard filters, we do not want any nodes that cannot satisfy the
             -- requirements
-            -- av_cpus > $1 AND
-            -- av_mem > $2 AND
-            -- av_disk > $3 AND
+            av_cpus > $1 AND
+            av_mem > $2 AND
+            av_disk > $3 AND
             ips > 0
         {order_by}
         LIMIT

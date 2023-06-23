@@ -1,4 +1,6 @@
-use crate::auth::key_provider::KeyProvider;
+use crate::cloudflare::CloudflareApi;
+use crate::config::Context;
+use crate::cookbook::Cookbook;
 use crate::grpc::server as grpc_server;
 use crate::http::server as http_server;
 use crate::hybrid_server::hybrid as hybrid_server;
@@ -10,45 +12,34 @@ use diesel_async::AsyncPgConnection;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
 use std::sync::Arc;
-use std::time::Duration;
 
-pub async fn start() -> anyhow::Result<()> {
-    let db_url = KeyProvider::get_var(models::DATABASE_URL)?;
-    let db_max_conn: u32 = std::env::var("DB_MAX_CONN")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(10);
-    let db_min_conn: u32 = std::env::var("DB_MIN_CONN")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(2);
+pub async fn start(context: Arc<Context>) -> anyhow::Result<()> {
+    let config = context.config.as_ref();
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
-    let bind_ip = std::env::var("BIND_IP").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let addr = format!("{bind_ip}:{port}");
-
-    // let config = AsyncDieselConnectionManager::<AsyncPgConnection>::new(&db_url);
-    let mgr = AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_setup(
-        db_url,
+    let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_setup(
+        config.database.url.as_str(),
         establish_connection,
     );
     let pool = Pool::builder()
-        .max_size(db_max_conn)
-        .min_idle(Some(db_min_conn))
-        .max_lifetime(Some(Duration::from_secs(60 * 60 * 24)))
-        .idle_timeout(Some(Duration::from_secs(60 * 2)))
-        .build(mgr)
+        .max_size(config.database.pool.max_conns)
+        .min_idle(Some(config.database.pool.min_conns))
+        .max_lifetime(Some(*config.database.pool.max_lifetime))
+        .idle_timeout(Some(*config.database.pool.idle_timeout))
+        .build(manager)
         .await?;
 
-    let db = models::DbPool::new(pool);
-    let cloudflare = super::cloudflare::CloudflareApi::new_from_env()?;
-    let cookbook = super::cookbook::Cookbook::new_from_env()?;
+    let db = models::DbPool::new(pool, context.clone());
+    let cloudflare = CloudflareApi::new(config.cloudflare.clone());
+    let cookbook = Cookbook::new(&config.cookbook);
 
     let rest = http_server(db.clone()).await.into_make_service();
     let grpc = grpc_server(db, cloudflare, cookbook).await.into_service();
     let hybrid = hybrid_server(rest, grpc);
 
-    Ok(axum::Server::bind(&addr.parse()?).serve(hybrid).await?)
+    axum::Server::bind(&config.database.bind_addr())
+        .serve(hybrid)
+        .await
+        .map_err(Into::into)
 }
 
 fn root_certs() -> rustls::RootCertStore {

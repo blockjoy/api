@@ -26,6 +26,7 @@ pub enum ContainerStatus {
     Deleted,
     Installing,
     Snapshotting,
+    Failed,
 }
 
 /// NodeSyncStatus reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
@@ -302,7 +303,7 @@ impl Node {
     }
 
     fn filtered_ip_addrs(value: serde_json::Value) -> crate::Result<Vec<FilteredIpAddr>> {
-        let addrs: Vec<FilteredIpAddr> = serde_json::from_value(value)?;
+        let addrs = serde_json::from_value(value)?;
         Ok(addrs)
     }
 }
@@ -365,10 +366,7 @@ impl NewNode<'_> {
             .to_string();
 
         let ip_gateway = host.ip_gateway.ip().to_string();
-
-        let dns_record_id = cf_api
-            .get_node_dns(self.name.clone(), ip_addr.clone())
-            .await?;
+        let dns_record_id = cf_api.get_node_dns(&self.name, ip_addr.clone()).await?;
 
         diesel::insert_into(nodes::table)
             .values((
@@ -401,7 +399,7 @@ impl NewNode<'_> {
         let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
 
         let requirements = cookbook
-            .rhai_metadata(&chain.name, &self.node_type.to_string(), &self.version)
+            .rhai_metadata(&chain.name, &self.node_type.to_string(), self.version)
             .await?
             .requirements;
         let candidates = super::Host::host_candidates(
@@ -488,14 +486,16 @@ impl UpdateNodeMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Context;
     use crate::models;
+    use crate::TestDb;
 
     #[tokio::test]
     async fn can_filter_nodes() -> anyhow::Result<()> {
-        let mut name = String::from("test_");
-        name.push_str(&petname::petname(3, "_"));
+        let context = Context::new_with_default_toml().unwrap();
+        let db = TestDb::setup(context).await;
+        let name = format!("test_{}", petname::petname(3, "_"));
 
-        let db = crate::TestDb::setup().await;
         let cloudflare = crate::TestCloudflareApi::new().await;
         let cloudflare_api = cloudflare.get_cloudflare_api();
         let blockchain = db.blockchain().await;
@@ -529,7 +529,8 @@ mod tests {
         let mut conn = db.conn().await;
         let host = db.host().await;
         let host_id = host.id;
-        req.create(Some(host), &cloudflare_api, todo!(), &mut conn)
+        let cookbook = crate::TestCookbook::new().await.get_cookbook_api();
+        req.create(Some(host), &cloudflare_api, &cookbook, &mut conn)
             .await
             .unwrap();
 

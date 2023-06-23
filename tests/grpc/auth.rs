@@ -1,4 +1,5 @@
-use blockvisor_api::auth;
+use blockvisor_api::auth::token::refresh::Refresh;
+use blockvisor_api::auth::token::{Claims, Endpoint};
 use blockvisor_api::grpc::api::{self, auth_service_client};
 use blockvisor_api::models;
 
@@ -44,16 +45,18 @@ async fn responds_ok_with_valid_credentials_for_confirm() {
     let tester = super::Tester::new().await;
     let user = tester.unconfirmed_user().await;
     let iat = chrono::Utc::now();
-    let claims = auth::Claims::new_user(
+    let claims = Claims::new_user(
         user.id,
         iat,
         chrono::Duration::minutes(15),
-        [auth::Endpoint::AuthConfirm],
+        [Endpoint::AuthConfirm],
     )
     .unwrap();
-    let jwt = auth::Jwt { claims };
+
+    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
     let req = api::AuthServiceConfirmRequest {};
-    tester.send_with(Service::confirm, req, jwt).await.unwrap();
+    tester.send_with(Service::confirm, req, &jwt).await.unwrap();
+
     let mut conn = tester.conn().await;
     let confirmed = models::User::is_confirmed(tester.unconfirmed_user().await.id, &mut conn)
         .await
@@ -64,13 +67,26 @@ async fn responds_ok_with_valid_credentials_for_confirm() {
 #[tokio::test]
 async fn responds_ok_for_refresh() {
     let tester = super::Tester::new().await;
+
+    let claims = tester.admin_token().await;
+    let token = tester.context().cipher.jwt.encode(&claims).unwrap();
+
+    let refresh = tester.admin_refresh().await;
+    let refresh = tester.context().cipher.refresh.encode(&refresh).unwrap();
+
     let req = api::AuthServiceRefreshRequest {
-        token: tester.admin_token().await.encode().unwrap(),
-        refresh: Some(tester.admin_refresh().await.encode().unwrap()),
+        token: token.into(),
+        refresh: Some(refresh.into()),
     };
     let resp = tester.send_admin(Service::refresh, req).await.unwrap();
-    auth::Jwt::decode(&resp.token).unwrap();
-    auth::Refresh::decode(&resp.refresh).unwrap();
+
+    tester.context().cipher.jwt.decode(&resp.token).unwrap();
+    tester
+        .context()
+        .cipher
+        .refresh
+        .decode(&resp.refresh)
+        .unwrap();
 }
 
 #[tokio::test]
@@ -105,11 +121,16 @@ async fn responds_forbiddenenticated_with_invalid_old_password_for_update_ui_pas
 #[tokio::test]
 async fn refresh_works() {
     let tester = super::Tester::new().await;
-    let jwt = tester.admin_token().await;
+
+    let claims = tester.admin_token().await;
+    let token = tester.context().cipher.jwt.encode(&claims).unwrap();
+
     let refresh = tester.admin_refresh().await;
+    let refresh = tester.context().cipher.refresh.encode(&refresh).unwrap();
+
     let req = api::AuthServiceRefreshRequest {
-        token: jwt.encode().unwrap(),
-        refresh: Some(refresh.encode().unwrap()),
+        token: token.into(),
+        refresh: Some(refresh.into()),
     };
 
     tester.send(Service::refresh, req).await.unwrap();
@@ -119,21 +140,24 @@ async fn refresh_works() {
 async fn refresh_works_from_cookie() {
     let tester = super::Tester::new().await;
 
-    let jwt = tester.admin_token().await;
-    let refresh = auth::Refresh::new(
+    let claims = tester.admin_token().await;
+    let token = tester.context().cipher.jwt.encode(&claims).unwrap();
+
+    let refresh = Refresh::new(
         tester.user().await.id,
         chrono::Utc::now(),
         chrono::Duration::seconds(60),
     )
     .unwrap();
-    let refresh = refresh.encode().unwrap();
+    let refresh = tester.context().cipher.refresh.encode(&refresh).unwrap();
+
     let req = api::AuthServiceRefreshRequest {
-        token: jwt.encode().unwrap(),
+        token: token.into(),
         refresh: None,
     };
     let mut req = tonic::Request::new(req);
     req.metadata_mut()
-        .insert("cookie", format!("refresh={refresh}").parse().unwrap());
+        .insert("cookie", format!("refresh={}", *refresh).parse().unwrap());
 
     tester.send(Service::refresh, req).await.unwrap();
 }

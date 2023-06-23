@@ -1,7 +1,8 @@
-use blockvisor_api::auth;
+use std::collections::HashMap;
+
+use blockvisor_api::auth::token::{Claims, Endpoint, Endpoints, ResourceType};
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
-use std::collections::HashMap;
 
 type Service = api::invitation_service_client::InvitationServiceClient<super::Channel>;
 
@@ -83,43 +84,49 @@ async fn responds_ok_for_list_received() {
 #[tokio::test]
 async fn responds_ok_for_accept() {
     let tester = super::Tester::new().await;
+
     let invitation = create_invitation(&tester).await;
     let iat = chrono::Utc::now();
-    let claims = auth::Claims::new_with_data(
-        auth::ResourceType::Org,
+    let claims = Claims::new_with_data(
+        ResourceType::Org,
         invitation.created_for_org,
         iat,
         chrono::Duration::minutes(15),
-        auth::Endpoints::Single(auth::Endpoint::InvitationAccept),
+        Endpoints::Single(Endpoint::InvitationAccept),
         HashMap::from([("email".into(), invitation.invitee_email)]),
     )
     .unwrap();
-    let jwt = auth::Jwt { claims };
+
+    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
     let req: api::InvitationServiceAcceptRequest = api::InvitationServiceAcceptRequest {
         invitation_id: invitation.id.to_string(),
     };
-    tester.send_with(Service::accept, req, jwt).await.unwrap();
+
+    tester.send_with(Service::accept, req, &jwt).await.unwrap();
 }
 
 #[tokio::test]
 async fn responds_ok_for_decline() {
     let tester = super::Tester::new().await;
+
     let invitation = create_invitation(&tester).await;
     let iat = chrono::Utc::now();
-    let claims = auth::Claims::new_with_data(
-        auth::ResourceType::Org,
+    let claims = Claims::new_with_data(
+        ResourceType::Org,
         invitation.created_for_org,
         iat,
         chrono::Duration::minutes(15),
-        auth::Endpoints::Single(auth::Endpoint::InvitationDecline),
+        Endpoints::Single(Endpoint::InvitationDecline),
         HashMap::from([("email".into(), invitation.invitee_email)]),
     )
     .unwrap();
-    let jwt = auth::Jwt { claims };
+
+    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
     let req = api::InvitationServiceDeclineRequest {
         invitation_id: invitation.id.to_string(),
     };
-    tester.send_with(Service::decline, req, jwt).await.unwrap();
+
+    tester.send_with(Service::decline, req, &jwt).await.unwrap();
 }
 
 #[tokio::test]

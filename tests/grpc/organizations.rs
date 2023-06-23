@@ -1,5 +1,7 @@
-use blockvisor_api::{auth, grpc::api, models};
 use std::collections::HashMap;
+
+use blockvisor_api::auth::token::{Claims, Endpoint, Endpoints, ResourceType};
+use blockvisor_api::{grpc::api, models};
 
 type Service = api::org_service_client::OrgServiceClient<super::Channel>;
 
@@ -92,22 +94,23 @@ async fn member_count_works() {
     let invitation = new_invitation.create(&mut conn).await.unwrap();
 
     let iat = chrono::Utc::now();
-    let claims = auth::Claims::new_with_data(
-        auth::ResourceType::Org,
+    let claims = Claims::new_with_data(
+        ResourceType::Org,
         invitation.created_for_org,
         iat,
         chrono::Duration::minutes(15),
-        auth::Endpoints::Multiple(vec![auth::Endpoint::InvitationAccept]),
+        Endpoints::Multiple(vec![Endpoint::InvitationAccept]),
         HashMap::from([("email".into(), invitation.invitee_email)]),
     )
     .unwrap();
-    let jwt = auth::Jwt { claims };
+
+    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
     let req = api::InvitationServiceAcceptRequest {
         invitation_id: invitation.id.to_string(),
     };
 
     tester
-        .send_with(InvService::accept, req, jwt)
+        .send_with(InvService::accept, req, &jwt)
         .await
         .unwrap();
 

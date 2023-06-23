@@ -3,10 +3,13 @@
 //! does not store a history of metrics. Rather, it overwrites the metrics that are know for each
 //! time new ones are provided. This makes sure that the database doesn't grow overly large.
 
-use super::api::{self, metrics_service_server};
-use crate::{auth, models};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use std::collections::HashSet;
+
+use diesel_async::scoped_futures::ScopedFutureExt;
+
+use super::api::{self, metrics_service_server};
+use crate::auth::token::{Endpoint, Resource};
+use crate::{auth, models};
 
 #[tonic::async_trait]
 impl metrics_service_server::MetricsService for super::GrpcImpl {
@@ -32,7 +35,7 @@ async fn node(
     req: tonic::Request<api::MetricsServiceNodeRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::MetricsServiceNodeResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::MetricsNode, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::MetricsNode, conn).await?;
     let req = req.into_inner();
     let updates: Vec<models::UpdateNodeMetrics> = req
         .metrics
@@ -41,14 +44,14 @@ async fn node(
         .collect::<crate::Result<_>>()?;
     let nodes = models::Node::find_by_ids(updates.iter().map(|u| u.id), conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             let memberships = models::Org::memberships(user_id, conn).await?;
             let org_ids: HashSet<_> = memberships.into_iter().map(|ou| ou.org_id).collect();
             nodes.iter().all(|n| org_ids.contains(&n.org_id))
         }
-        auth::Resource::Org(org_id) => nodes.iter().all(|n| n.org_id == org_id),
-        auth::Resource::Host(host_id) => nodes.iter().all(|n| n.host_id == host_id),
-        auth::Resource::Node(node_id) => nodes.iter().all(|n| n.id == node_id),
+        Resource::Org(org_id) => nodes.iter().all(|n| n.org_id == org_id),
+        Resource::Host(host_id) => nodes.iter().all(|n| n.host_id == host_id),
+        Resource::Node(node_id) => nodes.iter().all(|n| n.id == node_id),
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -62,7 +65,7 @@ async fn host(
     req: tonic::Request<api::MetricsServiceHostRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::MetricsServiceHostResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::MetricsNode, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::MetricsNode, conn).await?;
     let req = req.into_inner();
     let updates: Vec<models::UpdateHostMetrics> = req
         .metrics
@@ -71,16 +74,16 @@ async fn host(
         .collect::<crate::Result<_>>()?;
     let hosts = models::Host::find_by_ids(updates.iter().map(|u| u.id), conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             let memberships = models::Org::memberships(user_id, conn).await?;
             let org_ids: HashSet<_> = memberships.into_iter().map(|ou| ou.org_id).collect();
             hosts
                 .iter()
                 .all(|h: &models::Host| h.org_id.map(|id| org_ids.contains(&id)).unwrap_or(false))
         }
-        auth::Resource::Org(org_id) => hosts.iter().all(|h| h.org_id == Some(org_id)),
-        auth::Resource::Host(host_id) => hosts.iter().all(|h| h.id == host_id),
-        auth::Resource::Node(_) => false,
+        Resource::Org(org_id) => hosts.iter().all(|h| h.org_id == Some(org_id)),
+        Resource::Host(host_id) => hosts.iter().all(|h| h.id == host_id),
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access denied");

@@ -4,6 +4,8 @@ use axum::http::{Request, StatusCode};
 use hyper::Body;
 use tower::ServiceExt;
 
+use blockvisor_api::config::Context;
+
 fn possible_routes() -> Vec<(&'static str, &'static str, StatusCode)> {
     vec![
         // Non nested routes
@@ -16,9 +18,9 @@ fn possible_routes() -> Vec<(&'static str, &'static str, StatusCode)> {
 
 #[tokio::test]
 async fn test_possible_routes() -> anyhow::Result<()> {
-    dotenv::dotenv().ok();
+    let context = Context::new_with_default_toml().unwrap();
+    let db = blockvisor_api::TestDb::setup(context).await;
 
-    let db = blockvisor_api::TestDb::setup().await;
     let routes = possible_routes();
     let app = blockvisor_api::http::server(db.pool.clone()).await;
 

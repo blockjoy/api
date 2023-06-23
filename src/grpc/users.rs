@@ -1,8 +1,9 @@
-use super::api::{self, user_service_server};
-use crate::auth;
-use crate::mail;
-use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
+
+use super::api::{self, user_service_server};
+use crate::auth::token::{Endpoint, Resource};
+use crate::mail::MailClient;
+use crate::{auth, models};
 
 #[tonic::async_trait]
 impl user_service_server::UserService for super::GrpcImpl {
@@ -14,9 +15,11 @@ impl user_service_server::UserService for super::GrpcImpl {
         let new_user = inner.as_new()?;
         let mut conn = self.conn().await?;
         let new_user = new_user.create(&mut conn).await?;
-        mail::MailClient::new()
-            .registration_confirmation(&new_user)
+
+        MailClient::new(&conn.context.config)
+            .registration_confirmation(&new_user, &conn.context.cipher)
             .await?;
+
         let resp = api::UserServiceCreateResponse {
             user: Some(api::User::from_model(new_user.clone())?),
         };
@@ -51,14 +54,14 @@ async fn get(
     req: tonic::Request<api::UserServiceGetRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::UserServiceGetResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::UserGet, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::UserGet, conn).await?;
     let req = req.into_inner();
     let user = models::User::find_by_id(req.id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => user_id == user.id,
-        auth::Resource::Org(_) => false,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::User(user_id) => user_id == user.id,
+        Resource::Org(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access not allowed")
@@ -73,14 +76,14 @@ async fn update(
     req: tonic::Request<api::UserServiceUpdateRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::UserServiceUpdateResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::UserUpdate, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::UserUpdate, conn).await?;
     let req = req.into_inner();
     let user = models::User::find_by_id(req.id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => user_id == user.id,
-        auth::Resource::Org(_) => false,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::User(user_id) => user_id == user.id,
+        Resource::Org(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access not allowed")
@@ -96,14 +99,14 @@ async fn delete(
     req: tonic::Request<api::UserServiceDeleteRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::UserServiceDeleteResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::UserUpdate, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::UserUpdate, conn).await?;
     let req = req.into_inner();
     let user = models::User::find_by_id(req.id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => user_id == user.id,
-        auth::Resource::Org(_) => false,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::User(user_id) => user_id == user.id,
+        Resource::Org(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access not allowed")

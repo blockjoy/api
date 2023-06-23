@@ -153,10 +153,14 @@ impl UpdateIpAddress {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::config::Context;
+    use crate::TestDb;
 
     #[tokio::test]
     async fn should_create_ip_range() -> anyhow::Result<()> {
-        let db = crate::TestDb::setup().await;
+        let context = Context::new_with_default_toml().unwrap();
+        let db = TestDb::setup(context).await;
+
         let new_range = NewIpAddressRange::try_new(
             "192.129.0.10".parse().unwrap(),
             "192.129.0.20".parse().unwrap(),
@@ -172,7 +176,9 @@ mod test {
     #[tokio::test]
     #[should_panic]
     async fn should_fail_creating_ip_range() {
-        let db = crate::TestDb::setup().await;
+        let context = Context::new_with_default_toml().unwrap();
+        let db = TestDb::setup(context).await;
+
         NewIpAddressRange::try_new(
             "192.129.0.20".parse().unwrap(),
             "192.129.0.10".parse().unwrap(),

@@ -1,5 +1,5 @@
 use super::mqtt::{MqttAclRequest, MqttPolicy};
-use crate::{auth, models};
+use crate::models;
 use anyhow::Context;
 use axum::extract::{Extension, Json};
 use axum::http::StatusCode;
@@ -30,7 +30,7 @@ pub async fn mqtt_acl(
 ) -> crate::Result<impl IntoResponse> {
     tracing::info!("Got acl payload: {payload:?}");
 
-    match auth::Jwt::decode(&payload.username) {
+    match db.context.cipher.jwt.decode(&payload.username) {
         Ok(token) => {
             let policy = MqttPolicy { db };
             if policy

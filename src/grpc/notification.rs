@@ -1,7 +1,6 @@
-use anyhow::anyhow;
-
 use super::api::{self, host_message, node_message, org_message};
-use crate::{auth::key_provider::KeyProvider, models};
+use crate::config::mqtt;
+use crate::models;
 
 /// Presents the following senders:
 /// |---------------|----------------------------------------------|
@@ -25,13 +24,15 @@ pub struct Notifier {
 }
 
 impl Notifier {
-    pub async fn new() -> crate::Result<Self> {
-        let options = Self::get_mqtt_options()?;
+    pub async fn new(config: &mqtt::Config) -> crate::Result<Self> {
+        let options = config.new_options();
+
         let (client, mut event_loop) = rumqttc::AsyncClient::new(options, 10);
         client
             .subscribe("/bv/hosts/#", rumqttc::QoS::AtLeastOnce)
             .await
             .unwrap();
+
         tokio::spawn(async move {
             loop {
                 match event_loop.poll().await {
@@ -61,19 +62,6 @@ impl Notifier {
 
     pub fn commands_sender(&self) -> MqttClient<api::Command> {
         MqttClient::new(self.client.clone())
-    }
-
-    fn get_mqtt_options() -> crate::Result<rumqttc::MqttOptions> {
-        let client_id = format!("blockvisor-api-{}", uuid::Uuid::new_v4());
-        let host = KeyProvider::get_var("MQTT_SERVER_ADDRESS")?;
-        let port = KeyProvider::get_var("MQTT_SERVER_PORT")?
-            .parse()
-            .map_err(|_| anyhow!("Could not parse MQTT_SERVER_PORT as u16"))?;
-        let username = KeyProvider::get_var("MQTT_USERNAME")?;
-        let password = KeyProvider::get_var("MQTT_PASSWORD")?;
-        let mut options = rumqttc::MqttOptions::new(client_id, host, port);
-        options.set_credentials(username, password);
-        Ok(options)
     }
 }
 
@@ -393,34 +381,39 @@ impl api::Command {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Context;
+    use crate::TestDb;
 
     #[tokio::test]
     async fn test_hosts_sender() {
-        let db = crate::TestDb::setup().await;
+        let context = Context::new_with_default_toml().unwrap();
+        let db = TestDb::setup(context).await;
+        let notifier = Notifier::new(&db.pool.context.config.mqtt).await.unwrap();
+
         let host = db.host().await;
         let user = db.user().await;
 
         let msg = api::HostMessage::created(host.clone(), user.clone())
             .await
             .unwrap();
-        let notifier = Notifier::new().await.unwrap();
         notifier.hosts_sender().send(&msg).await.unwrap();
 
         let msg = api::HostMessage::updated(host.clone(), user.clone())
             .await
             .unwrap();
-        let notifier = Notifier::new().await.unwrap();
         notifier.hosts_sender().send(&msg).await.unwrap();
 
         let msg = api::HostMessage::deleted(host, user);
-        let notifier = Notifier::new().await.unwrap();
         notifier.hosts_sender().send(&msg).await.unwrap();
     }
 
     #[tokio::test]
     async fn test_nodes_sender() {
-        let db = crate::TestDb::setup().await;
+        let context = Context::new_with_default_toml().unwrap();
+        let db = TestDb::setup(context).await;
         let mut conn = db.conn().await;
+        let notifier = Notifier::new(&db.pool.context.config.mqtt).await.unwrap();
+
         let node = db.node().await;
         let user = db.user().await;
 
@@ -428,28 +421,27 @@ mod tests {
             .await
             .unwrap();
         let msg = api::NodeMessage::created(node_model.clone(), user.clone());
-        let notifier = Notifier::new().await.unwrap();
         notifier.nodes_sender().send(&msg).await.unwrap();
 
         let msg = api::NodeMessage::updated(node.clone(), Some(user.clone()), &mut conn)
             .await
             .unwrap();
-        let notifier = Notifier::new().await.unwrap();
         notifier.nodes_sender().send(&msg).await.unwrap();
 
         let msg = api::NodeMessage::deleted(node, user);
-        let notifier = Notifier::new().await.unwrap();
         notifier.nodes_sender().send(&msg).await.unwrap();
     }
 
     #[tokio::test]
     async fn test_commands_sender() {
-        let db = crate::TestDb::setup().await;
+        let context = Context::new_with_default_toml().unwrap();
+        let db = TestDb::setup(context).await;
+        let notifier = Notifier::new(&db.pool.context.config.mqtt).await.unwrap();
+
         let command = db.command().await;
         let mut conn = db.conn().await;
 
         let command = api::Command::from_model(&command, &mut conn).await.unwrap();
-        let notifier = Notifier::new().await.unwrap();
         notifier.commands_sender().send(&command).await.unwrap();
     }
 }

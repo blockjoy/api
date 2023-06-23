@@ -3,95 +3,84 @@
 mod dummy_token;
 mod helper_traits;
 
-use blockvisor_api::auth;
-use blockvisor_api::cloudflare::CloudflareApi;
-use blockvisor_api::models;
-use blockvisor_api::TestCloudflareApi;
-use blockvisor_api::TestDb;
-use diesel::prelude::*;
-use diesel_async::pooled_connection::bb8::PooledConnection;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
 pub use dummy_token::*;
-use helper_traits::GrpcClient;
+
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
+
+use derive_more::{Deref, DerefMut};
+use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
+use helper_traits::GrpcClient;
 use tempfile::{NamedTempFile, TempPath};
 use tokio::net::{UnixListener, UnixStream};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tonic::Response;
 
+use blockvisor_api::auth::token::refresh::Refresh;
+use blockvisor_api::auth::token::{jwt, Claims, Endpoints, ResourceType};
+use blockvisor_api::cloudflare::CloudflareApi;
+use blockvisor_api::config::Context;
 use blockvisor_api::grpc::api::auth_service_client::AuthServiceClient;
+use blockvisor_api::models::{self, Conn};
+use blockvisor_api::{TestCloudflareApi, TestCookbook, TestDb};
+
 type AuthService = AuthServiceClient<tonic::transport::Channel>;
 
 /// Our integration testing helper struct. Can be created cheaply with `new`, and is able to
 /// receive requests and return responses. Exposes lots of helpers too to make creating new
 /// integration tests easy. Re-exports some of the functionality from `TestDb` (a helper used
 /// internally for more unit test-like tests).
+#[derive(Deref, DerefMut)]
 pub struct Tester {
+    #[deref]
+    #[deref_mut]
     db: TestDb,
     server_input: Arc<TempPath>,
     cloudflare: Arc<Option<TestCloudflareApi>>,
-}
-
-impl std::ops::Deref for Tester {
-    type Target = TestDb;
-
-    fn deref(&self) -> &Self::Target {
-        &self.db
-    }
-}
-
-impl std::ops::DerefMut for Tester {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.db
-    }
+    cookbook: Arc<Option<TestCookbook>>,
 }
 
 impl Tester {
-    /// Creates a new tester, with the cloudflare API mocked.
+    /// Creates a new tester with the cloudflare API mocked.
     pub async fn new() -> Self {
-        Self::new_with(true).await
-    }
-
-    /// Creates a new tester, but with the cloudflare API mocked if `cloudflare_mocked` is `true`.
-    /// WARN: If `false`, the cloudflare API will be called
-    pub async fn new_with(cloudflare_mocked: bool) -> Self {
-        let db = TestDb::setup().await;
+        let context = Context::new_with_default_toml().unwrap();
+        let db = TestDb::setup(context).await;
         let pool = db.pool.clone();
+
         let socket = NamedTempFile::new().unwrap();
         let socket = Arc::new(socket.into_temp_path());
         std::fs::remove_file(&*socket).unwrap();
 
         let uds = UnixListener::bind(&*socket).unwrap();
         let stream = UnixListenerStream::new(uds);
-        let cloudflare_api;
-        let cloudflare_server = if cloudflare_mocked {
-            let mock = TestCloudflareApi::new().await;
-            cloudflare_api = mock.get_cloudflare_api();
-            Some(mock)
-        } else {
-            cloudflare_api =
-                CloudflareApi::new_from_env().expect("Error trying to set cloudflare api");
-            None
-        };
+
+        let mock_cloudflare = TestCloudflareApi::new().await;
+        let cloudflare_api = mock_cloudflare.get_cloudflare_api();
+        let mock_cookbook = TestCookbook::new().await;
+        let cookbook = mock_cookbook.get_cookbook_api();
+
         tokio::spawn(async {
-            blockvisor_api::grpc::server(pool, cloudflare_api)
+            blockvisor_api::grpc::server(pool, cloudflare_api, cookbook)
                 .await
                 .serve_with_incoming(stream)
                 .await
                 .unwrap()
         });
 
-        let socket = Arc::clone(&socket);
-
         Tester {
             db,
-            server_input: socket,
-            cloudflare: Arc::new(cloudflare_server),
+            server_input: Arc::clone(&socket),
+            cloudflare: Arc::new(Some(mock_cloudflare)),
+            cookbook: Arc::new(Some(mock_cookbook)),
         }
+    }
+
+    pub fn context(&self) -> &Context {
+        &self.db.pool.context
     }
 
     /// Returns the cloudflare API, if it was mocked.
@@ -102,7 +91,7 @@ impl Tester {
             .map(|cf| cf.get_cloudflare_api())
     }
 
-    pub async fn conn(&self) -> PooledConnection<'_, AsyncPgConnection> {
+    pub async fn conn(&self) -> Conn {
         self.db.conn().await
     }
 
@@ -117,16 +106,16 @@ impl Tester {
     }
 
     /// Returns a auth token for the admin user in the database.
-    pub async fn admin_token(&self) -> auth::Jwt {
+    pub async fn admin_token(&self) -> Claims {
         let admin = self.user().await;
         self.user_token(&admin).await
     }
 
-    pub async fn admin_refresh(&self) -> auth::Refresh {
+    pub async fn admin_refresh(&self) -> Refresh {
         let admin = self.user().await;
         let iat = chrono::Utc::now();
         let exp = chrono::Duration::minutes(15);
-        auth::Refresh::new(admin.id, iat, exp).unwrap()
+        Refresh::new(admin.id, iat, exp).unwrap()
     }
 
     pub async fn hosts(&self) -> Vec<models::Host> {
@@ -163,26 +152,26 @@ impl Tester {
             .unwrap()
     }
 
-    pub async fn user_token(&self, user: &models::User) -> auth::Jwt {
+    pub async fn user_token(&self, user: &models::User) -> Claims {
         let req = blockvisor_api::grpc::api::AuthServiceLoginRequest {
             email: user.email.clone(),
             password: "abc12345".to_string(),
         };
+
         let resp = self.send(AuthService::login, req).await.unwrap();
-        auth::Jwt::decode(&resp.token).unwrap()
+        self.context().cipher.jwt.decode(&resp.token).unwrap()
     }
 
-    pub fn host_token(&self, host: &models::Host) -> auth::Jwt {
+    pub fn host_token(&self, host: &models::Host) -> Claims {
         let iat = chrono::Utc::now();
-        let claims = auth::Claims::new(
-            auth::ResourceType::Host,
+        Claims::new(
+            ResourceType::Host,
             host.id,
             iat,
             chrono::Duration::minutes(15),
-            auth::Endpoints::Wildcard,
+            Endpoints::Wildcard,
         )
-        .unwrap();
-        auth::Jwt { claims }
+        .unwrap()
     }
 
     pub async fn node(&self) -> models::Node {
@@ -253,7 +242,7 @@ impl Tester {
         &self,
         f: F,
         req: Req,
-        token: auth::Jwt,
+        jwt: &jwt::Encoded,
     ) -> Result<Resp, tonic::Status>
     where
         F: for<'any> TestableFunction<'any, In, tonic::Request<In>, Response<Resp>, Client>,
@@ -261,9 +250,9 @@ impl Tester {
         Client: GrpcClient<Channel> + Debug + 'static,
     {
         let mut req = req.into_request();
-        let auth = format!("Bearer {}", token.encode().unwrap());
-        req.metadata_mut()
-            .insert("authorization", auth.parse().unwrap());
+        let auth_header = format!("Bearer {}", jwt.as_ref()).parse().unwrap();
+        req.metadata_mut().insert("authorization", auth_header);
+
         self.send_(f, req).await
     }
 
@@ -279,8 +268,10 @@ impl Tester {
         Req: tonic::IntoRequest<In>,
         Client: GrpcClient<Channel> + Debug + 'static,
     {
-        let token = self.admin_token().await;
-        self.send_with(f, req, token).await
+        let claims = self.admin_token().await;
+        let jwt = self.context().cipher.jwt.encode(&claims).unwrap();
+
+        self.send_with(f, req, &jwt).await
     }
 
     async fn send_<F, In, Resp, Client>(

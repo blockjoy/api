@@ -1,26 +1,25 @@
-use crate::auth::key_provider::KeyProvider;
-use crate::auth::{self, expiration_provider};
-use crate::models;
-use anyhow::anyhow;
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use anyhow::anyhow;
+use url::Url;
+
+use crate::auth::token::{Cipher, Claims, Endpoint};
+use crate::config::{token, Config};
+use crate::models;
 
 pub struct MailClient {
     client: sendgrid::SGClient,
+    token_config: Arc<token::Config>,
+    base_url: Url,
 }
 
 impl MailClient {
-    pub fn new() -> Self {
-        // Don't fail if API key wasn't found
-        let sg_api_key = match KeyProvider::get_var("SENDGRID_API_KEY") {
-            Ok(key) => key,
-            Err(e) => {
-                tracing::error!("Couldn't read SENDGRID_API_KEY env var: {e}");
-                String::default()
-            }
-        };
-
+    pub fn new(config: &Config) -> Self {
         Self {
-            client: sendgrid::SGClient::new(sg_api_key),
+            client: sendgrid::SGClient::new(&*config.mail.sendgrid_api_key),
+            token_config: config.token.clone(),
+            base_url: config.mail.ui_base_url.clone(),
         }
     }
 
@@ -40,22 +39,27 @@ impl MailClient {
         .await
     }
 
-    pub async fn registration_confirmation(&self, user: &models::User) -> crate::Result<()> {
+    pub async fn registration_confirmation(
+        &self,
+        user: &models::User,
+        cipher: &Cipher,
+    ) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/register.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
 
         let iat = chrono::Utc::now();
-        let exp =
-            expiration_provider::ExpirationProvider::expiration("REGISTRATION_CONFIRMATION_MINS")?;
-        let endpoints = [auth::Endpoint::AuthConfirm];
-        let claims = auth::Claims::new_user(user.id, iat, exp, endpoints)?;
-        let token = auth::Jwt { claims }.encode()?;
+        let exp = self
+            .token_config
+            .expire
+            .registration_confirmation
+            .try_into()?;
+        let endpoints = [Endpoint::AuthConfirm];
+        let claims = Claims::new_user(user.id, iat, exp, endpoints)?;
 
-        let base_url =
-            dotenv::var("UI_BASE_URL").map_err(|e| anyhow!("UI_BASE_URL can't be read: {e}"))?;
-        let link = format!("{base_url}/verified?token={token}");
+        let token = cipher.jwt.encode(&claims)?;
+        let link = format!("{}/verified?token={}", self.base_url, *token);
         let mut context = HashMap::new();
         context.insert("link".to_owned(), link);
 
@@ -78,9 +82,7 @@ impl MailClient {
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
-        let base_url =
-            dotenv::var("UI_BASE_URL").map_err(|e| anyhow!("UI_BASE_URL can't be read: {e}"))?;
-        let link = format!("{}/invite-registered?uid={}", base_url, invitee.id);
+        let link = format!("{}/invite-registered?uid={}", self.base_url, invitee.id);
         let inviter = format!(
             "{} {} ({})",
             inviter.first_name, inviter.last_name, inviter.email
@@ -105,6 +107,7 @@ impl MailClient {
         inviter: &models::User,
         invitee: Recipient<'_>,
         expiration: impl std::fmt::Display,
+        cipher: &Cipher,
     ) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/invite_user.toml");
         // SAFETY: assume we can write toml and also protected by test
@@ -112,19 +115,15 @@ impl MailClient {
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
         let iat = chrono::Utc::now();
 
-        let exp = expiration_provider::ExpirationProvider::expiration("INVITATION_MINS")?;
-        let endpoints = [
-            auth::Endpoint::InvitationAccept,
-            auth::Endpoint::InvitationDecline,
-        ];
+        let exp = self.token_config.expire.invitation.try_into()?;
+        let endpoints = [Endpoint::InvitationAccept, Endpoint::InvitationDecline];
         // A little bit lame but not that big of a deal: the id of the invitation as the id of the
         // user because there is no user here yet.
-        let claims = auth::Claims::new_user(invitation.id, iat, exp, endpoints)?;
-        let token = auth::Jwt { claims }.encode()?;
-        let base_url =
-            dotenv::var("UI_BASE_URL").map_err(|e| anyhow!("UI_BASE_URL can't be read: {e}"))?;
-        let accept_link = format!("{base_url}/accept-invite?token={token}");
-        let decline_link = format!("{base_url}/decline-invite?token={token}");
+        let claims = Claims::new_user(invitation.id, iat, exp, endpoints)?;
+
+        let token = cipher.jwt.encode(&claims)?;
+        let accept_link = format!("{}/accept-invite?token={}", self.base_url, *token);
+        let decline_link = format!("{}/decline-invite?token={}", self.base_url, *token);
         let inviter = format!(
             "{} {} ({})",
             inviter.first_name, inviter.last_name, inviter.email
@@ -147,23 +146,19 @@ impl MailClient {
 
     /// Sends a password reset email to the specified user, containing a JWT that they can use to
     /// authenticate themselves to reset their password.
-    pub async fn reset_password(
-        &self,
-        user: &models::User,
-        _conn: &mut diesel_async::AsyncPgConnection,
-    ) -> crate::Result<()> {
+    pub async fn reset_password(&self, user: &models::User, cipher: &Cipher) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/reset_password.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
+
         let iat = chrono::Utc::now();
-        let exp = expiration_provider::ExpirationProvider::expiration("PWD_RESET_EXPIRATION_MINS")?;
-        let endpoints = [auth::Endpoint::AuthUpdatePassword];
-        let claims = auth::Claims::new_user(user.id, iat, exp, endpoints)?;
-        let token = auth::Jwt { claims };
-        let base_url =
-            dotenv::var("UI_BASE_URL").map_err(|e| anyhow!("UI_BASE_URL can't be read: {e}"))?;
-        let link = format!("{}/password_reset?token={}", base_url, token.encode()?);
+        let exp = self.token_config.expire.password_reset.try_into()?;
+        let endpoints = [Endpoint::AuthUpdatePassword];
+        let claims = Claims::new_user(user.id, iat, exp, endpoints)?;
+
+        let token = cipher.jwt.encode(&claims)?;
+        let link = format!("{}/password_reset?token={}", self.base_url, *token);
         let context = HashMap::from([("link".to_string(), link)]);
 
         self.send_mail(
@@ -231,12 +226,6 @@ impl<'a> Recipient<'a> {
             email: &value.email,
             preferred_language: Some(value.preferred_language()),
         }
-    }
-}
-
-impl Default for MailClient {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

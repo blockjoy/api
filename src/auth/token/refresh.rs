@@ -1,9 +1,79 @@
-use crate::auth::key_provider;
-use jsonwebtoken as jwt;
+use derive_more::{AsRef, Deref, Into};
+use displaydoc::Display;
+use jsonwebtoken::{errors, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use tonic::metadata::AsciiMetadataValue;
 
 use super::Expirable;
+use crate::config::token::RefreshSecret;
 
-#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+const ALGORITHM: Algorithm = Algorithm::HS512;
+
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Failed to encode refresh token: {0}
+    Encode(errors::Error),
+    /// Failed to decode refresh token: {0}
+    Decode(errors::Error),
+    /// Refresh token `exp` is before `iat`. This should not happen.
+    ExpiresBeforeIssued,
+    /// Failed to create refresh cookie: {0}
+    RefreshCookie(tonic::metadata::errors::InvalidMetadataValue),
+}
+
+#[derive(AsRef, Deref, Into)]
+pub struct Encoded(String);
+
+pub struct Cipher {
+    header: Header,
+    validation: Validation,
+    encoding_key: EncodingKey,
+    decoding_key: DecodingKey,
+}
+
+impl Cipher {
+    pub fn new(secret: &RefreshSecret) -> Self {
+        Cipher {
+            header: Header::new(ALGORITHM),
+            validation: Validation::new(ALGORITHM),
+            encoding_key: EncodingKey::from_secret(secret.as_bytes()),
+            decoding_key: DecodingKey::from_secret(secret.as_bytes()),
+        }
+    }
+
+    pub fn encode(&self, refresh: &Refresh) -> Result<Encoded, Error> {
+        jsonwebtoken::encode(&self.header, refresh, &self.encoding_key)
+            .map(Encoded)
+            .map_err(Error::Encode)
+    }
+
+    pub fn decode(&self, raw: &str) -> Result<Refresh, Error> {
+        let refresh: Refresh = jsonwebtoken::decode(raw, &self.decoding_key, &self.validation)
+            .map(|data| data.claims)
+            .map_err(Error::Decode)?;
+
+        if refresh.exp < refresh.iat {
+            return Err(Error::ExpiresBeforeIssued);
+        }
+
+        Ok(refresh)
+    }
+
+    pub fn cookie(&self, refresh: &Refresh) -> Result<AsciiMetadataValue, Error> {
+        let expires = refresh.exp.format("%a, %d %b %Y %H:%M:%S GMT");
+        let encoded = self.encode(refresh)?;
+
+        let cookie = format!(
+            "refresh={}; path=/; expires={expires}; Secure; HttpOnly; SameSite=None",
+            encoded.as_ref()
+        );
+
+        cookie.parse().map_err(Error::RefreshCookie)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Refresh {
     pub resource_id: uuid::Uuid,
     #[serde(with = "super::timestamp")]
@@ -26,63 +96,30 @@ impl Refresh {
         })
     }
 
-    pub fn encode(&self) -> crate::Result<String> {
-        let header = jwt::Header::new(jwt::Algorithm::HS512);
-        let encoded = jwt::encode(&header, self, &Self::ekey()?)?;
-        Ok(encoded)
-    }
-
-    pub fn decode(raw: &str) -> crate::Result<Self> {
-        let validation = jwt::Validation::new(jwt::Algorithm::HS512);
-        let decoded: Self = jwt::decode(raw, &Self::dkey()?, &validation)?.claims;
-        // Note that we must uphold the invariant that exp > iat here.
-        if decoded.exp < decoded.iat {
-            return Err(crate::Error::unexpected(
-                "api is misconfigured, exp is negative",
-            ));
-        }
-        Ok(decoded)
-    }
-
-    pub fn as_set_cookie(&self) -> crate::Result<String> {
-        let exp = self.exp.format("%a, %d %b %Y %H:%M:%S GMT");
-        let tkn = self.encode()?;
-        let val = format!("refresh={tkn}; path=/; expires={exp}; Secure; HttpOnly; SameSite=None");
-        Ok(val)
-    }
-
     /// Returns the longevity of this token.
     pub fn duration(&self) -> chrono::Duration {
         self.exp - self.iat
-    }
-
-    fn dkey() -> crate::Result<jwt::DecodingKey> {
-        let key = key_provider::KeyProvider::jwt_secret()?;
-        Ok(jwt::DecodingKey::from_secret(key.as_bytes()))
-    }
-
-    fn ekey() -> crate::Result<jwt::EncodingKey> {
-        let key = key_provider::KeyProvider::jwt_secret()?;
-        Ok(jwt::EncodingKey::from_secret(key.as_bytes()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Context;
 
     #[test]
     fn test_encode_decode_preserves_token() {
-        temp_env::with_var_unset("SECRETS_ROOT", || {
-            let refresh = Refresh::new(
-                uuid::Uuid::new_v4(),
-                chrono::Utc::now(),
-                chrono::Duration::seconds(1),
-            )
-            .unwrap();
-            let encoded = refresh.encode().unwrap();
-            let decoded = Refresh::decode(&encoded).unwrap();
-            assert_eq!(refresh, decoded);
-        });
+        let context = Context::new_with_default_toml().unwrap();
+
+        let refresh = Refresh::new(
+            uuid::Uuid::new_v4(),
+            chrono::Utc::now(),
+            chrono::Duration::seconds(1),
+        )
+        .unwrap();
+
+        let encoded = context.cipher.refresh.encode(&refresh).unwrap();
+        let decoded = context.cipher.refresh.decode(&encoded).unwrap();
+        assert_eq!(decoded, refresh);
     }
 }

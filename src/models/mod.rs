@@ -4,10 +4,6 @@
 //! used for updating rows often do not contain all of the columns, whereas models that are used
 //! for selecting usually do.
 
-/// This is the name of the environment variable that is used to retrieve the database url. It is
-/// exported as a constant to prevent typos.
-pub const DATABASE_URL: &str = "DATABASE_URL";
-
 mod blacklist_token;
 mod blockchain;
 mod command;
@@ -23,11 +19,6 @@ mod org;
 pub mod schema;
 mod user;
 
-use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
-use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
-use diesel_async::AsyncConnection;
-use std::cmp;
-
 pub use blacklist_token::*;
 pub use blockchain::*;
 pub use command::*;
@@ -42,7 +33,15 @@ pub use node_type::*;
 pub use org::*;
 pub use user::*;
 
-pub type Conn = diesel_async::AsyncPgConnection;
+use std::cmp;
+use std::sync::Arc;
+
+use derive_more::{Deref, DerefMut};
+use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
+use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
+use diesel_async::{AsyncConnection, AsyncPgConnection};
+
+use crate::config::Context;
 
 diesel::sql_function!(fn lower(x: diesel::sql_types::Text) -> diesel::sql_types::Text);
 diesel::sql_function!(fn string_to_array(version: diesel::sql_types::Text, split: diesel::sql_types::Text) -> diesel::sql_types::Array<diesel::sql_types::Text>);
@@ -55,14 +54,15 @@ diesel::sql_function!(fn string_to_array(version: diesel::sql_types::Text, split
 /// controller, it is worth creating this wrapper type that also has the functions `begin` and
 /// `conn`, but altered such that they return a `Result<_, error::Error>`. With this Err-variant
 /// we _can_ use the `?`-operator in our controllers.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DbPool {
-    pool: Pool<Conn>,
+    pool: Pool<AsyncPgConnection>,
+    pub context: Arc<Context>,
 }
 
 impl DbPool {
-    pub fn new(pool: Pool<Conn>) -> Self {
-        Self { pool }
+    pub fn new(pool: Pool<AsyncPgConnection>, context: Arc<Context>) -> Self {
+        Self { pool, context }
     }
 
     pub async fn trx<'a, F, T>(&self, f: F) -> Result<T, tonic::Status>
@@ -70,20 +70,19 @@ impl DbPool {
         F: for<'r> FnOnce(&'r mut Conn) -> ScopedBoxFuture<'a, 'r, crate::Result<T>> + Send + 'a,
         T: Send + 'a,
     {
-        let res = self
-            .pool
-            .get()
+        let mut conn = self.conn().await.map_err(crate::Error::from)?;
+        conn.transaction(|c| f(c).scope_boxed())
             .await
-            .map_err(crate::Error::from)?
-            .transaction(|c| f(c).scope_boxed())
-            .await?;
-        Ok(res)
+            .map_err(Into::into)
     }
 
     /// Returns a database connection that is not in a transition state. Use this for read-only
     /// endpoints.
-    pub async fn conn(&self) -> crate::Result<PooledConnection<'_, Conn>> {
-        Ok(self.pool.get().await?)
+    pub async fn conn(&self) -> crate::Result<Conn> {
+        Ok(Conn {
+            inner: self.pool.get_owned().await?,
+            context: self.context.clone(),
+        })
     }
 
     pub fn is_closed(&self) -> bool {
@@ -91,11 +90,19 @@ impl DbPool {
     }
 }
 
+/// A wrapper around an `AsyncPgConnection` together with some `Context` metadata.
+#[derive(Deref, DerefMut)]
+pub struct Conn {
+    #[deref]
+    #[deref_mut]
+    inner: PooledConnection<'static, AsyncPgConnection>,
+    pub context: Arc<Context>,
+}
+
 fn semver_cmp(s1: &str, s2: &str) -> Option<cmp::Ordering> {
     s1.split('.')
         .zip(s2.split('.'))
-        .filter_map(|(s1, s2)| cmp_str(s1, s2))
-        .next()
+        .find_map(|(s1, s2)| cmp_str(s1, s2))
 }
 
 fn cmp_str(s1: &str, s2: &str) -> Option<cmp::Ordering> {

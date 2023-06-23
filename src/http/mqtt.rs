@@ -1,6 +1,8 @@
-use crate::{auth, models};
 use anyhow::{anyhow, Context};
 use serde::Deserialize;
+
+use crate::auth::token::{Claims, Resource};
+use crate::models;
 
 /// This is a list of our supported MQTT topics.
 pub enum MqttTopic {
@@ -74,22 +76,23 @@ pub struct MqttPolicy {
 }
 
 impl MqttPolicy {
-    pub async fn allow(&self, token: auth::Jwt, topic: &str) -> crate::Result<bool> {
+    pub async fn allow(&self, claims: Claims, topic: &str) -> crate::Result<bool> {
         let topic: MqttTopic = topic.parse()?;
         let mut conn = self
             .db
             .conn()
             .await
             .with_context(|| "Couldn't get database connection")?;
-        let is_allowed = match (token.claims.resource(), topic) {
+
+        let is_allowed = match (claims.resource(), topic) {
             // A user is allowed to listen for updates on an org channel if they're a member of that
             // org
-            (auth::Resource::User(user_id), MqttTopic::Orgs { org_id, .. }) => {
+            (Resource::User(user_id), MqttTopic::Orgs { org_id, .. }) => {
                 models::Org::is_member(user_id, org_id, &mut conn).await?
             }
             // A user is allowed to listen for updates on a host channel if they are in the same org
             // as that host.
-            (auth::Resource::User(user_id), MqttTopic::Hosts { host_id, .. }) => {
+            (Resource::User(user_id), MqttTopic::Hosts { host_id, .. }) => {
                 let host = models::Host::find_by_id(host_id, &mut conn).await?;
                 if let Some(org_id) = host.org_id {
                     models::Org::is_member(user_id, org_id, &mut conn).await?
@@ -99,42 +102,41 @@ impl MqttPolicy {
             }
             // A user is allowed to listen for updates on a node channel if that node belongs to the
             // same org as them
-            (auth::Resource::User(user_id), MqttTopic::Nodes { node_id, .. }) => {
+            (Resource::User(user_id), MqttTopic::Nodes { node_id, .. }) => {
                 let node = models::Node::find_by_id(node_id, &mut conn).await?;
                 models::Org::is_member(user_id, node.org_id, &mut conn).await?
             }
             // An org is allowed to listen for updates on an org channel if that org is the same as
             // them.
-            (auth::Resource::Org(org), MqttTopic::Orgs { org_id, .. }) => org_id == org,
+            (Resource::Org(org), MqttTopic::Orgs { org_id, .. }) => org_id == org,
             // An org is allowed to listen for updates on an org channel if that org is the same as
             // them.
-            (auth::Resource::Org(org_id), MqttTopic::Hosts { host_id, .. }) => {
+            (Resource::Org(org_id), MqttTopic::Hosts { host_id, .. }) => {
                 models::Host::find_by_id(host_id, &mut conn).await?.org_id == Some(org_id)
             }
             // An org is allowed to listen for updates on a node channel if that nodes belongs to
             // them.
-            (auth::Resource::Org(org_id), MqttTopic::Nodes { node_id, .. }) => {
+            (Resource::Org(org_id), MqttTopic::Nodes { node_id, .. }) => {
                 let node = models::Node::find_by_id(node_id, &mut conn).await?;
                 node.org_id == org_id
             }
             // A host is not allowed to listen to the messages about a whole org.
-            (auth::Resource::Host(_), MqttTopic::Orgs { .. }) => false,
-            (auth::Resource::Host(host), MqttTopic::Hosts { host_id, .. }) => host == host_id,
+            (Resource::Host(_), MqttTopic::Orgs { .. }) => false,
+            (Resource::Host(host), MqttTopic::Hosts { host_id, .. }) => host == host_id,
             // A host is allowed to listen to the messages for a node if that node is running on
             // them.
-            (auth::Resource::Host(host_id), MqttTopic::Nodes { node_id, .. }) => {
+            (Resource::Host(host_id), MqttTopic::Nodes { node_id, .. }) => {
                 let node = models::Node::find_by_id(node_id, &mut conn).await?;
                 node.host_id == host_id
             }
             // A node is not allowed to listen for messages about a whole org.
-            (auth::Resource::Node(_), MqttTopic::Orgs { .. }) => false,
+            (Resource::Node(_), MqttTopic::Orgs { .. }) => false,
             // A node is also not allowed to listen for messages about a whole host.
-            (auth::Resource::Node(_), MqttTopic::Hosts { .. }) => false,
+            (Resource::Node(_), MqttTopic::Hosts { .. }) => false,
             // A node is allowed to listen for messages about a node if that node is them.
-            (auth::Resource::Node(node_id_), MqttTopic::Nodes { node_id, .. }) => {
-                node_id_ == node_id
-            }
+            (Resource::Node(node_id_), MqttTopic::Nodes { node_id, .. }) => node_id_ == node_id,
         };
+
         Ok(is_allowed)
     }
 }

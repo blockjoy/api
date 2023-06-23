@@ -11,14 +11,10 @@ async fn responds_correct_urls_forss() {
 
     assert_eq!(
         response.key_service_url,
-        std::env::var("KEY_SERVICE_URL").unwrap()
+        tester.context().config.key_service.url.to_string()
     );
     assert_eq!(
         response.notification_url,
-        format!(
-            "mqtt://{}:{}",
-            std::env::var("MQTT_SERVER_ADDRESS").unwrap(),
-            std::env::var("MQTT_SERVER_PORT").unwrap()
-        )
+        tester.context().config.mqtt.notification_url()
     );
 }

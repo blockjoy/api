@@ -10,8 +10,11 @@ type Service = api::node_service_client::NodeServiceClient<super::Channel>;
 #[tokio::test]
 async fn responds_ok_for_update() {
     let tester = super::Tester::new().await;
+
     let host = tester.host().await;
-    let token = tester.host_token(&host);
+    let claims = tester.host_token(&host);
+    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+
     let node = tester.node().await;
     let node_id = node.id.to_string();
     let req = api::NodeServiceUpdateRequest {
@@ -30,7 +33,7 @@ async fn responds_ok_for_update() {
         }],
     };
 
-    tester.send_with(Service::update, req, token).await.unwrap();
+    tester.send_with(Service::update, req, &jwt).await.unwrap();
 
     let mut conn = tester.conn().await;
     let node = models::Node::find_by_id(node_id.parse().unwrap(), &mut conn)
@@ -74,7 +77,7 @@ async fn responds_ok_with_id_for_get() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_data_for_create() {
-    let tester = super::Tester::new_with(true).await;
+    let tester = super::Tester::new().await;
     let blockchain = tester.blockchain().await;
     let user = tester.user().await;
     let org = tester.org_for(&user).await;

@@ -1,0 +1,56 @@
+[cloudflare.api]
+base_url = "https://api.cloudflare.com/client/v4"
+zone_id = "89560cdd783e35f7a9d718755ea9c656"
+token = "9QjEiXC4B26tgshHZjuZ57kJcjaChSSsDfzUvfYQ"
+
+[cloudflare.dns]
+base = "n0des.xyz"
+ttl = 300
+
+[cookbook]
+prefix = "chains"
+# This is the name of the bucket in R2
+root = "backet"
+url = "https://r2.dev"
+expiration = "1h"
+
+[database]
+url = "postgres://blockvisor:password@localhost:25432/blockvisor_db"
+bind_ip = "0.0.0.0"
+bind_port = 8080
+
+[database.pool]
+max_conns = 10
+min_conns = 2
+max_lifetime = "1d"
+idle_timeout = "2m"
+
+[grpc]
+request_concurrency_limit = 128
+
+[key_service]
+url = "https://api.dev.blockjoy.com"
+
+[mail]
+sendgrid_api_key = "123"
+ui_base_url = "https://app.alpha.blockvisor.dev"
+
+[mqtt]
+server_address = "35.237.162.218"
+server_port = 1883
+username = "blockvisor-api"
+password = 'PH*rE:\ZQlecB9/I?[#R$q3M;5yCb]Y+'
+
+[token.secret]
+jwt = "1245456"
+refresh = "987654321"
+password_reset = "019243439"
+
+[token.expire]
+token = "10m"
+refresh = "20h"
+refresh_host = "30d"
+refresh_user = "20h"
+password_reset = "5m"
+registration_confirmation = "30m"
+invitation = "168m"

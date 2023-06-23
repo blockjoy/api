@@ -2,7 +2,11 @@ use super::{
     api::{self, cookbook_service_server},
     helpers::required,
 };
-use crate::{auth, cookbook};
+use crate::{
+    auth::{self, token::Endpoint},
+    cookbook,
+    models::Conn,
+};
 
 #[tonic::async_trait]
 impl cookbook_service_server::CookbookService for super::GrpcImpl {
@@ -12,7 +16,7 @@ impl cookbook_service_server::CookbookService for super::GrpcImpl {
         req: tonic::Request<api::CookbookServiceRetrievePluginRequest>,
     ) -> super::Resp<api::CookbookServiceRetrievePluginResponse> {
         let mut conn = self.conn().await?;
-        let resp = retrieve_plugin(&self, req, &mut conn).await?;
+        let resp = retrieve_plugin(self, req, &mut conn).await?;
         Ok(resp)
     }
 
@@ -70,9 +74,9 @@ impl cookbook_service_server::CookbookService for super::GrpcImpl {
 async fn retrieve_plugin(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::CookbookServiceRetrievePluginRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
+    conn: &mut Conn,
 ) -> super::Result<api::CookbookServiceRetrievePluginResponse> {
-    auth::get_claims(&req, auth::Endpoint::CookbookRetrievePlugin, conn).await?;
+    auth::get_claims(&req, Endpoint::CookbookRetrievePlugin, conn).await?;
     let req = req.into_inner();
     let id = req.id.ok_or_else(required("id"))?;
     let rhai_content = grpc
@@ -97,9 +101,9 @@ async fn retrieve_plugin(
 async fn retrieve_image(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::CookbookServiceRetrieveImageRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
+    conn: &mut Conn,
 ) -> super::Result<api::CookbookServiceRetrieveImageResponse> {
-    auth::get_claims(&req, auth::Endpoint::CookbookRetrieveImage, conn).await?;
+    auth::get_claims(&req, Endpoint::CookbookRetrieveImage, conn).await?;
     let req = req.into_inner();
     let id = req.id.ok_or_else(required("id"))?;
     let url = grpc
@@ -121,9 +125,9 @@ async fn retrieve_image(
 async fn retrieve_kernel(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::CookbookServiceRetrieveKernelRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
+    conn: &mut Conn,
 ) -> super::Result<api::CookbookServiceRetrieveKernelResponse> {
-    auth::get_claims(&req, auth::Endpoint::CookbookRetrieveKernel, conn).await?;
+    auth::get_claims(&req, Endpoint::CookbookRetrieveKernel, conn).await?;
     let req = req.into_inner();
     let id = req.id.ok_or_else(required("id"))?;
     let url = grpc
@@ -145,9 +149,9 @@ async fn retrieve_kernel(
 async fn requirements(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::CookbookServiceRequirementsRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
+    conn: &mut Conn,
 ) -> super::Result<api::CookbookServiceRequirementsResponse> {
-    auth::get_claims(&req, auth::Endpoint::CookbookRequirements, conn).await?;
+    auth::get_claims(&req, Endpoint::CookbookRequirements, conn).await?;
     let req = req.into_inner();
     let id = req.id.ok_or_else(required("id"))?;
     let requirements = grpc
@@ -166,9 +170,9 @@ async fn requirements(
 async fn net_configurations(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::CookbookServiceNetConfigurationsRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
+    conn: &mut Conn,
 ) -> super::Result<api::CookbookServiceNetConfigurationsResponse> {
-    auth::get_claims(&req, auth::Endpoint::CookbookNetConfigurations, conn).await?;
+    auth::get_claims(&req, Endpoint::CookbookNetConfigurations, conn).await?;
     let req = req.into_inner();
     let id = req.id.ok_or_else(required("id"))?;
     let networks = grpc
@@ -195,9 +199,9 @@ async fn net_configurations(
 async fn list_babel_versions(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::CookbookServiceListBabelVersionsRequest>,
-    conn: &mut diesel_async::AsyncPgConnection,
+    conn: &mut Conn,
 ) -> super::Result<api::CookbookServiceListBabelVersionsResponse> {
-    auth::get_claims(&req, auth::Endpoint::CookbookListBabelVersions, conn).await?;
+    auth::get_claims(&req, Endpoint::CookbookListBabelVersions, conn).await?;
     let req = req.into_inner();
     let identifiers = grpc.cookbook.list(&req.protocol, &req.node_type).await?;
     let resp = api::CookbookServiceListBabelVersionsResponse { identifiers };

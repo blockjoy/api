@@ -1,7 +1,10 @@
-use super::api::{self, org_service_server};
-use crate::{auth, models};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
+
+use diesel_async::scoped_futures::ScopedFutureExt;
+
+use super::api::{self, org_service_server};
+use crate::auth::token::{Endpoint, Resource};
+use crate::{auth, models};
 
 struct OrgResult<T> {
     org_msg: api::OrgMessage,
@@ -87,9 +90,9 @@ async fn create(
     req: tonic::Request<api::OrgServiceCreateRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<OrgResult<api::OrgServiceCreateResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::OrgCreate, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::OrgCreate, conn).await?;
     let req = req.into_inner();
-    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
+    let Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
     let new_org = models::NewOrg {
         name: &req.name,
         is_personal: false,
@@ -109,16 +112,14 @@ async fn get(
     req: tonic::Request<api::OrgServiceGetRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::OrgServiceGetResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::OrgGet, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::OrgGet, conn).await?;
     let req = req.into_inner();
     let org_id = req.id.parse()?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => models::Org::is_member(user_id, org_id, conn).await?,
-        auth::Resource::Org(org) => org == org_id,
-        auth::Resource::Host(host) => {
-            models::Host::find_by_id(host, conn).await?.org_id == Some(org_id)
-        }
-        auth::Resource::Node(node) => models::Node::find_by_id(node, conn).await?.org_id == org_id,
+        Resource::User(user_id) => models::Org::is_member(user_id, org_id, conn).await?,
+        Resource::Org(org) => org == org_id,
+        Resource::Host(host) => models::Host::find_by_id(host, conn).await?.org_id == Some(org_id),
+        Resource::Node(node) => models::Node::find_by_id(node, conn).await?.org_id == org_id,
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -134,20 +135,20 @@ async fn list(
     req: tonic::Request<api::OrgServiceListRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::OrgServiceListResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::OrgList, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::OrgList, conn).await?;
     let req = req.into_inner();
     let member_id = req.member_id.map(|id| id.parse()).transpose()?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             if let Some(member_id) = member_id {
                 member_id == user_id
             } else {
                 false
             }
         }
-        auth::Resource::Org(_) => false,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::Org(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access denied")
@@ -162,9 +163,9 @@ async fn update(
     req: tonic::Request<api::OrgServiceUpdateRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<OrgResult<api::OrgServiceUpdateResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::OrgUpdate, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::OrgUpdate, conn).await?;
     let req = req.into_inner();
-    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
+    let Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
     let org_id = req.id.parse()?;
     if !models::Org::is_member(user_id, org_id, conn).await? {
         super::forbidden!("Access denied");
@@ -188,9 +189,9 @@ async fn delete(
     req: tonic::Request<api::OrgServiceDeleteRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<OrgResult<api::OrgServiceDeleteResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::OrgDelete, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::OrgDelete, conn).await?;
     let req = req.into_inner();
-    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
+    let Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
     let org_id = req.id.parse()?;
     if !models::Org::is_admin(user_id, org_id, conn).await? {
         super::forbidden!("User {user_id} has insufficient privileges to delete org {org_id}");
@@ -215,9 +216,9 @@ async fn remove_member(
     req: tonic::Request<api::OrgServiceRemoveMemberRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<OrgResult<api::OrgServiceRemoveMemberResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::OrgRemoveMember, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::OrgRemoveMember, conn).await?;
     let req = req.into_inner();
-    let auth::Resource::User(caller_id) = claims.resource() else { super::forbidden!("Access denied") };
+    let Resource::User(caller_id) = claims.resource() else { super::forbidden!("Access denied") };
     let org_id = req.org_id.parse()?;
     let user_id = req.user_id.parse()?;
     let is_admin = models::Org::is_admin(caller_id, org_id, conn).await?;
@@ -247,17 +248,17 @@ async fn get_provision_token(
     req: tonic::Request<api::OrgServiceGetProvisionTokenRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::OrgServiceGetProvisionTokenResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::OrgGetProvisionToken, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::OrgGetProvisionToken, conn).await?;
     let req = req.into_inner();
     let user_id = req.user_id.parse()?;
     let org_id = req.org_id.parse()?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id_) => {
+        Resource::User(user_id_) => {
             user_id_ == user_id && models::Org::is_member(user_id, org_id, conn).await?
         }
-        auth::Resource::Org(_) => false,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::Org(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -273,17 +274,17 @@ async fn reset_provision_token(
     req: tonic::Request<api::OrgServiceResetProvisionTokenRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::OrgServiceResetProvisionTokenResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::OrgResetProvisionToken, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::OrgResetProvisionToken, conn).await?;
     let req = req.into_inner();
     let user_id = req.user_id.parse()?;
     let org_id = req.org_id.parse()?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id_) => {
+        Resource::User(user_id_) => {
             user_id_ == user_id && models::Org::is_member(user_id, org_id, conn).await?
         }
-        auth::Resource::Org(_) => false,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::Org(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -333,17 +334,20 @@ impl api::Org {
                     updated_at: Some(super::try_dt_to_ts(model.updated_at)?),
                     members: org_users
                         .iter()
-                        .map(|ou| {
-                            let user = &users[&ou.user_id];
-                            let mut org = api::OrgUser {
-                                user_id: ou.user_id.to_string(),
-                                org_id: ou.org_id.to_string(),
-                                role: 0, // We use the setter to set this field for type-safety
-                                name: user.name(),
-                                email: user.email.clone(),
-                            };
-                            org.set_role(api::OrgRole::from_model(ou.role));
-                            org
+                        .flat_map(|ou| {
+                            // When a user gets deleted, we might not have a user for the current id
+                            // so we flat_map here and skip any user that don't exist.
+                            users.get(&ou.user_id).map(|user| {
+                                let mut org = api::OrgUser {
+                                    user_id: ou.user_id.to_string(),
+                                    org_id: ou.org_id.to_string(),
+                                    role: 0, // We use the setter to set this field for type-safety
+                                    name: user.name(),
+                                    email: user.email.clone(),
+                                };
+                                org.set_role(api::OrgRole::from_model(ou.role));
+                                org
+                            })
                         })
                         .collect(),
                     node_count: node_counts.get(&model.id).copied().unwrap_or(0),

@@ -1,15 +1,26 @@
-use self::timestamp::remove_nanos;
+use crate::config::token::SecretConfig;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-mod api_key;
-mod jwt;
-mod refresh;
+pub mod api_key;
+pub mod jwt;
+pub mod refresh;
 
-pub use api_key::ApiKey;
-pub use jwt::Jwt;
-pub use refresh::Refresh;
+pub struct Cipher {
+    pub jwt: jwt::Cipher,
+    pub refresh: refresh::Cipher,
+}
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+impl Cipher {
+    pub fn new(config: &SecretConfig) -> Self {
+        Cipher {
+            jwt: jwt::Cipher::new(&config.jwt),
+            refresh: refresh::Cipher::new(&config.refresh),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Claims {
     pub resource_type: ResourceType,
     pub resource_id: uuid::Uuid,
@@ -129,7 +140,7 @@ pub enum Endpoints {
 }
 
 impl Endpoints {
-    pub(super) fn includes(&self, endpoint: Endpoint) -> bool {
+    pub fn includes(&self, endpoint: Endpoint) -> bool {
         match self {
             Self::Wildcard => true,
             Self::Single(this) => this.matches(endpoint),
@@ -170,7 +181,7 @@ impl Expirable {
     // This function returns an error if `exp` is less than `iat` or if `iat` could not be
     // sanitized without nanoseconds precision.
     pub fn new(iat: chrono::DateTime<chrono::Utc>, exp: chrono::Duration) -> crate::Result<Self> {
-        let iat = remove_nanos(&iat)?;
+        let iat = timestamp::remove_nanos(&iat)?;
         let exp = iat + exp;
         // Note that we must uphold the invariant that exp > iat here.
         if exp < iat {

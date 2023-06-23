@@ -1,24 +1,25 @@
-use super::api::{self, host_service_server};
-use crate::{
-    auth::{self, expiration_provider},
-    models,
-};
 use diesel_async::scoped_futures::ScopedFutureExt;
+
+use super::api::{self, host_service_server};
+use crate::auth::token::refresh::Refresh;
+use crate::auth::token::{Claims, Endpoint, Resource, ResourceType};
+use crate::{auth, models};
 
 /// This is a list of all the endpoints that a user is allowed to access with the jwt that they
 /// generate on login. It does not contain endpoints like confirm, because those are accessed by a
 /// token.
-const HOST_ENDPOINTS: [auth::Endpoint; 10] = [
-    auth::Endpoint::AuthRefresh,
-    auth::Endpoint::BabelAll,
-    auth::Endpoint::BlockchainAll,
-    auth::Endpoint::CommandAll,
-    auth::Endpoint::DiscoveryAll,
-    auth::Endpoint::HostGet,
-    auth::Endpoint::HostList,
-    auth::Endpoint::KeyFileAll,
-    auth::Endpoint::MetricsAll,
-    auth::Endpoint::NodeAll,
+const HOST_ENDPOINTS: [Endpoint; 11] = [
+    Endpoint::AuthRefresh,
+    Endpoint::BabelAll,
+    Endpoint::BlockchainAll,
+    Endpoint::CommandAll,
+    Endpoint::DiscoveryAll,
+    Endpoint::HostGet,
+    Endpoint::HostList,
+    Endpoint::HostUpdate,
+    Endpoint::KeyFileAll,
+    Endpoint::MetricsAll,
+    Endpoint::NodeAll,
 ];
 
 #[tonic::async_trait]
@@ -93,22 +94,25 @@ async fn create(
     let new_host = req.as_new(caller_id, org_id)?;
     let host = new_host.create(conn).await?;
     let iat = chrono::Utc::now();
-    let claims = auth::Claims::new(
-        auth::ResourceType::Host,
+    let exp = conn.context.config.token.expire.token.try_into()?;
+    let claims = Claims::new(
+        ResourceType::Host,
         host.id,
         iat,
-        expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?,
+        exp,
         HOST_ENDPOINTS.iter().copied().collect(),
     )?;
-    let token = auth::Jwt { claims };
-    let exp = expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_HOST_MINS")?;
-    let refresh = auth::Refresh::new(host.id, iat, exp)?;
+
+    let refresh_exp = conn.context.config.token.expire.refresh_host.try_into()?;
+    let refresh = Refresh::new(host.id, iat, refresh_exp)?;
+
     let host = api::Host::from_model(host).await?;
     let resp = api::HostServiceCreateResponse {
         host: Some(host),
-        token: token.encode()?,
-        refresh: refresh.encode()?,
+        token: conn.context.cipher.jwt.encode(&claims)?.into(),
+        refresh: conn.context.cipher.refresh.encode(&refresh)?.into(),
     };
+
     Ok(tonic::Response::new(resp))
 }
 
@@ -117,21 +121,21 @@ async fn get(
     req: tonic::Request<api::HostServiceGetRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::HostServiceGetResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostGet, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::HostGet, conn).await?;
     let req = req.into_inner();
     let host_id = req.id.parse()?;
     let host = models::Host::find_by_id(host_id, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             if let Some(org_id) = host.org_id {
                 models::Org::is_member(user_id, org_id, conn).await?
             } else {
                 false
             }
         }
-        auth::Resource::Org(org) => host.org_id == Some(org),
-        auth::Resource::Host(host_id) => host.id == host_id,
-        auth::Resource::Node(node_id) => {
+        Resource::Org(org) => host.org_id == Some(org),
+        Resource::Host(host_id) => host.id == host_id,
+        Resource::Node(node_id) => {
             models::Node::find_by_id(node_id, conn).await?.host_id == host.id
         }
     };
@@ -147,14 +151,14 @@ async fn list(
     req: tonic::Request<api::HostServiceListRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::HostServiceListResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostList, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::HostList, conn).await?;
     let req = req.into_inner();
     let org_id = req.org_id.parse()?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => models::Org::is_member(user_id, org_id, conn).await?,
-        auth::Resource::Org(org_id_) => org_id == org_id_,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::User(user_id) => models::Org::is_member(user_id, org_id, conn).await?,
+        Resource::Org(org_id_) => org_id == org_id_,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -169,21 +173,21 @@ async fn update(
     req: tonic::Request<api::HostServiceUpdateRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::HostServiceUpdateResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostUpdate, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::HostUpdate, conn).await?;
     let req = req.into_inner();
     let host_id = req.id.parse()?;
     let host = models::Host::find_by_id(host_id, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             if let Some(org_id) = host.org_id {
                 models::Org::is_member(user_id, org_id, conn).await?
             } else {
                 false
             }
         }
-        auth::Resource::Org(org_id) => Some(org_id) == host.org_id,
-        auth::Resource::Host(host_id) => host_id == host.id,
-        auth::Resource::Node(_) => false,
+        Resource::Org(org_id) => Some(org_id) == host.org_id,
+        Resource::Host(host_id) => host_id == host.id,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Not allowed to delete host {host_id}!");
@@ -198,21 +202,21 @@ async fn delete(
     req: tonic::Request<api::HostServiceDeleteRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::HostServiceDeleteResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::HostDelete, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::HostDelete, conn).await?;
     let req = req.into_inner();
     let host_id = req.id.parse()?;
     let host = models::Host::find_by_id(host_id, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             if let Some(org_id) = host.org_id {
                 models::Org::is_member(user_id, org_id, conn).await?
             } else {
                 false
             }
         }
-        auth::Resource::Org(org_id) => Some(org_id) == host.org_id,
-        auth::Resource::Host(host_id) => host_id == host.id,
-        auth::Resource::Node(_) => false,
+        Resource::Org(org_id) => Some(org_id) == host.org_id,
+        Resource::Host(host_id) => host_id == host.id,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Not allowed to delete host {host_id}!");

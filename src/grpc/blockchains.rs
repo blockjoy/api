@@ -1,7 +1,5 @@
 use super::api::{self, blockchain_service_server, SupportedNodeProperty};
-use crate::cookbook;
-use crate::cookbook::script::NetType;
-use crate::models;
+use crate::{cookbook, models};
 use futures_util::future::join_all;
 use std::collections::HashMap;
 
@@ -21,7 +19,7 @@ impl blockchain_service_server::BlockchainService for super::GrpcImpl {
         req: tonic::Request<api::BlockchainServiceListRequest>,
     ) -> super::Resp<api::BlockchainServiceListResponse> {
         let mut conn = self.conn().await?;
-        let resp = list(&self, req, &mut conn).await?;
+        let resp = list(self, req, &mut conn).await?;
         Ok(resp)
     }
 }
@@ -72,6 +70,7 @@ async fn list(
             ));
         }
     }
+
     let networks = join_all(network_futs).await;
 
     // Now that we have fetched our networks, we have to stuff them into the DTO's. To do this
@@ -122,9 +121,9 @@ async fn try_get_networks(
                     net_type: 0, // we use a setter
                 };
                 net.set_net_type(match network.net_type {
-                    NetType::Dev => api::BlockchainNetworkType::Dev,
-                    NetType::Test => api::BlockchainNetworkType::Test,
-                    NetType::Main => api::BlockchainNetworkType::Main,
+                    cookbook::script::NetType::Dev => api::BlockchainNetworkType::Dev,
+                    cookbook::script::NetType::Test => api::BlockchainNetworkType::Test,
+                    cookbook::script::NetType::Main => api::BlockchainNetworkType::Main,
                 });
                 net
             })
@@ -155,12 +154,11 @@ impl api::Blockchain {
             .into_iter()
             .map(|model| {
                 let properties = properties_map.get(&model.id).cloned().unwrap_or_default();
-                let mut blockchain = Self {
+                Ok(Self {
                     id: model.id.to_string(),
                     name: model.name,
                     // TODO: make this column mandatory
                     description: model.description.unwrap_or_default(),
-                    status: 0, // We use the setter to set this field for type-safety
                     project_url: model.project_url,
                     repo_url: model.repo_url,
                     version: model.version,
@@ -168,9 +166,7 @@ impl api::Blockchain {
                     created_at: Some(super::try_dt_to_ts(model.created_at)?),
                     updated_at: Some(super::try_dt_to_ts(model.updated_at)?),
                     networks: vec![],
-                };
-                blockchain.set_status(api::BlockchainStatus::from_model(model.status));
-                Ok(blockchain)
+                })
             })
             .collect()
     }
@@ -182,28 +178,27 @@ impl api::Blockchain {
 
 impl api::SupportedNodeType {
     fn from_models(models: Vec<models::BlockchainProperty>) -> crate::Result<Vec<Self>> {
-        // First we partition the properties by version
-        let mut properties: HashMap<(models::NodeType, &str), Vec<_>> = HashMap::new();
-        for model in &models {
+        // First we partition the properties by node type and version.
+        let mut properties: HashMap<(models::NodeType, String), Vec<_>> = HashMap::new();
+        for model in models {
             properties
-                .entry((model.node_type, &model.version))
+                .entry((model.node_type, model.version.clone()))
                 .or_default()
                 .push(model);
         }
 
-        models
-            .iter()
-            .map(|model| {
-                let properties = &properties[&(model.node_type, model.version.as_str())];
+        properties
+            .into_iter()
+            .map(|((node_type, version), properties)| {
                 let mut props = api::SupportedNodeType {
                     node_type: 0, // We use the setter to set this field for type-safety
-                    version: model.version.to_string(),
+                    version,
                     properties: properties
                         .iter()
-                        .map(|prop| api::SupportedNodeProperty::from_model(prop))
+                        .map(api::SupportedNodeProperty::from_model)
                         .collect(),
                 };
-                props.set_node_type(api::NodeType::from_model(model.node_type));
+                props.set_node_type(api::NodeType::from_model(node_type));
                 Ok(props)
             })
             .collect()
@@ -221,17 +216,5 @@ impl api::SupportedNodeProperty {
         };
         prop.set_ui_type(api::UiType::from_model(model.ui_type));
         prop
-    }
-}
-
-impl api::BlockchainStatus {
-    fn from_model(model: models::BlockchainStatus) -> Self {
-        match model {
-            models::BlockchainStatus::Development => Self::Development,
-            models::BlockchainStatus::Alpha => Self::Alpha,
-            models::BlockchainStatus::Beta => Self::Beta,
-            models::BlockchainStatus::Production => Self::Production,
-            models::BlockchainStatus::Deleted => Self::Deleted,
-        }
     }
 }

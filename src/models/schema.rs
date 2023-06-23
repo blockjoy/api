@@ -1,63 +1,59 @@
 // @generated automatically by Diesel CLI.
 
 pub mod sql_types {
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "blockchain_property_ui_type"))]
     pub struct BlockchainPropertyUiType;
 
-    #[derive(diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "enum_blockchain_status"))]
-    pub struct EnumBlockchainStatus;
-
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_conn_status"))]
     pub struct EnumConnStatus;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_container_status"))]
     pub struct EnumContainerStatus;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_host_cmd"))]
     pub struct EnumHostCmd;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_host_type"))]
     pub struct EnumHostType;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_chain_status"))]
     pub struct EnumNodeChainStatus;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_log_event"))]
     pub struct EnumNodeLogEvent;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_resource_affinity"))]
     pub struct EnumNodeResourceAffinity;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_similarity_affinity"))]
     pub struct EnumNodeSimilarityAffinity;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_staking_status"))]
     pub struct EnumNodeStakingStatus;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_sync_status"))]
     pub struct EnumNodeSyncStatus;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_type"))]
     pub struct EnumNodeType;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_org_role"))]
     pub struct EnumOrgRole;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "token_type"))]
     pub struct TokenType;
 }
@@ -81,14 +77,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::EnumBlockchainStatus;
-
     blockchains (id) {
         id -> Uuid,
         name -> Text,
         description -> Nullable<Text>,
-        status -> EnumBlockchainStatus,
         project_url -> Nullable<Text>,
         repo_url -> Nullable<Text>,
         version -> Nullable<Text>,
@@ -193,6 +185,7 @@ diesel::table! {
         event -> EnumNodeLogEvent,
         blockchain_name -> Text,
         node_type -> EnumNodeType,
+        #[max_length = 32]
         version -> Varchar,
         created_at -> Timestamptz,
     }
@@ -245,6 +238,7 @@ diesel::table! {
         host_name -> Text,
         network -> Text,
         created_by -> Nullable<Uuid>,
+        #[max_length = 50]
         dns_record_id -> Varchar,
         allow_ips -> Jsonb,
         deny_ips -> Jsonb,
@@ -275,6 +269,7 @@ diesel::table! {
         role -> EnumOrgRole,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        #[max_length = 32]
         host_provision_token -> Varchar,
     }
 }
@@ -296,7 +291,9 @@ diesel::table! {
         hashword -> Text,
         salt -> Text,
         created_at -> Timestamptz,
+        #[max_length = 64]
         first_name -> Varchar,
+        #[max_length = 64]
         last_name -> Varchar,
         confirmed_at -> Nullable<Timestamptz>,
         deleted_at -> Nullable<Timestamptz>,

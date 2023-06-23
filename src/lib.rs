@@ -2,9 +2,9 @@
 
 pub mod auth;
 pub mod cloudflare;
+pub mod config;
 pub mod cookbook;
 pub mod error;
-pub mod firewall;
 pub mod grpc;
 pub mod http;
 pub mod hybrid_server;
@@ -17,21 +17,25 @@ use error::{Error, Result};
 pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
     diesel_migrations::embed_migrations!();
 
-pub use test::TestCloudflareApi;
-pub use test::TestDb;
+pub use test::{TestCloudflareApi, TestCookbook, TestDb};
 
 mod test {
-    use crate::auth::expiration_provider;
+    use crate::auth::token::refresh::Refresh;
     use crate::cloudflare::CloudflareApi;
+    use crate::config::cloudflare::{ApiConfig, Config as CloudflareConfig, DnsConfig};
+    use crate::config::Context;
+    use crate::cookbook::Cookbook;
+    use crate::models;
     use crate::models::schema::{blockchains, commands, nodes, orgs};
-    use crate::{auth, cookbook, models};
+    use crate::models::Conn;
     use diesel::migration::MigrationSource;
     use diesel::prelude::*;
-    use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
+    use diesel_async::pooled_connection::bb8::Pool;
     use diesel_async::pooled_connection::AsyncDieselConnectionManager;
     use diesel_async::scoped_futures::ScopedFutureExt;
     use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
     use rand::Rng;
+    use std::sync::Arc;
     use uuid::Uuid;
 
     pub struct TestCloudflareApi {
@@ -45,7 +49,7 @@ mod test {
         }
 
         pub fn get_cloudflare_api(&self) -> CloudflareApi {
-            CloudflareApi::new(self.mock.url(), "zone_id".to_string(), "token".to_string())
+            CloudflareApi::new(self.mock_config())
         }
 
         async fn mock_cloudflare_api() -> mockito::ServerGuard {
@@ -72,6 +76,21 @@ mod test {
                 .await;
             cloudfare_server
         }
+
+        pub fn mock_config(&self) -> Arc<CloudflareConfig> {
+            let config = CloudflareConfig {
+                api: ApiConfig {
+                    base_url: self.mock.url(),
+                    zone_id: "zone_id".into(),
+                    token: "token".parse().unwrap(),
+                },
+                dns: DnsConfig {
+                    base: "base".into(),
+                    ttl: 3600,
+                },
+            };
+            Arc::new(config)
+        }
     }
 
     pub struct TestCookbook {
@@ -80,30 +99,33 @@ mod test {
 
     impl TestCookbook {
         pub async fn new() -> Self {
-            let mock = Self::mock_cookbook().await;
+            let mock = Self::mock_cookbook_api().await;
             Self { mock }
         }
 
-        pub fn get_cookbook(&self) -> cookbook::Cookbook {
-            cookbook::Cookbook {
-                prefix: "chainz".to_string(),
-                bucket: "mrs bucket".to_string(),
-                expiration: std::time::Duration::from_secs(123),
-                client: todo!(),
-                engine: todo!(),
-            }
+        pub fn get_cookbook_api(&self) -> Cookbook {
+            Cookbook::new(&self.mock_config())
         }
 
-        async fn mock_cookbook() -> mockito::ServerGuard {
-            let mut cookbook_server = mockito::Server::new_async().await;
-
-            cookbook_server
-                .mock("POST", mockito::Matcher::Regex(r"todo$".to_string()))
+        async fn mock_cookbook_api() -> mockito::ServerGuard {
+            let mut r2_server = mockito::Server::new_async().await;
+            r2_server
+                .mock("POST", mockito::Matcher::Regex(r"^/*".to_string()))
                 .with_status(200)
-                .with_body("todo")
+                .with_body("{\"data\":\"id\"}")
                 .create_async()
                 .await;
-            cookbook_server
+            r2_server
+        }
+
+        pub fn mock_config(&self) -> Arc<crate::config::cookbook::Config> {
+            let config = crate::config::cookbook::Config {
+                dir_chains_prefix: "fake".to_string(),
+                r2_root: "news".to_string(),
+                r2_url: self.mock.url().parse().unwrap(),
+                presigned_url_expiration: "1d".parse().unwrap(),
+            };
+            Arc::new(config)
         }
     }
 
@@ -126,55 +148,57 @@ mod test {
     impl TestDb {
         /// Sets up a new test database. That means creating a new db with a random name, connecting
         /// to that new database and then migrating it and filling it with our seed data.
-        pub async fn setup() -> TestDb {
-            dotenv::dotenv().ok();
+        pub async fn setup(context: Arc<Context>) -> TestDb {
+            let config = context.config.as_ref();
+
+            let main_db_url = config.database.url.to_string();
+            let test_db_name = Self::db_name();
 
             // First we open up a connection to the main db. This is for running the
             // `CREATE DATABASE` query.
-            let main_db_url = std::env::var(models::DATABASE_URL).expect("Missing DATABASE_URL");
-            let db_name = Self::db_name();
             let mut conn = AsyncPgConnection::establish(&main_db_url).await.unwrap();
-            diesel::sql_query(&format!("CREATE DATABASE {db_name};"))
+            diesel::sql_query(&format!("CREATE DATABASE {test_db_name};"))
                 .execute(&mut conn)
                 .await
                 .unwrap();
 
-            // Now we construct the url to our newly clreated database and connect to it.
-            let db_url_prefix =
-                std::env::var("DATABASE_URL_NAKED").expect("Missing DATABASE_URL_NAKED");
-            let db_url = format!("{db_url_prefix}/{db_name}");
-            let db_max_conn = std::env::var("DB_MAX_CONN")
-                .unwrap_or_else(|_| "10".to_string())
-                .parse()
-                .unwrap();
+            // Now we construct the url to our newly created database and connect to it.
+            let test_db_url = match config.database.url.as_str().rsplit_once('/') {
+                Some((prefix, _suffix)) => format!("{prefix}/{test_db_name}"),
+                None => panic!(
+                    "Failed to strip database name from url: {0}",
+                    config.database.url
+                ),
+            };
 
-            let config = AsyncDieselConnectionManager::<diesel_async::AsyncPgConnection>::new(
-                db_url.clone(),
+            let manager = AsyncDieselConnectionManager::<diesel_async::AsyncPgConnection>::new(
+                test_db_url.clone(),
             );
             let pool = Pool::builder()
-                .max_size(db_max_conn)
-                .build(config)
+                .max_size(config.database.pool.max_conns)
+                .build(manager)
                 .await
-                .unwrap();
+                .expect("Pool");
 
             // With our constructed pool, we can create a tester, migrate the database and seed it
             // with some data for our tests.
             let db = TestDb {
-                pool: models::DbPool::new(pool),
-                test_db_name: db_name,
-                test_db_url: db_url,
+                pool: models::DbPool::new(pool, context.clone()),
+                test_db_name,
+                test_db_url,
                 main_db_url,
             };
+
+            let mut conn = PgConnection::establish(&db.test_db_url).unwrap();
             for migration in super::MIGRATIONS.migrations().unwrap() {
-                migration
-                    .run(&mut PgConnection::establish(&db.test_db_url).unwrap())
-                    .unwrap();
+                migration.run(&mut conn).unwrap();
             }
+
             db.seed().await;
             db
         }
 
-        pub async fn conn(&self) -> PooledConnection<'_, AsyncPgConnection> {
+        pub async fn conn(&self) -> Conn {
             self.pool.conn().await.unwrap()
         }
 
@@ -223,8 +247,8 @@ mod test {
                 .expect("Could not seed db");
         }
 
-        async fn seed_(conn: &mut diesel_async::AsyncPgConnection) -> crate::Result<()> {
-            diesel::sql_query("INSERT INTO blockchains (id, name, status) values ('ab5d8cfc-77b1-4265-9fee-ba71ba9de092','Ethereum', 'production');")
+        async fn seed_(conn: &mut Conn) -> crate::Result<()> {
+            diesel::sql_query("INSERT INTO blockchains (id, name) values ('ab5d8cfc-77b1-4265-9fee-ba71ba9de092','Ethereum');")
                 .execute(conn)
                 .await.unwrap();
             diesel::sql_query("INSERT INTO blockchain_properties VALUES ('5972a35a-333c-421f-ab64-a77f4ae17533', 'ab5d8cfc-77b1-4265-9fee-ba71ba9de092', '3.3.0', 'validator', 'keystore-file', NULL, 'file_upload', FALSE, FALSE);").execute(conn).await.unwrap();
@@ -406,21 +430,32 @@ mod test {
                 .unwrap()
         }
 
-        pub fn user_refresh_token(&self, user_id: Uuid) -> auth::Refresh {
+        pub fn user_refresh_token(&self, user_id: Uuid) -> Refresh {
             let iat = chrono::Utc::now();
-            let refresh_exp = expiration_provider::ExpirationProvider::expiration(
-                auth::REFRESH_EXPIRATION_USER_MINS,
-            )
-            .unwrap();
-            auth::Refresh::new(user_id, iat, refresh_exp).unwrap()
+            let refresh_exp = self
+                .pool
+                .context
+                .config
+                .token
+                .expire
+                .refresh_user
+                .try_into()
+                .unwrap();
+            Refresh::new(user_id, iat, refresh_exp).unwrap()
         }
 
-        pub fn host_refresh_token(&self, host_id: Uuid) -> auth::Refresh {
+        pub fn host_refresh_token(&self, host_id: Uuid) -> Refresh {
             let iat = chrono::Utc::now();
-            let refresh_exp =
-                expiration_provider::ExpirationProvider::expiration("REFRESH_EXPIRATION_HOST_MINS")
-                    .unwrap();
-            auth::Refresh::new(host_id, iat, refresh_exp).unwrap()
+            let refresh_exp = self
+                .pool
+                .context
+                .config
+                .token
+                .expire
+                .refresh_host
+                .try_into()
+                .unwrap();
+            Refresh::new(host_id, iat, refresh_exp).unwrap()
         }
 
         fn test_node_properties(node_id: uuid::Uuid) -> Vec<models::NodeProperty> {

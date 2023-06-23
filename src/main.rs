@@ -1,12 +1,13 @@
-use blockvisor_api::{models, server};
+use blockvisor_api::config::{Config, Context};
+use blockvisor_api::server;
 use diesel::Connection;
 use diesel_migrations::MigrationHarness;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 fn main() -> anyhow::Result<()> {
-    dotenv::dotenv().ok();
+    let context = Context::new()?;
 
-    migrate();
+    migrate(&context.config);
 
     tracing_subscriber::registry()
         .with(fmt::layer().with_ansi(false))
@@ -18,14 +19,12 @@ fn main() -> anyhow::Result<()> {
         .build()?
         .block_on(async {
             tracing::info!("Starting server...");
-            server::start().await
+            server::start(context).await
         })
 }
 
-fn migrate() {
-    let db_url = blockvisor_api::auth::key_provider::KeyProvider::get_var(models::DATABASE_URL)
-        .expect("DATABASE_URL not set");
-    diesel::PgConnection::establish(&db_url)
+fn migrate(config: &Config) {
+    diesel::PgConnection::establish(config.database.url.as_str())
         .expect("Could not migrate database!")
         .run_pending_migrations(blockvisor_api::MIGRATIONS)
         .expect("Failed to run migrations");

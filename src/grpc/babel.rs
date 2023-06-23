@@ -1,9 +1,10 @@
-use super::api::{self, babel_service_server};
-use super::helpers::required;
-use crate::auth;
-use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tracing::log::{debug, info};
+
+use super::api::{self, babel_service_server};
+use super::helpers::required;
+use crate::auth::token::Endpoint;
+use crate::{auth, models};
 
 struct BabelResult<T> {
     commands: Vec<api::Command>,
@@ -31,7 +32,7 @@ async fn notify(
     conn: &mut models::Conn,
 ) -> crate::Result<BabelResult<api::BabelServiceNotifyResponse>> {
     // TODO: decide who is allowed to call this endpoint
-    let _claims = auth::get_claims(&req, auth::Endpoint::BabelNotifiy, conn).await?;
+    let _claims = auth::get_claims(&req, Endpoint::BabelNotifiy, conn).await?;
     let req = req.into_inner();
     debug!("New Request Version: {:?}", req);
     let filter = req.info_filter(conn).await?;

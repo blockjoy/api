@@ -1,5 +1,3 @@
-use crate::auth::key_provider::KeyProviderError;
-use crate::cloudflare::DnsError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -27,7 +25,10 @@ pub enum Error {
     InsufficientPermissions(String),
 
     #[error("Error processing JWT: {0}")]
-    Jwt(#[from] jsonwebtoken::errors::Error),
+    Jwt(#[from] crate::auth::token::jwt::Error),
+
+    #[error("Error processing refreshToken: {0}")]
+    RefreshToken(#[from] crate::auth::token::refresh::Error),
 
     #[error("Error related to JSON parsing or serialization: {0}")]
     JsonError(#[from] serde_json::Error),
@@ -57,8 +58,14 @@ pub enum Error {
     #[error("{0}")]
     OtherIpParseError(#[from] ipnetwork::IpNetworkError),
 
-    #[error("Error reading key: {0}")]
-    Key(#[from] KeyProviderError),
+    #[error("Config error: {0}")]
+    Config(#[from] crate::config::Error),
+
+    #[error("Error reading config key: {0}")]
+    ConfigProvider(#[from] crate::config::provider::Error),
+
+    #[error("Cookbook config error: {0}")]
+    ConfigCookbook(#[from] crate::config::cookbook::Error),
 
     #[error("Struggles with receiving through channel: {0}")]
     ChannelError(#[from] tokio::sync::broadcast::error::RecvError),
@@ -70,7 +77,7 @@ pub enum Error {
     MqttError(#[from] rumqttc::ClientError),
 
     #[error("Cloudflare integration error: {0}")]
-    DnsError(#[from] DnsError),
+    DnsError(#[from] crate::cloudflare::DnsError),
 
     #[error("Could not select a matching host")]
     NoMatchingHostError(String),

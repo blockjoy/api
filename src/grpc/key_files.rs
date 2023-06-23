@@ -1,8 +1,10 @@
-use super::api::{self, key_file_service_server};
-use crate::{auth, models};
 use anyhow::Context;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response};
+
+use super::api::{self, key_file_service_server};
+use crate::auth::token::{Endpoint, Resource};
+use crate::{auth, models};
 
 #[tonic::async_trait]
 impl key_file_service_server::KeyFileService for super::GrpcImpl {
@@ -27,14 +29,14 @@ async fn create(
     req: Request<api::KeyFileServiceCreateRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::KeyFileServiceCreateResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::KeyFileCreate, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::KeyFileCreate, conn).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.node_id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
-        auth::Resource::Org(org_id) => org_id == node.org_id,
-        auth::Resource::Host(host_id) => host_id == node.host_id,
-        auth::Resource::Node(node_id) => node_id == node.id,
+        Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
+        Resource::Org(org_id) => org_id == node.org_id,
+        Resource::Host(host_id) => host_id == node.host_id,
+        Resource::Node(node_id) => node_id == node.id,
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -60,14 +62,14 @@ async fn list(
     req: Request<api::KeyFileServiceListRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::KeyFileServiceListResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::KeyFileList, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::KeyFileList, conn).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.node_id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
-        auth::Resource::Org(org_id) => org_id == node.org_id,
-        auth::Resource::Host(host_id) => host_id == node.host_id,
-        auth::Resource::Node(node_id) => node_id == node.id,
+        Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
+        Resource::Org(org_id) => org_id == node.org_id,
+        Resource::Host(host_id) => host_id == node.host_id,
+        Resource::Node(node_id) => node_id == node.id,
     };
     if !is_allowed {
         super::forbidden!("Access denied");

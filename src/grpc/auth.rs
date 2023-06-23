@@ -1,28 +1,29 @@
-use super::api::{self, auth_service_server};
-use crate::auth::Endpoint::AuthUpdatePassword;
-use crate::auth::{self, expiration_provider};
-use crate::mail::MailClient;
-use crate::models;
 use diesel_async::scoped_futures::ScopedFutureExt;
+
+use super::api::{self, auth_service_server};
+use crate::auth::token::refresh::Refresh;
+use crate::auth::token::{Claims, Endpoint, Resource, ResourceType};
+use crate::mail::MailClient;
+use crate::{auth, models};
 
 /// This is a list of all the endpoints that a user is allowed to access with the jwt that they
 /// generate on login. It does not contain endpoints like confirm, because those are accessed by a
 /// token.
-const USER_ENDPOINTS: [auth::Endpoint; 14] = [
-    auth::Endpoint::AuthRefresh,
-    auth::Endpoint::AuthUpdateUiPassword,
-    auth::Endpoint::BabelAll,
-    auth::Endpoint::BlockchainAll,
-    auth::Endpoint::CommandAll,
-    auth::Endpoint::DiscoveryAll,
-    auth::Endpoint::HostAll,
-    auth::Endpoint::HostProvisionAll,
-    auth::Endpoint::InvitationAll,
-    auth::Endpoint::KeyFileAll,
-    auth::Endpoint::MetricsAll,
-    auth::Endpoint::NodeAll,
-    auth::Endpoint::OrgAll,
-    auth::Endpoint::UserAll,
+const USER_ENDPOINTS: [Endpoint; 14] = [
+    Endpoint::AuthRefresh,
+    Endpoint::AuthUpdateUiPassword,
+    Endpoint::BabelAll,
+    Endpoint::BlockchainAll,
+    Endpoint::CommandAll,
+    Endpoint::DiscoveryAll,
+    Endpoint::HostAll,
+    Endpoint::HostProvisionAll,
+    Endpoint::InvitationAll,
+    Endpoint::KeyFileAll,
+    Endpoint::MetricsAll,
+    Endpoint::NodeAll,
+    Endpoint::OrgAll,
+    Endpoint::UserAll,
 ];
 
 #[tonic::async_trait]
@@ -81,20 +82,23 @@ async fn login(
     // This endpoint requires no auth, it is where you get your token from.
     let inner = req.into_inner();
     let user = models::User::login(&inner.email, &inner.password, conn).await?;
+
     let iat = chrono::Utc::now();
-    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
-    let claims = auth::Claims::new_user(user.id, iat, exp, USER_ENDPOINTS)?;
-    let token = auth::Jwt { claims };
-    let refresh_exp =
-        expiration_provider::ExpirationProvider::expiration(auth::REFRESH_EXPIRATION_USER_MINS)?;
-    let refresh = auth::Refresh::new(user.id, iat, refresh_exp)?;
+    let exp = conn.context.config.token.expire.token.try_into()?;
+    let claims = Claims::new_user(user.id, iat, exp, USER_ENDPOINTS)?;
+
+    let refresh_exp = conn.context.config.token.expire.refresh_user.try_into()?;
+    let refresh = Refresh::new(user.id, iat, refresh_exp)?;
+
     let resp = api::AuthServiceLoginResponse {
-        token: token.encode()?,
-        refresh: refresh.encode()?,
+        token: conn.context.cipher.jwt.encode(&claims)?.into(),
+        refresh: conn.context.cipher.refresh.encode(&refresh)?.into(),
     };
+
     let mut resp = tonic::Response::new(resp);
-    let refresh = refresh.as_set_cookie()?;
-    resp.metadata_mut().insert("set-cookie", refresh.parse()?);
+    resp.metadata_mut()
+        .insert("set-cookie", conn.context.cipher.refresh.cookie(&refresh)?);
+
     Ok(resp)
 }
 
@@ -102,23 +106,27 @@ async fn confirm(
     req: tonic::Request<api::AuthServiceConfirmRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::AuthServiceConfirmResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::AuthConfirm, conn).await?;
-    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Must be user") };
+    let claims = auth::get_claims(&req, Endpoint::AuthConfirm, conn).await?;
+    let Resource::User(user_id) = claims.resource() else { super::forbidden!("Must be user") };
+
     let iat = chrono::Utc::now();
-    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
-    let claims = auth::Claims::new_user(user_id, iat, exp, USER_ENDPOINTS)?;
-    let token = auth::Jwt { claims };
-    let refresh_exp =
-        expiration_provider::ExpirationProvider::expiration(auth::REFRESH_EXPIRATION_USER_MINS)?;
-    let refresh = auth::Refresh::new(user_id, iat, refresh_exp)?;
+    let exp = conn.context.config.token.expire.token.try_into()?;
+    let claims = Claims::new_user(user_id, iat, exp, USER_ENDPOINTS)?;
+
+    let refresh_exp = conn.context.config.token.expire.refresh_user.try_into()?;
+    let refresh = Refresh::new(user_id, iat, refresh_exp)?;
+
     models::User::confirm(user_id, conn).await?;
+
     let resp = api::AuthServiceConfirmResponse {
-        token: token.encode()?,
-        refresh: refresh.encode()?,
+        token: conn.context.cipher.jwt.encode(&claims)?.into(),
+        refresh: conn.context.cipher.refresh.encode(&refresh)?.into(),
     };
+
     let mut resp = tonic::Response::new(resp);
-    let refresh = refresh.as_set_cookie()?;
-    resp.metadata_mut().insert("set-cookie", refresh.parse()?);
+    resp.metadata_mut()
+        .insert("set-cookie", conn.context.cipher.refresh.cookie(&refresh)?);
+
     Ok(resp)
 }
 
@@ -126,61 +134,76 @@ async fn refresh(
     req: tonic::Request<api::AuthServiceRefreshRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::AuthServiceRefreshResponse> {
-    let refresh = auth::get_refresh(&req)?;
+    let refresh = auth::get_refresh(&req, &conn.context)?;
     let req = req.into_inner();
-    let token = auth::Jwt::decode_expired(&req.token)?;
+    let mut decoded = conn.context.cipher.jwt.decode_expired(&req.token)?;
     let refresh = req
         .refresh
-        .map(|refresh| auth::Refresh::decode(&refresh))
+        .map(|refresh| conn.context.cipher.refresh.decode(&refresh))
         .transpose()?
         .or(refresh)
         .ok_or_else(|| {
             crate::Error::validation("Need refresh token from cookies or request body")
         })?;
+
     // For each type of resource, we perform some queries down below to verify that the resource
     // still exists.
-    let (resource_type, resource_id) = match token.claims.resource() {
-        auth::Resource::User(user_id) => {
+    let (resource_type, resource_id) = match decoded.resource() {
+        Resource::User(user_id) => {
             models::User::find_by_id(user_id, conn).await?;
-            (auth::ResourceType::User, user_id)
+            (ResourceType::User, user_id)
         }
-        auth::Resource::Org(org_id) => {
+        Resource::Org(org_id) => {
             models::Org::find_by_id(org_id, conn).await?;
-            (auth::ResourceType::Org, org_id)
+            (ResourceType::Org, org_id)
         }
-        auth::Resource::Host(host_id) => {
+        Resource::Host(host_id) => {
             models::Host::find_by_id(host_id, conn).await?;
-            (auth::ResourceType::Host, host_id)
+            (ResourceType::Host, host_id)
         }
-        auth::Resource::Node(node_id) => {
+        Resource::Node(node_id) => {
             models::Node::find_by_id(node_id, conn).await?;
-            (auth::ResourceType::Node, node_id)
+            (ResourceType::Node, node_id)
         }
     };
     if refresh.resource_id != resource_id {
         super::forbidden!("Jwt and refresh grantee don't match");
     }
 
+    // The following is a workaround that sort of patches existing host tokens. Removeme
+    if !decoded.endpoints.includes(Endpoint::HostUpdate) {
+        decoded.endpoints = match decoded.endpoints {
+            auth::token::Endpoints::Wildcard => auth::token::Endpoints::Wildcard,
+            auth::token::Endpoints::Single(e) => auth::token::Endpoints::Single(e),
+            auth::token::Endpoints::Multiple(mut es) => {
+                es.insert(7, Endpoint::HostUpdate);
+                auth::token::Endpoints::Multiple(es)
+            }
+        }
+    }
+
     let iat = chrono::Utc::now();
-    let exp = expiration_provider::ExpirationProvider::expiration(auth::TOKEN_EXPIRATION_MINS)?;
-    let claims = auth::Claims::new_with_data(
+    let exp = conn.context.config.token.expire.token.try_into()?;
+    let claims = Claims::new_with_data(
         resource_type,
         resource_id,
         iat,
         exp,
-        token.claims.endpoints,
-        token.claims.data,
+        decoded.endpoints,
+        decoded.data,
     )?;
-    let token = auth::Jwt { claims };
+
     let refresh_exp = refresh.duration();
-    let refresh = auth::Refresh::new(resource_id, iat, refresh_exp)?;
+    let refresh = Refresh::new(resource_id, iat, refresh_exp)?;
+
     let resp = api::AuthServiceRefreshResponse {
-        token: token.encode()?,
-        refresh: refresh.encode()?,
+        token: conn.context.cipher.jwt.encode(&claims)?.into(),
+        refresh: conn.context.cipher.refresh.encode(&refresh)?.into(),
     };
     let mut resp = tonic::Response::new(resp);
-    let val = refresh.as_set_cookie()?;
-    resp.metadata_mut().insert("set-cookie", val.parse()?);
+    resp.metadata_mut()
+        .insert("set-cookie", conn.context.cipher.refresh.cookie(&refresh)?);
+
     Ok(resp)
 }
 
@@ -208,10 +231,10 @@ async fn update_password(
     req: tonic::Request<api::AuthServiceUpdatePasswordRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::AuthServiceUpdatePasswordResponse> {
-    let claims = auth::get_claims(&req, AuthUpdatePassword, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::AuthUpdatePassword, conn).await?;
     let req = req.into_inner();
     // Only users have passwords; orgs, hosts and nodes do not.
-    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id") };
+    let Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id") };
     let cur_user = models::User::find_by_id(user_id, conn)
         .await?
         .update_password(&req.password, conn)
@@ -219,7 +242,10 @@ async fn update_password(
     let resp = api::AuthServiceUpdatePasswordResponse {};
 
     // Send notification mail
-    MailClient::new().update_password(&cur_user).await?;
+    MailClient::new(&conn.context.config)
+        .update_password(&cur_user)
+        .await?;
+
     Ok(tonic::Response::new(resp))
 }
 
@@ -227,8 +253,8 @@ async fn update_ui_password(
     req: tonic::Request<api::AuthServiceUpdateUiPasswordRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::AuthServiceUpdateUiPasswordResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::AuthUpdateUiPassword, conn).await?;
-    let auth::Resource::User(user_id_) = claims.resource() else { super::forbidden!("Must be user") };
+    let claims = auth::get_claims(&req, Endpoint::AuthUpdateUiPassword, conn).await?;
+    let Resource::User(user_id_) = claims.resource() else { super::forbidden!("Must be user") };
     let req = req.into_inner();
     let user_id = req.user_id.parse()?;
     let is_allowed = user_id == user_id_;
@@ -242,6 +268,9 @@ async fn update_ui_password(
     let resp = api::AuthServiceUpdateUiPasswordResponse {};
 
     // Send notification mail
-    MailClient::new().update_password(&user).await?;
+    MailClient::new(&conn.context.config)
+        .update_password(&user)
+        .await?;
+
     Ok(tonic::Response::new(resp))
 }

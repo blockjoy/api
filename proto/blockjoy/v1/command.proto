@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package blockjoy.v1;
 
+import "blockjoy/v1/blockchain.proto";
 import "blockjoy/v1/node.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -141,6 +142,7 @@ message NodeCreate {
   bool self_update = 7;
   repeated Parameter properties = 8;
   repeated Rule rules = 9;
+  string network = 10;
 }
 
 message NodeDelete {
@@ -151,14 +153,6 @@ message Parameter {
   string value = 2;
 }
 
-// Define config status
-enum ContainerImageStatus {
-  CONTAINER_IMAGE_STATUS_UNSPECIFIED = 0;
-  CONTAINER_IMAGE_STATUS_DEVELOPMENT = 1;
-  CONTAINER_IMAGE_STATUS_UNSTABLE = 2;
-  CONTAINER_IMAGE_STATUS_STABLE = 3;
-}
-
 message ContainerImage {
   // snake_cased name of the blockchain
   string protocol = 1;
@@ -166,14 +160,13 @@ message ContainerImage {
   NodeType node_type = 2;
   // semantic version string of the node type version
   string node_version = 3;
-  ContainerImageStatus status = 4;
 }
 
 message Rule {
   string name = 1;
   Action action = 2;
   Direction direction = 3;
-  optional Protocol protocol = 4;
+  Protocol protocol = 4;
   optional string ips = 5;
   repeated uint32 ports = 6;
 }

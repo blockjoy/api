@@ -1,10 +1,11 @@
-use super::{
-    api::{self, invitation_service_server},
-    helpers::required,
-};
-use crate::{auth, mail, models};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Status};
+
+use super::api::{self, invitation_service_server};
+use super::helpers::required;
+use crate::auth::token::{Endpoint, Resource};
+use crate::mail::{self, MailClient};
+use crate::{auth, models};
 
 struct InvitationServiceResult<T> {
     commands: Vec<api::OrgMessage>,
@@ -71,19 +72,19 @@ async fn create(
     req: Request<api::InvitationServiceCreateRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<InvitationServiceResult<api::InvitationServiceCreateResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::InvitationCreate, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::InvitationCreate, conn).await?;
     let req = req.into_inner();
     // In principle, it is allowed for resources other than a user to create an invite, but we
     // currently include a field `created_by_user` with a created invite.
     let (is_allowed, caller) = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             let caller = models::User::find_by_id(user_id, conn).await?;
             let is_allowed = models::Org::is_member(caller.id, req.org_id.parse()?, conn).await?;
             (is_allowed, caller)
         }
-        auth::Resource::Org(_) => todo!(),
-        auth::Resource::Host(_) => todo!(),
-        auth::Resource::Node(_) => todo!(),
+        Resource::Org(_) => todo!(),
+        Resource::Host(_) => todo!(),
+        Resource::Node(_) => todo!(),
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -95,7 +96,7 @@ async fn create(
             // Note that here we abort the transaction if sending the email failed. This way we do
             // not get invites in the db that we cannot send emails to. The existence of such an
             // invite would prevent them from trying to recreate again at a later point.
-            mail::MailClient::new()
+            MailClient::new(&conn.context.config)
                 .invitation_for_registered(&caller, &user, "1 week")
                 .await?;
         }
@@ -107,14 +108,22 @@ async fn create(
                 preferred_language: None,
             };
 
-            mail::MailClient::new()
-                .invitation(&invitation, &caller, invitee, "1 week")
+            MailClient::new(&conn.context.config)
+                .invitation(
+                    &invitation,
+                    &caller,
+                    invitee,
+                    "1 week",
+                    &conn.context.cipher,
+                )
                 .await?;
         }
     }
+
     let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
     let msg = api::OrgMessage::invitation_created(org, invitation)?;
     let resp = api::InvitationServiceCreateResponse {};
+
     Ok(InvitationServiceResult {
         commands: vec![msg],
         resp: tonic::Response::new(resp),
@@ -125,12 +134,12 @@ async fn list(
     req: Request<api::InvitationServiceListRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::InvitationServiceListResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::InvitationCreate, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::InvitationCreate, conn).await?;
     let req = req.into_inner();
 
     let parse = |s: &str| s.parse::<uuid::Uuid>();
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             if let Some(org_id) = &req.org_id {
                 models::Org::is_member(user_id, org_id.parse()?, conn).await?
             } else if let Some(created_by) = &req.created_by {
@@ -142,15 +151,15 @@ async fn list(
                 false
             }
         }
-        auth::Resource::Org(org_id) => {
+        Resource::Org(org_id) => {
             if let Some(org) = &req.org_id {
                 parse(org)? == org_id
             } else {
                 false
             }
         }
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -166,21 +175,21 @@ async fn accept(
     req: Request<api::InvitationServiceAcceptRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<InvitationServiceResult<api::InvitationServiceAcceptResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::InvitationAccept, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::InvitationAccept, conn).await?;
     let req = req.into_inner();
     let invitation = models::Invitation::find_by_id(req.invitation_id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             let user = models::User::find_by_id(user_id, conn).await?;
             invitation.invitee_email == user.email
         }
-        auth::Resource::Org(org_id) => {
+        Resource::Org(org_id) => {
             let email = claims.data.get("email").ok_or_else(required("email"))?;
             let user = models::User::find_by_email(email, conn).await?;
             invitation.created_for_org == org_id && invitation.invitee_email == user.email
         }
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -213,21 +222,21 @@ async fn decline(
     req: Request<api::InvitationServiceDeclineRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<InvitationServiceResult<api::InvitationServiceDeclineResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::InvitationDecline, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::InvitationDecline, conn).await?;
     let req = req.into_inner();
     let invitation = models::Invitation::find_by_id(req.invitation_id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             let user = models::User::find_by_id(user_id, conn).await?;
             invitation.invitee_email == user.email
         }
-        auth::Resource::Org(org_id) => {
+        Resource::Org(org_id) => {
             let email = claims.data.get("email").ok_or_else(required("email"))?;
             let user = models::User::find_by_email(email, conn).await?;
             invitation.created_for_org == org_id && invitation.invitee_email == user.email
         }
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -253,16 +262,16 @@ async fn revoke(
     req: Request<api::InvitationServiceRevokeRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<InvitationServiceResult<api::InvitationServiceRevokeResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::InvitationRevoke, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::InvitationRevoke, conn).await?;
     let req = req.into_inner();
     let invitation = models::Invitation::find_by_id(req.invitation_id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
+        Resource::User(user_id) => {
             models::Org::is_member(user_id, invitation.created_for_org, conn).await?
         }
-        auth::Resource::Org(_) => false,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::Org(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access denied");

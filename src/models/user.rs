@@ -1,4 +1,3 @@
-use crate::mail;
 use argon2::{
     password_hash::{PasswordHasher, SaltString},
     Argon2,
@@ -11,6 +10,7 @@ use uuid::Uuid;
 use validator::Validate;
 
 use super::schema::users;
+use crate::mail::MailClient;
 
 #[derive(Debug, Clone, Queryable)]
 pub struct User {
@@ -35,7 +35,8 @@ impl User {
 
     pub fn verify_password(&self, password: &str) -> crate::Result<()> {
         let argon2 = Argon2::default();
-        let parsed_hash = argon2.hash_password_simple(password.as_bytes(), &self.salt)?;
+        let salt: password_hash::Salt = self.salt.as_str().try_into()?;
+        let parsed_hash = argon2.hash_password(password.as_bytes(), salt)?;
 
         if let Some(output) = parsed_hash.hash {
             if self.hashword == output.to_string() {
@@ -47,8 +48,8 @@ impl User {
     }
 
     pub async fn email_reset_password(&self, conn: &mut super::Conn) -> crate::Result<()> {
-        let client = mail::MailClient::new();
-        client.reset_password(self, conn).await
+        let client = MailClient::new(&conn.context.config);
+        client.reset_password(self, &conn.context.cipher).await
     }
 
     pub async fn find_all(conn: &mut super::Conn) -> crate::Result<Vec<Self>> {
@@ -82,10 +83,7 @@ impl User {
     ) -> crate::Result<Self> {
         let argon2 = Argon2::default();
         let salt = SaltString::generate(&mut OsRng);
-        if let Some(hashword) = argon2
-            .hash_password_simple(password.as_bytes(), salt.as_str())?
-            .hash
-        {
+        if let Some(hashword) = argon2.hash_password(password.as_bytes(), &salt)?.hash {
             let user = diesel::update(users::table.find(self.id))
                 .set((
                     users::hashword.eq(hashword.to_string()),
@@ -190,10 +188,7 @@ impl<'a> NewUser<'a> {
     ) -> crate::Result<Self> {
         let argon2 = Argon2::default();
         let salt = SaltString::generate(&mut OsRng);
-        if let Some(hashword) = argon2
-            .hash_password_simple(password.as_bytes(), &salt)?
-            .hash
-        {
+        if let Some(hashword) = argon2.hash_password(password.as_bytes(), &salt)?.hash {
             let create_user = Self {
                 email,
                 first_name,

@@ -1,9 +1,12 @@
-use super::api::{self, node_service_server};
-use super::helpers;
-use crate::{auth, models};
+use std::collections::HashMap;
+
 use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::OptionFuture;
-use std::collections::HashMap;
+
+use super::api::{self, node_service_server};
+use super::helpers;
+use crate::auth::token::{Endpoint, Resource};
+use crate::{auth, models};
 
 struct NodeCommandResult<T> {
     commands: Vec<api::Command>,
@@ -83,14 +86,14 @@ async fn get(
     req: tonic::Request<api::NodeServiceGetRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::NodeServiceGetResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::NodeCreate, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::NodeCreate, conn).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
-        auth::Resource::Org(org_id) => node.org_id == org_id,
-        auth::Resource::Host(host_id) => node.host_id == host_id,
-        auth::Resource::Node(node_id) => node.id == node_id,
+        Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
+        Resource::Org(org_id) => node.org_id == org_id,
+        Resource::Host(host_id) => node.host_id == host_id,
+        Resource::Node(node_id) => node.id == node_id,
     };
     if !is_allowed {
         super::forbidden!("Access not allowed")
@@ -105,15 +108,13 @@ async fn list(
     req: tonic::Request<api::NodeServiceListRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::NodeServiceListResponse> {
-    let claims = auth::get_claims(&req, auth::Endpoint::NodeList, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::NodeList, conn).await?;
     let filter = req.into_inner().as_filter()?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => {
-            models::Org::is_member(user_id, filter.org_id, conn).await?
-        }
-        auth::Resource::Org(org_id) => filter.org_id == org_id,
-        auth::Resource::Host(_) => false,
-        auth::Resource::Node(_) => false,
+        Resource::User(user_id) => models::Org::is_member(user_id, filter.org_id, conn).await?,
+        Resource::Org(org_id) => filter.org_id == org_id,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
     };
     if !is_allowed {
         super::forbidden!("Access denied");
@@ -129,8 +130,8 @@ async fn create(
     req: tonic::Request<api::NodeServiceCreateRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<NodeCommandResult<api::NodeServiceCreateResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::NodeCreate, conn).await?;
-    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
+    let claims = auth::get_claims(&req, Endpoint::NodeCreate, conn).await?;
+    let Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
 
     let user = models::User::find_by_id(user_id, conn).await?;
     let req = req.into_inner();
@@ -192,14 +193,14 @@ async fn update(
     req: tonic::Request<api::NodeServiceUpdateRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<NodeResult<api::NodeServiceUpdateResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::NodeUpdate, conn).await?;
+    let claims = auth::get_claims(&req, Endpoint::NodeUpdate, conn).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        auth::Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
-        auth::Resource::Org(org_id) => org_id == node.org_id,
-        auth::Resource::Host(host_id) => host_id == node.host_id,
-        auth::Resource::Node(node_id) => node_id == node.id,
+        Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
+        Resource::Org(org_id) => org_id == node.org_id,
+        Resource::Host(host_id) => host_id == node.host_id,
+        Resource::Node(node_id) => node_id == node.id,
     };
     if !is_allowed {
         super::forbidden!("Access not allowed")
@@ -223,8 +224,8 @@ async fn delete(
     req: tonic::Request<api::NodeServiceDeleteRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<NodeCommandResult<api::NodeServiceDeleteResponse>> {
-    let claims = auth::get_claims(&req, auth::Endpoint::NodeDelete, conn).await?;
-    let auth::Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
+    let claims = auth::get_claims(&req, Endpoint::NodeDelete, conn).await?;
+    let Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
 
@@ -613,6 +614,7 @@ impl api::ContainerStatus {
             models::ContainerStatus::Deleted => Self::Deleted,
             models::ContainerStatus::Installing => Self::Installing,
             models::ContainerStatus::Snapshotting => Self::Snapshotting,
+            models::ContainerStatus::Failed => Self::Failed,
         }
     }
 
@@ -630,6 +632,7 @@ impl api::ContainerStatus {
             Self::Deleted => models::ContainerStatus::Deleted,
             Self::Installing => models::ContainerStatus::Installing,
             Self::Snapshotting => models::ContainerStatus::Snapshotting,
+            Self::Failed => models::ContainerStatus::Failed,
         }
     }
 }

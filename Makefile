@@ -3,33 +3,6 @@ REPO=registry.digitalocean.com/stakejoy
 IMAGE_FULL=${REPO}/${IMAGE_NAME}:latest
 # APP_ID=2d67787e-f607-4d56-9e8b-5492728086b5
 
-export DATABASE_URL=postgres://blockvisor:password@localhost:25432/blockvisor_db
-export DATABASE_URL_NAKED=postgres://blockvisor:password@localhost:25432
-export JWT_SECRET=123456
-export API_SERVICE_SECRET=abc123
-
-export MQTT_SERVER_ADDRESS=35.237.162.218
-export MQTT_SERVER_PORT=1883
-export MQTT_USERNAME=blockvisor-api
-export MQTT_PASSWORD=PH*rE:\ZQlecB9/I?[#R$q3M;5yCb]Y+
-export KEY_SERVICE_URL=henk
-# Cloudflare
-export CF_BASE_URL=https://api.cloudflare.com/client/v4
-export CF_ZONE=89560cdd783e35f7a9d718755ea9c656
-export CF_DNS_BASE=n0des.xyz
-export CF_TTL=300
-# secret
-export CF_TOKEN=9QjEiXC4B26tgshHZjuZ57kJcjaChSSsDfzUvfYQ
-
-export TOKEN_EXPIRATION_MINS=10
-export REFRESH_TOKEN_EXPIRATION_MINS=10
-export REFRESH_EXPIRATION_USER_MINS=1200
-export REFRESH_EXPIRATION_HOST_MINS=43200
-export INVITATION_MINS=120
-export COOKBOOK_URL=http://localhost:8080
-export REGISTRATION_CONFIRMATION_MINS=120
-export UI_BASE_URL=http://localhost:3000
-
 test:
 	@docker-compose up -d
 	@cargo test --no-fail-fast

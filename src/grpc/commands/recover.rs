@@ -13,17 +13,19 @@ use crate::{
 /// make our best effort to recover. If a command won't send but it not essential for process, we
 /// ignore and continue.
 pub(super) async fn recover(
+    impler: &grpc::GrpcImpl,
     failed_cmd: &models::Command,
     conn: &mut models::Conn,
 ) -> crate::Result<Vec<api::Command>> {
     if failed_cmd.cmd == models::CommandType::CreateNode {
-        recover_created(failed_cmd, conn).await
+        recover_created(impler, failed_cmd, conn).await
     } else {
         Ok(vec![])
     }
 }
 
 async fn recover_created(
+    impler: &grpc::GrpcImpl,
     failed_cmd: &models::Command,
     conn: &mut models::Conn,
 ) -> crate::Result<Vec<api::Command>> {

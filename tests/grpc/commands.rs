@@ -100,14 +100,17 @@ async fn responds_ok_for_update() {
     let host = models::Host::find_by_id(cmd.host_id, &mut conn)
         .await
         .unwrap();
-    let token = tester.host_token(&host);
+
+    let claims = tester.host_token(&host);
+    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+
     let req = api::CommandServiceUpdateRequest {
         id: cmd.id.to_string(),
         response: Some("hugo boss".to_string()),
         exit_code: Some(98),
     };
 
-    tester.send_with(Service::update, req, token).await.unwrap();
+    tester.send_with(Service::update, req, &jwt).await.unwrap();
 
     let cmd = models::Command::find_by_id(cmd.id, &mut conn)
         .await
@@ -143,11 +146,14 @@ async fn responds_ok_for_pending() {
     let host = models::Host::find_by_id(cmd.host_id, &mut conn)
         .await
         .unwrap();
-    let jwt = tester.host_token(&host);
+
+    let claims = tester.host_token(&host);
+    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+
     let req = api::CommandServicePendingRequest {
         host_id: host.id.to_string(),
         filter_type: None,
     };
 
-    tester.send_with(Service::pending, req, jwt).await.unwrap();
+    tester.send_with(Service::pending, req, &jwt).await.unwrap();
 }

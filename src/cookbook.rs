@@ -1,13 +1,11 @@
-use crate::{
-    auth::key_provider::KeyProvider,
-    grpc::{api, helpers::required},
-};
 use anyhow::Context;
+
+use crate::config;
+use crate::grpc::{api, helpers::required};
 
 pub const RHAI_FILE_NAME: &str = "babel.rhai";
 pub const BABEL_IMAGE_NAME: &str = "blockjoy.gz";
 pub const KERNEL_NAME: &str = "kernel.gz";
-const CHAINS_PREFIX: &str = "chains";
 
 #[derive(Clone)]
 pub struct Cookbook {
@@ -19,29 +17,21 @@ pub struct Cookbook {
 }
 
 impl Cookbook {
-    pub fn new_from_env() -> crate::Result<Self> {
-        let prefix =
-            std::env::var("DIR_CHAINS_PREFIX").unwrap_or_else(|_| CHAINS_PREFIX.to_string());
-        let bucket = std::env::var("R2_ROOT").context("`R2_ROOT` not set")?;
-        let endpoint = KeyProvider::get_var("R2_URL")?.to_string();
-        let expiration_secs = std::env::var("PRESIGNED_URL_EXPIRATION_SECS")
-            .context("`PRESIGNED_URL_EXPIRATION_SECS` not set")?
-            .parse()
-            .context("Can't parse `PRESIGNED_URL_EXPIRATION_SECS`")?;
-        let expiration = std::time::Duration::from_secs(expiration_secs);
-
-        let s3_config = aws_sdk_s3::Config::builder().endpoint_url(endpoint).build();
+    pub fn new(config: &config::cookbook::Config) -> Self {
+        let s3_config = aws_sdk_s3::Config::builder()
+            .endpoint_url(config.r2_url.to_string())
+            .build();
         let client = aws_sdk_s3::Client::from_conf(s3_config);
 
         let engine = std::sync::Arc::new(rhai::Engine::new());
 
-        Ok(Self {
-            prefix,
-            bucket,
-            expiration,
+        Self {
+            prefix: config.dir_chains_prefix.clone(),
+            bucket: config.r2_root.clone(),
+            expiration: config.presigned_url_expiration.to_std(),
             client,
             engine,
-        })
+        }
     }
 
     pub fn get_networks() {}
@@ -86,7 +76,8 @@ impl Cookbook {
         let bytes = self
             .read_file(protocol, node_type, node_version, file)
             .await?;
-        Ok(String::from_utf8(bytes).context("Invalid utf8")?)
+        dbg!(String::from_utf8(bytes).context("Invalid utf8")?);
+        panic!()
     }
 
     pub async fn download_url(
