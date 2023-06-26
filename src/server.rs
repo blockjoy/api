@@ -30,7 +30,7 @@ pub async fn start(context: Arc<Context>) -> anyhow::Result<()> {
 
     let db = models::DbPool::new(pool, context.clone());
     let cloudflare = CloudflareApi::new(config.cloudflare.clone());
-    let cookbook = Cookbook::new(&config.cookbook);
+    let cookbook = Cookbook::new_s3(&config.cookbook);
 
     let rest = http_server(db.clone()).await.into_make_service();
     let grpc = grpc_server(db, cloudflare, cookbook).await.into_service();

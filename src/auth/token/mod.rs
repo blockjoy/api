@@ -320,9 +320,10 @@ pub enum Endpoint {
     OrgResetProvisionToken = 1008,
 
     UserAll = 1100,
-    UserGet = 1101,
-    UserUpdate = 1102,
-    UserDelete = 1103,
+    UserCreate = 1101,
+    UserGet = 1102,
+    UserUpdate = 1103,
+    UserDelete = 1104,
 
     BabelAll = 1200,
     BabelNotifiy = 1201,

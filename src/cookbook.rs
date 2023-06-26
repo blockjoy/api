@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use anyhow::Context;
 use aws_sdk_s3::config::Credentials;
 
@@ -13,12 +16,130 @@ pub struct Cookbook {
     pub prefix: String,
     pub bucket: String,
     pub expiration: std::time::Duration,
-    pub client: aws_sdk_s3::Client,
+    pub client: Arc<dyn Client>,
     pub engine: std::sync::Arc<rhai::Engine>,
 }
 
+pub struct Location<'a> {
+    prefix: &'a str,
+    bucket: &'a str,
+    protocol: &'a str,
+    node_type: &'a str,
+}
+
+impl Location<'_> {
+    fn path(&self) -> String {
+        format!("{}/{}/{}", self.prefix, self.protocol, self.node_type)
+    }
+}
+
+#[tonic::async_trait]
+pub trait Client: Send + Sync {
+    async fn read_file(
+        &self,
+        location: Location<'_>,
+        node_version: &str,
+        file: &str,
+    ) -> crate::Result<Vec<u8>>;
+
+    async fn read_string(
+        &self,
+        location: Location<'_>,
+        node_version: &str,
+        file: &str,
+    ) -> crate::Result<String> {
+        let bytes = self.read_file(location, node_version, file).await?;
+        let s = String::from_utf8(bytes).context("Invalid utf8")?;
+        Ok(s)
+    }
+
+    async fn download_url(
+        &self,
+        location: Location<'_>,
+        node_version: &str,
+        file: &str,
+        expiration: Duration,
+    ) -> crate::Result<String>;
+
+    async fn list(&self, location: Location<'_>) -> crate::Result<Vec<api::ConfigIdentifier>>;
+}
+
+#[tonic::async_trait]
+impl Client for aws_sdk_s3::Client {
+    async fn read_file(
+        &self,
+        location: Location<'_>,
+        node_version: &str,
+        file: &str,
+    ) -> crate::Result<Vec<u8>> {
+        let file = format!("{path}/{node_version}/{file}", path = location.path());
+        let response = self
+            .get_object()
+            .bucket(location.bucket)
+            .key(&file)
+            .send()
+            .await?;
+        let metadata = response.metadata().ok_or_else(required("metadata"))?;
+        if !metadata.contains_key("status") {
+            let err = format!("File {file} not does not exist");
+            return Err(crate::Error::unexpected(err));
+        }
+        let bytes = response
+            .body
+            .collect()
+            .await
+            .with_context(|| format!("Error querying file {file}"))?
+            .into_bytes();
+        Ok(bytes.to_vec())
+    }
+
+    async fn download_url(
+        &self,
+        location: Location<'_>,
+        node_version: &str,
+        file: &str,
+        expiration: Duration,
+    ) -> crate::Result<String> {
+        let file = format!("{path}/{node_version}/{file}", path = location.path());
+        let exp = aws_sdk_s3::presigning::PresigningConfig::expires_in(expiration)
+            .with_context(|| format!("Failed to create presigning config from {expiration:?}"))?;
+        let url = self
+            .get_object()
+            .bucket(location.bucket)
+            .key(&file)
+            .presigned(exp)
+            .await
+            .with_context(|| format!("Failed to create presigned url for {file}"))?
+            .uri()
+            .to_string();
+        Ok(url)
+    }
+
+    async fn list(&self, location: Location<'_>) -> crate::Result<Vec<api::ConfigIdentifier>> {
+        let prefix = location.path();
+        let resp = self
+            .list_objects_v2()
+            .bucket(location.bucket)
+            .prefix(&prefix)
+            .send()
+            .await
+            .with_context(|| format!("Cannot `list` for path `{prefix}`"))?;
+        let objects = resp.contents().unwrap_or_default();
+        let mut identifiers = vec![];
+        for obj in objects {
+            let Some(key) = obj.key() else { continue };
+            let id = api::ConfigIdentifier::from_key(key)?;
+            if !identifiers.contains(&id) {
+                identifiers.push(id);
+            }
+        }
+
+        Ok(identifiers)
+    }
+}
+
 impl Cookbook {
-    pub fn new(config: &config::cookbook::Config) -> Self {
+    pub fn new_s3(config: &config::cookbook::Config) -> Self {
         let s3_config = aws_sdk_s3::Config::builder()
             .endpoint_url(config.r2_url.to_string())
             .region(aws_sdk_s3::config::Region::new(config.region.clone()))
@@ -38,12 +159,25 @@ impl Cookbook {
             prefix: config.dir_chains_prefix.clone(),
             bucket: config.r2_root.clone(),
             expiration: config.presigned_url_expiration.to_std(),
-            client,
+            client: Arc::new(client),
             engine,
         }
     }
 
-    pub fn get_networks() {}
+    pub fn new_with_client(
+        config: &config::cookbook::Config,
+        client: impl Client + 'static,
+    ) -> Self {
+        let engine = std::sync::Arc::new(rhai::Engine::new());
+
+        Self {
+            prefix: config.dir_chains_prefix.clone(),
+            bucket: config.r2_root.clone(),
+            expiration: config.presigned_url_expiration.to_std(),
+            client: Arc::new(client),
+            engine,
+        }
+    }
 
     pub async fn read_file(
         &self,
@@ -52,42 +186,13 @@ impl Cookbook {
         node_version: &str,
         file: &str,
     ) -> crate::Result<Vec<u8>> {
-        let prefix = &self.prefix;
-        let file = format!("{prefix}/{protocol}/{node_type}/{node_version}/{file}");
-        let response = dbg!(
-            self.client
-                .get_object()
-                .bucket(&self.bucket)
-                .key(&file)
-                .send()
-                .await
-        )?;
-        let metadata = response.metadata().ok_or_else(required("metadata"))?;
-        if !metadata.contains_key("status") {
-            let err = format!("File {file} not does not exist");
-            return Err(crate::Error::unexpected(err));
-        }
-        let bytes = response
-            .body
-            .collect()
-            .await
-            .with_context(|| format!("Error querying file {file}"))?
-            .into_bytes();
-        Ok(bytes.to_vec())
-    }
-
-    pub async fn read_string(
-        &self,
-        protocol: &str,
-        node_type: &str,
-        node_version: &str,
-        file: &str,
-    ) -> crate::Result<String> {
-        let bytes = self
-            .read_file(protocol, node_type, node_version, file)
-            .await?;
-        dbg!(String::from_utf8(bytes).context("Invalid utf8")?);
-        panic!()
+        let location = Location {
+            prefix: &self.prefix,
+            bucket: &self.bucket,
+            protocol,
+            node_type,
+        };
+        self.client.read_file(location, node_version, file).await
     }
 
     pub async fn download_url(
@@ -97,22 +202,15 @@ impl Cookbook {
         node_version: &str,
         file: &str,
     ) -> crate::Result<String> {
-        let prefix = &self.prefix;
-        let expiration = self.expiration;
-        let file = format!("{prefix}/{protocol}/{node_type}/{node_version}/{file}");
-        let exp = aws_sdk_s3::presigning::PresigningConfig::expires_in(expiration)
-            .with_context(|| format!("Failed to create presigning config from {expiration:?}"))?;
-        let url = self
-            .client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(&file)
-            .presigned(exp)
+        let location = Location {
+            prefix: &self.prefix,
+            bucket: &self.bucket,
+            protocol,
+            node_type,
+        };
+        self.client
+            .download_url(location, node_version, file, self.expiration)
             .await
-            .with_context(|| format!("Failed to create presigned url for {file}"))?
-            .uri()
-            .to_string();
-        Ok(url)
     }
 
     pub async fn list(
@@ -120,27 +218,13 @@ impl Cookbook {
         protocol: &str,
         node_type: &str,
     ) -> crate::Result<Vec<api::ConfigIdentifier>> {
-        let prefix = &self.prefix;
-        let prefix = format!("{prefix}/{protocol}/{node_type}");
-        let resp = self
-            .client
-            .list_objects_v2()
-            .bucket(&self.bucket)
-            .prefix(&prefix)
-            .send()
-            .await
-            .with_context(|| format!("Cannot `list` for path `{prefix}`"))?;
-        let objects = resp.contents().unwrap_or_default();
-        let mut identifiers = vec![];
-        for obj in objects {
-            let Some(key) = obj.key() else { continue };
-            let id = api::ConfigIdentifier::from_key(key)?;
-            if !identifiers.contains(&id) {
-                identifiers.push(id);
-            }
-        }
-
-        Ok(identifiers.into_iter().collect())
+        let location = Location {
+            prefix: &self.prefix,
+            bucket: &self.bucket,
+            protocol,
+            node_type,
+        };
+        self.client.list(location).await
     }
 
     pub async fn rhai_metadata(
@@ -149,8 +233,15 @@ impl Cookbook {
         node_type: &str,
         node_version: &str,
     ) -> crate::Result<script::BlockchainMetadata> {
+        let location = Location {
+            prefix: &self.prefix,
+            bucket: &self.bucket,
+            protocol,
+            node_type,
+        };
         let script = self
-            .read_string(protocol, node_type, node_version, RHAI_FILE_NAME)
+            .client
+            .read_string(location, node_version, RHAI_FILE_NAME)
             .await?;
         Self::script_to_metadata(&self.engine, &script)
     }
@@ -242,95 +333,93 @@ pub mod script {
         }
     }
 
+    pub const TEST_SCRIPT: &str = r#"
+        const METADATA = #{
+            // comments are allowed
+            min_babel_version: "0.0.9",
+            node_version: "node_v",
+            protocol: "proto",
+            node_type: "n_type",
+            description: "node description",
+            requirements: #{
+                vcpu_count: 1,
+                mem_size_mb: 8192,
+                disk_size_gb: 10,
+                more: 0,
+            },
+            nets: #{
+                mainnet: #{
+                    url: "https://rpc.ankr.com/eth",
+                    net_type: "main",
+                    beacon_nodes_csv: "http://beacon01.mainnet.eth.blockjoy.com,http://beacon02.mainnet.eth.blockjoy.com?123",
+                    param_a: "value_a",
+                },
+                sepolia: #{
+                    url: "https://rpc.sepolia.dev",
+                    net_type: "test",
+                    beacon_nodes_csv: "http://beacon01.sepolia.eth.blockjoy.com,http://beacon02.sepolia.eth.blockjoy.com?456",
+                    param_b: "value_b",
+                },
+                goerli: #{
+                    url: "https://goerli.prylabs.net",
+                    net_type: "test",
+                    beacon_nodes_csv: "http://beacon01.goerli.eth.blockjoy.com,http://beacon02.goerli.eth.blockjoy.com?789",
+                    param_c: "value_c",
+                },
+            },
+            babel_config: #{
+                data_directory_mount_point: "/mnt/data/",
+                log_buffer_capacity_ln: 1024,
+                swap_size_mb: 1024,
+            },
+            firewall: #{
+                enabled: true,
+                default_in: "deny",
+                default_out: "allow",
+                rules: [
+                    #{
+                        name: "Rule A",
+                        action: "allow",
+                        direction: "in",
+                        protocol: "tcp",
+                        ips: "192.168.0.1/24",
+                        ports: [77, 1444, 8080],
+                    },
+                    #{
+                        name: "Rule B",
+                        action: "deny",
+                        direction: "out",
+                        protocol: "udp",
+                        ips: "192.167.0.1/24",
+                        ports: [77],
+                    },
+                    #{
+                        name: "Rule C",
+                        action: "reject",
+                        direction: "out",
+                        ips: "192.169.0.1/24",
+                        ports: [],
+                    },
+                ],
+            },
+            keys: #{
+                key_a_name: "key A Value",
+                key_B_name: "key B Value",
+                key_X_name: "X",
+                "*": "/*"
+            },
+        };
+        fn some_function() {}
+    "#;
+
     #[cfg(test)]
     mod tests {
         use super::super::Cookbook;
         use super::*;
 
-        fn get_rhai_contents() -> &'static str {
-            r#"
-            const METADATA = #{
-                // comments are allowed
-                min_babel_version: "0.0.9",
-                node_version: "node_v",
-                protocol: "proto",
-                node_type: "n_type",
-                description: "node description",
-                requirements: #{
-                    vcpu_count: 1,
-                    mem_size_mb: 8192,
-                    disk_size_gb: 10,
-                    more: 0,
-                },
-                nets: #{
-                    mainnet: #{
-                        url: "https://rpc.ankr.com/eth",
-                        net_type: "main",
-                        beacon_nodes_csv: "http://beacon01.mainnet.eth.blockjoy.com,http://beacon02.mainnet.eth.blockjoy.com?123",
-                        param_a: "value_a",
-                    },
-                    sepolia: #{
-                        url: "https://rpc.sepolia.dev",
-                        net_type: "test",
-                        beacon_nodes_csv: "http://beacon01.sepolia.eth.blockjoy.com,http://beacon02.sepolia.eth.blockjoy.com?456",
-                        param_b: "value_b",
-                    },
-                    goerli: #{
-                        url: "https://goerli.prylabs.net",
-                        net_type: "test",
-                        beacon_nodes_csv: "http://beacon01.goerli.eth.blockjoy.com,http://beacon02.goerli.eth.blockjoy.com?789",
-                        param_c: "value_c",
-                    },
-                },
-                babel_config: #{
-                    data_directory_mount_point: "/mnt/data/",
-                    log_buffer_capacity_ln: 1024,
-                    swap_size_mb: 1024,
-                },
-                firewall: #{
-                    enabled: true,
-                    default_in: "deny",
-                    default_out: "allow",
-                    rules: [
-                        #{
-                            name: "Rule A",
-                            action: "allow",
-                            direction: "in",
-                            protocol: "tcp",
-                            ips: "192.168.0.1/24",
-                            ports: [77, 1444, 8080],
-                        },
-                        #{
-                            name: "Rule B",
-                            action: "deny",
-                            direction: "out",
-                            protocol: "udp",
-                            ips: "192.167.0.1/24",
-                            ports: [77],
-                        },
-                        #{
-                            name: "Rule C",
-                            action: "reject",
-                            direction: "out",
-                            ips: "192.169.0.1/24",
-                            ports: [],
-                        },
-                    ],
-                },
-                keys: #{
-                    key_a_name: "key A Value",
-                    key_B_name: "key B Value",
-                    key_X_name: "X",
-                    "*": "/*"
-                },
-            };
-            fn some_function() {}
-            "#
-        }
-
         #[test]
         fn can_deserialize_rhai() -> anyhow::Result<()> {
-            let script = get_rhai_contents();
+            let script = super::TEST_SCRIPT;
             let engine = rhai::Engine::new();
             let config = Cookbook::script_to_metadata(&engine, script)?;
 

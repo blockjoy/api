@@ -116,10 +116,26 @@ impl MailClient {
         let iat = chrono::Utc::now();
 
         let exp = self.token_config.expire.invitation.try_into()?;
-        let endpoints = [Endpoint::InvitationAccept, Endpoint::InvitationDecline];
+        let endpoints = [
+            Endpoint::UserCreate,
+            Endpoint::InvitationAccept,
+            Endpoint::InvitationDecline,
+        ];
+        let mut data = HashMap::new();
+        data.insert("email".to_string(), invitation.invitee_email.clone());
+        data.insert("invitation_id".to_string(), invitation.id.to_string());
+        data.insert("org_id".to_string(), invitation.created_for_org.to_string());
+
         // A little bit lame but not that big of a deal: the id of the invitation as the id of the
         // user because there is no user here yet.
-        let claims = Claims::new_user(invitation.id, iat, exp, endpoints)?;
+        let claims = Claims::new_with_data(
+            crate::auth::token::ResourceType::Org,
+            invitation.created_for_org,
+            iat,
+            exp,
+            endpoints.into_iter().collect(),
+            data,
+        )?;
 
         let token = cipher.jwt.encode(&claims)?;
         let accept_link = format!("{}/accept-invite?token={}", self.base_url, *token);

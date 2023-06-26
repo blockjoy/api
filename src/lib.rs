@@ -24,7 +24,8 @@ mod test {
     use crate::cloudflare::CloudflareApi;
     use crate::config::cloudflare::{ApiConfig, Config as CloudflareConfig, DnsConfig};
     use crate::config::Context;
-    use crate::cookbook::Cookbook;
+    use crate::cookbook::{self, Cookbook, Location};
+    use crate::grpc::api;
     use crate::models;
     use crate::models::schema::{blockchains, commands, nodes, orgs};
     use crate::models::Conn;
@@ -36,6 +37,7 @@ mod test {
     use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
     use rand::Rng;
     use std::sync::Arc;
+    use std::time::Duration;
     use uuid::Uuid;
 
     pub struct TestCloudflareApi {
@@ -97,6 +99,29 @@ mod test {
         mock: mockito::ServerGuard,
     }
 
+    struct MockStorage {}
+
+    #[tonic::async_trait]
+    impl cookbook::Client for MockStorage {
+        async fn read_file(&self, _: Location<'_>, _: &str, _: &str) -> crate::Result<Vec<u8>> {
+            Ok(cookbook::script::TEST_SCRIPT.bytes().collect())
+        }
+
+        async fn download_url(
+            &self,
+            _: Location<'_>,
+            _: &str,
+            _: &str,
+            _: Duration,
+        ) -> crate::Result<String> {
+            panic!("We're not using this in tests.")
+        }
+
+        async fn list(&self, _: Location<'_>) -> crate::Result<Vec<api::ConfigIdentifier>> {
+            panic!("We're not using this in tests.")
+        }
+    }
+
     impl TestCookbook {
         pub async fn new() -> Self {
             let mock = Self::mock_cookbook_api().await;
@@ -104,7 +129,7 @@ mod test {
         }
 
         pub fn get_cookbook_api(&self) -> Cookbook {
-            Cookbook::new(&self.mock_config())
+            Cookbook::new_with_client(&self.mock_config(), MockStorage {})
         }
 
         async fn mock_cookbook_api() -> mockito::ServerGuard {
