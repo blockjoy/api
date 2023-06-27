@@ -20,6 +20,10 @@ const AWS_ACCESS_KEY_ID_VAR: &str = "AWS_ACCESS_KEY_ID";
 const AWS_ACCESS_KEY_ID_ENTRY: &str = "cookbook.aws_access_key_id";
 const AWS_SECRET_ACCESS_KEY_VAR: &str = "AWS_SECRET_ACCESS_KEY";
 const AWS_SECRET_ACCESS_KEY_ENTRY: &str = "cookbook.aws_secret_access_key";
+const DIR_BUNDLES_PREFIX_VAR: &str = "DIR_BUNDLES_PREFIX";
+const DIR_BUNDLES_PREFIX_ENTRY: &str = "cookbook.bundle_dir";
+const BUNDLE_STAGE_VAR: &str = "BUNDLE_STAGE";
+const BUNDLE_STAGE_ENTRY: &str = "cookbook.bundle_stage";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -39,6 +43,10 @@ pub enum Error {
     ReadKeyId(provider::Error),
     /// Failed to parse {AWS_SECRET_ACCESS_KEY_ENTRY:?}: {0}
     ReadKey(provider::Error),
+    /// Failed to parse {DIR_BUNDLES_PREFIX_VAR:?}: {0}
+    ReadBundlesDir(provider::Error),
+    /// Failed to parse {BUNDLE_STAGE_VAR:?}: {0}
+    ReadBundlesStage(provider::Error),
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,6 +59,8 @@ pub struct Config {
     pub region: String,
     pub key_id: super::Redacted<String>,
     pub key: super::Redacted<String>,
+    pub bundle_dir: String,
+    pub bundle_stage: String,
 }
 
 impl TryFrom<&Provider> for Config {
@@ -82,6 +92,12 @@ impl TryFrom<&Provider> for Config {
             key: provider
                 .read(AWS_SECRET_ACCESS_KEY_VAR, AWS_SECRET_ACCESS_KEY_ENTRY)
                 .map_err(Error::ReadKey)?,
+            bundle_dir: provider
+                .read(DIR_BUNDLES_PREFIX_VAR, DIR_BUNDLES_PREFIX_ENTRY)
+                .map_err(Error::ReadBundlesDir)?,
+            bundle_stage: provider
+                .read(BUNDLE_STAGE_VAR, BUNDLE_STAGE_ENTRY)
+                .map_err(Error::ReadBundlesStage)?,
         })
     }
 }

@@ -1,5 +1,5 @@
 use super::{
-    api::{self, cookbook_service_server},
+    api::{self, bundle_service_server, cookbook_service_server},
     helpers::required,
 };
 use crate::{
@@ -7,6 +7,8 @@ use crate::{
     cookbook,
     models::Conn,
 };
+
+// --------------------------------------- Cookbook Service ---------------------------------------
 
 #[tonic::async_trait]
 impl cookbook_service_server::CookbookService for super::GrpcImpl {
@@ -206,4 +208,64 @@ async fn list_babel_versions(
     let identifiers = grpc.cookbook.list(&req.protocol, &req.node_type).await?;
     let resp = api::CookbookServiceListBabelVersionsResponse { identifiers };
     Ok(tonic::Response::new(resp))
+}
+
+// ---------------------------------------- Bundle Service ----------------------------------------
+#[tonic::async_trait]
+impl bundle_service_server::BundleService for super::GrpcImpl {
+    /// Retrieve image for specific version and state.
+    async fn retrieve(
+        &self,
+        req: tonic::Request<api::BundleServiceRetrieveRequest>,
+    ) -> super::Resp<api::BundleServiceRetrieveResponse> {
+        retrieve(self, req).await
+    }
+
+    /// List all available bundle versions.
+    async fn list_bundle_versions(
+        &self,
+        req: tonic::Request<api::BundleServiceListBundleVersionsRequest>,
+    ) -> super::Resp<api::BundleServiceListBundleVersionsResponse> {
+        list_bundle_versions(self, req).await
+    }
+
+    /// Delete bundle from storage.
+    async fn delete(
+        &self,
+        req: tonic::Request<api::BundleServiceDeleteRequest>,
+    ) -> super::Resp<api::BundleServiceDeleteResponse> {
+        delete(self, req).await
+    }
+}
+
+async fn retrieve(
+    grpc: &super::GrpcImpl,
+    req: tonic::Request<api::BundleServiceRetrieveRequest>,
+) -> super::Resp<api::BundleServiceRetrieveResponse> {
+    let req = req.into_inner();
+    let id = req.id.ok_or_else(required("id"))?;
+    let url = grpc.cookbook.bundle_download_url(&id.version).await?;
+    let resp = api::BundleServiceRetrieveResponse {
+        location: Some(api::ArchiveLocation { url }),
+    };
+    Ok(tonic::Response::new(resp))
+}
+
+/// List all available bundle versions.
+async fn list_bundle_versions(
+    grpc: &super::GrpcImpl,
+    _: tonic::Request<api::BundleServiceListBundleVersionsRequest>,
+) -> super::Resp<api::BundleServiceListBundleVersionsResponse> {
+    let identifiers = grpc.cookbook.list_bundles().await?;
+    let resp = api::BundleServiceListBundleVersionsResponse { identifiers };
+    Ok(tonic::Response::new(resp))
+}
+
+/// Delete bundle from storage.
+async fn delete(
+    _grpc: &super::GrpcImpl,
+    _req: tonic::Request<api::BundleServiceDeleteRequest>,
+) -> super::Resp<api::BundleServiceDeleteResponse> {
+    // This endpoint is not currently used.
+    Err(tonic::Status::unimplemented("Sod off"))
 }

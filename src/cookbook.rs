@@ -10,136 +10,96 @@ use crate::grpc::{api, helpers::required};
 pub const RHAI_FILE_NAME: &str = "babel.rhai";
 pub const BABEL_IMAGE_NAME: &str = "blockjoy.gz";
 pub const KERNEL_NAME: &str = "kernel.gz";
+pub const BUNDLE_NAME: &str = "bvd-bundle.tgz";
 
 #[derive(Clone)]
 pub struct Cookbook {
     pub prefix: String,
     pub bucket: String,
+    pub bundle_bucket: String,
     pub expiration: std::time::Duration,
     pub client: Arc<dyn Client>,
     pub engine: std::sync::Arc<rhai::Engine>,
 }
 
-pub struct Location<'a> {
-    prefix: &'a str,
-    bucket: &'a str,
-    protocol: &'a str,
-    node_type: &'a str,
-}
-
-impl Location<'_> {
-    fn key(&self) -> String {
-        format!("{}/{}/{}", self.prefix, self.protocol, self.node_type)
-    }
-}
-
 #[tonic::async_trait]
 pub trait Client: Send + Sync {
-    async fn read_file(
-        &self,
-        location: Location<'_>,
-        node_version: &str,
-        file: &str,
-    ) -> crate::Result<Vec<u8>>;
+    async fn read_file(&self, bucket: &str, path: &str) -> crate::Result<Vec<u8>>;
 
-    async fn read_string(
-        &self,
-        location: Location<'_>,
-        node_version: &str,
-        file: &str,
-    ) -> crate::Result<String> {
-        let bytes = self.read_file(location, node_version, file).await?;
-        let s =
-            String::from_utf8(bytes.clone()).with_context(|| format!("Invalid utf8: {bytes:?}"))?;
-        Ok(s)
+    async fn read_string(&self, bucket: &str, path: &str) -> crate::Result<String> {
+        let bytes = self.read_file(bucket, path).await?;
+        let s = std::str::from_utf8(&bytes).with_context(|| format!("Invalid utf8: {bytes:?}"))?;
+        Ok(s.to_owned())
     }
 
     async fn download_url(
         &self,
-        location: Location<'_>,
-        node_version: &str,
-        file: &str,
+        bucket: &str,
+        path: &str,
         expiration: Duration,
     ) -> crate::Result<String>;
 
-    async fn list(&self, location: Location<'_>) -> crate::Result<Vec<api::ConfigIdentifier>>;
+    async fn list(&self, bucket: &str, path: &str) -> crate::Result<Vec<String>>;
 }
 
 #[tonic::async_trait]
 impl Client for aws_sdk_s3::Client {
-    async fn read_file(
-        &self,
-        location: Location<'_>,
-        node_version: &str,
-        file: &str,
-    ) -> crate::Result<Vec<u8>> {
-        let file = format!("{path}/{node_version}/{file}", path = location.key());
-        let response = self
-            .get_object()
-            .bucket(location.bucket)
-            .key(&file)
-            .send()
-            .await?;
+    async fn read_file(&self, bucket: &str, path: &str) -> crate::Result<Vec<u8>> {
+        let response = self.get_object().bucket(bucket).key(path).send().await?;
         let metadata = response.metadata().ok_or_else(required("metadata"))?;
         if !metadata.contains_key("status") {
-            let err = format!("File {file} not does not exist");
+            let err = format!("File at `{path}` not does not exist");
             return Err(crate::Error::unexpected(err));
         }
         let bytes = response
             .body
             .collect()
             .await
-            .with_context(|| format!("Error querying file {file}"))?
+            .with_context(|| format!("Error querying file `{path}`"))?
             .into_bytes();
         Ok(bytes.to_vec())
     }
 
     async fn download_url(
         &self,
-        location: Location<'_>,
-        node_version: &str,
-        file: &str,
+        bucket: &str,
+        path: &str,
         expiration: Duration,
     ) -> crate::Result<String> {
-        let file = format!("{path}/{node_version}/{file}", path = location.key());
         let exp = aws_sdk_s3::presigning::PresigningConfig::expires_in(expiration)
             .with_context(|| format!("Failed to create presigning config from {expiration:?}"))?;
         let url = self
             .get_object()
-            .bucket(location.bucket)
-            .key(&file)
+            .bucket(bucket)
+            .key(path)
             .presigned(exp)
             .await
-            .with_context(|| format!("Failed to create presigned url for {file}"))?
+            .with_context(|| format!("Failed to create presigned url for {path}"))?
             .uri()
             .to_string();
         Ok(url)
     }
 
-    async fn list(&self, location: Location<'_>) -> crate::Result<Vec<api::ConfigIdentifier>> {
-        let prefix = location.key();
+    async fn list(&self, bucket: &str, path: &str) -> crate::Result<Vec<String>> {
         let resp = self
             .list_objects_v2()
-            .bucket(location.bucket)
-            .prefix(&prefix)
+            .bucket(bucket)
+            .prefix(path)
             .send()
             .await
-            .with_context(|| format!("Cannot `list` for path `{prefix}`"))?;
-        let objects = resp.contents().unwrap_or_default();
-        let mut identifiers = vec![];
-        for obj in objects {
-            let Some(key) = obj.key() else { continue };
-            let id = api::ConfigIdentifier::from_key(key)?;
-            if !identifiers.contains(&id) {
-                identifiers.push(id);
-            }
-        }
-
-        Ok(identifiers)
+            .with_context(|| format!("Cannot `list` for path `{path}`"))?;
+        let files = resp
+            .contents()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|object| object.key().map(|key| key.to_owned()))
+            .collect();
+        Ok(files)
     }
 }
 
 impl Cookbook {
+    /// Creates a new instance of `Cookbook` using s3 as the underlying storage.
     pub fn new_s3(config: &config::cookbook::Config) -> Self {
         let s3_config = aws_sdk_s3::Config::builder()
             .endpoint_url(config.r2_url.to_string())
@@ -153,18 +113,11 @@ impl Cookbook {
             ))
             .build();
         let client = aws_sdk_s3::Client::from_conf(s3_config);
-
-        let engine = std::sync::Arc::new(rhai::Engine::new());
-
-        Self {
-            prefix: config.dir_chains_prefix.clone(),
-            bucket: config.r2_bucket.clone(),
-            expiration: config.presigned_url_expiration.to_std(),
-            client: Arc::new(client),
-            engine,
-        }
+        Self::new_with_client(config, client)
     }
 
+    /// Creates a new instance of `Cookbook` using the `client` parameter as the storage
+    /// implementation.
     pub fn new_with_client(
         config: &config::cookbook::Config,
         client: impl Client + 'static,
@@ -174,6 +127,7 @@ impl Cookbook {
         Self {
             prefix: config.dir_chains_prefix.clone(),
             bucket: config.r2_bucket.clone(),
+            bundle_bucket: format!("{}-{}", config.bundle_dir, config.bundle_stage),
             expiration: config.presigned_url_expiration.to_std(),
             client: Arc::new(client),
             engine,
@@ -187,13 +141,11 @@ impl Cookbook {
         node_version: &str,
         file: &str,
     ) -> crate::Result<Vec<u8>> {
-        let location = Location {
-            prefix: &self.prefix,
-            bucket: &self.bucket,
-            protocol,
-            node_type,
-        };
-        self.client.read_file(location, node_version, file).await
+        let path = format!(
+            "{prefix}/{protocol}/{node_type}/{node_version}/{file}",
+            prefix = self.prefix,
+        );
+        self.client.read_file(&self.bucket, &path).await
     }
 
     pub async fn download_url(
@@ -203,14 +155,19 @@ impl Cookbook {
         node_version: &str,
         file: &str,
     ) -> crate::Result<String> {
-        let location = Location {
-            prefix: &self.prefix,
-            bucket: &self.bucket,
-            protocol,
-            node_type,
-        };
+        let path = format!(
+            "{prefix}/{protocol}/{node_type}/{node_version}/{file}",
+            prefix = self.prefix,
+        );
         self.client
-            .download_url(location, node_version, file, self.expiration)
+            .download_url(&self.bucket, &path, self.expiration)
+            .await
+    }
+
+    pub async fn bundle_download_url(&self, version: &str) -> crate::Result<String> {
+        let path = format!("{version}/{BUNDLE_NAME}");
+        self.client
+            .download_url(&self.bundle_bucket, &path, self.expiration)
             .await
     }
 
@@ -219,13 +176,22 @@ impl Cookbook {
         protocol: &str,
         node_type: &str,
     ) -> crate::Result<Vec<api::ConfigIdentifier>> {
-        let location = Location {
-            prefix: &self.prefix,
-            bucket: &self.bucket,
-            protocol,
-            node_type,
-        };
-        self.client.list(location).await
+        let path = format!("{}/{protocol}/{node_type}", self.prefix);
+        self.client
+            .list(&self.bucket, &path)
+            .await?
+            .iter()
+            .map(api::ConfigIdentifier::from_key)
+            .collect()
+    }
+
+    pub async fn list_bundles(&self) -> crate::Result<Vec<api::BundleIdentifier>> {
+        self.client
+            .list(&self.bundle_bucket, "/")
+            .await?
+            .iter()
+            .map(api::BundleIdentifier::from_key)
+            .collect()
     }
 
     pub async fn rhai_metadata(
@@ -234,16 +200,11 @@ impl Cookbook {
         node_type: &str,
         node_version: &str,
     ) -> crate::Result<script::BlockchainMetadata> {
-        let location = Location {
-            prefix: &self.prefix,
-            bucket: &self.bucket,
-            protocol,
-            node_type,
-        };
-        let script = self
-            .client
-            .read_string(location, node_version, RHAI_FILE_NAME)
-            .await?;
+        let path = format!(
+            "{prefix}/{protocol}/{node_type}/{node_version}/{RHAI_FILE_NAME}",
+            prefix = self.prefix,
+        );
+        let script = self.client.read_string(&self.bucket, &path).await?;
         Self::script_to_metadata(&self.engine, &script)
     }
 
@@ -264,10 +225,11 @@ impl Cookbook {
 }
 
 impl api::ConfigIdentifier {
-    fn from_key(key: &str) -> crate::Result<Self> {
+    fn from_key(key: impl AsRef<str>) -> crate::Result<Self> {
         // We want to parse a `ConfigIdentifier` from a file path. This file path looks like this:
         // `/prefix/ethereum/validator/0.0.3/babel.rhai`. This means that we need to extract the
         // relevant parts by `/`-splitting the path.
+        let key = key.as_ref();
         let parts: Vec<&str> = key.split('/').collect();
         let parts: [&str; 5] = parts
             .try_into()
@@ -283,10 +245,20 @@ impl api::ConfigIdentifier {
     }
 }
 
-pub mod script {
-    use std::collections::HashMap;
+impl api::BundleIdentifier {
+    fn from_key(key: impl AsRef<str>) -> crate::Result<Self> {
+        // This `from_key` implementation is much simpler than the one for `ConfigIdentifier`, but
+        // its signature is purposefully the same so it looks nice and symmetrical.
+        let id = api::BundleIdentifier {
+            version: key.as_ref().to_owned(),
+        };
+        Ok(id)
+    }
+}
 
-    use crate::grpc::api::network_configuration;
+pub mod script {
+    use crate::grpc::api;
+    use std::collections::HashMap;
 
     // Top level struct to hold the blockchain metadata.
     #[derive(Debug, serde::Deserialize)]
@@ -318,12 +290,12 @@ pub mod script {
         pub meta: HashMap<String, String>,
     }
 
-    impl From<NetType> for network_configuration::NetType {
+    impl From<NetType> for api::NetType {
         fn from(value: NetType) -> Self {
             match value {
-                NetType::Test => network_configuration::NetType::Test,
-                NetType::Main => network_configuration::NetType::Main,
-                NetType::Dev => network_configuration::NetType::Dev,
+                NetType::Test => api::NetType::Test,
+                NetType::Main => api::NetType::Main,
+                NetType::Dev => api::NetType::Dev,
             }
         }
     }

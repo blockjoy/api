@@ -24,8 +24,7 @@ mod test {
     use crate::cloudflare::CloudflareApi;
     use crate::config::cloudflare::{ApiConfig, Config as CloudflareConfig, DnsConfig};
     use crate::config::Context;
-    use crate::cookbook::{self, Cookbook, Location};
-    use crate::grpc::api;
+    use crate::cookbook::{self, Cookbook};
     use crate::models;
     use crate::models::schema::{blockchains, commands, nodes, orgs};
     use crate::models::Conn;
@@ -103,21 +102,15 @@ mod test {
 
     #[tonic::async_trait]
     impl cookbook::Client for MockStorage {
-        async fn read_file(&self, _: Location<'_>, _: &str, _: &str) -> crate::Result<Vec<u8>> {
+        async fn read_file(&self, _: &str, _: &str) -> crate::Result<Vec<u8>> {
             Ok(cookbook::script::TEST_SCRIPT.bytes().collect())
         }
 
-        async fn download_url(
-            &self,
-            _: Location<'_>,
-            _: &str,
-            _: &str,
-            _: Duration,
-        ) -> crate::Result<String> {
+        async fn download_url(&self, _: &str, _: &str, _: Duration) -> crate::Result<String> {
             panic!("We're not using this in tests.")
         }
 
-        async fn list(&self, _: Location<'_>) -> crate::Result<Vec<api::ConfigIdentifier>> {
+        async fn list(&self, _: &str, _: &str) -> crate::Result<Vec<String>> {
             panic!("We're not using this in tests.")
         }
     }
@@ -152,6 +145,8 @@ mod test {
                 region: "eu-west-3".to_string(),
                 key_id: "not actually a".parse().unwrap(),
                 key: "key".parse().unwrap(),
+                bundle_dir: "bundles".to_string(),
+                bundle_stage: "prod".to_string(),
             };
             Arc::new(config)
         }
