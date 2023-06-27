@@ -28,7 +28,7 @@ pub struct Location<'a> {
 }
 
 impl Location<'_> {
-    fn path(&self) -> String {
+    fn key(&self) -> String {
         format!("{}/{}/{}", self.prefix, self.protocol, self.node_type)
     }
 }
@@ -49,7 +49,8 @@ pub trait Client: Send + Sync {
         file: &str,
     ) -> crate::Result<String> {
         let bytes = self.read_file(location, node_version, file).await?;
-        let s = String::from_utf8(bytes).context("Invalid utf8")?;
+        let s =
+            String::from_utf8(bytes.clone()).with_context(|| format!("Invalid utf8: {bytes:?}"))?;
         Ok(s)
     }
 
@@ -72,7 +73,7 @@ impl Client for aws_sdk_s3::Client {
         node_version: &str,
         file: &str,
     ) -> crate::Result<Vec<u8>> {
-        let file = format!("{path}/{node_version}/{file}", path = location.path());
+        let file = format!("{path}/{node_version}/{file}", path = location.key());
         let response = self
             .get_object()
             .bucket(location.bucket)
@@ -100,7 +101,7 @@ impl Client for aws_sdk_s3::Client {
         file: &str,
         expiration: Duration,
     ) -> crate::Result<String> {
-        let file = format!("{path}/{node_version}/{file}", path = location.path());
+        let file = format!("{path}/{node_version}/{file}", path = location.key());
         let exp = aws_sdk_s3::presigning::PresigningConfig::expires_in(expiration)
             .with_context(|| format!("Failed to create presigning config from {expiration:?}"))?;
         let url = self
@@ -116,7 +117,7 @@ impl Client for aws_sdk_s3::Client {
     }
 
     async fn list(&self, location: Location<'_>) -> crate::Result<Vec<api::ConfigIdentifier>> {
-        let prefix = location.path();
+        let prefix = location.key();
         let resp = self
             .list_objects_v2()
             .bucket(location.bucket)
@@ -157,7 +158,7 @@ impl Cookbook {
 
         Self {
             prefix: config.dir_chains_prefix.clone(),
-            bucket: config.r2_root.clone(),
+            bucket: config.r2_bucket.clone(),
             expiration: config.presigned_url_expiration.to_std(),
             client: Arc::new(client),
             engine,
@@ -172,7 +173,7 @@ impl Cookbook {
 
         Self {
             prefix: config.dir_chains_prefix.clone(),
-            bucket: config.r2_root.clone(),
+            bucket: config.r2_bucket.clone(),
             expiration: config.presigned_url_expiration.to_std(),
             client: Arc::new(client),
             engine,
@@ -262,17 +263,11 @@ impl Cookbook {
     }
 }
 
-// impl std::fmt::Display for api::ConfigIdentifier {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         let bc = self.protocol.to_lowercase();
-//         let nt = self.node_type.to_lowercase();
-//         let version = self.node_version.to_lowercase();
-//         write!(f, "{bc}/{nt}/{version}")
-//     }
-// }
-
 impl api::ConfigIdentifier {
     fn from_key(key: &str) -> crate::Result<Self> {
+        // We want to parse a `ConfigIdentifier` from a file path. This file path looks like this:
+        // `/prefix/ethereum/validator/0.0.3/babel.rhai`. This means that we need to extract the
+        // relevant parts by `/`-splitting the path.
         let parts: Vec<&str> = key.split('/').collect();
         let parts: [&str; 5] = parts
             .try_into()

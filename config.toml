@@ -10,7 +10,7 @@ ttl = 300
 [cookbook]
 prefix = "chains"
 # This is the name of the bucket in R2
-root = "backet"
+r2_bucket = "backet"
 url = "https://r2.dev"
 expiration = "1h"
 aws_region = "eu-west-2"

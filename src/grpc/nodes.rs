@@ -137,13 +137,7 @@ async fn create(
     let user = models::User::find_by_id(user_id, conn).await?;
     let req = req.into_inner();
     let blockchain = models::Blockchain::find_by_id(req.blockchain_id.parse()?, conn).await?;
-    // let reqs = cookbook::get_hw_requirements(
-    //     &conn.context.config.cookbook,
-    //     blockchain.name.clone(),
-    //     req.node_type().as_str_name()[10..].to_lowercase(),
-    //     req.node_type().as_str_name()[10..].to_lowercase().clone(),
-    // )
-    // .await?;
+    // We want to cast a string like `NODE_TYPE_VALIDATOR` to `validator`.
     let node_type = req.node_type().as_str_name()[10..].to_lowercase();
     let reqs = grpc
         .cookbook
