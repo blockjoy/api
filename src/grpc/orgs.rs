@@ -118,7 +118,7 @@ async fn get(
     let is_allowed = match claims.resource() {
         Resource::User(user_id) => models::Org::is_member(user_id, org_id, conn).await?,
         Resource::Org(org) => org == org_id,
-        Resource::Host(host) => models::Host::find_by_id(host, conn).await?.org_id == Some(org_id),
+        Resource::Host(host) => models::Host::find_by_id(host, conn).await?.org_id == org_id,
         Resource::Node(node) => models::Node::find_by_id(node, conn).await?.org_id == org_id,
     };
     if !is_allowed {

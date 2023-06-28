@@ -158,14 +158,8 @@ async fn pending(
     let host_id = req.host_id.parse()?;
     let host = models::Host::find_by_id(host_id, conn).await?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => {
-            if let Some(org_id) = host.org_id {
-                models::Org::is_member(user_id, org_id, conn).await?
-            } else {
-                false
-            }
-        }
-        Resource::Org(org_id) => host.org_id == Some(org_id),
+        Resource::User(user_id) => models::Org::is_member(user_id, host.org_id, conn).await?,
+        Resource::Org(org_id) => host.org_id == org_id,
         Resource::Host(host_id) => host_id == host.id,
         Resource::Node(_) => false,
     };
@@ -192,19 +186,15 @@ async fn access_allowed(
         Resource::User(user_id) => {
             if let Some(node) = &node {
                 models::Org::is_member(user_id, node.org_id, conn).await?
-            } else if let Some(host_org_id) = host.org_id {
-                models::Org::is_member(user_id, host_org_id, conn).await?
             } else {
-                false
+                models::Org::is_member(user_id, host.org_id, conn).await?
             }
         }
         Resource::Org(org_id) => {
             if let Some(node) = &node {
                 org_id == node.org_id
-            } else if let Some(host_org_id) = host.org_id {
-                org_id == host_org_id
             } else {
-                false
+                org_id == host.org_id
             }
         }
         Resource::Host(host_id) => {

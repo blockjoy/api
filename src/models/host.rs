@@ -2,7 +2,7 @@ use super::schema::hosts;
 use crate::{cookbook::script::HardwareRequirements, Error, Result};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use diesel::prelude::*;
+use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -51,9 +51,8 @@ pub struct Host {
     pub network_sent: Option<i64>,
     pub uptime: Option<i64>,
     pub host_type: Option<HostType>,
-    /// If this host is not a cloud host, but rather a machine to be used for self-hosted machines,
-    /// this value will be set to the id of the org that owns and operates this host.
-    pub org_id: Option<uuid::Uuid>,
+    /// The id of the org that owns and operates this host.
+    pub org_id: uuid::Uuid,
     /// This is the id of the user that created this host. For older hosts, this value might not be
     /// set.
     pub created_by: Option<uuid::Uuid>,
@@ -180,6 +179,28 @@ impl Host {
 
         Self::by_ids(&host_ids, conn).await
     }
+
+    pub async fn node_counts(
+        hosts: &[Self],
+        conn: &mut super::Conn,
+    ) -> crate::Result<HashMap<uuid::Uuid, u64>> {
+        use super::schema::nodes;
+
+        let mut host_ids: Vec<_> = hosts.iter().map(|h| h.id).collect();
+        host_ids.sort();
+        host_ids.dedup();
+
+        let counts: Vec<(uuid::Uuid, i64)> = nodes::table
+            .filter(nodes::host_id.eq_any(host_ids))
+            .group_by(nodes::host_id)
+            .select((nodes::host_id, dsl::count(nodes::id)))
+            .get_results(conn)
+            .await?;
+        counts
+            .into_iter()
+            .map(|(host, count)| Ok((host, count.try_into()?)))
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -199,9 +220,8 @@ pub struct NewHost<'a> {
     pub ip_range_from: ipnetwork::IpNetwork,
     pub ip_range_to: ipnetwork::IpNetwork,
     pub ip_gateway: ipnetwork::IpNetwork,
-    /// If this host is not a cloud host, but rather a machine to be used for self-hosted machines,
-    /// this value should be set to the id of the org that owns and operates this host.
-    pub org_id: Option<uuid::Uuid>,
+    /// The id of the org that owns and operates this host.
+    pub org_id: uuid::Uuid,
     /// This is the id of the user that created this host.
     pub created_by: uuid::Uuid,
 }

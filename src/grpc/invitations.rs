@@ -79,7 +79,7 @@ async fn create(
     let (is_allowed, caller) = match claims.resource() {
         Resource::User(user_id) => {
             let caller = models::User::find_by_id(user_id, conn).await?;
-            let is_allowed = models::Org::is_member(caller.id, req.org_id.parse()?, conn).await?;
+            let is_allowed = models::Org::is_admin(caller.id, req.org_id.parse()?, conn).await?;
             (is_allowed, caller)
         }
         Resource::Org(_) => todo!(),

@@ -25,6 +25,16 @@ impl Org {
         Ok(org)
     }
 
+    pub async fn find_by_ids(mut org_ids: Vec<Uuid>, conn: &mut super::Conn) -> Result<Vec<Self>> {
+        org_ids.sort();
+        org_ids.dedup();
+        let orgs = Org::not_deleted()
+            .filter(orgs::id.eq_any(org_ids))
+            .get_results(conn)
+            .await?;
+        Ok(orgs)
+    }
+
     pub async fn filter(
         member_id: Option<uuid::Uuid>,
         conn: &mut super::Conn,

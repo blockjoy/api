@@ -136,7 +136,7 @@ diesel::table! {
         network_sent -> Nullable<Int8>,
         uptime -> Nullable<Int8>,
         host_type -> Nullable<EnumHostType>,
-        org_id -> Nullable<Uuid>,
+        org_id -> Uuid,
         created_by -> Nullable<Uuid>,
     }
 }

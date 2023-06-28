@@ -319,7 +319,7 @@ mod test {
                 ip_range_from: "192.168.0.10".parse().unwrap(),
                 ip_range_to: "192.168.0.100".parse().unwrap(),
                 ip_gateway: "192.168.0.1".parse().unwrap(),
-                org_id: None,
+                org_id,
                 created_by: user.id,
             };
 
@@ -338,7 +338,7 @@ mod test {
                 ip_range_from: "192.12.0.10".parse().unwrap(),
                 ip_range_to: "192.12.0.20".parse().unwrap(),
                 ip_gateway: "192.12.0.1".parse().unwrap(),
-                org_id: Some(org_id),
+                org_id,
                 created_by: user.id,
             };
 

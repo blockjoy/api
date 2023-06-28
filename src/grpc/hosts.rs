@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use diesel_async::scoped_futures::ScopedFutureExt;
 
 use super::api::{self, host_service_server};
@@ -108,7 +110,7 @@ async fn create(
     let refresh_exp = conn.context.config.token.expire.refresh_host.try_into()?;
     let refresh = Refresh::new(host.id, iat, refresh_exp)?;
 
-    let host = api::Host::from_model(host).await?;
+    let host = api::Host::from_model(host, conn).await?;
     let resp = api::HostServiceCreateResponse {
         host: Some(host),
         token: conn.context.cipher.jwt.encode(&claims)?.into(),
@@ -128,14 +130,8 @@ async fn get(
     let host_id = req.id.parse()?;
     let host = models::Host::find_by_id(host_id, conn).await?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => {
-            if let Some(org_id) = host.org_id {
-                models::Org::is_member(user_id, org_id, conn).await?
-            } else {
-                false
-            }
-        }
-        Resource::Org(org) => host.org_id == Some(org),
+        Resource::User(user_id) => models::Org::is_member(user_id, host.org_id, conn).await?,
+        Resource::Org(org) => host.org_id == org,
         Resource::Host(host_id) => host.id == host_id,
         Resource::Node(node_id) => {
             models::Node::find_by_id(node_id, conn).await?.host_id == host.id
@@ -144,7 +140,7 @@ async fn get(
     if !is_allowed {
         super::forbidden!("Access denied");
     }
-    let host = api::Host::from_model(host).await?;
+    let host = api::Host::from_model(host, conn).await?;
     let resp = api::HostServiceGetResponse { host: Some(host) };
     Ok(tonic::Response::new(resp))
 }
@@ -166,7 +162,7 @@ async fn list(
         super::forbidden!("Access denied");
     }
     let hosts = models::Host::filter(org_id, None, conn).await?;
-    let hosts = api::Host::from_models(hosts).await?;
+    let hosts = api::Host::from_models(hosts, conn).await?;
     let resp = api::HostServiceListResponse { hosts };
     Ok(tonic::Response::new(resp))
 }
@@ -180,14 +176,8 @@ async fn update(
     let host_id = req.id.parse()?;
     let host = models::Host::find_by_id(host_id, conn).await?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => {
-            if let Some(org_id) = host.org_id {
-                models::Org::is_member(user_id, org_id, conn).await?
-            } else {
-                false
-            }
-        }
-        Resource::Org(org_id) => Some(org_id) == host.org_id,
+        Resource::User(user_id) => models::Org::is_member(user_id, host.org_id, conn).await?,
+        Resource::Org(org_id) => org_id == host.org_id,
         Resource::Host(host_id) => host_id == host.id,
         Resource::Node(_) => false,
     };
@@ -209,14 +199,8 @@ async fn delete(
     let host_id = req.id.parse()?;
     let host = models::Host::find_by_id(host_id, conn).await?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => {
-            if let Some(org_id) = host.org_id {
-                models::Org::is_member(user_id, org_id, conn).await?
-            } else {
-                false
-            }
-        }
-        Resource::Org(org_id) => Some(org_id) == host.org_id,
+        Resource::User(user_id) => models::Org::is_member(user_id, host.org_id, conn).await?,
+        Resource::Org(org_id) => org_id == host.org_id,
         Resource::Host(host_id) => host_id == host.id,
         Resource::Node(_) => false,
     };
@@ -230,7 +214,19 @@ async fn delete(
 }
 
 impl api::Host {
-    pub async fn from_models(models: Vec<models::Host>) -> crate::Result<Vec<Self>> {
+    pub async fn from_models(
+        models: Vec<models::Host>,
+        conn: &mut models::Conn,
+    ) -> crate::Result<Vec<Self>> {
+        let node_counts = models::Host::node_counts(&models, conn).await?;
+
+        let org_ids: Vec<_> = models.iter().map(|h| h.org_id).collect();
+        let orgs: HashMap<_, _> = models::Org::find_by_ids(org_ids, conn)
+            .await?
+            .into_iter()
+            .map(|org| (org.id, org))
+            .collect();
+
         models
             .into_iter()
             .map(|model| {
@@ -238,18 +234,20 @@ impl api::Host {
                     id: model.id.to_string(),
                     name: model.name,
                     version: model.version,
-                    cpu_count: Some(model.cpu_count.try_into()?),
-                    mem_size_bytes: Some(model.mem_size_bytes.try_into()?),
-                    disk_size_bytes: Some(model.disk_size_bytes.try_into()?),
+                    cpu_count: model.cpu_count.try_into()?,
+                    mem_size_bytes: model.mem_size_bytes.try_into()?,
+                    disk_size_bytes: model.disk_size_bytes.try_into()?,
                     os: model.os,
                     os_version: model.os_version,
                     ip: model.ip_addr,
                     status: 0, // We use the setter to set this field for type-safety
                     created_at: Some(super::try_dt_to_ts(model.created_at)?),
-                    ip_range_from: Some(model.ip_range_from.ip().to_string()),
-                    ip_range_to: Some(model.ip_range_to.ip().to_string()),
-                    ip_gateway: Some(model.ip_gateway.ip().to_string()),
-                    org_id: model.org_id.map(|org_id| org_id.to_string()),
+                    ip_range_from: model.ip_range_from.ip().to_string(),
+                    ip_range_to: model.ip_range_to.ip().to_string(),
+                    ip_gateway: model.ip_gateway.ip().to_string(),
+                    org_id: model.org_id.to_string(),
+                    node_count: node_counts.get(&model.id).copied().unwrap_or(0),
+                    org_name: orgs[&model.org_id].name.clone(),
                 };
                 dto.set_status(api::HostStatus::from_model(model.status));
                 Ok(dto)
@@ -257,8 +255,8 @@ impl api::Host {
             .collect()
     }
 
-    pub async fn from_model(model: models::Host) -> crate::Result<Self> {
-        Ok(Self::from_models(vec![model]).await?[0].clone())
+    pub async fn from_model(model: models::Host, conn: &mut models::Conn) -> crate::Result<Self> {
+        Ok(Self::from_models(vec![model], conn).await?[0].clone())
     }
 }
 
@@ -281,7 +279,7 @@ impl api::HostServiceCreateRequest {
             ip_range_from: self.ip_range_from.parse()?,
             ip_range_to: self.ip_range_to.parse()?,
             ip_gateway: self.ip_gateway.parse()?,
-            org_id: Some(org_id),
+            org_id,
             created_by: user_id,
         })
     }

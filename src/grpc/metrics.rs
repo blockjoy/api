@@ -77,11 +77,9 @@ async fn host(
         Resource::User(user_id) => {
             let memberships = models::Org::memberships(user_id, conn).await?;
             let org_ids: HashSet<_> = memberships.into_iter().map(|ou| ou.org_id).collect();
-            hosts
-                .iter()
-                .all(|h: &models::Host| h.org_id.map(|id| org_ids.contains(&id)).unwrap_or(false))
+            hosts.iter().all(|h| org_ids.contains(&h.org_id))
         }
-        Resource::Org(org_id) => hosts.iter().all(|h| h.org_id == Some(org_id)),
+        Resource::Org(org_id) => hosts.iter().all(|h| h.org_id == org_id),
         Resource::Host(host_id) => hosts.iter().all(|h| h.id == host_id),
         Resource::Node(_) => false,
     };

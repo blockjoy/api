@@ -151,8 +151,7 @@ async fn create(
     let host_id = req.host_id()?;
     let host = if let Some(host_id) = host_id {
         let host = models::Host::find_by_id(host_id, conn).await?;
-        let Some(org_id) = host.org_id else { super::forbidden!("Host must have org_id") };
-        if !models::Org::is_member(user.id, org_id, conn).await? {
+        if !models::Org::is_member(user.id, host.org_id, conn).await? {
             super::forbidden!("Must be member of org");
         }
         Some(host)
@@ -302,7 +301,10 @@ impl api::Node {
             .map(|(blockchain_property_id, nprop)| (nprop, bprops[&blockchain_property_id].clone()))
             .collect();
 
-        Self::new(node, &blockchain, user.as_ref(), props)
+        let host = models::Host::find_by_id(node.host_id, conn).await?;
+        let org = models::Org::find_by_id(node.org_id, conn).await?;
+
+        Self::new(node, &blockchain, user.as_ref(), props, &org, &host)
     }
 
     /// This function is used to create many ui nodes from many database nodes. The same
@@ -337,15 +339,34 @@ impl api::Node {
                 .push((nprop, bprops[&blockchain_property_id].clone()));
         }
 
+        let mut org_ids: Vec<_> = nodes.iter().map(|n| n.org_id).collect();
+        org_ids.sort();
+        org_ids.dedup();
+        let orgs: HashMap<_, _> = models::Org::find_by_ids(org_ids, conn)
+            .await?
+            .into_iter()
+            .map(|org| (org.id, org))
+            .collect();
+
+        let mut host_ids: Vec<_> = nodes.iter().map(|n| n.host_id).collect();
+        host_ids.sort();
+        host_ids.dedup();
+        let hosts: HashMap<_, _> = models::Host::find_by_ids(host_ids, conn)
+            .await?
+            .into_iter()
+            .map(|host| (host.id, host))
+            .collect();
+
         nodes
             .into_iter()
-            .map(|n| (n.id, n.blockchain_id, n.created_by, n))
-            .map(|(n_id, b_id, u_id, n)| {
+            .map(|node| {
                 Self::new(
-                    n,
-                    &blockchains[&b_id],
-                    u_id.and_then(|u_id| users.get(&u_id)),
-                    props_map[&n_id].clone(),
+                    node.clone(),
+                    &blockchains[&node.blockchain_id],
+                    node.created_by.and_then(|u_id| users.get(&u_id)),
+                    props_map[&node.id].clone(),
+                    &orgs[&node.org_id],
+                    &hosts[&node.org_id],
                 )
             })
             .collect()
@@ -357,6 +378,8 @@ impl api::Node {
         blockchain: &models::Blockchain,
         user: Option<&models::User>,
         properties: Vec<(models::NodeProperty, models::BlockchainProperty)>,
+        org: &models::Org,
+        host: &models::Host,
     ) -> crate::Result<Self> {
         use api::{ContainerStatus, NodeStatus, NodeType, StakingStatus, SyncStatus};
 
@@ -396,7 +419,7 @@ impl api::Node {
             name: node.name,
             address: node.address,
             version: node.version,
-            ip: Some(node.ip_addr),
+            ip: node.ip_addr,
             ip_gateway: node.ip_gateway,
             node_type: 0, // We use the setter to set this field for type-safety
             properties,
@@ -409,13 +432,15 @@ impl api::Node {
             sync_status: 0,       // We use the setter to set this field for type-safety
             self_update: node.self_update,
             network: node.network,
-            blockchain_name: Some(blockchain.name.clone()),
+            blockchain_name: blockchain.name.clone(),
             created_by: user.map(|u| u.id.to_string()),
             created_by_name: user.map(|u| format!("{} {}", u.first_name, u.last_name)),
             created_by_email: user.map(|u| u.email.clone()),
             allow_ips,
             deny_ips,
             placement: Some(placement),
+            org_name: org.name.clone(),
+            host_org_id: host.org_id.to_string(),
         };
         dto.set_node_type(NodeType::from_model(node.node_type));
         dto.set_status(NodeStatus::from_model(node.chain_status));

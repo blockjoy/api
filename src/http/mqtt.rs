@@ -94,11 +94,7 @@ impl MqttPolicy {
             // as that host.
             (Resource::User(user_id), MqttTopic::Hosts { host_id, .. }) => {
                 let host = models::Host::find_by_id(host_id, &mut conn).await?;
-                if let Some(org_id) = host.org_id {
-                    models::Org::is_member(user_id, org_id, &mut conn).await?
-                } else {
-                    false
-                }
+                models::Org::is_member(user_id, host.org_id, &mut conn).await?
             }
             // A user is allowed to listen for updates on a node channel if that node belongs to the
             // same org as them
@@ -112,7 +108,7 @@ impl MqttPolicy {
             // An org is allowed to listen for updates on an org channel if that org is the same as
             // them.
             (Resource::Org(org_id), MqttTopic::Hosts { host_id, .. }) => {
-                models::Host::find_by_id(host_id, &mut conn).await?.org_id == Some(org_id)
+                models::Host::find_by_id(host_id, &mut conn).await?.org_id == org_id
             }
             // An org is allowed to listen for updates on a node channel if that nodes belongs to
             // them.

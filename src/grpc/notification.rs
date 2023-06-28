@@ -255,10 +255,14 @@ impl api::HostMessage {
         }
     }
 
-    pub async fn created(model: models::Host, user: models::User) -> crate::Result<Self> {
+    pub async fn created(
+        model: models::Host,
+        user: models::User,
+        conn: &mut models::Conn,
+    ) -> crate::Result<Self> {
         Ok(Self {
             message: Some(host_message::Message::Created(api::HostCreated {
-                host: Some(api::Host::from_model(model).await?),
+                host: Some(api::Host::from_model(model, conn).await?),
                 created_by: user.id.to_string(),
                 created_by_name: format!("{} {}", user.first_name, user.last_name),
                 created_by_email: user.email,
@@ -266,10 +270,14 @@ impl api::HostMessage {
         })
     }
 
-    pub async fn updated(model: models::Host, user: models::User) -> crate::Result<Self> {
+    pub async fn updated(
+        model: models::Host,
+        user: models::User,
+        conn: &mut models::Conn,
+    ) -> crate::Result<Self> {
         Ok(Self {
             message: Some(host_message::Message::Updated(api::HostUpdated {
-                host: Some(api::Host::from_model(model).await?),
+                host: Some(api::Host::from_model(model, conn).await?),
                 updated_by: user.id.to_string(),
                 updated_by_name: format!("{} {}", user.first_name, user.last_name),
                 updated_by_email: user.email,
@@ -386,17 +394,18 @@ mod tests {
     async fn test_hosts_sender() {
         let context = Context::new_with_default_toml().unwrap();
         let db = TestDb::setup(context).await;
+        let mut conn = db.conn().await;
         let notifier = Notifier::new(&db.pool.context.config.mqtt).await.unwrap();
 
         let host = db.host().await;
         let user = db.user().await;
 
-        let msg = api::HostMessage::created(host.clone(), user.clone())
+        let msg = api::HostMessage::created(host.clone(), user.clone(), &mut conn)
             .await
             .unwrap();
         notifier.hosts_sender().send(&msg).await.unwrap();
 
-        let msg = api::HostMessage::updated(host.clone(), user.clone())
+        let msg = api::HostMessage::updated(host.clone(), user.clone(), &mut conn)
             .await
             .unwrap();
         notifier.hosts_sender().send(&msg).await.unwrap();
