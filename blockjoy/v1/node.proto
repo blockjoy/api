@@ -8,41 +8,43 @@ import "google/protobuf/timestamp.proto";
 message Node {
   string id = 1;
   string org_id = 2;
-  string host_id = 3;
-  string host_name = 4;
-  string blockchain_id = 5;
-  string name = 6;
+  string org_name = 3;
+  string host_id = 4;
+  string host_name = 5;
+  string host_org_id = 6;
+  string blockchain_id = 7;
+  string blockchain_name = 8;
+  string name = 9;
   // The P2P address of the node on the blockchain. This field is only set as
   // the node is started, so therefore it is optional.
-  optional string address = 7;
-  string version = 8;
-  optional string ip = 9;
-  NodeType node_type = 10;
-  repeated NodeProperty properties = 11;
-  optional uint64 block_height = 13;
-  google.protobuf.Timestamp created_at = 15;
-  google.protobuf.Timestamp updated_at = 16;
-  NodeStatus status = 17;
-  SyncStatus sync_status = 18;
-  ContainerStatus container_status = 12;
-  optional StakingStatus staking_status = 19;
-  string ip_gateway = 20;
-  bool self_update = 21;
-  string network = 22;
-  optional string blockchain_name = 23;
+  optional string address = 10;
+  string version = 11;
+  optional string ip = 12;
+  NodeType node_type = 13;
+  repeated NodeProperty properties = 14;
+  optional uint64 block_height = 15;
+  google.protobuf.Timestamp created_at = 16;
+  google.protobuf.Timestamp updated_at = 17;
+  NodeStatus status = 18;
+  SyncStatus sync_status = 19;
+  ContainerStatus container_status = 20;
+  optional StakingStatus staking_status = 21;
+  string ip_gateway = 22;
+  bool self_update = 23;
+  string network = 24;
   // The id of the user that created this node. For the earliest nodes we
   // created, this field was not tracked and is therefore not populated.
-  optional string created_by = 24;
+  optional string created_by = 25;
   // The name of the aforementioned user.
-  optional string created_by_name = 25;
+  optional string created_by_name = 26;
   // The email of said aforementioned user.
-  optional string created_by_email = 26;
+  optional string created_by_email = 27;
   // A list of ip addresses allowed to access public ports on this node.
-  repeated FilteredIpAddr allow_ips = 27;
+  repeated FilteredIpAddr allow_ips = 28;
   // A list of ip addresses denied all access to any ports on this node.
-  repeated FilteredIpAddr deny_ips = 28;
+  repeated FilteredIpAddr deny_ips = 29;
   // Logic with regards to where the node should placed.
-  NodePlacement placement = 29;
+  NodePlacement placement = 30;
 }
 
 service NodeService {
