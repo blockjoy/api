@@ -29,7 +29,7 @@ async fn responds_ok_without_token_for_create() {
         last_name: "The Bossman".to_string(),
         password: "abcde12345".to_string(),
     };
-    tester.send(Service::create, req).await.unwrap();
+    tester.send_admin(Service::create, req).await.unwrap();
 }
 
 #[tokio::test]

@@ -2,7 +2,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 
 use super::api::{self, user_service_server};
 use crate::auth::token::{Endpoint, Resource};
-use crate::mail::MailClient;
+// use crate::mail::MailClient;
 use crate::{auth, models};
 
 #[tonic::async_trait]
@@ -11,19 +11,7 @@ impl user_service_server::UserService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::UserServiceCreateRequest>,
     ) -> super::Resp<api::UserServiceCreateResponse> {
-        let inner = req.into_inner();
-        let new_user = inner.as_new()?;
-        let mut conn = self.conn().await?;
-        let new_user = new_user.create(&mut conn).await?;
-
-        MailClient::new(&conn.context.config)
-            .registration_confirmation(&new_user, &conn.context.cipher)
-            .await?;
-
-        let resp = api::UserServiceCreateResponse {
-            user: Some(api::User::from_model(new_user.clone())?),
-        };
-        Ok(tonic::Response::new(resp))
+        self.trx(|c| create(req, c).scope_boxed()).await
     }
 
     async fn get(
@@ -48,6 +36,32 @@ impl user_service_server::UserService for super::GrpcImpl {
     ) -> super::Resp<api::UserServiceDeleteResponse> {
         self.trx(|c| delete(req, c).scope_boxed()).await
     }
+}
+
+async fn create(
+    req: tonic::Request<api::UserServiceCreateRequest>,
+    conn: &mut models::Conn,
+) -> super::Result<api::UserServiceCreateResponse> {
+    // Temporary: we require authentication to create a new user. This means that somebody needs to
+    // either be logged in, or have an email with an invitation token in there.
+    auth::get_claims(&req, Endpoint::UserCreate, conn).await?;
+    let inner = req.into_inner();
+    let new_user = inner.as_new()?;
+    let new_user = new_user.create(conn).await?;
+
+    // Since new users can't create accounts on their own initiative anymore, we don't need to
+    // confirm email addresses anymore.
+    // MailClient::new(&conn.context.config)
+    //     .registration_confirmation(&new_user, &conn.context.cipher)
+    //     .await?;
+
+    // Instead we immediately mark the user as confirmed immediately
+    models::User::confirm(new_user.id, conn).await?;
+
+    let resp = api::UserServiceCreateResponse {
+        user: Some(api::User::from_model(new_user)?),
+    };
+    Ok(tonic::Response::new(resp))
 }
 
 async fn get(
