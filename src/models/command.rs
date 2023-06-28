@@ -1,6 +1,5 @@
 use crate::models::schema::commands;
 use crate::Result;
-use chrono::{DateTime, Utc};
 use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
 use uuid::Uuid;
@@ -33,9 +32,10 @@ pub struct Command {
     pub sub_cmd: Option<String>,
     pub response: Option<String>,
     pub exit_status: Option<i32>,
-    pub created_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub node_id: Option<Uuid>,
+    pub acked_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 type Pending = dsl::Filter<commands::table, dsl::IsNull<commands::exit_status>>;
@@ -104,7 +104,8 @@ pub struct UpdateCommand<'a> {
     pub id: Uuid,
     pub response: Option<&'a str>,
     pub exit_status: Option<i32>,
-    pub completed_at: DateTime<Utc>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub acked_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl UpdateCommand<'_> {

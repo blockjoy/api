@@ -232,6 +232,7 @@ impl api::Command {
                 id: model.id.to_string(),
                 response: model.response.clone(),
                 exit_code: model.exit_status,
+                acked_at: model.acked_at.map(super::try_dt_to_ts).transpose()?,
                 command: Some(command::Command::Node(api::NodeCommand {
                     node_id,
                     host_id: model.host_id.to_string(),
@@ -250,6 +251,7 @@ impl api::Command {
                 id: model.id.to_string(),
                 response: model.response.clone(),
                 exit_code: model.exit_status,
+                acked_at: model.acked_at.map(super::try_dt_to_ts).transpose()?,
                 command: Some(command::Command::Host(api::HostCommand { host_id })),
             })
         };
@@ -445,7 +447,8 @@ impl api::CommandServiceUpdateRequest {
             id: self.id.parse()?,
             response: self.response.as_deref(),
             exit_status: self.exit_code,
-            completed_at: chrono::Utc::now(),
+            completed_at: self.exit_code.map(|_| chrono::Utc::now()),
+            acked_at: self.acked_at.clone().map(super::try_ts_to_dt).transpose()?,
         })
     }
 }

@@ -1,0 +1,1 @@
+ALTER TABLE commands ADD COLUMN acked_at TIMESTAMPTZ NULL;

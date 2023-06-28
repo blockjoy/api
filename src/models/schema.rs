@@ -103,6 +103,7 @@ diesel::table! {
         created_at -> Timestamptz,
         completed_at -> Nullable<Timestamptz>,
         node_id -> Nullable<Uuid>,
+        acked_at -> Nullable<Timestamptz>,
     }
 }
 

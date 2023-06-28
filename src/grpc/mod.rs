@@ -22,6 +22,7 @@ pub mod api {
 use crate::cloudflare::CloudflareApi;
 use crate::models;
 use axum::Extension;
+use chrono::TimeZone;
 use notification::Notifier;
 use tonic::transport::server::Router;
 use tonic::transport::Server;
@@ -145,4 +146,13 @@ pub fn try_dt_to_ts(
         nanos: (nanos % NANOS_PER_SEC).try_into()?,
     };
     Ok(timestamp)
+}
+
+pub fn try_ts_to_dt(
+    timestamp: prost_types::Timestamp,
+) -> crate::Result<chrono::DateTime<chrono::Utc>> {
+    chrono::Utc
+        .timestamp_opt(timestamp.seconds, timestamp.nanos.try_into()?)
+        .single()
+        .ok_or_else(|| crate::Error::unexpected("Unparsable timestamp"))
 }
