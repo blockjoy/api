@@ -108,7 +108,6 @@ async fn responds_ok_for_update() {
         id: cmd.id.to_string(),
         response: Some("hugo boss".to_string()),
         exit_code: Some(98),
-        acked_at: None,
     };
 
     tester.send_with(Service::update, req, &jwt).await.unwrap();

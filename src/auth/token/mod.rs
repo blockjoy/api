@@ -271,6 +271,7 @@ pub enum Endpoint {
     CommandGet = 202,
     CommandUpdate = 203,
     CommandPending = 204,
+    CommandAck = 205,
 
     DiscoveryAll = 300,
     DiscoveryServices = 301,
