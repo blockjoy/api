@@ -89,9 +89,18 @@ async fn create(
     if !is_allowed {
         super::forbidden!("Access denied");
     }
-    let invitation = req.as_new(caller.id, conn).await?.create(conn).await?;
 
-    match models::User::find_by_email(&invitation.invitee_email, conn).await {
+    // Check if the user-to-invite is not already a member of the organization
+    let invited_user = models::User::find_by_email(&req.invitee_email, conn).await;
+    if let Ok(invited_user) = &invited_user {
+        if models::Org::is_member(invited_user.id, req.org_id.parse()?, conn).await? {
+            super::forbidden!("Already a member");
+        }
+    }
+
+    let invitation = req.into_new(caller.id, conn).await?.create(conn).await?;
+
+    match invited_user {
         Ok(user) => {
             // Note that here we abort the transaction if sending the email failed. This way we do
             // not get invites in the db that we cannot send emails to. The existence of such an
@@ -293,11 +302,11 @@ async fn revoke(
 }
 
 impl api::InvitationServiceCreateRequest {
-    pub async fn as_new(
-        &self,
+    pub async fn into_new(
+        self,
         created_by_user: uuid::Uuid,
         conn: &mut models::Conn,
-    ) -> crate::Result<models::NewInvitation<'_>> {
+    ) -> crate::Result<models::NewInvitation> {
         let creator = models::User::find_by_id(created_by_user, conn).await?;
         let org_id = self.org_id.parse()?;
         let for_org = models::Org::find_by_id(org_id, conn).await?;
@@ -311,7 +320,7 @@ impl api::InvitationServiceCreateRequest {
             created_by_user_name: name,
             created_for_org: for_org.id,
             created_for_org_name: for_org.name,
-            invitee_email: &self.invitee_email,
+            invitee_email: self.invitee_email,
         })
     }
 }

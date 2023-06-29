@@ -104,16 +104,17 @@ impl Invitation {
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = invitations)]
-pub struct NewInvitation<'a> {
+pub struct NewInvitation {
     pub created_by_user: uuid::Uuid,
     pub created_by_user_name: String,
     pub created_for_org: uuid::Uuid,
     pub created_for_org_name: String,
-    pub invitee_email: &'a str,
+    pub invitee_email: String,
 }
 
-impl<'a> NewInvitation<'a> {
-    pub async fn create(self, conn: &mut super::Conn) -> Result<Invitation> {
+impl NewInvitation {
+    pub async fn create(mut self, conn: &mut super::Conn) -> Result<Invitation> {
+        self.invitee_email = self.invitee_email.trim().to_lowercase();
         let invitation = diesel::insert_into(invitations::table)
             .values(self)
             .get_result(conn)

@@ -14,7 +14,7 @@ async fn create_invitation(tester: &super::Tester) -> models::Invitation {
         created_by_user_name: user.last_name,
         created_for_org: org.id,
         created_for_org_name: org.name,
-        invitee_email: "test@here.com",
+        invitee_email: "test@here.com".to_string(),
     };
     let mut conn = tester.conn().await;
     new_invitation.create(&mut conn).await.unwrap()

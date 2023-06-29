@@ -88,7 +88,7 @@ async fn member_count_works() {
         created_by_user_name: user.last_name,
         created_for_org: org.id,
         created_for_org_name: org.name.clone(),
-        invitee_email: "test@here.com",
+        invitee_email: "test@here.com".to_string(),
     };
     let mut conn = tester.conn().await;
     let invitation = new_invitation.create(&mut conn).await.unwrap();
