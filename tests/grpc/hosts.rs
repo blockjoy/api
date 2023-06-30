@@ -109,6 +109,20 @@ async fn responds_ok_for_delete() {
         id: host.id.to_string(),
     };
 
+    // There is still a node. It shouldn't be possible to delete this host yet.
+    tester
+        .send_with(Service::delete, req.clone(), &jwt)
+        .await
+        .unwrap_err();
+
+    type NodeService = api::node_service_client::NodeServiceClient<super::Channel>;
+    let node_req = api::NodeServiceDeleteRequest {
+        id: "cdbbc736-f399-42ab-86cf-617ce983011d".to_string(),
+    };
+    tester
+        .send_admin(NodeService::delete, node_req)
+        .await
+        .unwrap();
     tester.send_with(Service::delete, req, &jwt).await.unwrap();
 }
 
