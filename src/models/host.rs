@@ -1,4 +1,5 @@
 use super::schema::hosts;
+use super::Paginate;
 use crate::{cookbook::script::HardwareRequirements, Error, Result};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
@@ -58,6 +59,13 @@ pub struct Host {
     pub created_by: Option<uuid::Uuid>,
 }
 
+#[derive(Clone, Debug)]
+pub struct HostFilter {
+    pub org_id: uuid::Uuid,
+    pub offset: u64,
+    pub limit: u64,
+}
+
 impl Host {
     pub async fn find_by_id(id: Uuid, conn: &mut super::Conn) -> Result<Self> {
         let host = hosts::table.find(id).get_result(conn).await?;
@@ -85,19 +93,19 @@ impl Host {
     }
 
     /// For each provided argument, filters the hosts by that argument.
-    pub async fn filter(
-        org_id: uuid::Uuid,
-        os: Option<&str>,
-        conn: &mut super::Conn,
-    ) -> Result<Vec<Self>> {
-        let mut query = hosts::table.filter(hosts::org_id.eq(org_id)).into_boxed();
+    pub async fn filter(filter: HostFilter, conn: &mut super::Conn) -> Result<(u64, Vec<Self>)> {
+        let HostFilter {
+            org_id,
+            offset,
+            limit,
+        } = filter;
+        let query = hosts::table.filter(hosts::org_id.eq(org_id)).into_boxed();
 
-        if let Some(os) = os {
-            query = query.filter(hosts::os.eq(os));
-        }
-
-        let hosts = query.get_results(conn).await?;
-        Ok(hosts)
+        let (total, hosts) = query
+            .paginate(limit.try_into()?, offset.try_into()?)
+            .get_results_counted(conn)
+            .await?;
+        Ok((total.try_into()?, hosts))
     }
 
     pub async fn find_by_name(name: &str, conn: &mut super::Conn) -> Result<Self> {

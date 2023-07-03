@@ -24,8 +24,6 @@ message Host {
   string os_version = 9;
   // The ip address on which the machine is reachable.
   string ip = 10;
-  // Current status of the machine, or `UNSPECIFIED`.
-  HostStatus status = 11;
   // The moment this host was created. Corresponds to the moment that the
   // host_provision was
   google.protobuf.Timestamp created_at = 12;
@@ -99,12 +97,17 @@ message HostServiceGetResponse {
 
 message HostServiceListRequest {
   string org_id = 1;
-  // If this value is provided, only hosts with the given status are returned.
-  optional HostStatus status = 2;
+  // The number of items to be skipped over.
+  uint64 offset = 2;
+  // The number of items that will be returned. Together with offset, you can
+  // use this to get pagination.
+  uint64 limit = 3;
 }
 
 message HostServiceListResponse {
   repeated Host hosts = 1;
+  // The total number of hosts matching your query.
+  uint64 host_count = 2;
 }
 
 message HostServiceUpdateRequest {
@@ -123,26 +126,4 @@ message HostServiceDeleteRequest {
 }
 
 message HostServiceDeleteResponse {
-}
-
-enum HostConnectionStatus {
-  HOST_CONNECTION_STATUS_UNSPECIFIED = 0;
-  HOST_CONNECTION_STATUS_ONLINE = 1;
-  HOST_CONNECTION_STATUS_OFFLINE = 2;
-}
-
-// Possible states the container is described with
-enum HostStatus {
-  HOST_STATUS_UNSPECIFIED = 0;
-  HOST_STATUS_CREATING = 1;
-  HOST_STATUS_RUNNING = 2;
-  HOST_STATUS_STARTING = 3;
-  HOST_STATUS_STOPPING = 4;
-  HOST_STATUS_STOPPED = 5;
-  HOST_STATUS_UPGRADING = 6;
-  HOST_STATUS_UPGRADED = 7;
-  HOST_STATUS_DELETING = 8;
-  HOST_STATUS_DELETED = 9;
-  HOST_STATUS_INSTALLING = 10;
-  HOST_STATUS_SNAPSHOTTING = 11;
 }

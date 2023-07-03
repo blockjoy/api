@@ -161,9 +161,9 @@ async fn list(
     if !is_allowed {
         super::forbidden!("Access denied");
     }
-    let hosts = models::Host::filter(org_id, None, conn).await?;
+    let (host_count, hosts) = models::Host::filter(req.as_filter()?, conn).await?;
     let hosts = api::Host::from_models(hosts, conn).await?;
-    let resp = api::HostServiceListResponse { hosts };
+    let resp = api::HostServiceListResponse { hosts, host_count };
     Ok(tonic::Response::new(resp))
 }
 
@@ -230,7 +230,7 @@ impl api::Host {
         models
             .into_iter()
             .map(|model| {
-                let mut dto = Self {
+                Ok(Self {
                     id: model.id.to_string(),
                     name: model.name,
                     version: model.version,
@@ -240,7 +240,6 @@ impl api::Host {
                     os: model.os,
                     os_version: model.os_version,
                     ip: model.ip_addr,
-                    status: 0, // We use the setter to set this field for type-safety
                     created_at: Some(super::try_dt_to_ts(model.created_at)?),
                     ip_range_from: model.ip_range_from.ip().to_string(),
                     ip_range_to: model.ip_range_to.ip().to_string(),
@@ -248,9 +247,7 @@ impl api::Host {
                     org_id: model.org_id.to_string(),
                     node_count: node_counts.get(&model.id).copied().unwrap_or(0),
                     org_name: orgs[&model.org_id].name.clone(),
-                };
-                dto.set_status(api::HostStatus::from_model(model.status));
-                Ok(dto)
+                })
             })
             .collect()
     }
@@ -285,6 +282,16 @@ impl api::HostServiceCreateRequest {
     }
 }
 
+impl api::HostServiceListRequest {
+    fn as_filter(&self) -> crate::Result<models::HostFilter> {
+        Ok(models::HostFilter {
+            org_id: self.org_id.parse()?,
+            offset: self.offset,
+            limit: self.limit,
+        })
+    }
+}
+
 impl api::HostServiceUpdateRequest {
     pub fn as_update(&self) -> crate::Result<models::UpdateHost<'_>> {
         Ok(models::UpdateHost {
@@ -302,12 +309,5 @@ impl api::HostServiceUpdateRequest {
             ip_range_to: None,
             ip_gateway: None,
         })
-    }
-}
-
-impl api::HostStatus {
-    fn from_model(_model: models::ConnectionStatus) -> Self {
-        // todo
-        Self::Unspecified
     }
 }
