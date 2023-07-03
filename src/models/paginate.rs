@@ -31,6 +31,7 @@ pub struct Paginated<T> {
 }
 
 impl<T> Paginated<T> {
+    #[allow(clippy::manual_async_fn)] // clippy lies
     pub fn get_results_counted<'a, U>(
         self,
         conn: &mut AsyncPgConnection,
