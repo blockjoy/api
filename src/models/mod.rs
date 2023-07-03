@@ -16,6 +16,7 @@ mod node_log;
 mod node_scheduler;
 mod node_type;
 mod org;
+mod paginate;
 pub mod schema;
 mod user;
 
@@ -31,6 +32,7 @@ pub use node_log::*;
 pub use node_scheduler::*;
 pub use node_type::*;
 pub use org::*;
+use paginate::Paginate;
 pub use user::*;
 
 use std::cmp;

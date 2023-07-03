@@ -1,6 +1,7 @@
 use super::node_type::*;
 use super::schema::nodes;
 use super::string_to_array;
+use super::Paginate;
 use crate::{cloudflare::CloudflareApi, cookbook};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
@@ -155,32 +156,44 @@ impl Node {
         NodeProperty::by_node(self, conn).await
     }
 
-    pub async fn filter(filter: NodeFilter, conn: &mut super::Conn) -> crate::Result<Vec<Self>> {
-        let mut query = nodes::table
-            .filter(nodes::org_id.eq(filter.org_id))
-            .offset(filter.offset.try_into()?)
-            .limit(filter.limit.try_into()?)
-            .into_boxed();
+    pub async fn filter(
+        filter: NodeFilter,
+        conn: &mut super::Conn,
+    ) -> crate::Result<(u64, Vec<Self>)> {
+        let NodeFilter {
+            org_id,
+            offset,
+            limit,
+            status,
+            node_types,
+            blockchains,
+            host_id,
+        } = filter;
+
+        let mut query = nodes::table.filter(nodes::org_id.eq(org_id)).into_boxed();
 
         // Apply filters if present
-        if !filter.blockchains.is_empty() {
-            query = query.filter(nodes::blockchain_id.eq_any(&filter.blockchains));
+        if !blockchains.is_empty() {
+            query = query.filter(nodes::blockchain_id.eq_any(blockchains));
         }
 
-        if !filter.status.is_empty() {
-            query = query.filter(nodes::chain_status.eq_any(&filter.status));
+        if !status.is_empty() {
+            query = query.filter(nodes::chain_status.eq_any(status));
         }
 
-        if !filter.node_types.is_empty() {
-            query = query.filter(nodes::node_type.eq_any(&filter.node_types));
+        if !node_types.is_empty() {
+            query = query.filter(nodes::node_type.eq_any(node_types));
         }
 
-        if let Some(host_id) = filter.host_id {
+        if let Some(host_id) = host_id {
             query = query.filter(nodes::host_id.eq(host_id));
         }
 
-        let nodes = query.get_results(conn).await?;
-        Ok(nodes)
+        let (total, nodes) = query
+            .paginate(limit.try_into()?, offset.try_into()?)
+            .get_results_counted(conn)
+            .await?;
+        Ok((total.try_into()?, nodes))
     }
 
     pub async fn update(self, conn: &mut super::Conn) -> crate::Result<Self> {
@@ -542,7 +555,7 @@ mod tests {
             host_id: Some(host_id),
         };
 
-        let nodes = models::Node::filter(filter, &mut conn).await?;
+        let (_, nodes) = models::Node::filter(filter, &mut conn).await?;
 
         assert_eq!(nodes.len(), 1);
 

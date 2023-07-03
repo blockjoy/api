@@ -120,9 +120,9 @@ async fn list(
     if !is_allowed {
         super::forbidden!("Access denied");
     }
-    let nodes = models::Node::filter(filter, conn).await?;
+    let (node_count, nodes) = models::Node::filter(filter, conn).await?;
     let nodes = api::Node::from_models(nodes, conn).await?;
-    let resp = api::NodeServiceListResponse { nodes };
+    let resp = api::NodeServiceListResponse { nodes, node_count };
     Ok(tonic::Response::new(resp))
 }
 
