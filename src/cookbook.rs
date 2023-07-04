@@ -258,7 +258,6 @@ impl api::ConfigIdentifier {
             protocol: protocol.to_string(),
             node_type: node_type.to_string(),
             node_version: node_version.to_string(),
-            status: 0,
         };
         Ok(id)
     }

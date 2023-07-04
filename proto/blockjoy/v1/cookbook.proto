@@ -106,7 +106,6 @@ message BundleServiceRetrieveResponse {
 }
 
 message BundleServiceListBundleVersionsRequest {
-  StatusName status = 1;
 }
 
 message BundleServiceListBundleVersionsResponse {
@@ -122,14 +121,6 @@ message BundleServiceDeleteResponse {
 
 // ---------------------------- Common Definitions ----------------------------
 
-// Define staging status.
-enum StatusName {
-  STATUS_NAME_UNSPECIFIED = 0;
-  STATUS_NAME_DEVELOPMENT = 1;
-  STATUS_NAME_UNSTABLE = 2;
-  STATUS_NAME_STABLE = 3;
-}
-
 // Message type used for identifying a specific plugin.
 message ConfigIdentifier {
   // snake_cased name of the blockchain.
@@ -138,8 +129,6 @@ message ConfigIdentifier {
   string node_type = 2;
   // semantic version string of the node type version.
   string node_version = 3;
-  // Does defined tuple have the requested tag assigned.
-  StatusName status = 4;
 }
 
 message BundleIdentifier {
