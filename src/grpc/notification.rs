@@ -82,8 +82,14 @@ impl MqttClient {
 pub enum MqttMessage {
     OrgMessage(api::OrgMessage),
     HostMessage(api::HostMessage),
-    NodeMessage(api::NodeMessage),
+    NodeMessage(Box<api::NodeMessage>),
     Command(api::Command),
+}
+
+impl From<api::NodeMessage> for MqttMessage {
+    fn from(value: api::NodeMessage) -> Self {
+        Self::NodeMessage(Box::new(value))
+    }
 }
 
 impl MqttMessage {
