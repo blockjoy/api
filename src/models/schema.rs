@@ -139,6 +139,7 @@ diesel::table! {
         host_type -> Nullable<EnumHostType>,
         org_id -> Uuid,
         created_by -> Nullable<Uuid>,
+        region_id -> Nullable<Uuid>,
     }
 }
 
@@ -276,6 +277,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    regions (id) {
+        id -> Uuid,
+        #[max_length = 50]
+        name -> Varchar,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::TokenType;
 
@@ -305,6 +314,7 @@ diesel::joinable!(blockchain_properties -> blockchains (blockchain_id));
 diesel::joinable!(commands -> hosts (host_id));
 diesel::joinable!(commands -> nodes (node_id));
 diesel::joinable!(hosts -> orgs (org_id));
+diesel::joinable!(hosts -> regions (region_id));
 diesel::joinable!(hosts -> users (created_by));
 diesel::joinable!(invitations -> orgs (created_for_org));
 diesel::joinable!(invitations -> users (created_by_user));
@@ -332,6 +342,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     nodes,
     orgs,
     orgs_users,
+    regions,
     token_blacklist,
     users,
 );

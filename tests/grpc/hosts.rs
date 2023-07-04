@@ -16,6 +16,7 @@ async fn responds_forbiddenenticated_without_token_for_update() {
         version: None,
         os: None,
         os_version: None,
+        region: None,
     };
     let status = tester.send(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
@@ -36,6 +37,7 @@ async fn responds_permission_denied_with_token_ownership_for_update() {
         version: Some("3".to_string()),
         os: Some("LuukOS".to_string()),
         os_version: Some("5".to_string()),
+        region: None,
     };
 
     let status = tester
@@ -60,6 +62,7 @@ async fn responds_permission_denied_with_user_token_for_update() {
         version: Some("3".to_string()),
         os: Some("LuukOS".to_string()),
         os_version: Some("5".to_string()),
+        region: None,
     };
 
     let status = tester
@@ -98,6 +101,7 @@ async fn responds_ok_for_create() {
         ip_range_to: "172.168.0.10".to_string(),
         ip_gateway: "72.168.0.100".to_string(),
         org_id: Some(org_id),
+        region: None,
     };
     tester.send(Service::create, req).await.unwrap();
 }
@@ -116,6 +120,7 @@ async fn responds_ok_for_update() {
         version: Some("3".to_string()),
         os: Some("LuukOS".to_string()),
         os_version: Some("5".to_string()),
+        region: None,
     };
 
     tester.send_with(Service::update, req, &jwt).await.unwrap();

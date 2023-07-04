@@ -140,6 +140,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
                 api::NodeScheduler {
                     similarity: None,
                     resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+                    region: None,
                 },
             )),
         }),

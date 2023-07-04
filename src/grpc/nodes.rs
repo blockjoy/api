@@ -908,6 +908,7 @@ impl api::NodeScheduler {
         let mut scheduler = Self {
             similarity: None,
             resource: 0,
+            region: None,
         };
         scheduler.set_resource(ResourceAffinity::from_model(node.resource));
         if let Some(similarity) = node.similarity {

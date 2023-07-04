@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
+use futures_util::future::OptionFuture;
 use uuid::Uuid;
 
 use super::api::{self, host_service_server};
@@ -127,7 +128,12 @@ async fn create(
             .map_err(|_| tonic::Status::permission_denied("Invalid token"))?;
         (org_user.user_id, org_user.org_id)
     };
-    let new_host = req.as_new(caller_id, org_id)?;
+    let region = req
+        .region
+        .as_deref()
+        .map(|r| models::Region::get_or_create(r, conn));
+    let region = OptionFuture::from(region).await.transpose()?;
+    let new_host = req.as_new(caller_id, org_id, region.as_ref())?;
     let host = new_host.create(conn).await?;
     let iat = chrono::Utc::now();
     let exp = conn.context.config.token.expire.token.try_into()?;
@@ -305,11 +311,18 @@ impl api::Host {
     ) -> crate::Result<Vec<Self>> {
         let node_counts = models::Host::node_counts(&models, conn).await?;
 
-        let org_ids: Vec<_> = models.iter().map(|h| h.org_id).collect();
+        let org_ids = models.iter().map(|h| h.org_id).collect();
         let orgs: HashMap<_, _> = models::Org::find_by_ids(org_ids, conn)
             .await?
             .into_iter()
             .map(|org| (org.id, org))
+            .collect();
+
+        let region_ids = models.iter().flat_map(|h| h.region_id).collect();
+        let regions: HashMap<_, _> = models::Region::by_ids(region_ids, conn)
+            .await?
+            .into_iter()
+            .map(|region| (region.id, region))
             .collect();
 
         models
@@ -332,6 +345,7 @@ impl api::Host {
                     org_id: model.org_id.to_string(),
                     node_count: node_counts.get(&model.id).copied().unwrap_or(0),
                     org_name: orgs[&model.org_id].name.clone(),
+                    region: model.region_id.map(|id| regions[&id].name.clone()),
                 })
             })
             .collect()
@@ -347,6 +361,7 @@ impl api::HostServiceCreateRequest {
         &self,
         user_id: uuid::Uuid,
         org_id: uuid::Uuid,
+        region: Option<&models::Region>,
     ) -> crate::Result<models::NewHost<'_>> {
         Ok(models::NewHost {
             name: &self.name,
@@ -363,6 +378,7 @@ impl api::HostServiceCreateRequest {
             ip_gateway: self.ip_gateway.parse()?,
             org_id,
             created_by: user_id,
+            region_id: region.map(|r| r.id),
         })
     }
 }

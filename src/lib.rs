@@ -321,6 +321,7 @@ mod test {
                 ip_gateway: "192.168.0.1".parse().unwrap(),
                 org_id,
                 created_by: user.id,
+                region_id: None,
             };
 
             host1.create(conn).await.unwrap();
@@ -340,6 +341,7 @@ mod test {
                 ip_gateway: "192.12.0.1".parse().unwrap(),
                 org_id,
                 created_by: user.id,
+                region_id: None,
             };
 
             let host2 = host2.create(conn).await.unwrap();

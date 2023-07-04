@@ -39,6 +39,8 @@ message Host {
   uint64 node_count = 17;
   // The name of the organization that this host belongs to.
   string org_name = 18;
+  // The region of the host.
+  optional string region = 19;
 }
 
 // Manage hosts.
@@ -86,6 +88,8 @@ message HostServiceCreateRequest {
   // The organization that this host belongs to. This field _must_ be populated
   // with the current organization id.
   optional string org_id = 13;
+  // The region of the host
+  optional string region = 14;
 }
 
 message HostServiceCreateResponse {
@@ -123,6 +127,8 @@ message HostServiceUpdateRequest {
   optional string version = 3;
   optional string os = 5;
   optional string os_version = 6;
+  // The region of the host.
+  optional string region = 4;
 }
 
 message HostServiceUpdateResponse {

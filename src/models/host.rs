@@ -18,7 +18,9 @@ pub enum ConnectionStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumHostType"]
 pub enum HostType {
+    /// Anyone can run nodes on these servers.
     Cloud,
+    /// Only people in the org can run nodes on these servers. They are for private use.
     Enterprise,
 }
 
@@ -57,6 +59,8 @@ pub struct Host {
     /// This is the id of the user that created this host. For older hosts, this value might not be
     /// set.
     pub created_by: Option<uuid::Uuid>,
+    // The id of the region where this host is located.
+    pub region_id: Option<uuid::Uuid>,
 }
 
 #[derive(Clone, Debug)]
@@ -230,6 +234,8 @@ pub struct NewHost<'a> {
     pub org_id: uuid::Uuid,
     /// This is the id of the user that created this host.
     pub created_by: uuid::Uuid,
+    // The id of the region where this host is located.
+    pub region_id: Option<uuid::Uuid>,
 }
 
 impl NewHost<'_> {
