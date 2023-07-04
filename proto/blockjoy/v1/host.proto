@@ -52,14 +52,18 @@ service HostService {
   // Update a single host
   // This shall be used only by Host.
   rpc Update(HostServiceUpdateRequest) returns (HostServiceUpdateResponse);
+  // Delete a single host
+  rpc Delete(HostServiceDeleteRequest) returns (HostServiceDeleteResponse);
+
   // Start a single host
   rpc Start(HostServiceStartRequest) returns (HostServiceStartResponse);
   // Stop a single host
   rpc Stop(HostServiceStopRequest) returns (HostServiceStopResponse);
   // Restart a single host
   rpc Restart(HostServiceRestartRequest) returns (HostServiceRestartResponse);
-  // Delete a single host
-  rpc Delete(HostServiceDeleteRequest) returns (HostServiceDeleteResponse);
+
+  // Returns a list of regions where there are hosts available
+  rpc Regions(HostServiceRegionsRequest) returns (HostServiceRegionsResponse);
 }
 
 message HostServiceCreateRequest {
@@ -160,4 +164,24 @@ message HostServiceDeleteRequest {
 }
 
 message HostServiceDeleteResponse {
+}
+
+// Used to produce a list of regions that are available to deploy nodes to.
+message HostServiceRegionsRequest {
+  // The org for which to produce the list.
+  string org_id = 1;
+  // The type of host to include in this list.
+  optional HostType host_type = 2;
+}
+
+message HostServiceRegionsResponse {
+  repeated string regions = 1;
+}
+
+enum HostType {
+  HOST_TYPE_UNSPECIFIED = 0;
+  // This host is a host on the blockjoy cloud platform.
+  HOST_TYPE_CLOUD = 1;
+  // This host is a private host that can only be used by the org that owns it.
+  HOST_TYPE_PRIVATE = 2;
 }

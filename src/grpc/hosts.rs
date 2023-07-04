@@ -43,8 +43,7 @@ impl host_service_server::HostService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::HostServiceGetRequest>,
     ) -> super::Resp<api::HostServiceGetResponse> {
-        let mut conn = self.conn().await?;
-        let resp = get(req, &mut conn).await?;
+        let resp = get(req, &mut self.conn().await?).await?;
         Ok(resp)
     }
 
@@ -52,8 +51,7 @@ impl host_service_server::HostService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::HostServiceListRequest>,
     ) -> super::Resp<api::HostServiceListResponse> {
-        let mut conn = self.conn().await?;
-        let resp = list(req, &mut conn).await?;
+        let resp = list(req, &mut self.conn().await?).await?;
         Ok(resp)
     }
 
@@ -62,6 +60,13 @@ impl host_service_server::HostService for super::GrpcImpl {
         req: tonic::Request<api::HostServiceUpdateRequest>,
     ) -> super::Resp<api::HostServiceUpdateResponse> {
         self.trx(|c| update(req, c).scope_boxed()).await
+    }
+
+    async fn delete(
+        &self,
+        req: tonic::Request<api::HostServiceDeleteRequest>,
+    ) -> super::Resp<api::HostServiceDeleteResponse> {
+        self.trx(|c| delete(req, c).scope_boxed()).await
     }
 
     async fn start(
@@ -94,11 +99,12 @@ impl host_service_server::HostService for super::GrpcImpl {
             .await
     }
 
-    async fn delete(
+    async fn regions(
         &self,
-        req: tonic::Request<api::HostServiceDeleteRequest>,
-    ) -> super::Resp<api::HostServiceDeleteResponse> {
-        self.trx(|c| delete(req, c).scope_boxed()).await
+        req: tonic::Request<api::HostServiceRegionsRequest>,
+    ) -> super::Resp<api::HostServiceRegionsResponse> {
+        let resp = regions(req, &mut self.conn().await?).await?;
+        Ok(resp)
     }
 }
 
@@ -304,6 +310,31 @@ async fn host_cmd(
     api::Command::from_model(&command, conn).await
 }
 
+async fn regions(
+    req: tonic::Request<api::HostServiceRegionsRequest>,
+    conn: &mut models::Conn,
+) -> super::Result<api::HostServiceRegionsResponse> {
+    let claims = auth::get_claims(&req, Endpoint::HostRegions, conn).await?;
+    let req = req.into_inner();
+    let org_id = req.org_id.parse()?;
+    let org = models::Org::find_by_id(org_id, conn).await?;
+    let is_allowed = match claims.resource() {
+        Resource::User(user_id) => models::Org::is_member(user_id, org_id, conn).await?,
+        Resource::Org(org_id) => org_id == org.id,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
+    };
+    if !is_allowed {
+        super::forbidden!("Access not allowed")
+    }
+    let host_types = req.host_type().as_model();
+    let regions = models::Host::regions_for(org_id, host_types, conn).await?;
+
+    let resp = api::HostServiceRegionsResponse { regions };
+
+    Ok(tonic::Response::new(resp))
+}
+
 impl api::Host {
     pub async fn from_models(
         models: Vec<models::Host>,
@@ -410,5 +441,15 @@ impl api::HostServiceUpdateRequest {
             ip_range_to: None,
             ip_gateway: None,
         })
+    }
+}
+
+impl api::HostType {
+    fn as_model(self) -> Option<models::HostType> {
+        match self {
+            api::HostType::Unspecified => None,
+            api::HostType::Cloud => Some(models::HostType::Cloud),
+            api::HostType::Private => Some(models::HostType::Enterprise),
+        }
     }
 }

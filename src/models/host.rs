@@ -211,6 +211,14 @@ impl Host {
             .map(|(host, count)| Ok((host, count.try_into()?)))
             .collect()
     }
+
+    pub async fn regions_for(
+        org_id: uuid::Uuid,
+        host_type: Option<HostType>,
+        conn: &mut super::Conn,
+    ) -> crate::Result<Vec<String>> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Clone, Insertable)]
