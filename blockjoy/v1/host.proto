@@ -13,30 +13,32 @@ message Host {
   string version = 3;
   // The number of logical cores the machine has, _not_ the number of physical
   // cores.
-  optional uint64 cpu_count = 5;
+  uint64 cpu_count = 5;
   // The amount of physical memory the machine has.
-  optional uint64 mem_size_bytes = 6;
+  uint64 mem_size_bytes = 6;
   // The size of the physical disks the machine has.
-  optional uint64 disk_size_bytes = 7;
+  uint64 disk_size_bytes = 7;
   // The operating system running on the machine, i.e. "BSD" or "Linux".
   string os = 8;
   // The version of said operating system running on the host.
   string os_version = 9;
   // The ip address on which the machine is reachable.
   string ip = 10;
-  // Current status of the machine, or `UNSPECIFIED`.
-  HostStatus status = 11;
   // The moment this host was created. Corresponds to the moment that the
   // host_provision was
   google.protobuf.Timestamp created_at = 12;
   // The lowest ip address that this host may assign to a node.
-  optional string ip_range_from = 13;
+  string ip_range_from = 13;
   // The highest ip address that this host may assign to a node.
-  optional string ip_range_to = 14;
+  string ip_range_to = 14;
   // The ip gateway of this host.
-  optional string ip_gateway = 15;
+  string ip_gateway = 15;
   // The organization that this host belongs to.
-  optional string org_id = 16;
+  string org_id = 16;
+  // The number of nodes on this host.
+  uint64 node_count = 17;
+  // The name of the organization that this host belongs to.
+  string org_name = 18;
 }
 
 // Manage hosts.
@@ -46,7 +48,14 @@ service HostService {
   rpc Get(HostServiceGetRequest) returns (HostServiceGetResponse);
   rpc List(HostServiceListRequest) returns (HostServiceListResponse);
   // Update a single host
+  // This shall be used only by Host.
   rpc Update(HostServiceUpdateRequest) returns (HostServiceUpdateResponse);
+  // Start a single host
+  rpc Start(HostServiceStartRequest) returns (HostServiceStartResponse);
+  // Stop a single host
+  rpc Stop(HostServiceStopRequest) returns (HostServiceStopResponse);
+  // Restart a single host
+  rpc Restart(HostServiceRestartRequest) returns (HostServiceRestartResponse);
   // Delete a single host
   rpc Delete(HostServiceDeleteRequest) returns (HostServiceDeleteResponse);
 }
@@ -95,12 +104,17 @@ message HostServiceGetResponse {
 
 message HostServiceListRequest {
   string org_id = 1;
-  // If this value is provided, only hosts with the given status are returned.
-  optional HostStatus status = 2;
+  // The number of items to be skipped over.
+  uint64 offset = 2;
+  // The number of items that will be returned. Together with offset, you can
+  // use this to get pagination.
+  uint64 limit = 3;
 }
 
 message HostServiceListResponse {
   repeated Host hosts = 1;
+  // The total number of hosts matching your query.
+  uint64 host_count = 2;
 }
 
 message HostServiceUpdateRequest {
@@ -114,6 +128,27 @@ message HostServiceUpdateRequest {
 message HostServiceUpdateResponse {
 }
 
+message HostServiceStartRequest {
+  string id = 1;
+}
+
+message HostServiceStartResponse {
+}
+
+message HostServiceStopRequest {
+  string id = 1;
+}
+
+message HostServiceStopResponse {
+}
+
+message HostServiceRestartRequest {
+  string id = 1;
+}
+
+message HostServiceRestartResponse {
+}
+
 message HostServiceDeleteRequest {
   string id = 1;
 }
@@ -125,20 +160,4 @@ enum HostConnectionStatus {
   HOST_CONNECTION_STATUS_UNSPECIFIED = 0;
   HOST_CONNECTION_STATUS_ONLINE = 1;
   HOST_CONNECTION_STATUS_OFFLINE = 2;
-}
-
-// Possible states the container is described with
-enum HostStatus {
-  HOST_STATUS_UNSPECIFIED = 0;
-  HOST_STATUS_CREATING = 1;
-  HOST_STATUS_RUNNING = 2;
-  HOST_STATUS_STARTING = 3;
-  HOST_STATUS_STOPPING = 4;
-  HOST_STATUS_STOPPED = 5;
-  HOST_STATUS_UPGRADING = 6;
-  HOST_STATUS_UPGRADED = 7;
-  HOST_STATUS_DELETING = 8;
-  HOST_STATUS_DELETED = 9;
-  HOST_STATUS_INSTALLING = 10;
-  HOST_STATUS_SNAPSHOTTING = 11;
 }
