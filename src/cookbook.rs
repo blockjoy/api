@@ -461,4 +461,24 @@ mod tests {
         api::ConfigIdentifier::from_key("chains/testing/validator/0.0.1").unwrap();
         api::ConfigIdentifier::from_key("chains/testing/validator/0.0.1/babel.rhai").unwrap();
     }
+
+    #[test]
+    fn test_list_bundles() {
+        let elems = [
+            "/bvd-bundle.tgz",
+            "0.0.0/tester.txt",
+            "0.1.0/bvd-bundle.tgz",
+            "0.10.0/bvd-bundle.tgz",
+            "0.7.0/bvd-bundle.tgz",
+            "0.9.0/bvd-bundle.tgz",
+        ];
+        let parsed: Vec<_> = elems
+            .iter()
+            .flat_map(api::BundleIdentifier::from_key)
+            .collect();
+        assert_eq!(parsed[0].version, "0.1.0");
+        assert_eq!(parsed[1].version, "0.10.0");
+        assert_eq!(parsed[2].version, "0.7.0");
+        assert_eq!(parsed[3].version, "0.9.0");
+    }
 }

@@ -23,6 +23,7 @@ use crate::cloudflare::CloudflareApi;
 use crate::models;
 use axum::Extension;
 use chrono::TimeZone;
+use notification::MqttMessage;
 use notification::Notifier;
 use tonic::transport::server::Router;
 use tonic::transport::Server;
@@ -41,15 +42,6 @@ struct GrpcImpl {
     dns: CloudflareApi,
 }
 
-impl GrpcImpl {
-    async fn send_commands_notify(&self, commands: &[api::Command]) -> crate::Result<()> {
-        for command in commands {
-            self.notifier.commands_sender().send(command).await?;
-        }
-        Ok(())
-    }
-}
-
 impl std::ops::Deref for GrpcImpl {
     type Target = models::DbPool;
 
@@ -60,6 +52,39 @@ impl std::ops::Deref for GrpcImpl {
 
 type Result<T> = crate::Result<tonic::Response<T>>;
 type Resp<T, E = tonic::Status> = std::result::Result<tonic::Response<T>, E>;
+
+#[must_use]
+struct Outcome<T> {
+    inner: T,
+    messages: Vec<MqttMessage>,
+}
+
+impl<T> Outcome<T> {
+    pub fn new(resp: T) -> Self {
+        Self {
+            inner: resp,
+            messages: vec![],
+        }
+    }
+
+    pub fn with_msg(mut self, msg: impl Into<MqttMessage>) -> Self {
+        self.messages.push(msg.into());
+        self
+    }
+
+    pub fn with_msgs(mut self, msgs: Vec<impl Into<MqttMessage>>) -> Self {
+        self.messages.extend(msgs.into_iter().map(Into::into));
+        self
+    }
+
+    pub async fn into_resp(self, notifier: &notification::Notifier) -> Resp<T> {
+        let mut sender = notifier.sender();
+        for message in self.messages {
+            sender.send(message).await?;
+        }
+        Ok(tonic::Response::new(self.inner))
+    }
+}
 
 /// This macro bails out of the current function with a `tonic::Status::permission_denied` error.
 /// The arguments that can be supplied here are the same as the arguments to the format macro.

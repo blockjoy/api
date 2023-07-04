@@ -9,22 +9,16 @@ use super::helpers::required;
 use crate::auth::token::{Claims, Endpoint, Resource};
 use crate::{auth, models};
 
-struct CommandResult<T> {
-    commands: Vec<api::Command>,
-    resp: tonic::Response<T>,
-}
-
 #[tonic::async_trait]
 impl command_service_server::CommandService for super::GrpcImpl {
     async fn update(
         &self,
         req: tonic::Request<api::CommandServiceUpdateRequest>,
     ) -> super::Resp<api::CommandServiceUpdateResponse> {
-        let result = self.trx(|c| update(self, req, c).scope_boxed()).await?;
-        for command in &result.commands {
-            self.notifier.commands_sender().send(command).await?;
-        }
-        Ok(result.resp)
+        self.trx(|c| update(self, req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
     }
 
     async fn ack(
@@ -48,7 +42,7 @@ async fn update(
     impler: &super::GrpcImpl,
     req: tonic::Request<api::CommandServiceUpdateRequest>,
     conn: &mut models::Conn,
-) -> crate::Result<CommandResult<api::CommandServiceUpdateResponse>> {
+) -> crate::Result<super::Outcome<api::CommandServiceUpdateResponse>> {
     let claims = auth::get_claims(&req, Endpoint::CommandUpdate, conn).await?;
     let req = req.into_inner();
     let command = models::Command::find_by_id(req.id.parse()?, conn).await?;
@@ -60,32 +54,30 @@ async fn update(
     }
     let update_cmd = req.as_update()?;
     let cmd = update_cmd.update(conn).await?;
-    let mut commands = vec![];
-    match cmd.exit_status {
+    let commands = match cmd.exit_status {
         Some(0) => {
             // Some responses require us to register success.
             success::register(&cmd, conn).await;
+            vec![]
         }
         // Will match any integer other than 0.
         Some(_) => {
             // We got back an error status code. In practice, blockvisord sends 0 for
             // success and 1 for failure, but we treat every non-zero exit code as an
             // error, not just 1.
-            if let Ok(cmds) = recover::recover(impler, &cmd, conn).await {
-                commands.extend(cmds);
-            }
+            recover::recover(impler, &cmd, conn)
+                .await
+                .unwrap_or_default()
         }
-        None => {}
-    }
-    let command = api::Command::from_model(&cmd, conn).await?;
-    commands.push(command.clone());
-    let resp = api::CommandServiceUpdateResponse {
-        command: Some(command),
+        None => vec![],
     };
-    Ok(CommandResult {
-        commands,
-        resp: tonic::Response::new(resp),
-    })
+    let command = api::Command::from_model(&cmd, conn).await?;
+    let resp = api::CommandServiceUpdateResponse {
+        command: Some(command.clone()),
+    };
+    Ok(super::Outcome::new(resp)
+        .with_msg(command)
+        .with_msgs(commands))
 }
 
 async fn ack(

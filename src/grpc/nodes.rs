@@ -9,24 +9,16 @@ use crate::auth::token::{Claims, Endpoint, Resource};
 use crate::cookbook::script::HardwareRequirements;
 use crate::{auth, models};
 
-struct NodeCommandResult<T> {
-    commands: Vec<api::Command>,
-    node_message: Option<api::NodeMessage>,
-    resp: tonic::Response<T>,
-}
-
 #[tonic::async_trait]
 impl node_service_server::NodeService for super::GrpcImpl {
     async fn create(
         &self,
         req: tonic::Request<api::NodeServiceCreateRequest>,
     ) -> super::Resp<api::NodeServiceCreateResponse> {
-        let result = self.trx(|c| create(self, req, c).scope_boxed()).await?;
-        self.send_commands_notify(&result.commands).await?;
-        if let Some(message) = &result.node_message {
-            self.notifier.nodes_sender().send(message).await?;
-        }
-        Ok(result.resp)
+        self.trx(|c| create(self, req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
     }
 
     async fn get(
@@ -51,104 +43,60 @@ impl node_service_server::NodeService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::NodeServiceUpdateConfigRequest>,
     ) -> super::Resp<api::NodeServiceUpdateConfigResponse> {
-        let result = self.trx(|c| update_config(req, c).scope_boxed()).await?;
-        self.send_commands_notify(&result.commands).await?;
-        if let Some(message) = &result.node_message {
-            self.notifier.nodes_sender().send(message).await?;
-        }
-        Ok(result.resp)
+        self.trx(|c| update_config(req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
     }
 
     async fn update_status(
         &self,
         req: tonic::Request<api::NodeServiceUpdateStatusRequest>,
     ) -> super::Resp<api::NodeServiceUpdateStatusResponse> {
-        let result = self.trx(|c| update_status(req, c).scope_boxed()).await?;
-        if let Some(message) = &result.node_message {
-            self.notifier.nodes_sender().send(message).await?;
-        }
-        Ok(result.resp)
-    }
-
-    async fn start(
-        &self,
-        req: tonic::Request<api::NodeServiceStartRequest>,
-    ) -> super::Resp<api::NodeServiceStartResponse> {
-        let result = self
-            .trx(|c| {
-                async {
-                    let claims = auth::get_claims(&req, Endpoint::NodeStart, c).await?;
-                    change_node_state(
-                        &req.into_inner().id,
-                        models::CommandType::RestartNode,
-                        claims,
-                        c,
-                    )
-                    .await
-                }
-                .scope_boxed()
-            })
-            .await?;
-        self.send_commands_notify(&result.commands).await?;
-        Ok(result.resp)
-    }
-
-    async fn stop(
-        &self,
-        req: tonic::Request<api::NodeServiceStopRequest>,
-    ) -> super::Resp<api::NodeServiceStopResponse> {
-        let result = self
-            .trx(|c| {
-                async {
-                    let claims = auth::get_claims(&req, Endpoint::NodeStop, c).await?;
-                    change_node_state(
-                        &req.into_inner().id,
-                        models::CommandType::KillNode,
-                        claims,
-                        c,
-                    )
-                    .await
-                }
-                .scope_boxed()
-            })
-            .await?;
-        self.send_commands_notify(&result.commands).await?;
-        Ok(result.resp)
-    }
-
-    async fn restart(
-        &self,
-        req: tonic::Request<api::NodeServiceRestartRequest>,
-    ) -> super::Resp<api::NodeServiceRestartResponse> {
-        let result = self
-            .trx(|c| {
-                async {
-                    let claims = auth::get_claims(&req, Endpoint::NodeRestart, c).await?;
-                    change_node_state(
-                        &req.into_inner().id,
-                        models::CommandType::RestartNode,
-                        claims,
-                        c,
-                    )
-                    .await
-                }
-                .scope_boxed()
-            })
-            .await?;
-        self.send_commands_notify(&result.commands).await?;
-        Ok(result.resp)
+        self.trx(|c| update_status(req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
     }
 
     async fn delete(
         &self,
         req: tonic::Request<api::NodeServiceDeleteRequest>,
     ) -> super::Resp<api::NodeServiceDeleteResponse> {
-        let result = self.trx(|c| delete(self, req, c).scope_boxed()).await?;
-        self.send_commands_notify(&result.commands).await?;
-        if let Some(message) = &result.node_message {
-            self.notifier.nodes_sender().send(message).await?;
-        }
-        Ok(result.resp)
+        self.trx(|c| delete(self, req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
+    }
+
+    async fn start(
+        &self,
+        req: tonic::Request<api::NodeServiceStartRequest>,
+    ) -> super::Resp<api::NodeServiceStartResponse> {
+        self.trx(|c| start(req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
+    }
+
+    async fn stop(
+        &self,
+        req: tonic::Request<api::NodeServiceStopRequest>,
+    ) -> super::Resp<api::NodeServiceStopResponse> {
+        self.trx(|c| stop(req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
+    }
+
+    async fn restart(
+        &self,
+        req: tonic::Request<api::NodeServiceRestartRequest>,
+    ) -> super::Resp<api::NodeServiceRestartResponse> {
+        self.trx(|c| restart(req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
     }
 }
 
@@ -199,7 +147,7 @@ async fn create(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::NodeServiceCreateRequest>,
     conn: &mut models::Conn,
-) -> crate::Result<NodeCommandResult<api::NodeServiceCreateResponse>> {
+) -> crate::Result<super::Outcome<api::NodeServiceCreateResponse>> {
     let claims = auth::get_claims(&req, Endpoint::NodeCreate, conn).await?;
     let Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
 
@@ -246,30 +194,25 @@ async fn create(
     .map(|(k, v)| (v, k))
     .collect();
     models::NodeProperty::bulk_create(req.properties(&node, name_to_id_map)?, conn).await?;
-    let mut vec_commands = Vec::new();
     let create_notif = create_node_command(&node, models::CommandType::CreateNode, conn).await?;
     let create_cmd = api::Command::from_model(&create_notif, conn).await?;
-    vec_commands.push(create_cmd);
     let start_notif = create_node_command(&node, models::CommandType::RestartNode, conn).await?;
     let start_cmd = api::Command::from_model(&start_notif, conn).await?;
-    vec_commands.push(start_cmd);
     let node_api = api::Node::from_model(node, conn).await?;
     let created = api::NodeMessage::created(node_api.clone(), user.clone());
     let resp = api::NodeServiceCreateResponse {
         node: Some(node_api),
     };
-
-    Ok(NodeCommandResult {
-        resp: tonic::Response::new(resp),
-        commands: vec_commands,
-        node_message: Some(created),
-    })
+    Ok(super::Outcome::new(resp)
+        .with_msg(create_cmd)
+        .with_msg(created)
+        .with_msg(start_cmd))
 }
 
 async fn update_config(
     req: tonic::Request<api::NodeServiceUpdateConfigRequest>,
     conn: &mut models::Conn,
-) -> crate::Result<NodeCommandResult<api::NodeServiceUpdateConfigResponse>> {
+) -> crate::Result<super::Outcome<api::NodeServiceUpdateConfigResponse>> {
     let claims = auth::get_claims(&req, Endpoint::NodeUpdateConfig, conn).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
@@ -292,17 +235,13 @@ async fn update_config(
     let cmd = api::Command::from_model(&create_notif, conn).await?;
     let msg = api::NodeMessage::updated(node, user, conn).await?;
     let resp = api::NodeServiceUpdateConfigResponse {};
-    Ok(NodeCommandResult {
-        commands: vec![cmd],
-        resp: tonic::Response::new(resp),
-        node_message: Some(msg),
-    })
+    Ok(super::Outcome::new(resp).with_msg(cmd).with_msg(msg))
 }
 
 async fn update_status(
     req: tonic::Request<api::NodeServiceUpdateStatusRequest>,
     conn: &mut models::Conn,
-) -> crate::Result<NodeCommandResult<api::NodeServiceUpdateStatusResponse>> {
+) -> crate::Result<super::Outcome<api::NodeServiceUpdateStatusResponse>> {
     let claims = auth::get_claims(&req, Endpoint::NodeUpdateStatus, conn).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
@@ -317,44 +256,14 @@ async fn update_status(
     let node = update_node.update(conn).await?;
     let node_message = api::NodeMessage::updated(node, user, conn).await?;
     let resp = api::NodeServiceUpdateStatusResponse {};
-    Ok(NodeCommandResult {
-        commands: vec![],
-        resp: tonic::Response::new(resp),
-        node_message: Some(node_message),
-    })
-}
-
-async fn change_node_state<Res: Default>(
-    id: &str,
-    cmd_type: models::CommandType,
-    claims: Claims,
-    conn: &mut models::Conn,
-) -> crate::Result<NodeCommandResult<Res>> {
-    let node = models::Node::find_by_id(id.parse()?, conn).await?;
-    let is_allowed = match claims.resource() {
-        Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
-        Resource::Org(org_id) => org_id == node.org_id,
-        Resource::Host(host_id) => host_id == node.host_id,
-        Resource::Node(node_id) => node_id == node.id,
-    };
-    if !is_allowed {
-        super::forbidden!("Access not allowed")
-    }
-    let create_notif = create_node_command(&node, cmd_type, conn).await?;
-    let cmd = api::Command::from_model(&create_notif, conn).await?;
-
-    Ok(NodeCommandResult {
-        resp: tonic::Response::new(Default::default()),
-        commands: vec![cmd],
-        node_message: None,
-    })
+    Ok(super::Outcome::new(resp).with_msg(node_message))
 }
 
 async fn delete(
     grpc: &super::GrpcImpl,
     req: tonic::Request<api::NodeServiceDeleteRequest>,
     conn: &mut models::Conn,
-) -> crate::Result<NodeCommandResult<api::NodeServiceDeleteResponse>> {
+) -> crate::Result<super::Outcome<api::NodeServiceDeleteResponse>> {
     let claims = auth::get_claims(&req, Endpoint::NodeDelete, conn).await?;
     let Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
     let req = req.into_inner();
@@ -395,11 +304,57 @@ async fn delete(
 
     let deleted = api::NodeMessage::deleted(node, user);
     let resp = api::NodeServiceDeleteResponse {};
-    Ok(NodeCommandResult {
-        resp: tonic::Response::new(resp),
-        commands: vec![cmd],
-        node_message: Some(deleted),
-    })
+
+    Ok(super::Outcome::new(resp).with_msg(cmd).with_msg(deleted))
+}
+
+async fn start(
+    req: tonic::Request<api::NodeServiceStartRequest>,
+    conn: &mut models::Conn,
+) -> crate::Result<super::Outcome<api::NodeServiceStartResponse>> {
+    let claims = auth::get_claims(&req, Endpoint::NodeStart, conn).await?;
+    let req = req.into_inner();
+    change_node_state(&req.id, models::CommandType::RestartNode, claims, conn).await
+}
+
+async fn stop(
+    req: tonic::Request<api::NodeServiceStopRequest>,
+    conn: &mut models::Conn,
+) -> crate::Result<super::Outcome<api::NodeServiceStopResponse>> {
+    let claims = auth::get_claims(&req, Endpoint::NodeStop, conn).await?;
+    let req = req.into_inner();
+    change_node_state(&req.id, models::CommandType::KillNode, claims, conn).await
+}
+
+async fn restart(
+    req: tonic::Request<api::NodeServiceRestartRequest>,
+    conn: &mut models::Conn,
+) -> crate::Result<super::Outcome<api::NodeServiceRestartResponse>> {
+    let claims = auth::get_claims(&req, Endpoint::NodeRestart, conn).await?;
+    let req = req.into_inner();
+    change_node_state(&req.id, models::CommandType::RestartNode, claims, conn).await
+}
+
+async fn change_node_state<Res: Default>(
+    id: &str,
+    cmd_type: models::CommandType,
+    claims: Claims,
+    conn: &mut models::Conn,
+) -> crate::Result<super::Outcome<Res>> {
+    let node = models::Node::find_by_id(id.parse()?, conn).await?;
+    let is_allowed = match claims.resource() {
+        Resource::User(user_id) => models::Org::is_member(user_id, node.org_id, conn).await?,
+        Resource::Org(org_id) => org_id == node.org_id,
+        Resource::Host(host_id) => host_id == node.host_id,
+        Resource::Node(node_id) => node_id == node.id,
+    };
+    if !is_allowed {
+        super::forbidden!("Access not allowed")
+    }
+    let create_notif = create_node_command(&node, cmd_type, conn).await?;
+    let cmd = api::Command::from_model(&create_notif, conn).await?;
+
+    Ok(super::Outcome::new(Default::default()).with_msg(cmd))
 }
 
 impl api::Node {

@@ -1,3 +1,5 @@
+use prost::Message;
+
 use super::api::{self, host_message, node_message, org_message};
 use crate::config::mqtt;
 use crate::models;
@@ -48,46 +50,25 @@ impl Notifier {
         Ok(Self { client })
     }
 
-    pub fn orgs_sender(&self) -> MqttClient<api::OrgMessage> {
-        MqttClient::new(self.client.clone())
-    }
-
-    pub fn hosts_sender(&self) -> MqttClient<api::HostMessage> {
-        MqttClient::new(self.client.clone())
-    }
-
-    pub fn nodes_sender(&self) -> MqttClient<api::NodeMessage> {
-        MqttClient::new(self.client.clone())
-    }
-
-    pub fn commands_sender(&self) -> MqttClient<api::Command> {
+    pub fn sender(&self) -> MqttClient {
         MqttClient::new(self.client.clone())
     }
 }
 
-/// The DbListener<T> is a singleton struct that listens for messages coming from the database.
-/// When a message comes in, the re
-pub struct MqttClient<T> {
+pub struct MqttClient {
     client: rumqttc::AsyncClient,
-    _pd: std::marker::PhantomData<T>,
 }
 
-impl<T: Notify + prost::Message> MqttClient<T> {
+impl MqttClient {
     fn new(client: rumqttc::AsyncClient) -> Self {
-        Self {
-            client,
-            _pd: std::marker::PhantomData,
-        }
+        Self { client }
     }
 
-    pub async fn send(&mut self, msg: &T) -> crate::Result<()>
-    where
-        T: std::fmt::Debug,
-    {
+    pub async fn send(&mut self, msg: impl Into<MqttMessage>) -> crate::Result<()> {
         const RETAIN: bool = false;
         const QOS: rumqttc::QoS = rumqttc::QoS::ExactlyOnce;
-        let payload = msg.encode_to_vec();
-
+        let msg = msg.into();
+        let payload = msg.encode();
         for channel in msg.channels() {
             self.client
                 .publish(&channel, QOS, RETAIN, payload.clone())
@@ -97,15 +78,39 @@ impl<T: Notify + prost::Message> MqttClient<T> {
     }
 }
 
-pub trait Notify {
-    fn channels(&self) -> Vec<String>;
+#[derive(derive_more::From)]
+pub enum MqttMessage {
+    OrgMessage(api::OrgMessage),
+    HostMessage(api::HostMessage),
+    NodeMessage(api::NodeMessage),
+    Command(api::Command),
+}
+
+impl MqttMessage {
+    fn encode(&self) -> Vec<u8> {
+        match self {
+            MqttMessage::OrgMessage(msg) => msg.encode_to_vec(),
+            MqttMessage::HostMessage(msg) => msg.encode_to_vec(),
+            MqttMessage::NodeMessage(msg) => msg.encode_to_vec(),
+            MqttMessage::Command(msg) => msg.encode_to_vec(),
+        }
+    }
+
+    fn channels(&self) -> Vec<String> {
+        match self {
+            MqttMessage::OrgMessage(msg) => msg.channels(),
+            MqttMessage::HostMessage(msg) => msg.channels(),
+            MqttMessage::NodeMessage(msg) => msg.channels(),
+            MqttMessage::Command(msg) => msg.channels(),
+        }
+    }
 }
 
 // There is a couple of unwrap here below. This is because our messages have fields that are of the
 // type Option which are always Some. We ensure to always populate those fields, but it is not
 // possible to make a nested object required in gRPC :(.
 
-impl Notify for api::OrgMessage {
+impl api::OrgMessage {
     fn channels(&self) -> Vec<String> {
         let org_id = self.org_id().unwrap();
 
@@ -113,14 +118,14 @@ impl Notify for api::OrgMessage {
     }
 }
 
-impl Notify for api::HostMessage {
+impl api::HostMessage {
     fn channels(&self) -> Vec<String> {
         let host_id = self.host_id().unwrap();
         vec![format!("/hosts/{host_id}")]
     }
 }
 
-impl Notify for api::NodeMessage {
+impl api::NodeMessage {
     fn channels(&self) -> Vec<String> {
         let org_id = self.org_id().unwrap();
         let host_id = self.host_id().unwrap();
@@ -134,7 +139,7 @@ impl Notify for api::NodeMessage {
     }
 }
 
-impl Notify for api::Command {
+impl api::Command {
     fn channels(&self) -> Vec<String> {
         // There is always a host id for a given command.
         let host_id = self.host_id().unwrap();
@@ -391,7 +396,7 @@ mod tests {
     use crate::TestDb;
 
     #[tokio::test]
-    async fn test_hosts_sender() {
+    async fn test_send_hosts() {
         let context = Context::new_with_default_toml().unwrap();
         let db = TestDb::setup(context).await;
         let mut conn = db.conn().await;
@@ -403,19 +408,19 @@ mod tests {
         let msg = api::HostMessage::created(host.clone(), user.clone(), &mut conn)
             .await
             .unwrap();
-        notifier.hosts_sender().send(&msg).await.unwrap();
+        notifier.sender().send(msg).await.unwrap();
 
         let msg = api::HostMessage::updated(host.clone(), user.clone(), &mut conn)
             .await
             .unwrap();
-        notifier.hosts_sender().send(&msg).await.unwrap();
+        notifier.sender().send(msg).await.unwrap();
 
         let msg = api::HostMessage::deleted(host, user);
-        notifier.hosts_sender().send(&msg).await.unwrap();
+        notifier.sender().send(msg).await.unwrap();
     }
 
     #[tokio::test]
-    async fn test_nodes_sender() {
+    async fn test_send_nodes() {
         let context = Context::new_with_default_toml().unwrap();
         let db = TestDb::setup(context).await;
         let mut conn = db.conn().await;
@@ -428,19 +433,19 @@ mod tests {
             .await
             .unwrap();
         let msg = api::NodeMessage::created(node_model.clone(), user.clone());
-        notifier.nodes_sender().send(&msg).await.unwrap();
+        notifier.sender().send(msg).await.unwrap();
 
         let msg = api::NodeMessage::updated(node.clone(), Some(user.clone()), &mut conn)
             .await
             .unwrap();
-        notifier.nodes_sender().send(&msg).await.unwrap();
+        notifier.sender().send(msg).await.unwrap();
 
         let msg = api::NodeMessage::deleted(node, user);
-        notifier.nodes_sender().send(&msg).await.unwrap();
+        notifier.sender().send(msg).await.unwrap();
     }
 
     #[tokio::test]
-    async fn test_commands_sender() {
+    async fn test_send_commands() {
         let context = Context::new_with_default_toml().unwrap();
         let db = TestDb::setup(context).await;
         let notifier = Notifier::new(&db.pool.context.config.mqtt).await.unwrap();
@@ -449,6 +454,6 @@ mod tests {
         let mut conn = db.conn().await;
 
         let command = api::Command::from_model(&command, &mut conn).await.unwrap();
-        notifier.commands_sender().send(&command).await.unwrap();
+        notifier.sender().send(command).await.unwrap();
     }
 }

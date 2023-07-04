@@ -6,11 +6,6 @@ use super::helpers::required;
 use crate::auth::token::Endpoint;
 use crate::{auth, models};
 
-struct BabelResult<T> {
-    commands: Vec<api::Command>,
-    resp: tonic::Response<T>,
-}
-
 // Implement the Babel service
 #[tonic::async_trait]
 impl babel_service_server::BabelService for super::GrpcImpl {
@@ -19,18 +14,17 @@ impl babel_service_server::BabelService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::BabelServiceNotifyRequest>,
     ) -> super::Resp<api::BabelServiceNotifyResponse> {
-        let result = self.trx(|c| notify(req, c).scope_boxed()).await?;
-        for command in &result.commands {
-            self.notifier.commands_sender().send(command).await?;
-        }
-        Ok(result.resp)
+        self.trx(|c| notify(req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
     }
 }
 
 async fn notify(
     req: tonic::Request<api::BabelServiceNotifyRequest>,
     conn: &mut models::Conn,
-) -> crate::Result<BabelResult<api::BabelServiceNotifyResponse>> {
+) -> crate::Result<super::Outcome<api::BabelServiceNotifyResponse>> {
     // TODO: decide who is allowed to call this endpoint
     let _claims = auth::get_claims(&req, Endpoint::BabelNotifiy, conn).await?;
     let req = req.into_inner();
@@ -57,17 +51,14 @@ async fn notify(
         debug!("Node updated: {:?}", node_updated);
         let cmd = new_command.create(conn).await?;
         let command = api::Command::from_model(&cmd, conn).await?;
-        commands.push(command.clone());
         debug!("Command sent: {:?}", command);
+        commands.push(command);
         node_ids.push(node_id);
     }
 
     info!("Nodes to be upgraded has been processed: {node_ids:?}",);
     let resp = api::BabelServiceNotifyResponse { node_ids };
-    Ok(BabelResult {
-        commands,
-        resp: tonic::Response::new(resp),
-    })
+    Ok(super::Outcome::new(resp).with_msgs(commands))
 }
 
 impl api::BabelServiceNotifyRequest {
