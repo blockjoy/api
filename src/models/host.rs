@@ -240,12 +240,6 @@ impl NewHost<'_> {
         let ip_range_from = self.ip_range_from.ip();
         let ip_range_to = self.ip_range_to.ip();
 
-        // Ensure gateway IP is not amongst the ones created in the IP range
-        if super::IpAddress::in_range(ip_gateway, ip_range_from, ip_range_to) {
-            return Err(Error::IpGatewayError(anyhow!(
-                "{ip_gateway} is in range {ip_range_from} - {ip_range_to}",
-            )));
-        }
         let host: Host = diesel::insert_into(hosts::table)
             .values(self)
             .get_result(conn)
@@ -253,7 +247,7 @@ impl NewHost<'_> {
 
         // Create IP range for new host
         let create_range = super::NewIpAddressRange::try_new(ip_range_from, ip_range_to, host.id)?;
-        create_range.create(&[ip_addr], conn).await?;
+        create_range.create(&[ip_addr, ip_gateway], conn).await?;
 
         Ok(host)
     }
