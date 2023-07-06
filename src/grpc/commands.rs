@@ -93,10 +93,9 @@ async fn ack(
     if !is_allowed {
         super::forbidden!("Access denied");
     }
-    if command.acked_at.is_some() {
-        super::forbidden!("Already acknowledged");
+    if command.acked_at.is_none() {
+        command.ack(conn).await?;
     }
-    command.ack(conn).await?;
     let resp = api::CommandServiceAckResponse {};
     Ok(tonic::Response::new(resp))
 }
