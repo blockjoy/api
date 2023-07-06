@@ -304,14 +304,16 @@ pub struct UpdateHostMetrics {
 
 impl UpdateHostMetrics {
     /// Performs a selective update of only the columns related to metrics of the provided nodes.
-    pub async fn update_metrics(updates: Vec<Self>, conn: &mut super::Conn) -> Result<()> {
+    pub async fn update_metrics(updates: Vec<Self>, conn: &mut super::Conn) -> Result<Vec<Host>> {
+        let mut results = Vec::with_capacity(updates.len());
         for update in updates {
-            diesel::update(hosts::table.find(update.id))
+            let updated = diesel::update(hosts::table.find(update.id))
                 .set(update)
-                .execute(conn)
+                .get_result(conn)
                 .await?;
+            results.push(updated);
         }
-        Ok(())
+        Ok(results)
     }
 }
 

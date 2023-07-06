@@ -178,7 +178,7 @@ impl api::OrgMessage {
                 // Over MQTT, there is no current user so we pass None as a second argument.
                 org: Some(model),
                 created_by: user.id.to_string(),
-                created_by_name: format!("{} {}", user.first_name, user.last_name),
+                created_by_name: user.name(),
                 created_by_email: user.email,
             })),
         }
@@ -190,7 +190,7 @@ impl api::OrgMessage {
                 // Over MQTT, there is no current user so we pass None as a second argument.
                 org: Some(model),
                 updated_by: user.id.to_string(),
-                updated_by_name: format!("{} {}", user.first_name, user.last_name),
+                updated_by_name: user.name(),
                 updated_by_email: user.email,
             })),
         }
@@ -201,7 +201,7 @@ impl api::OrgMessage {
             message: Some(org_message::Message::Deleted(api::OrgDeleted {
                 org_id: model.id.to_string(),
                 deleted_by: user.id.to_string(),
-                deleted_by_name: format!("{} {}", user.first_name, user.last_name),
+                deleted_by_name: user.name(),
                 deleted_by_email: user.email,
             })),
         }
@@ -275,7 +275,7 @@ impl api::HostMessage {
             message: Some(host_message::Message::Created(api::HostCreated {
                 host: Some(api::Host::from_model(model, conn).await?),
                 created_by: user.id.to_string(),
-                created_by_name: format!("{} {}", user.first_name, user.last_name),
+                created_by_name: user.name(),
                 created_by_email: user.email,
             })),
         })
@@ -289,11 +289,31 @@ impl api::HostMessage {
         Ok(Self {
             message: Some(host_message::Message::Updated(api::HostUpdated {
                 host: Some(api::Host::from_model(model, conn).await?),
-                updated_by: user.id.to_string(),
-                updated_by_name: format!("{} {}", user.first_name, user.last_name),
-                updated_by_email: user.email,
+                updated_by: Some(user.id.to_string()),
+                updated_by_name: Some(user.name()),
+                updated_by_email: Some(user.email),
             })),
         })
+    }
+
+    pub async fn updated_many(
+        models: Vec<models::Host>,
+        conn: &mut models::Conn,
+    ) -> crate::Result<Vec<Self>> {
+        api::Host::from_models(models, conn)
+            .await?
+            .into_iter()
+            .map(|host| {
+                Ok(Self {
+                    message: Some(host_message::Message::Updated(api::HostUpdated {
+                        host: Some(host),
+                        updated_by: None,
+                        updated_by_name: None,
+                        updated_by_email: None,
+                    })),
+                })
+            })
+            .collect()
     }
 
     pub fn deleted(model: models::Host, user: models::User) -> Self {
@@ -301,7 +321,7 @@ impl api::HostMessage {
             message: Some(host_message::Message::Deleted(api::HostDeleted {
                 host_id: model.id.to_string(),
                 deleted_by: user.id.to_string(),
-                deleted_by_name: format!("{} {}", user.first_name, user.last_name),
+                deleted_by_name: user.name(),
                 deleted_by_email: user.email,
             })),
         }
@@ -341,7 +361,7 @@ impl api::NodeMessage {
             message: Some(node_message::Message::Created(api::NodeCreated {
                 node: Some(model),
                 created_by: user.id.to_string(),
-                created_by_name: format!("{} {}", user.first_name, user.last_name),
+                created_by_name: user.name(),
                 created_by_email: user.email,
             })),
         }
@@ -355,14 +375,31 @@ impl api::NodeMessage {
         Ok(Self {
             message: Some(node_message::Message::Updated(api::NodeUpdated {
                 node: Some(api::Node::from_model(model, conn).await?),
-                updated_by: user.as_ref().map(|u| u.id.to_string()).unwrap_or_default(),
-                updated_by_name: user
-                    .as_ref()
-                    .map(|u| u.name())
-                    .unwrap_or_else(|| "BlockJoy System".to_string()),
-                updated_by_email: user.map(|u| u.email).unwrap_or_default(),
+                updated_by: user.as_ref().map(|u| u.id.to_string()),
+                updated_by_name: user.as_ref().map(|u| u.name()),
+                updated_by_email: user.map(|u| u.email),
             })),
         })
+    }
+
+    pub async fn updated_many(
+        models: Vec<models::Node>,
+        conn: &mut models::Conn,
+    ) -> crate::Result<Vec<Self>> {
+        api::Node::from_models(models, conn)
+            .await?
+            .into_iter()
+            .map(|node| {
+                Ok(Self {
+                    message: Some(node_message::Message::Updated(api::NodeUpdated {
+                        node: Some(node),
+                        updated_by: None,
+                        updated_by_name: None,
+                        updated_by_email: None,
+                    })),
+                })
+            })
+            .collect()
     }
 
     pub fn deleted(model: models::Node, user: models::User) -> Self {
@@ -372,7 +409,7 @@ impl api::NodeMessage {
                 host_id: model.host_id.to_string(),
                 org_id: model.org_id.to_string(),
                 deleted_by: user.id.to_string(),
-                deleted_by_name: format!("{} {}", user.first_name, user.last_name),
+                deleted_by_name: user.name(),
                 deleted_by_email: user.email,
             })),
         }

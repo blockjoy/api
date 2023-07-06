@@ -20,21 +20,27 @@ impl metrics_service_server::MetricsService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::MetricsServiceNodeRequest>,
     ) -> super::Resp<api::MetricsServiceNodeResponse> {
-        self.trx(|c| node(req, c).scope_boxed()).await
+        self.trx(|c| node(req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
     }
 
     async fn host(
         &self,
         req: tonic::Request<api::MetricsServiceHostRequest>,
     ) -> super::Resp<api::MetricsServiceHostResponse> {
-        self.trx(|c| host(req, c).scope_boxed()).await
+        self.trx(|c| host(req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
     }
 }
 
 async fn node(
     req: tonic::Request<api::MetricsServiceNodeRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::MetricsServiceNodeResponse> {
+) -> crate::Result<super::Outcome<api::MetricsServiceNodeResponse>> {
     let claims = auth::get_claims(&req, Endpoint::MetricsNode, conn).await?;
     let req = req.into_inner();
     let updates: Vec<models::UpdateNodeMetrics> = req
@@ -56,15 +62,16 @@ async fn node(
     if !is_allowed {
         super::forbidden!("Access denied");
     }
-    models::UpdateNodeMetrics::update_metrics(updates, conn).await?;
+    let nodes = models::UpdateNodeMetrics::update_metrics(updates, conn).await?;
+    let msgs = api::NodeMessage::updated_many(nodes, conn).await?;
     let resp = api::MetricsServiceNodeResponse {};
-    Ok(tonic::Response::new(resp))
+    Ok(super::Outcome::new(resp).with_msgs(msgs))
 }
 
 async fn host(
     req: tonic::Request<api::MetricsServiceHostRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::MetricsServiceHostResponse> {
+) -> crate::Result<super::Outcome<api::MetricsServiceHostResponse>> {
     let claims = auth::get_claims(&req, Endpoint::MetricsNode, conn).await?;
     let req = req.into_inner();
     let updates: Vec<models::UpdateHostMetrics> = req
@@ -86,9 +93,10 @@ async fn host(
     if !is_allowed {
         super::forbidden!("Access denied");
     }
-    models::UpdateHostMetrics::update_metrics(updates, conn).await?;
+    let hosts = models::UpdateHostMetrics::update_metrics(updates, conn).await?;
+    let msgs = api::HostMessage::updated_many(hosts, conn).await?;
     let resp = api::MetricsServiceHostResponse {};
-    Ok(tonic::Response::new(resp))
+    Ok(super::Outcome::new(resp).with_msgs(msgs))
 }
 
 impl api::NodeMetrics {
