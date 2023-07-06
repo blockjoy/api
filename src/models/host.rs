@@ -1,7 +1,6 @@
 use super::schema::hosts;
 use super::Paginate;
-use crate::{cookbook::script::HardwareRequirements, Error, Result};
-use anyhow::anyhow;
+use crate::{cookbook::script::HardwareRequirements, Result};
 use chrono::{DateTime, Utc};
 use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
