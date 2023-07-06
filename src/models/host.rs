@@ -235,6 +235,7 @@ pub struct NewHost<'a> {
 impl NewHost<'_> {
     /// Creates a new `Host` in the db, including the necessary related rows.
     pub async fn create(self, conn: &mut super::Conn) -> Result<Host> {
+        let ip_addr = self.ip_addr.parse()?;
         let ip_gateway = self.ip_gateway.ip();
         let ip_range_from = self.ip_range_from.ip();
         let ip_range_to = self.ip_range_to.ip();
@@ -245,7 +246,6 @@ impl NewHost<'_> {
                 "{ip_gateway} is in range {ip_range_from} - {ip_range_to}",
             )));
         }
-
         let host: Host = diesel::insert_into(hosts::table)
             .values(self)
             .get_result(conn)
@@ -253,7 +253,7 @@ impl NewHost<'_> {
 
         // Create IP range for new host
         let create_range = super::NewIpAddressRange::try_new(ip_range_from, ip_range_to, host.id)?;
-        create_range.create(conn).await?;
+        create_range.create(&[ip_addr], conn).await?;
 
         Ok(host)
     }

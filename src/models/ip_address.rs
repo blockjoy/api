@@ -30,13 +30,18 @@ impl NewIpAddressRange {
         }
     }
 
-    pub async fn create(self, conn: &mut super::Conn) -> Result<Vec<IpAddress>> {
+    pub async fn create(
+        self,
+        exclude: &[IpAddr],
+        conn: &mut super::Conn,
+    ) -> Result<Vec<IpAddress>> {
         let host_id = self.host_id;
         let start_range = Self::to_ipv4(self.from)?;
         let stop_range = Self::to_ipv4(self.to)?;
         let ip_addrs = IpAddrRange::from(Ipv4AddrRange::new(start_range, stop_range));
         let ip_addrs: Vec<_> = ip_addrs
             .into_iter()
+            .filter(|ip| !exclude.contains(ip))
             .map(|ip| CreateIpAddress {
                 ip: ip.into(),
                 host_id,
@@ -167,7 +172,7 @@ mod test {
             db.host().await.id,
         )?;
         let mut conn = db.conn().await;
-        let range = new_range.create(&mut conn).await?;
+        let range = new_range.create(&[], &mut conn).await?;
         assert_eq!(range.len(), 11);
 
         Ok(())

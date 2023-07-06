@@ -350,7 +350,7 @@ mod test {
                 host2.id,
             )
             .unwrap()
-            .create(conn)
+            .create(&[], conn)
             .await
             .unwrap();
 
