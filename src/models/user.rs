@@ -58,9 +58,11 @@ impl User {
     }
 
     pub async fn find_by_ids(
-        user_ids: &[uuid::Uuid],
+        mut user_ids: Vec<uuid::Uuid>,
         conn: &mut super::Conn,
     ) -> crate::Result<Vec<Self>> {
+        user_ids.sort();
+        user_ids.dedup();
         let users = Self::not_deleted()
             .filter(users::id.eq_any(user_ids))
             .get_results(conn)

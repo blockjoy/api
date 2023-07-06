@@ -10,10 +10,8 @@ async fn create_invitation(tester: &super::Tester) -> models::Invitation {
     let user = tester.user().await;
     let org = tester.org().await;
     let new_invitation = models::NewInvitation {
-        created_by_user: user.id,
-        created_by_user_name: user.last_name,
-        created_for_org: org.id,
-        created_for_org_name: org.name,
+        created_by: user.id,
+        org_id: org.id,
         invitee_email: "test@here.com".to_string(),
     };
     let mut conn = tester.conn().await;
@@ -89,7 +87,7 @@ async fn responds_ok_for_accept() {
     let iat = chrono::Utc::now();
     let claims = Claims::new_with_data(
         ResourceType::Org,
-        invitation.created_for_org,
+        invitation.org_id,
         iat,
         chrono::Duration::minutes(15),
         Endpoints::Single(Endpoint::InvitationAccept),
@@ -113,7 +111,7 @@ async fn responds_ok_for_decline() {
     let iat = chrono::Utc::now();
     let claims = Claims::new_with_data(
         ResourceType::Org,
-        invitation.created_for_org,
+        invitation.org_id,
         iat,
         chrono::Duration::minutes(15),
         Endpoints::Single(Endpoint::InvitationDecline),
@@ -135,7 +133,7 @@ async fn responds_ok_for_revoke() {
     let invitation = create_invitation(&tester).await;
     let user = tester.user().await;
     let mut conn = tester.conn().await;
-    let org = models::Org::find_by_id(invitation.created_for_org, &mut conn)
+    let org = models::Org::find_by_id(invitation.org_id, &mut conn)
         .await
         .unwrap();
     // If the user is already added, thats okay

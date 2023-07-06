@@ -207,11 +207,12 @@ impl api::OrgMessage {
         }
     }
 
-    pub fn invitation_created(
+    pub async fn invitation_created(
         model: models::Org,
         invitation: models::Invitation,
+        conn: &mut models::Conn,
     ) -> crate::Result<Self> {
-        let invitation = api::Invitation::from_model(invitation)?;
+        let invitation = api::Invitation::from_model(invitation, conn).await?;
         Ok(Self {
             message: Some(org_message::Message::InvitationCreated(
                 api::InvitationCreated {
@@ -222,12 +223,13 @@ impl api::OrgMessage {
         })
     }
 
-    pub fn invitation_accepted(
+    pub async fn invitation_accepted(
         model: models::Org,
         invitation: models::Invitation,
         user: models::User,
+        conn: &mut models::Conn,
     ) -> crate::Result<Self> {
-        let invitation = api::Invitation::from_model(invitation)?;
+        let invitation = api::Invitation::from_model(invitation, conn).await?;
         let user = api::User::from_model(user)?;
         Ok(Self {
             message: Some(org_message::Message::InvitationAccepted(
@@ -240,11 +242,12 @@ impl api::OrgMessage {
         })
     }
 
-    pub fn invitation_declined(
+    pub async fn invitation_declined(
         model: models::Org,
         invitation: models::Invitation,
+        conn: &mut models::Conn,
     ) -> crate::Result<Self> {
-        let invitation = api::Invitation::from_model(invitation)?;
+        let invitation = api::Invitation::from_model(invitation, conn).await?;
         Ok(Self {
             message: Some(org_message::Message::InvitationDeclined(
                 api::InvitationDeclined {

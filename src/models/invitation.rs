@@ -7,14 +7,12 @@ use diesel_async::RunQueryDsl;
 #[derive(Debug, Queryable)]
 pub struct Invitation {
     pub id: uuid::Uuid,
-    pub created_by_user: uuid::Uuid,
-    pub created_for_org: uuid::Uuid,
+    pub created_by: uuid::Uuid,
+    pub org_id: uuid::Uuid,
     pub invitee_email: String,
     pub created_at: DateTime<Utc>,
     pub accepted_at: Option<DateTime<Utc>>,
     pub declined_at: Option<DateTime<Utc>>,
-    pub created_by_user_name: String,
-    pub created_for_org_name: String,
 }
 
 impl Invitation {
@@ -38,13 +36,13 @@ impl Invitation {
         let mut query = invitations::table.into_boxed();
 
         if let Some(org_id) = filter.org_id {
-            query = query.filter(invitations::created_for_org.eq(org_id));
+            query = query.filter(invitations::org_id.eq(org_id));
         }
         if let Some(invitee_email) = filter.invitee_email {
             query = query.filter(invitations::invitee_email.eq(invitee_email));
         }
         if let Some(created_by) = filter.created_by {
-            query = query.filter(invitations::created_by_user.eq(created_by));
+            query = query.filter(invitations::created_by.eq(created_by));
         }
         if let Some(true) = filter.accepted {
             query = query.filter(invitations::accepted_at.is_not_null());
@@ -72,7 +70,7 @@ impl Invitation {
         conn: &mut super::Conn,
     ) -> Result<bool> {
         let invitation = invitations::table
-            .filter(invitations::created_for_org.eq(org_id))
+            .filter(invitations::org_id.eq(org_id))
             .filter(invitations::invitee_email.eq(email))
             .filter(invitations::accepted_at.is_null())
             .filter(invitations::declined_at.is_null());
@@ -111,7 +109,7 @@ impl Invitation {
     ) -> Result<()> {
         let to_delete = invitations::table
             .filter(invitations::invitee_email.eq(user_email))
-            .filter(invitations::created_for_org.eq(org_id));
+            .filter(invitations::org_id.eq(org_id));
         diesel::delete(to_delete).execute(conn).await?;
         Ok(())
     }
@@ -120,10 +118,8 @@ impl Invitation {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = invitations)]
 pub struct NewInvitation {
-    pub created_by_user: uuid::Uuid,
-    pub created_by_user_name: String,
-    pub created_for_org: uuid::Uuid,
-    pub created_for_org_name: String,
+    pub created_by: uuid::Uuid,
+    pub org_id: uuid::Uuid,
     pub invitee_email: String,
 }
 

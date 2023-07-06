@@ -145,14 +145,12 @@ diesel::table! {
 diesel::table! {
     invitations (id) {
         id -> Uuid,
-        created_by_user -> Uuid,
-        created_for_org -> Uuid,
+        created_by -> Uuid,
+        org_id -> Uuid,
         invitee_email -> Text,
         created_at -> Timestamptz,
         accepted_at -> Nullable<Timestamptz>,
         declined_at -> Nullable<Timestamptz>,
-        created_by_user_name -> Text,
-        created_for_org_name -> Text,
     }
 }
 
@@ -306,8 +304,8 @@ diesel::joinable!(commands -> hosts (host_id));
 diesel::joinable!(commands -> nodes (node_id));
 diesel::joinable!(hosts -> orgs (org_id));
 diesel::joinable!(hosts -> users (created_by));
-diesel::joinable!(invitations -> orgs (created_for_org));
-diesel::joinable!(invitations -> users (created_by_user));
+diesel::joinable!(invitations -> orgs (org_id));
+diesel::joinable!(invitations -> users (created_by));
 diesel::joinable!(ip_addresses -> hosts (host_id));
 diesel::joinable!(node_key_files -> nodes (node_id));
 diesel::joinable!(node_properties -> blockchain_properties (blockchain_property_id));

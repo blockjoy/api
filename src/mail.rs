@@ -124,13 +124,13 @@ impl MailClient {
         let mut data = HashMap::new();
         data.insert("email".to_string(), invitation.invitee_email.clone());
         data.insert("invitation_id".to_string(), invitation.id.to_string());
-        data.insert("org_id".to_string(), invitation.created_for_org.to_string());
+        data.insert("org_id".to_string(), invitation.org_id.to_string());
 
         // A little bit lame but not that big of a deal: the id of the invitation as the id of the
         // user because there is no user here yet.
         let claims = Claims::new_with_data(
             crate::auth::token::ResourceType::Org,
-            invitation.created_for_org,
+            invitation.org_id,
             iat,
             exp,
             endpoints.into_iter().collect(),

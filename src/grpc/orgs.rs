@@ -296,8 +296,8 @@ impl api::Org {
 
         // Now we get the actual users for each `OrgUser`, because we also need to provide the name
         // and email of each user.
-        let user_ids: Vec<uuid::Uuid> = org_users.values().flatten().map(|ou| ou.user_id).collect();
-        let users: HashMap<uuid::Uuid, models::User> = models::User::find_by_ids(&user_ids, conn)
+        let user_ids = org_users.values().flatten().map(|ou| ou.user_id).collect();
+        let users: HashMap<uuid::Uuid, models::User> = models::User::find_by_ids(user_ids, conn)
             .await?
             .into_iter()
             .map(|u| (u.id, u))

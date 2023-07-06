@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Status};
 
@@ -94,7 +96,7 @@ async fn create(
         }
     }
 
-    let invitation = req.into_new(caller.id, conn).await?.create(conn).await?;
+    let invitation = req.into_new(caller.id)?.create(conn).await?;
 
     match invited_user {
         Ok(user) => {
@@ -125,8 +127,8 @@ async fn create(
         }
     }
 
-    let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
-    let msg = api::OrgMessage::invitation_created(org, invitation)?;
+    let org = models::Org::find_by_id(invitation.org_id, conn).await?;
+    let msg = api::OrgMessage::invitation_created(org, invitation, conn).await?;
     let resp = api::InvitationServiceCreateResponse {};
     Ok(super::Outcome::new(resp).with_msg(msg))
 }
@@ -167,7 +169,7 @@ async fn list(
     }
     let filter = req.as_filter()?;
     let invitations = models::Invitation::filter(filter, conn).await?;
-    let invitations = api::Invitation::from_models(invitations)?;
+    let invitations = api::Invitation::from_models(invitations, conn).await?;
     let resp = api::InvitationServiceListResponse { invitations };
     Ok(tonic::Response::new(resp))
 }
@@ -187,7 +189,7 @@ async fn accept(
         Resource::Org(org_id) => {
             let email = claims.data.get("email").ok_or_else(required("email"))?;
             let user = models::User::find_by_email(email, conn).await?;
-            invitation.created_for_org == org_id && invitation.invitee_email == user.email
+            invitation.org_id == org_id && invitation.invitee_email == user.email
         }
         Resource::Host(_) => false,
         Resource::Node(_) => false,
@@ -203,7 +205,7 @@ async fn accept(
     }
 
     let invitation = invitation.accept(conn).await?;
-    let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
+    let org = models::Org::find_by_id(invitation.org_id, conn).await?;
     // Only registered users can accept an invitation
     let new_member = models::User::find_by_email(&invitation.invitee_email, conn).await?;
     let org_user = org
@@ -211,7 +213,7 @@ async fn accept(
         .await?;
     let org = models::Org::find_by_id(org_user.org_id, conn).await?;
     let user = models::User::find_by_id(org_user.user_id, conn).await?;
-    let msg = api::OrgMessage::invitation_accepted(org, invitation, user)?;
+    let msg = api::OrgMessage::invitation_accepted(org, invitation, user, conn).await?;
     let resp = api::InvitationServiceAcceptResponse {};
     Ok(super::Outcome::new(resp).with_msg(msg))
 }
@@ -230,7 +232,7 @@ async fn decline(
         }
         Resource::Org(org_id) => {
             let email = claims.data.get("email").ok_or_else(required("email"))?;
-            invitation.created_for_org == org_id && invitation.invitee_email == *email
+            invitation.org_id == org_id && invitation.invitee_email == *email
         }
         Resource::Host(_) => false,
         Resource::Node(_) => false,
@@ -246,8 +248,8 @@ async fn decline(
     }
 
     invitation.decline(conn).await?;
-    let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
-    let msg = api::OrgMessage::invitation_declined(org, invitation)?;
+    let org = models::Org::find_by_id(invitation.org_id, conn).await?;
+    let msg = api::OrgMessage::invitation_declined(org, invitation, conn).await?;
     let resp = api::InvitationServiceDeclineResponse {};
     Ok(super::Outcome::new(resp).with_msg(msg))
 }
@@ -260,9 +262,7 @@ async fn revoke(
     let req = req.into_inner();
     let invitation = models::Invitation::find_by_id(req.invitation_id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => {
-            models::Org::is_member(user_id, invitation.created_for_org, conn).await?
-        }
+        Resource::User(user_id) => models::Org::is_member(user_id, invitation.org_id, conn).await?,
         Resource::Org(_) => false,
         Resource::Host(_) => false,
         Resource::Node(_) => false,
@@ -277,48 +277,71 @@ async fn revoke(
         return Err(Status::failed_precondition("Invite is declined").into());
     }
     invitation.revoke(conn).await?;
-    let org = models::Org::find_by_id(invitation.created_for_org, conn).await?;
-    let msg = api::OrgMessage::invitation_declined(org, invitation)?;
+    let org = models::Org::find_by_id(invitation.org_id, conn).await?;
+    let msg = api::OrgMessage::invitation_declined(org, invitation, conn).await?;
     let resp = api::InvitationServiceRevokeResponse {};
     Ok(super::Outcome::new(resp).with_msg(msg))
 }
 
 impl api::InvitationServiceCreateRequest {
-    pub async fn into_new(
-        self,
-        created_by_user: uuid::Uuid,
-        conn: &mut models::Conn,
-    ) -> crate::Result<models::NewInvitation> {
-        let creator = models::User::find_by_id(created_by_user, conn).await?;
-        let org_id = self.org_id.parse()?;
-        let for_org = models::Org::find_by_id(org_id, conn).await?;
-
-        let name = format!(
-            "{} {} ({})",
-            creator.first_name, creator.last_name, creator.email
-        );
+    pub fn into_new(self, user_id: uuid::Uuid) -> crate::Result<models::NewInvitation> {
         Ok(models::NewInvitation {
-            created_by_user,
-            created_by_user_name: name,
-            created_for_org: for_org.id,
-            created_for_org_name: for_org.name,
+            created_by: user_id,
+            org_id: self.org_id.parse()?,
             invitee_email: self.invitee_email,
         })
     }
 }
 
 impl api::Invitation {
-    fn from_models(models: Vec<models::Invitation>) -> crate::Result<Vec<Self>> {
-        models.into_iter().map(Self::from_model).collect()
+    async fn from_models(
+        models: Vec<models::Invitation>,
+        conn: &mut models::Conn,
+    ) -> crate::Result<Vec<Self>> {
+        let creator_ids = models.iter().map(|i| i.created_by).collect();
+        let creators: HashMap<_, _> = models::User::find_by_ids(creator_ids, conn)
+            .await?
+            .into_iter()
+            .map(|u| (u.id, u))
+            .collect();
+
+        let org_ids = models.iter().map(|i| i.org_id).collect();
+        let orgs: HashMap<_, _> = models::Org::find_by_ids(org_ids, conn)
+            .await?
+            .into_iter()
+            .map(|o| (o.id, o))
+            .collect();
+
+        models
+            .into_iter()
+            .map(|i| {
+                let creator = &creators[&i.created_by];
+                let org = &orgs[&i.org_id];
+                Self::new(i, creator, org)
+            })
+            .collect()
     }
 
-    pub fn from_model(model: models::Invitation) -> crate::Result<Self> {
+    pub async fn from_model(
+        model: models::Invitation,
+        conn: &mut models::Conn,
+    ) -> crate::Result<Self> {
+        let creator = models::User::find_by_id(model.created_by, conn).await?;
+        let org = models::Org::find_by_id(model.org_id, conn).await?;
+        Self::new(model, &creator, &org)
+    }
+
+    fn new(
+        model: models::Invitation,
+        creator: &models::User,
+        org: &models::Org,
+    ) -> crate::Result<Self> {
         let mut invitation = Self {
             id: model.id.to_string(),
-            created_by: model.created_by_user.to_string(),
-            created_by_name: model.created_by_user_name,
-            org_id: model.created_for_org.to_string(),
-            org_name: model.created_for_org_name,
+            created_by: model.created_by.to_string(),
+            created_by_name: creator.name(),
+            org_id: model.org_id.to_string(),
+            org_name: org.name.clone(),
             invitee_email: model.invitee_email,
             created_at: Some(super::try_dt_to_ts(model.created_at)?),
             status: 0, // We use the setter to set this field for type-safety

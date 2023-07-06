@@ -84,10 +84,8 @@ async fn member_count_works() {
 
     // Now we invite someone new.
     let new_invitation = models::NewInvitation {
-        created_by_user: user.id,
-        created_by_user_name: user.last_name,
-        created_for_org: org.id,
-        created_for_org_name: org.name.clone(),
+        created_by: user.id,
+        org_id: org.id,
         invitee_email: "test@here.com".to_string(),
     };
     let mut conn = tester.conn().await;
@@ -96,7 +94,7 @@ async fn member_count_works() {
     let iat = chrono::Utc::now();
     let claims = Claims::new_with_data(
         ResourceType::Org,
-        invitation.created_for_org,
+        invitation.org_id,
         iat,
         chrono::Duration::minutes(15),
         Endpoints::Multiple(vec![Endpoint::InvitationAccept]),

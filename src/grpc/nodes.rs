@@ -398,8 +398,8 @@ impl api::Node {
             .into_iter()
             .map(|b| (b.id, b))
             .collect();
-        let user_ids: Vec<_> = nodes.iter().flat_map(|n| n.created_by).collect();
-        let users: HashMap<_, _> = models::User::find_by_ids(&user_ids, conn)
+        let user_ids = nodes.iter().flat_map(|n| n.created_by).collect();
+        let users: HashMap<_, _> = models::User::find_by_ids(user_ids, conn)
             .await?
             .into_iter()
             .map(|u| (u.id, u))
