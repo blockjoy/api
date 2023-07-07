@@ -177,7 +177,6 @@ impl From<HostId> for ResourceId {
 /// A serializable representation of the resource type and id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceEntry {
-    #[serde(rename = "resource")]
     pub resource_type: ResourceType,
     pub resource_id: ResourceId,
 }
