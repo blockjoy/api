@@ -2,25 +2,30 @@ use blockvisor_api::config::{Config, Context};
 use blockvisor_api::server;
 use diesel::Connection;
 use diesel_migrations::MigrationHarness;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing::info;
+use tracing_log::LogTracer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{fmt, EnvFilter, Registry};
 
-fn main() -> anyhow::Result<()> {
-    let context = Context::new()?;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    init_tracing();
 
+    let context = Context::new().await?;
     migrate(&context.config);
 
-    tracing_subscriber::registry()
-        .with(fmt::layer().with_ansi(false))
-        .with(EnvFilter::from_default_env())
-        .init();
+    info!("Starting server...");
+    server::start(context).await
+}
 
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            tracing::info!("Starting server...");
-            server::start(context).await
-        })
+fn init_tracing() {
+    LogTracer::init().unwrap();
+
+    let env = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let fmt = fmt::Layer::default().with_ansi(false);
+    let registry = Registry::default().with(env).with(fmt);
+
+    tracing::subscriber::set_global_default(registry).unwrap();
 }
 
 fn migrate(config: &Config) {

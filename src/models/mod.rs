@@ -4,6 +4,7 @@
 //! used for updating rows often do not contain all of the columns, whereas models that are used
 //! for selecting usually do.
 
+pub mod api_key;
 mod blacklist_token;
 mod blockchain;
 mod command;
@@ -45,6 +46,9 @@ use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
 use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 
+use crate::auth;
+use crate::auth::claims::Claims;
+use crate::auth::endpoint::Endpoint;
 use crate::config::Context;
 
 diesel::sql_function!(fn lower(x: diesel::sql_types::Text) -> diesel::sql_types::Text);
@@ -69,24 +73,25 @@ impl DbPool {
         Self { pool, context }
     }
 
-    pub async fn trx<'a, F, T>(&self, f: F) -> Result<T, tonic::Status>
-    where
-        F: for<'r> FnOnce(&'r mut Conn) -> ScopedBoxFuture<'a, 'r, crate::Result<T>> + Send + 'a,
-        T: Send + 'a,
-    {
-        let mut conn = self.conn().await.map_err(crate::Error::from)?;
-        conn.transaction(|c| f(c).scope_boxed())
-            .await
-            .map_err(Into::into)
-    }
-
-    /// Returns a database connection that is not in a transition state. Use this for read-only
-    /// endpoints.
+    /// A non-transactional connection for read-only endpoints.
     pub async fn conn(&self) -> crate::Result<Conn> {
         Ok(Conn {
             inner: self.pool.get_owned().await?,
             context: self.context.clone(),
         })
+    }
+
+    /// Run a closure within a transactional context.
+    pub async fn trx<'a, F, T, E>(&self, f: F) -> Result<T, tonic::Status>
+    where
+        F: for<'r> FnOnce(&'r mut Conn) -> ScopedBoxFuture<'a, 'r, Result<T, E>> + Send + 'a,
+        T: Send + 'a,
+        E: From<diesel::result::Error> + Into<tonic::Status> + Send + 'a,
+    {
+        let mut conn = self.conn().await.map_err(crate::Error::from)?;
+        conn.transaction(|c| f(c).scope_boxed())
+            .await
+            .map_err(Into::into)
     }
 
     pub fn is_closed(&self) -> bool {
@@ -101,6 +106,17 @@ pub struct Conn {
     #[deref_mut]
     inner: PooledConnection<'static, AsyncPgConnection>,
     pub context: Arc<Context>,
+}
+
+impl Conn {
+    pub async fn claims<T>(
+        &mut self,
+        req: &tonic::Request<T>,
+        endpoint: Endpoint,
+    ) -> Result<Claims, auth::Error> {
+        let auth = self.context.auth.clone();
+        auth.claims(req, endpoint, self).await
+    }
 }
 
 fn semver_cmp(s1: &str, s2: &str) -> Option<cmp::Ordering> {

@@ -73,27 +73,21 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new() -> Result<Arc<Self>, Error> {
+    pub fn new() -> Result<Self, Error> {
         let config = Path::new(CONFIG_FILE);
-        let toml = if Path::exists(config) {
-            Some(config)
-        } else {
-            None
-        };
+        let toml = if config.exists() { Some(config) } else { None };
 
         let provider = Provider::new(toml).map_err(Error::Provider)?;
-        TryInto::try_into(&provider).map(Arc::new)
+        TryInto::try_into(&provider)
     }
 
-    #[cfg(any(test, feature = "integration-test"))]
-    pub fn new_with_toml<P: AsRef<std::path::Path>>(toml: P) -> Result<Arc<Self>, Error> {
+    pub fn from_toml<P: AsRef<std::path::Path>>(toml: P) -> Result<Self, Error> {
         let provider = Provider::new(Some(toml)).map_err(Error::Provider)?;
-        TryInto::try_into(&provider).map(Arc::new)
+        TryInto::try_into(&provider)
     }
 
-    #[cfg(any(test, feature = "integration-test"))]
-    pub fn new_with_default_toml() -> Result<Arc<Self>, Error> {
-        Self::new_with_toml(CONFIG_FILE)
+    pub fn from_default_toml() -> Result<Self, Error> {
+        Self::from_toml(CONFIG_FILE)
     }
 }
 

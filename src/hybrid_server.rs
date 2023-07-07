@@ -28,7 +28,7 @@ where
     type Error = MakeWeb::Error;
     type Future = HybridMakeServiceFuture<MakeWeb::Future, Grpc>;
 
-    fn poll_ready(&mut self, cx: &mut std::task::Context) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.make_web.poll_ready(cx)
     }
 
@@ -53,7 +53,7 @@ where
 {
     type Output = Result<HybridService<Web, Grpc>, WebError>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
         match this.web_future.poll(cx) {
             Poll::Pending => Poll::Pending,
@@ -121,7 +121,7 @@ where
 
     fn poll_data(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
         match self.project() {
             HybridBodyProj::Web(b) => b.poll_data(cx).map_err(|e| e.into()),
@@ -131,7 +131,7 @@ where
 
     fn poll_trailers(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
         match self.project() {
             HybridBodyProj::Web(b) => b.poll_trailers(cx).map_err(|e| e.into()),
@@ -166,7 +166,7 @@ where
         Box<dyn std::error::Error + Send + Sync + 'static>,
     >;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         match self.project() {
             HybridFutureProj::Web(a) => match a.poll(cx) {
                 Poll::Ready(Ok(res)) => Poll::Ready(Ok(res.map(HybridBody::Web))),

@@ -9,7 +9,7 @@ async fn responds_not_found_with_invalid_node_id() {
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let req = api::KeyFileServiceListRequest {
         node_id: uuid::Uuid::new_v4().to_string(),
@@ -27,7 +27,7 @@ async fn responds_ok_with_valid_node_id() {
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let mut conn = tester.conn().await;
     let node = tester.node().await;
@@ -52,7 +52,7 @@ async fn responds_not_found_with_invalid_node_id_for_save() {
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let key_file = api::Keyfile {
         name: "new keyfile".to_string(),
@@ -75,7 +75,7 @@ async fn responds_ok_with_valid_node_id_for_save() {
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let node = tester.node().await;
     let key_file = api::Keyfile {
@@ -95,7 +95,7 @@ async fn responds_error_with_same_node_id_name_twice_for_save() {
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let node = tester.node().await;
     let key_file = api::Keyfile {
@@ -114,7 +114,7 @@ async fn responds_error_with_same_node_id_name_twice_for_save() {
     };
 
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let status = tester
         .send_with(Service::create, req, &jwt)

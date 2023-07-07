@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use blockvisor_api::auth::token::{Claims, Endpoint, Endpoints, ResourceType};
+use blockvisor_api::auth::claims::{Claims, Expirable};
+use blockvisor_api::auth::endpoint::{Endpoint, Endpoints};
+use blockvisor_api::auth::resource::ResourceEntry;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
 
@@ -10,10 +12,8 @@ async fn create_invitation(tester: &super::Tester) -> models::Invitation {
     let user = tester.user().await;
     let org = tester.org().await;
     let new_invitation = models::NewInvitation {
-        created_by_user: user.id,
-        created_by_user_name: user.last_name,
-        created_for_org: org.id,
-        created_for_org_name: org.name,
+        created_by: user.id,
+        org_id: org.id,
         invitee_email: "test@here.com".to_string(),
     };
     let mut conn = tester.conn().await;
@@ -86,18 +86,15 @@ async fn responds_ok_for_accept() {
     let tester = super::Tester::new().await;
 
     let invitation = create_invitation(&tester).await;
-    let iat = chrono::Utc::now();
-    let claims = Claims::new_with_data(
-        ResourceType::Org,
-        invitation.created_for_org,
-        iat,
-        chrono::Duration::minutes(15),
-        Endpoints::Single(Endpoint::InvitationAccept),
-        HashMap::from([("email".into(), invitation.invitee_email)]),
-    )
-    .unwrap();
 
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let resource = ResourceEntry::new_org(invitation.org_id).into();
+    let expirable = Expirable::from_now(chrono::Duration::minutes(15));
+    let endpoints = Endpoints::Single(Endpoint::InvitationAccept);
+
+    let claims = Claims::new(resource, expirable, endpoints)
+        .with_data(HashMap::from([("email".into(), invitation.invitee_email)]));
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
+
     let req: api::InvitationServiceAcceptRequest = api::InvitationServiceAcceptRequest {
         invitation_id: invitation.id.to_string(),
     };
@@ -110,18 +107,15 @@ async fn responds_ok_for_decline() {
     let tester = super::Tester::new().await;
 
     let invitation = create_invitation(&tester).await;
-    let iat = chrono::Utc::now();
-    let claims = Claims::new_with_data(
-        ResourceType::Org,
-        invitation.created_for_org,
-        iat,
-        chrono::Duration::minutes(15),
-        Endpoints::Single(Endpoint::InvitationDecline),
-        HashMap::from([("email".into(), invitation.invitee_email)]),
-    )
-    .unwrap();
 
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let resource = ResourceEntry::new_org(invitation.org_id).into();
+    let expirable = Expirable::from_now(chrono::Duration::minutes(15));
+    let endpoints = Endpoints::Single(Endpoint::InvitationDecline);
+
+    let claims = Claims::new(resource, expirable, endpoints)
+        .with_data(HashMap::from([("email".into(), invitation.invitee_email)]));
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
+
     let req = api::InvitationServiceDeclineRequest {
         invitation_id: invitation.id.to_string(),
     };
@@ -135,7 +129,7 @@ async fn responds_ok_for_revoke() {
     let invitation = create_invitation(&tester).await;
     let user = tester.user().await;
     let mut conn = tester.conn().await;
-    let org = models::Org::find_by_id(invitation.created_for_org, &mut conn)
+    let org = models::Org::find_by_id(invitation.org_id, &mut conn)
         .await
         .unwrap();
     // If the user is already added, thats okay

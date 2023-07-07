@@ -92,7 +92,7 @@ impl Provider {
     }
 
     #[cfg(any(test, feature = "integration-test"))]
-    pub fn new_with_toml<P: AsRef<Path>>(toml: P) -> Result<Self, Error> {
+    pub fn from_toml<P: AsRef<Path>>(toml: P) -> Result<Self, Error> {
         Ok(Provider {
             secrets_root: None,
             toml_table: Some(Self::toml_table(toml)?),
@@ -100,7 +100,7 @@ impl Provider {
     }
 
     #[cfg(any(test, feature = "integration-test"))]
-    pub fn new_temp_secret() -> Result<Self, Error> {
+    pub fn from_tmp() -> Result<Self, Error> {
         Ok(Provider {
             secrets_root: Some(Self::secrets_root("/tmp")?),
             toml_table: None,
@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn can_read_var_from_toml() {
-        let config = Config::new_with_default_toml().unwrap();
+        let config = Config::from_default_toml().unwrap();
         assert_eq!(config.grpc.request_concurrency_limit, 128)
     }
 }

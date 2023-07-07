@@ -1,3 +1,4 @@
+use blockvisor_api::grpc::api::api_key_service_client;
 use blockvisor_api::grpc::api::auth_service_client;
 use blockvisor_api::grpc::api::babel_service_client;
 use blockvisor_api::grpc::api::blockchain_service_client;
@@ -14,6 +15,12 @@ use tonic::transport::Channel;
 
 pub trait GrpcClient<T> {
     fn create(channel: Channel) -> Self;
+}
+
+impl GrpcClient<Channel> for api_key_service_client::ApiKeyServiceClient<Channel> {
+    fn create(channel: Channel) -> Self {
+        Self::new(channel)
+    }
 }
 
 impl GrpcClient<Channel> for auth_service_client::AuthServiceClient<Channel> {

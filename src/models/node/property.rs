@@ -1,12 +1,14 @@
-use crate::models::{self, schema::node_properties};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
+
+use crate::auth::resource::NodeId;
+use crate::models::{self, schema::node_properties};
 
 #[derive(Debug, Clone, Insertable, Queryable)]
 #[diesel(table_name = node_properties)]
 pub struct NodeProperty {
     pub id: uuid::Uuid,
-    pub node_id: uuid::Uuid,
+    pub node_id: NodeId,
     pub blockchain_property_id: uuid::Uuid,
     pub value: String,
 }

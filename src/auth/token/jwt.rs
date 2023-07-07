@@ -3,8 +3,10 @@ use displaydoc::Display;
 use jsonwebtoken::{errors, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use thiserror::Error;
 
-use crate::auth::Claims;
+use crate::auth::claims::Claims;
 use crate::config::token::JwtSecret;
+
+use super::BearerToken;
 
 const ALGORITHM: Algorithm = Algorithm::HS512;
 
@@ -44,17 +46,17 @@ impl Cipher {
             .map_err(Error::Encode)
     }
 
-    pub fn decode(&self, raw: &str) -> Result<Claims, Error> {
-        jsonwebtoken::decode(raw, &self.decoding_key, &self.validation)
+    pub fn decode(&self, token: &BearerToken) -> Result<Claims, Error> {
+        jsonwebtoken::decode(token, &self.decoding_key, &self.validation)
             .map(|data| data.claims)
             .map_err(Error::Decode)
     }
 
-    pub fn decode_expired(&self, raw: &str) -> Result<Claims, Error> {
+    pub fn decode_expired(&self, token: &BearerToken) -> Result<Claims, Error> {
         let mut validation = Validation::new(ALGORITHM);
         validation.validate_exp = false;
 
-        jsonwebtoken::decode(raw, &self.decoding_key, &validation)
+        jsonwebtoken::decode(token, &self.decoding_key, &validation)
             .map(|data| data.claims)
             .map_err(Error::DecodeExpired)
     }
@@ -62,26 +64,31 @@ impl Cipher {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::auth::token::{Endpoints, ResourceType};
+    use uuid::Uuid;
+
+    use crate::auth::claims::Expirable;
+    use crate::auth::endpoint::Endpoints;
+    use crate::auth::resource::ResourceEntry;
+    use crate::auth::token::RequestToken;
     use crate::config::Context;
 
-    #[test]
-    fn test_encode_decode_preserves_token() {
-        let context = Context::new_with_default_toml().unwrap();
+    use super::*;
 
-        let iat = chrono::Utc::now();
-        let claims = Claims::new(
-            ResourceType::Node,
-            uuid::Uuid::new_v4(),
-            iat,
-            chrono::Duration::minutes(15),
-            Endpoints::Wildcard,
-        )
-        .unwrap();
+    #[tokio::test]
+    async fn test_encode_decode_preserves_token() {
+        let context = Context::from_default_toml().await.unwrap();
 
-        let encoded = context.cipher.jwt.encode(&claims).unwrap();
-        let decoded = context.cipher.jwt.decode(&encoded).unwrap();
+        let resource = ResourceEntry::new_node(Uuid::new_v4().into()).into();
+        let expirable = Expirable::from_now(chrono::Duration::minutes(15));
+        let claims = Claims::new(resource, expirable, Endpoints::Wildcard);
+
+        let encoded = context.cipher().jwt.encode(&claims).unwrap();
+        let token = match encoded.parse().unwrap() {
+            RequestToken::Bearer(token) => token,
+            _ => panic!("Unexpected RequestToken type"),
+        };
+
+        let decoded = context.cipher().jwt.decode(&token).unwrap();
         assert_eq!(claims, decoded);
     }
 }

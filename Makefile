@@ -3,6 +3,8 @@ REPO=registry.digitalocean.com/stakejoy
 IMAGE_FULL=${REPO}/${IMAGE_NAME}:latest
 # APP_ID=2d67787e-f607-4d56-9e8b-5492728086b5
 
+export DATABASE_URL=postgres://blockvisor:password@localhost:25432/blockvisor_db
+
 test:
 	@docker-compose up -d
 	@cargo test --no-fail-fast

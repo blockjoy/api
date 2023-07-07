@@ -1,5 +1,7 @@
+use blockvisor_api::auth::claims::Claims;
+use blockvisor_api::auth::endpoint::Endpoint;
 use blockvisor_api::auth::token::refresh::Refresh;
-use blockvisor_api::auth::token::{Claims, Endpoint};
+use blockvisor_api::auth::token::RequestToken;
 use blockvisor_api::grpc::api::{self, auth_service_client};
 use blockvisor_api::models;
 
@@ -44,16 +46,11 @@ async fn responds_error_with_invalid_credentials_for_login() {
 async fn responds_ok_with_valid_credentials_for_confirm() {
     let tester = super::Tester::new().await;
     let user = tester.unconfirmed_user().await;
-    let iat = chrono::Utc::now();
-    let claims = Claims::new_user(
-        user.id,
-        iat,
-        chrono::Duration::minutes(15),
-        [Endpoint::AuthConfirm],
-    )
-    .unwrap();
 
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let expires = chrono::Duration::minutes(15);
+    let claims = Claims::user_from_now(expires, user.id, [Endpoint::AuthConfirm]);
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
+
     let req = api::AuthServiceConfirmRequest {};
     tester.send_with(Service::confirm, req, &jwt).await.unwrap();
 
@@ -69,24 +66,25 @@ async fn responds_ok_for_refresh() {
     let tester = super::Tester::new().await;
 
     let claims = tester.admin_token().await;
-    let token = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let token = tester.cipher().jwt.encode(&claims).unwrap();
 
     let refresh = tester.admin_refresh().await;
-    let refresh = tester.context().cipher.refresh.encode(&refresh).unwrap();
+    let encoded = tester.cipher().refresh.encode(&refresh).unwrap();
 
     let req = api::AuthServiceRefreshRequest {
         token: token.into(),
-        refresh: Some(refresh.into()),
+        refresh: Some(encoded.into()),
     };
     let resp = tester.send_admin(Service::refresh, req).await.unwrap();
 
-    tester.context().cipher.jwt.decode(&resp.token).unwrap();
-    tester
-        .context()
-        .cipher
-        .refresh
-        .decode(&resp.refresh)
-        .unwrap();
+    let token = match resp.token.parse().unwrap() {
+        RequestToken::Bearer(token) => token,
+        _ => panic!("Unexpected RequestToken type"),
+    };
+    let refresh = resp.refresh.into();
+
+    tester.cipher().jwt.decode(&token).unwrap();
+    tester.cipher().refresh.decode(&refresh).unwrap();
 }
 
 #[tokio::test]
@@ -123,14 +121,14 @@ async fn refresh_works() {
     let tester = super::Tester::new().await;
 
     let claims = tester.admin_token().await;
-    let token = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let token = tester.cipher().jwt.encode(&claims).unwrap();
 
     let refresh = tester.admin_refresh().await;
-    let refresh = tester.context().cipher.refresh.encode(&refresh).unwrap();
+    let encoded = tester.cipher().refresh.encode(&refresh).unwrap();
 
     let req = api::AuthServiceRefreshRequest {
         token: token.into(),
-        refresh: Some(refresh.into()),
+        refresh: Some(encoded.into()),
     };
 
     tester.send(Service::refresh, req).await.unwrap();
@@ -141,15 +139,11 @@ async fn refresh_works_from_cookie() {
     let tester = super::Tester::new().await;
 
     let claims = tester.admin_token().await;
-    let token = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let token = tester.cipher().jwt.encode(&claims).unwrap();
 
-    let refresh = Refresh::new(
-        tester.user().await.id,
-        chrono::Utc::now(),
-        chrono::Duration::seconds(60),
-    )
-    .unwrap();
-    let refresh = tester.context().cipher.refresh.encode(&refresh).unwrap();
+    let expires = chrono::Duration::seconds(60);
+    let refresh = Refresh::from_now(expires, tester.user().await.id);
+    let encoded = tester.cipher().refresh.encode(&refresh).unwrap();
 
     let req = api::AuthServiceRefreshRequest {
         token: token.into(),
@@ -157,7 +151,7 @@ async fn refresh_works_from_cookie() {
     };
     let mut req = tonic::Request::new(req);
     req.metadata_mut()
-        .insert("cookie", format!("refresh={}", *refresh).parse().unwrap());
+        .insert("cookie", format!("refresh={}", *encoded).parse().unwrap());
 
     tester.send(Service::refresh, req).await.unwrap();
 }

@@ -13,7 +13,7 @@ async fn responds_ok_for_update_config() {
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let node = tester.node().await;
     let node_id = node.id.to_string();
@@ -196,7 +196,7 @@ async fn responds_permission_denied_with_user_token_for_update_status() {
 
     let user = tester.user().await;
     let claims = tester.user_token(&user).await;
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let node = tester.node().await;
     let req = api::NodeServiceUpdateStatusRequest {

@@ -1,17 +1,15 @@
-use crate::cloudflare::CloudflareApi;
-use crate::config::Context;
-use crate::cookbook::Cookbook;
-use crate::grpc::server as grpc_server;
-use crate::http::server as http_server;
-use crate::hybrid_server::hybrid as hybrid_server;
-use crate::models;
+use std::sync::Arc;
+
 use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::bb8::Pool;
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 use diesel_async::AsyncPgConnection;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
-use std::sync::Arc;
+
+use crate::config::Context;
+use crate::hybrid_server::hybrid;
+use crate::{grpc, http, models};
 
 pub async fn start(context: Arc<Context>) -> anyhow::Result<()> {
     let config = context.config.as_ref();
@@ -29,12 +27,10 @@ pub async fn start(context: Arc<Context>) -> anyhow::Result<()> {
         .await?;
 
     let db = models::DbPool::new(pool, context.clone());
-    let cloudflare = CloudflareApi::new(config.cloudflare.clone());
-    let cookbook = Cookbook::new_s3(&config.cookbook);
 
-    let rest = http_server(db.clone()).await.into_make_service();
-    let grpc = grpc_server(db, cloudflare, cookbook).await.into_service();
-    let hybrid = hybrid_server(rest, grpc);
+    let rest = http::server(db.clone()).await.into_make_service();
+    let grpc = grpc::server(db).await.into_service();
+    let hybrid = hybrid(rest, grpc);
 
     axum::Server::bind(&config.database.bind_addr())
         .serve(hybrid)
@@ -52,7 +48,7 @@ fn root_certs() -> rustls::RootCertStore {
 
 /// This function is a custom establish function for a new `AsyncPgConnection`. The difference
 /// between this one and the standard one is that is function requires TLS.
-fn establish_connection(config: &str) -> BoxFuture<ConnectionResult<AsyncPgConnection>> {
+fn establish_connection(config: &str) -> BoxFuture<'_, ConnectionResult<AsyncPgConnection>> {
     let fut = async {
         let rustls_config = rustls::ClientConfig::builder()
             .with_safe_defaults()

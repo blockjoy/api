@@ -7,6 +7,7 @@ fn main() {
         .build_client(true)
         .compile(
             &[
+                "blockjoy/v1/api_key.proto",
                 "blockjoy/v1/auth.proto",
                 "blockjoy/v1/babel.proto",
                 "blockjoy/v1/blockchain.proto",

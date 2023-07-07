@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
+use tracing::debug;
+
+use crate::auth::endpoint::Endpoint;
+use crate::auth::resource::{Resource, UserId};
+use crate::models;
+use crate::timestamp::NanosUtc;
 
 use super::api::{self, org_service_server};
-use crate::auth::token::{Endpoint, Resource};
-use crate::{auth, models};
 
 #[tonic::async_trait]
-impl org_service_server::OrgService for super::GrpcImpl {
+impl org_service_server::OrgService for super::Grpc {
     async fn create(
         &self,
         req: tonic::Request<api::OrgServiceCreateRequest>,
@@ -89,7 +93,7 @@ async fn create(
     req: tonic::Request<api::OrgServiceCreateRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::OrgServiceCreateResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::OrgCreate, conn).await?;
+    let claims = conn.claims(&req, Endpoint::OrgCreate).await?;
     let req = req.into_inner();
     let Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
     let new_org = models::NewOrg {
@@ -108,7 +112,7 @@ async fn get(
     req: tonic::Request<api::OrgServiceGetRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::OrgServiceGetResponse> {
-    let claims = auth::get_claims(&req, Endpoint::OrgGet, conn).await?;
+    let claims = conn.claims(&req, Endpoint::OrgGet).await?;
     let req = req.into_inner();
     let org_id = req.id.parse()?;
     let is_allowed = match claims.resource() {
@@ -131,7 +135,7 @@ async fn list(
     req: tonic::Request<api::OrgServiceListRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::OrgServiceListResponse> {
-    let claims = auth::get_claims(&req, Endpoint::OrgList, conn).await?;
+    let claims = conn.claims(&req, Endpoint::OrgList).await?;
     let req = req.into_inner();
     let member_id = req.member_id.map(|id| id.parse()).transpose()?;
     let is_allowed = match claims.resource() {
@@ -159,7 +163,7 @@ async fn update(
     req: tonic::Request<api::OrgServiceUpdateRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::OrgServiceUpdateResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::OrgUpdate, conn).await?;
+    let claims = conn.claims(&req, Endpoint::OrgUpdate).await?;
     let req = req.into_inner();
     let Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
     let org_id = req.id.parse()?;
@@ -182,7 +186,7 @@ async fn delete(
     req: tonic::Request<api::OrgServiceDeleteRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::OrgServiceDeleteResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::OrgDelete, conn).await?;
+    let claims = conn.claims(&req, Endpoint::OrgDelete).await?;
     let req = req.into_inner();
     let Resource::User(user_id) = claims.resource() else { super::forbidden!("Access denied") };
     let org_id = req.id.parse()?;
@@ -194,7 +198,7 @@ async fn delete(
         super::forbidden!("Can't deleted personal org");
     }
 
-    tracing::debug!("Deleting org: {}", org_id);
+    debug!("Deleting org: {}", *org_id);
     org.delete(conn).await?;
     let user = models::User::find_by_id(user_id, conn).await?;
     let msg = api::OrgMessage::deleted(org, user);
@@ -206,7 +210,7 @@ async fn remove_member(
     req: tonic::Request<api::OrgServiceRemoveMemberRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::OrgServiceRemoveMemberResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::OrgRemoveMember, conn).await?;
+    let claims = conn.claims(&req, Endpoint::OrgRemoveMember).await?;
     let req = req.into_inner();
     let Resource::User(caller_id) = claims.resource() else { super::forbidden!("Access denied") };
     let org_id = req.org_id.parse()?;
@@ -214,7 +218,7 @@ async fn remove_member(
     let is_admin = models::Org::is_admin(caller_id, org_id, conn).await?;
     let is_self = caller_id == user_id;
     if !is_admin && !is_self {
-        super::forbidden!("User {caller_id} has can't remove user {user_id} from org {org_id}")
+        super::forbidden!("User {caller_id} can't remove user {user_id} from org {org_id}")
     }
     let user_to_remove = models::User::find_by_id(user_id, conn).await?;
     let org = models::Org::find_by_id(org_id, conn).await?;
@@ -235,7 +239,7 @@ async fn get_provision_token(
     req: tonic::Request<api::OrgServiceGetProvisionTokenRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::OrgServiceGetProvisionTokenResponse> {
-    let claims = auth::get_claims(&req, Endpoint::OrgGetProvisionToken, conn).await?;
+    let claims = conn.claims(&req, Endpoint::OrgGetProvisionToken).await?;
     let req = req.into_inner();
     let user_id = req.user_id.parse()?;
     let org_id = req.org_id.parse()?;
@@ -261,7 +265,7 @@ async fn reset_provision_token(
     req: tonic::Request<api::OrgServiceResetProvisionTokenRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::OrgServiceResetProvisionTokenResponse> {
-    let claims = auth::get_claims(&req, Endpoint::OrgResetProvisionToken, conn).await?;
+    let claims = conn.claims(&req, Endpoint::OrgResetProvisionToken).await?;
     let req = req.into_inner();
     let user_id = req.user_id.parse()?;
     let org_id = req.org_id.parse()?;
@@ -296,8 +300,8 @@ impl api::Org {
 
         // Now we get the actual users for each `OrgUser`, because we also need to provide the name
         // and email of each user.
-        let user_ids: Vec<uuid::Uuid> = org_users.values().flatten().map(|ou| ou.user_id).collect();
-        let users: HashMap<uuid::Uuid, models::User> = models::User::find_by_ids(&user_ids, conn)
+        let user_ids = org_users.values().flatten().map(|ou| ou.user_id).collect();
+        let users: HashMap<UserId, models::User> = models::User::find_by_ids(user_ids, conn)
             .await?
             .into_iter()
             .map(|u| (u.id, u))
@@ -317,8 +321,8 @@ impl api::Org {
                     name: model.name.clone(),
                     personal: model.is_personal,
                     member_count: org_users.len().try_into()?,
-                    created_at: Some(super::try_dt_to_ts(model.created_at)?),
-                    updated_at: Some(super::try_dt_to_ts(model.updated_at)?),
+                    created_at: Some(NanosUtc::from(model.created_at).into()),
+                    updated_at: Some(NanosUtc::from(model.updated_at).into()),
                     members: org_users
                         .iter()
                         .flat_map(|ou| {

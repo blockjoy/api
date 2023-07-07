@@ -1,26 +1,31 @@
-use super::schema::ip_addresses;
-use crate::{Error, Result};
+use std::net::IpAddr;
+
 use anyhow::anyhow;
 use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
 use ipnet::{IpAddrRange, Ipv4AddrRange};
-use std::net::IpAddr;
+use ipnetwork::IpNetwork;
+
+use crate::auth::resource::HostId;
+use crate::{Error, Result};
+
+use super::schema::ip_addresses;
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = ip_addresses)]
 pub struct CreateIpAddress {
-    pub ip: ipnetwork::IpNetwork,
-    pub host_id: uuid::Uuid,
+    pub ip: IpNetwork,
+    pub host_id: HostId,
 }
 
 pub struct NewIpAddressRange {
     from: IpAddr,
     to: IpAddr,
-    host_id: uuid::Uuid,
+    host_id: HostId,
 }
 
 impl NewIpAddressRange {
-    pub fn try_new(from: IpAddr, to: IpAddr, host_id: uuid::Uuid) -> Result<Self> {
+    pub fn try_new(from: IpAddr, to: IpAddr, host_id: HostId) -> Result<Self> {
         if to < from {
             Err(Error::UnexpectedError(anyhow!(
                 "TO IP can't be smaller as FROM IP"
@@ -30,13 +35,18 @@ impl NewIpAddressRange {
         }
     }
 
-    pub async fn create(self, conn: &mut super::Conn) -> Result<Vec<IpAddress>> {
+    pub async fn create(
+        self,
+        exclude: &[IpAddr],
+        conn: &mut super::Conn,
+    ) -> Result<Vec<IpAddress>> {
         let host_id = self.host_id;
         let start_range = Self::to_ipv4(self.from)?;
         let stop_range = Self::to_ipv4(self.to)?;
         let ip_addrs = IpAddrRange::from(Ipv4AddrRange::new(start_range, stop_range));
         let ip_addrs: Vec<_> = ip_addrs
             .into_iter()
+            .filter(|ip| !exclude.contains(ip))
             .map(|ip| CreateIpAddress {
                 ip: ip.into(),
                 host_id,
@@ -61,16 +71,16 @@ impl NewIpAddressRange {
 #[derive(Debug, Queryable)]
 pub struct IpAddress {
     pub(crate) id: uuid::Uuid,
-    pub(crate) ip: ipnetwork::IpNetwork,
+    pub(crate) ip: IpNetwork,
     #[allow(unused)]
-    pub(crate) host_id: Option<uuid::Uuid>,
+    pub(crate) host_id: Option<HostId>,
     #[allow(unused)]
     pub(crate) is_assigned: bool,
 }
 
 impl IpAddress {
     /// Helper returning the next valid IP address for host identified by `host_id`
-    pub async fn next_for_host(host_id: uuid::Uuid, conn: &mut super::Conn) -> Result<Self> {
+    pub async fn next_for_host(host_id: HostId, conn: &mut super::Conn) -> Result<Self> {
         let ip: Self = ip_addresses::table
             .filter(ip_addresses::host_id.eq(host_id))
             .filter(ip_addresses::is_assigned.eq(false))
@@ -82,11 +92,7 @@ impl IpAddress {
     }
 
     /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
-    pub async fn assign(
-        id: uuid::Uuid,
-        host_id: uuid::Uuid,
-        conn: &mut super::Conn,
-    ) -> Result<Self> {
+    pub async fn assign(id: uuid::Uuid, host_id: HostId, conn: &mut super::Conn) -> Result<Self> {
         let fields = UpdateIpAddress {
             id,
             host_id: Some(host_id),
@@ -97,11 +103,7 @@ impl IpAddress {
     }
 
     /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
-    pub async fn unassign(
-        id: uuid::Uuid,
-        host_id: uuid::Uuid,
-        conn: &mut super::Conn,
-    ) -> Result<Self> {
+    pub async fn unassign(id: uuid::Uuid, host_id: HostId, conn: &mut super::Conn) -> Result<Self> {
         let fields = UpdateIpAddress {
             id,
             host_id: Some(host_id),
@@ -116,14 +118,14 @@ impl IpAddress {
     }
 
     pub async fn assigned(ip: IpAddr, conn: &mut super::Conn) -> Result<bool> {
-        let ip = ipnetwork::IpNetwork::new(ip, 32)?;
+        let ip = IpNetwork::new(ip, 32)?;
         let row = ip_addresses::table.filter(ip_addresses::ip.eq(ip));
         let assigned = diesel::select(dsl::exists(row)).get_result(conn).await?;
         Ok(assigned)
     }
 
     pub async fn find_by_node(node_ip: IpAddr, conn: &mut super::Conn) -> Result<Self> {
-        let ip = ipnetwork::IpNetwork::new(node_ip, 32)?;
+        let ip = IpNetwork::new(node_ip, 32)?;
         let ip = ip_addresses::table
             .filter(ip_addresses::ip.eq(ip))
             .get_result(conn)
@@ -136,7 +138,7 @@ impl IpAddress {
 #[diesel(table_name = ip_addresses)]
 pub struct UpdateIpAddress {
     pub(crate) id: uuid::Uuid,
-    pub(crate) host_id: Option<uuid::Uuid>,
+    pub(crate) host_id: Option<HostId>,
     pub(crate) is_assigned: Option<bool>,
 }
 
@@ -154,11 +156,11 @@ impl UpdateIpAddress {
 mod test {
     use super::*;
     use crate::config::Context;
-    use crate::TestDb;
+    use crate::tests::TestDb;
 
     #[tokio::test]
     async fn should_create_ip_range() -> anyhow::Result<()> {
-        let context = Context::new_with_default_toml().unwrap();
+        let context = Context::from_default_toml().await.unwrap();
         let db = TestDb::setup(context).await;
 
         let new_range = NewIpAddressRange::try_new(
@@ -167,7 +169,7 @@ mod test {
             db.host().await.id,
         )?;
         let mut conn = db.conn().await;
-        let range = new_range.create(&mut conn).await?;
+        let range = new_range.create(&[], &mut conn).await?;
         assert_eq!(range.len(), 11);
 
         Ok(())
@@ -176,7 +178,7 @@ mod test {
     #[tokio::test]
     #[should_panic]
     async fn should_fail_creating_ip_range() {
-        let context = Context::new_with_default_toml().unwrap();
+        let context = Context::from_default_toml().await.unwrap();
         let db = TestDb::setup(context).await;
 
         NewIpAddressRange::try_new(

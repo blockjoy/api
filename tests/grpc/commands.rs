@@ -1,3 +1,4 @@
+use blockvisor_api::auth::resource::NodeId;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models;
 
@@ -5,7 +6,7 @@ type Service = api::command_service_client::CommandServiceClient<super::Channel>
 
 async fn create_command(
     tester: &super::Tester,
-    node_id: uuid::Uuid,
+    node_id: NodeId,
     cmd_type: models::CommandType,
 ) -> models::Command {
     let host = tester.host().await;
@@ -31,7 +32,7 @@ async fn responds_ok_for_update() {
         .unwrap();
 
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let req = api::CommandServiceUpdateRequest {
         id: cmd.id.to_string(),
@@ -77,7 +78,7 @@ async fn responds_ok_for_pending() {
         .unwrap();
 
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let req = api::CommandServicePendingRequest {
         host_id: host.id.to_string(),

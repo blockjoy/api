@@ -2,10 +2,10 @@
 
 use std::vec;
 
-use crate::{
-    grpc::{self, api},
-    models,
-};
+use tracing::error;
+
+use crate::grpc::{self, api};
+use crate::models;
 
 /// When we get a failed command back from blockvisord, we can try to recover from this. This is
 /// currently only implemented for failed node creates. Note that this function largely ignores
@@ -13,26 +13,24 @@ use crate::{
 /// make our best effort to recover. If a command won't send but it not essential for process, we
 /// ignore and continue.
 pub(super) async fn recover(
-    impler: &grpc::GrpcImpl,
     failed_cmd: &models::Command,
     conn: &mut models::Conn,
 ) -> crate::Result<Vec<api::Command>> {
     if failed_cmd.cmd == models::CommandType::CreateNode {
-        recover_created(impler, failed_cmd, conn).await
+        recover_created(failed_cmd, conn).await
     } else {
         Ok(vec![])
     }
 }
 
 async fn recover_created(
-    impler: &grpc::GrpcImpl,
     failed_cmd: &models::Command,
     conn: &mut models::Conn,
 ) -> crate::Result<Vec<api::Command>> {
     let mut vec = vec![];
     let Some(node_id) = failed_cmd.node_id else {
-        tracing::error!("`CreateNode` command has no node id!");
-        return Err(crate::Error::ValidationError(
+        error!("`CreateNode` command has no node id!");
+        return Err(crate::Error::ValidationError (
             "CreateNode command has no node id".to_string(),
         ));
     };
@@ -46,14 +44,14 @@ async fn recover_created(
     // 4. Use the previous decision to send a new create message to the right instance of
     //    blockvisord, or mark the current node as failed and send an MQTT message to the front end.
     let Ok(mut node) = models::Node::find_by_id(node_id, conn).await else {
-        tracing::error!("Could not get node for node_id {node_id}");
-        return Err(crate::Error::ValidationError(
+        error!("Could not get node for node_id {node_id}");
+        return Err(crate::Error::ValidationError (
             "Could not get node for node_id".to_string(),
         ));
     };
     let Ok(blockchain) = models::Blockchain::find_by_id(node.blockchain_id, conn).await else {
-        tracing::error!("Could not get blockchain for node {node_id}");
-        return Err(crate::Error::ValidationError(
+        error!("Could not get blockchain for node {node_id}");
+        return Err(crate::Error::ValidationError (
             "Could not get blockchain for node".to_string(),
         ));
     };
@@ -75,14 +73,14 @@ async fn recover_created(
         created_at: chrono::Utc::now(),
     };
     let Ok(_) = new_log.create(conn).await else {
-        tracing::error!("Failed to create deployment log entry!");
-        return Err(crate::Error::ValidationError(
+        error!("Failed to create deployment log entry!");
+        return Err(crate::Error::ValidationError (
             "Failed to create deployment log entry".to_string(),
         ));
     };
 
     // 3. We now find the host that is next in line, and assign our node to that host.
-    let Ok(host) = node.find_host(&impler.cookbook, conn).await else {
+    let Ok(host) = node.find_host(conn).await else {
         // We were unable to find a new host. This may happen because the system is out of resources
         // or because we have retried to many times. Either way we have to log that this retry was
         // canceled.
@@ -96,8 +94,8 @@ async fn recover_created(
             created_at: chrono::Utc::now(),
         };
         let Ok(_) = new_log.create(conn).await else {
-            tracing::error!("Failed to create cancelation log entry!");
-            return Err(crate::Error::ValidationError(
+            error!("Failed to create cancelation log entry!");
+            return Err(crate::Error::ValidationError (
                 "Failed to create cancelation log entry".to_string(),
             ));
         };
@@ -105,8 +103,8 @@ async fn recover_created(
     };
     node.host_id = host.id;
     let Ok(node) = node.update(conn).await else {
-        tracing::error!("Could not update node!");
-        return Err(crate::Error::ValidationError(
+        error!("Could not update node!");
+        return Err(crate::Error::ValidationError (
             "Could not update node".to_string(),
         ));
     };
@@ -118,10 +116,10 @@ async fn recover_created(
         if let Ok(create_cmd) = api::Command::from_model(&cmd, conn).await {
             vec.push(create_cmd)
         } else {
-            tracing::error!("Could not convert node create command to gRPC repr while recovering. Command: {:?}", cmd);
+            error!("Could not convert node create command to gRPC repr while recovering. Command: {:?}", cmd);
         }
     } else {
-        tracing::error!("Could not create node create command while recovering");
+        error!("Could not create node create command while recovering");
     }
     // we also start the node.
     if let Ok(cmd) =
@@ -130,13 +128,13 @@ async fn recover_created(
         if let Ok(start_cmd) = api::Command::from_model(&cmd, conn).await {
             vec.push(start_cmd);
         } else {
-            tracing::error!(
+            error!(
                 "Could not convert node start command to gRPC repr while recovering. Command {:?}",
                 cmd
             );
         }
     } else {
-        tracing::error!("Could not create node start command while recovering");
+        error!("Could not create node start command while recovering");
     }
     Ok(vec)
 }
@@ -155,11 +153,11 @@ async fn send_delete(
         node_id: Some(node.id),
     };
     let Ok(cmd) = cmd.create(conn).await else {
-        tracing::error!("Could not create node delete command while recovering");
+        error!("Could not create node delete command while recovering");
         return;
     };
     let Ok(cmd) = api::Command::from_model(&cmd, conn).await else {
-        tracing::error!("Could not convert node delete command to gRPC repr while recovering");
+        error!("Could not convert node delete command to gRPC repr while recovering");
         return;
     };
     commands.push(cmd);

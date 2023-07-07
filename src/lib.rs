@@ -1,9 +1,9 @@
 #![recursion_limit = "256"]
 
 pub mod auth;
-pub mod cloudflare;
 pub mod config;
 pub mod cookbook;
+pub mod dns;
 pub mod error;
 pub mod grpc;
 pub mod http;
@@ -11,23 +11,18 @@ pub mod hybrid_server;
 pub mod mail;
 pub mod models;
 pub mod server;
+pub mod timestamp;
 
+use diesel_migrations::EmbeddedMigrations;
 use error::{Error, Result};
 
-pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
-    diesel_migrations::embed_migrations!();
+pub const MIGRATIONS: EmbeddedMigrations = diesel_migrations::embed_migrations!();
 
-pub use test::{TestCloudflareApi, TestCookbook, TestDb};
+#[cfg(any(test, feature = "integration-test"))]
+pub mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
 
-mod test {
-    use crate::auth::token::refresh::Refresh;
-    use crate::cloudflare::CloudflareApi;
-    use crate::config::cloudflare::{ApiConfig, Config as CloudflareConfig, DnsConfig};
-    use crate::config::Context;
-    use crate::cookbook::{self, Cookbook};
-    use crate::models;
-    use crate::models::schema::{blockchains, commands, nodes, orgs};
-    use crate::models::Conn;
     use diesel::migration::MigrationSource;
     use diesel::prelude::*;
     use diesel_async::pooled_connection::bb8::Pool;
@@ -35,64 +30,18 @@ mod test {
     use diesel_async::scoped_futures::ScopedFutureExt;
     use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
     use rand::Rng;
-    use std::sync::Arc;
-    use std::time::Duration;
     use uuid::Uuid;
 
-    pub struct TestCloudflareApi {
-        mock: mockito::ServerGuard,
-    }
+    use crate::auth::resource::{HostId, NodeId, OrgId, UserId};
+    use crate::auth::token::refresh::Refresh;
+    use crate::config::Context;
+    use crate::cookbook::{self, Cookbook};
+    use crate::models;
+    use crate::models::schema::{blockchains, commands, nodes, orgs};
+    use crate::models::Conn;
 
-    impl TestCloudflareApi {
-        pub async fn new() -> Self {
-            let mock = Self::mock_cloudflare_api().await;
-            Self { mock }
-        }
-
-        pub fn get_cloudflare_api(&self) -> CloudflareApi {
-            CloudflareApi::new(self.mock_config())
-        }
-
-        async fn mock_cloudflare_api() -> mockito::ServerGuard {
-            let mut cloudfare_server = mockito::Server::new_async().await;
-
-            let mut rng = rand::thread_rng();
-            let id_dns = rng.gen_range(200000..5000000);
-            cloudfare_server
-                .mock(
-                    "POST",
-                    mockito::Matcher::Regex(r"^/zones/.*/dns_records$".to_string()),
-                )
-                .with_status(200)
-                .with_body(format!("{{\"result\":{{\"id\":\"{:x}\"}}}}", id_dns))
-                .create_async()
-                .await;
-            cloudfare_server
-                .mock(
-                    "DELETE",
-                    mockito::Matcher::Regex(r"^/zones/.*/dns_records/.*$".to_string()),
-                )
-                .with_status(200)
-                .create_async()
-                .await;
-            cloudfare_server
-        }
-
-        pub fn mock_config(&self) -> Arc<CloudflareConfig> {
-            let config = CloudflareConfig {
-                api: ApiConfig {
-                    base_url: self.mock.url(),
-                    zone_id: "zone_id".into(),
-                    token: "token".parse().unwrap(),
-                },
-                dns: DnsConfig {
-                    base: "base".into(),
-                    ttl: 3600,
-                },
-            };
-            Arc::new(config)
-        }
-    }
+    pub const SEED_ORG_ID: &str = "08dede71-b97d-47c1-a91d-6ba0997b3cdd";
+    pub const SEED_NODE_ID: &str = "cdbbc736-f399-42ab-86cf-617ce983011d";
 
     pub struct TestCookbook {
         mock: mockito::ServerGuard,
@@ -154,6 +103,7 @@ mod test {
     #[derive(Clone)]
     pub struct TestDb {
         pub pool: models::DbPool,
+        pub context: Arc<Context>,
         test_db_name: String,
         test_db_url: String,
         main_db_url: String,
@@ -201,11 +151,13 @@ mod test {
                 .build(manager)
                 .await
                 .expect("Pool");
+            let pool = models::DbPool::new(pool, context.clone());
 
             // With our constructed pool, we can create a tester, migrate the database and seed it
             // with some data for our tests.
             let db = TestDb {
-                pool: models::DbPool::new(pool, context.clone()),
+                pool,
+                context,
                 test_db_name,
                 test_db_url,
                 main_db_url,
@@ -226,7 +178,7 @@ mod test {
 
         pub async fn create_node(
             node: &models::NewNode<'_>,
-            host_id_param: &uuid::Uuid,
+            host_id_param: &HostId,
             ip_add_param: &str,
             dns_id: &str,
             conn: &mut AsyncPgConnection,
@@ -282,7 +234,7 @@ mod test {
                 .await
                 .unwrap();
 
-            let org_id: uuid::Uuid = "08dede71-b97d-47c1-a91d-6ba0997b3cdd".parse().unwrap();
+            let org_id: OrgId = SEED_ORG_ID.parse().unwrap();
             diesel::insert_into(orgs::table)
                 .values((
                     orgs::id.eq(org_id),
@@ -352,7 +304,7 @@ mod test {
                 host2.id,
             )
             .unwrap()
-            .create(conn)
+            .create(&[], conn)
             .await
             .unwrap();
 
@@ -364,7 +316,7 @@ mod test {
                 .ip()
                 .to_string();
 
-            let node_id: uuid::Uuid = "cdbbc736-f399-42ab-86cf-617ce983011d".parse().unwrap();
+            let node_id: NodeId = SEED_NODE_ID.parse().unwrap();
             diesel::insert_into(nodes::table)
                 .values((
                     nodes::id.eq(node_id),
@@ -410,7 +362,7 @@ mod test {
         }
 
         pub async fn org(&self) -> models::Org {
-            let id = "08dede71-b97d-47c1-a91d-6ba0997b3cdd".parse().unwrap();
+            let id = SEED_ORG_ID.parse().unwrap();
             let mut conn = self.conn().await;
             models::Org::find_by_id(id, &mut conn).await.unwrap()
         }
@@ -454,44 +406,26 @@ mod test {
                 .unwrap()
         }
 
-        pub fn user_refresh_token(&self, user_id: Uuid) -> Refresh {
-            let iat = chrono::Utc::now();
-            let refresh_exp = self
-                .pool
-                .context
-                .config
-                .token
-                .expire
-                .refresh_user
-                .try_into()
-                .unwrap();
-            Refresh::new(user_id, iat, refresh_exp).unwrap()
+        pub fn user_refresh_token(&self, user_id: UserId) -> Refresh {
+            let expires = self.context.config.token.expire.refresh_user;
+            Refresh::from_now(expires.try_into().unwrap(), user_id)
         }
 
-        pub fn host_refresh_token(&self, host_id: Uuid) -> Refresh {
-            let iat = chrono::Utc::now();
-            let refresh_exp = self
-                .pool
-                .context
-                .config
-                .token
-                .expire
-                .refresh_host
-                .try_into()
-                .unwrap();
-            Refresh::new(host_id, iat, refresh_exp).unwrap()
+        pub fn host_refresh_token(&self, host_id: HostId) -> Refresh {
+            let expires = self.context.config.token.expire.refresh_host;
+            Refresh::from_now(expires.try_into().unwrap(), host_id)
         }
 
-        fn test_node_properties(node_id: uuid::Uuid) -> Vec<models::NodeProperty> {
+        fn test_node_properties(node_id: NodeId) -> Vec<models::NodeProperty> {
             vec![
                 models::NodeProperty {
-                    id: uuid::Uuid::new_v4(),
+                    id: Uuid::new_v4(),
                     node_id,
                     blockchain_property_id: "5972a35a-333c-421f-ab64-a77f4ae17533".parse().unwrap(),
                     value: "Sneaky file content".to_string(),
                 },
                 models::NodeProperty {
-                    id: uuid::Uuid::new_v4(),
+                    id: Uuid::new_v4(),
                     node_id,
                     blockchain_property_id: "a989ad08-b455-4a57-9fe0-696405947e48".parse().unwrap(),
                     value: "false".to_string(),

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use blockvisor_api::auth::token::{Claims, Endpoint, Endpoints, ResourceType};
+use blockvisor_api::auth::claims::{Claims, Expirable};
+use blockvisor_api::auth::endpoint::{Endpoint, Endpoints};
+use blockvisor_api::auth::resource::ResourceEntry;
 use blockvisor_api::{grpc::api, models};
 
 type Service = api::org_service_client::OrgServiceClient<super::Channel>;
@@ -84,27 +86,21 @@ async fn member_count_works() {
 
     // Now we invite someone new.
     let new_invitation = models::NewInvitation {
-        created_by_user: user.id,
-        created_by_user_name: user.last_name,
-        created_for_org: org.id,
-        created_for_org_name: org.name.clone(),
+        created_by: user.id,
+        org_id: org.id,
         invitee_email: "test@here.com".to_string(),
     };
     let mut conn = tester.conn().await;
     let invitation = new_invitation.create(&mut conn).await.unwrap();
 
-    let iat = chrono::Utc::now();
-    let claims = Claims::new_with_data(
-        ResourceType::Org,
-        invitation.created_for_org,
-        iat,
-        chrono::Duration::minutes(15),
-        Endpoints::Multiple(vec![Endpoint::InvitationAccept]),
-        HashMap::from([("email".into(), invitation.invitee_email)]),
-    )
-    .unwrap();
+    let resource = ResourceEntry::new_org(invitation.org_id).into();
+    let expirable = Expirable::from_now(chrono::Duration::minutes(15));
+    let endpoints = Endpoints::Multiple(vec![Endpoint::InvitationAccept]);
 
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let claims = Claims::new(resource, expirable, endpoints)
+        .with_data(HashMap::from([("email".into(), invitation.invitee_email)]));
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
+
     let req = api::InvitationServiceAcceptRequest {
         invitation_id: invitation.id.to_string(),
     };

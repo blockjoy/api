@@ -1,14 +1,15 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tracing::log::{debug, info};
 
+use crate::auth::endpoint::Endpoint;
+use crate::models;
+
 use super::api::{self, babel_service_server};
 use super::helpers::required;
-use crate::auth::token::Endpoint;
-use crate::{auth, models};
 
 // Implement the Babel service
 #[tonic::async_trait]
-impl babel_service_server::BabelService for super::GrpcImpl {
+impl babel_service_server::BabelService for super::Grpc {
     // Define the implementation of the upgrade method
     async fn notify(
         &self,
@@ -26,7 +27,7 @@ async fn notify(
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::BabelServiceNotifyResponse>> {
     // TODO: decide who is allowed to call this endpoint
-    let _claims = auth::get_claims(&req, Endpoint::BabelNotifiy, conn).await?;
+    let _claims = conn.claims(&req, Endpoint::BabelNotify).await?;
     let req = req.into_inner();
     debug!("New Request Version: {:?}", req);
     let filter = req.info_filter(conn).await?;

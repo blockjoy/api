@@ -1,10 +1,14 @@
-use super::api::{self, blockchain_service_server, SupportedNodeProperty};
-use crate::{cookbook, models};
-use futures_util::future::join_all;
 use std::collections::HashMap;
 
+use futures_util::future::join_all;
+
+use crate::timestamp::NanosUtc;
+use crate::{cookbook, models};
+
+use super::api::{self, blockchain_service_server, SupportedNodeProperty};
+
 #[tonic::async_trait]
-impl blockchain_service_server::BlockchainService for super::GrpcImpl {
+impl blockchain_service_server::BlockchainService for super::Grpc {
     async fn get(
         &self,
         req: tonic::Request<api::BlockchainServiceGetRequest>,
@@ -19,7 +23,7 @@ impl blockchain_service_server::BlockchainService for super::GrpcImpl {
         req: tonic::Request<api::BlockchainServiceListRequest>,
     ) -> super::Resp<api::BlockchainServiceListResponse> {
         let mut conn = self.conn().await?;
-        let resp = list(self, req, &mut conn).await?;
+        let resp = list(req, &mut conn).await?;
         Ok(resp)
     }
 }
@@ -38,7 +42,6 @@ async fn get(
 }
 
 async fn list(
-    grpc: &super::GrpcImpl,
     _: tonic::Request<api::BlockchainServiceListRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::BlockchainServiceListResponse> {
@@ -51,6 +54,7 @@ async fn list(
     // This list will contain the dto's that are sent over gRPC after the information from
     // cookbook has been added to them.
     let mut grpc_blockchains = api::Blockchain::from_models(blockchains.clone(), conn).await?;
+    let cookbook = conn.context.cookbook.clone();
 
     // Now we need to combine this info with the networks that are stored in the cookbook
     // service. Since we want to do this in parallel, this list will contain a number of futures
@@ -59,7 +63,7 @@ async fn list(
     for blockchain in &blockchains {
         for node_properties in blockchain.properties(conn).await? {
             network_futs.push(try_get_networks(
-                &grpc.cookbook,
+                &cookbook,
                 blockchain.id,
                 blockchain.name.clone(),
                 node_properties.node_type.to_string(),
@@ -160,8 +164,8 @@ impl api::Blockchain {
                     repo_url: model.repo_url,
                     version: model.version,
                     nodes_types: api::SupportedNodeType::from_models(properties)?,
-                    created_at: Some(super::try_dt_to_ts(model.created_at)?),
-                    updated_at: Some(super::try_dt_to_ts(model.updated_at)?),
+                    created_at: Some(NanosUtc::from(model.created_at).into()),
+                    updated_at: Some(NanosUtc::from(model.updated_at).into()),
                     networks: vec![],
                 })
             })

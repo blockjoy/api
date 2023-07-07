@@ -5,6 +5,7 @@ use displaydoc::Display;
 use rumqttc::MqttOptions;
 use serde::Deserialize;
 use thiserror::Error;
+use uuid::Uuid;
 
 use super::provider::{self, Provider};
 use super::Redacted;
@@ -46,7 +47,7 @@ pub struct Config {
 
 impl Config {
     pub fn new_options(&self) -> MqttOptions {
-        let client_id = format!("blockvisor-api-{}", uuid::Uuid::new_v4());
+        let client_id = format!("blockvisor-api-{}", Uuid::new_v4());
         let mut options = MqttOptions::new(client_id, &self.server_address, self.server_port);
         options.set_credentials(&self.username, &*self.password);
         options

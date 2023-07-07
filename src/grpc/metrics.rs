@@ -7,12 +7,14 @@ use std::collections::HashSet;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 
+use crate::auth::endpoint::Endpoint;
+use crate::auth::resource::Resource;
+use crate::models;
+
 use super::api::{self, metrics_service_server};
-use crate::auth::token::{Endpoint, Resource};
-use crate::{auth, models};
 
 #[tonic::async_trait]
-impl metrics_service_server::MetricsService for super::GrpcImpl {
+impl metrics_service_server::MetricsService for super::Grpc {
     /// Update the metrics for the nodes provided in this request. Since this endpoint is called
     /// often (e.g. if we have 10,000 nodes, 170 calls per second) we take care to perform a single
     /// query for this whole list of metrics that comes in.
@@ -20,22 +22,28 @@ impl metrics_service_server::MetricsService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::MetricsServiceNodeRequest>,
     ) -> super::Resp<api::MetricsServiceNodeResponse> {
-        self.trx(|c| node(req, c).scope_boxed()).await
+        self.trx(|c| node(req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
     }
 
     async fn host(
         &self,
         req: tonic::Request<api::MetricsServiceHostRequest>,
     ) -> super::Resp<api::MetricsServiceHostResponse> {
-        self.trx(|c| host(req, c).scope_boxed()).await
+        self.trx(|c| host(req, c).scope_boxed())
+            .await?
+            .into_resp(&self.notifier)
+            .await
     }
 }
 
 async fn node(
     req: tonic::Request<api::MetricsServiceNodeRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::MetricsServiceNodeResponse> {
-    let claims = auth::get_claims(&req, Endpoint::MetricsNode, conn).await?;
+) -> crate::Result<super::Outcome<api::MetricsServiceNodeResponse>> {
+    let claims = conn.claims(&req, Endpoint::MetricsNode).await?;
     let req = req.into_inner();
     let updates: Vec<models::UpdateNodeMetrics> = req
         .metrics
@@ -56,16 +64,17 @@ async fn node(
     if !is_allowed {
         super::forbidden!("Access denied");
     }
-    models::UpdateNodeMetrics::update_metrics(updates, conn).await?;
+    let nodes = models::UpdateNodeMetrics::update_metrics(updates, conn).await?;
+    let msgs = api::NodeMessage::updated_many(nodes, conn).await?;
     let resp = api::MetricsServiceNodeResponse {};
-    Ok(tonic::Response::new(resp))
+    Ok(super::Outcome::new(resp).with_msgs(msgs))
 }
 
 async fn host(
     req: tonic::Request<api::MetricsServiceHostRequest>,
     conn: &mut models::Conn,
-) -> super::Result<api::MetricsServiceHostResponse> {
-    let claims = auth::get_claims(&req, Endpoint::MetricsNode, conn).await?;
+) -> crate::Result<super::Outcome<api::MetricsServiceHostResponse>> {
+    let claims = conn.claims(&req, Endpoint::MetricsNode).await?;
     let req = req.into_inner();
     let updates: Vec<models::UpdateHostMetrics> = req
         .metrics
@@ -86,9 +95,10 @@ async fn host(
     if !is_allowed {
         super::forbidden!("Access denied");
     }
-    models::UpdateHostMetrics::update_metrics(updates, conn).await?;
+    let hosts = models::UpdateHostMetrics::update_metrics(updates, conn).await?;
+    let msgs = api::HostMessage::updated_many(hosts, conn).await?;
     let resp = api::MetricsServiceHostResponse {};
-    Ok(tonic::Response::new(resp))
+    Ok(super::Outcome::new(resp).with_msgs(msgs))
 }
 
 impl api::NodeMetrics {

@@ -45,11 +45,11 @@ pub enum TokenType {
 mod tests {
     use super::*;
     use crate::config::Context;
-    use crate::TestDb;
+    use crate::tests::TestDb;
 
     #[tokio::test]
     async fn can_blacklist_any_token() {
-        let context = Context::new_with_default_toml().unwrap();
+        let context = Context::from_default_toml().await.unwrap();
         let tester = TestDb::setup(context).await;
 
         let token = "some-fancy-token".to_string();

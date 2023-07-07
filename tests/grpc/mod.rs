@@ -1,6 +1,7 @@
 use super::setup::*;
 use tonic::transport::Channel;
 
+mod api_key;
 mod auth;
 mod babel;
 mod blockchains;

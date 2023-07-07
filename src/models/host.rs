@@ -1,12 +1,14 @@
-use super::schema::hosts;
-use super::Paginate;
-use crate::{cookbook::script::HardwareRequirements, Error, Result};
-use anyhow::anyhow;
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
-use std::collections::HashMap;
-use uuid::Uuid;
+
+use crate::auth::resource::{HostId, OrgId, UserId};
+use crate::{cookbook::script::HardwareRequirements, Result};
+
+use super::schema::hosts;
+use super::Paginate;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumConnStatus"]
@@ -27,7 +29,7 @@ pub enum HostType {
 #[derive(Debug, Clone, Queryable)]
 #[diesel(table_name = hosts)]
 pub struct Host {
-    pub id: Uuid,
+    pub id: HostId,
     pub version: String,
     pub name: String,
     pub ip_addr: String,
@@ -55,29 +57,29 @@ pub struct Host {
     pub uptime: Option<i64>,
     pub host_type: Option<HostType>,
     /// The id of the org that owns and operates this host.
-    pub org_id: uuid::Uuid,
+    pub org_id: OrgId,
     /// This is the id of the user that created this host. For older hosts, this value might not be
     /// set.
-    pub created_by: Option<uuid::Uuid>,
+    pub created_by: Option<UserId>,
     // The id of the region where this host is located.
     pub region_id: Option<uuid::Uuid>,
 }
 
 #[derive(Clone, Debug)]
 pub struct HostFilter {
-    pub org_id: uuid::Uuid,
+    pub org_id: OrgId,
     pub offset: u64,
     pub limit: u64,
 }
 
 impl Host {
-    pub async fn find_by_id(id: Uuid, conn: &mut super::Conn) -> Result<Self> {
+    pub async fn find_by_id(id: HostId, conn: &mut super::Conn) -> Result<Self> {
         let host = hosts::table.find(id).get_result(conn).await?;
         Ok(host)
     }
 
     pub async fn find_by_ids(
-        ids: impl IntoIterator<Item = uuid::Uuid>,
+        ids: impl IntoIterator<Item = HostId>,
         conn: &mut super::Conn,
     ) -> Result<Vec<Self>> {
         let hosts = hosts::table
@@ -87,7 +89,7 @@ impl Host {
         Ok(hosts)
     }
 
-    pub async fn by_ids(ids: &[uuid::Uuid], conn: &mut super::Conn) -> Result<Vec<Self>> {
+    pub async fn by_ids(ids: &[HostId], conn: &mut super::Conn) -> Result<Vec<Self>> {
         let hosts: Vec<Self> = hosts::table
             .filter(hosts::id.eq_any(ids))
             .get_results(conn)
@@ -120,7 +122,7 @@ impl Host {
         Ok(host)
     }
 
-    pub async fn delete(id: Uuid, conn: &mut super::Conn) -> Result<usize> {
+    pub async fn delete(id: HostId, conn: &mut super::Conn) -> Result<usize> {
         let n_rows = diesel::delete(hosts::table.find(id)).execute(conn).await?;
         Ok(n_rows)
     }
@@ -142,7 +144,7 @@ impl Host {
         #[derive(Debug, QueryableByName)]
         struct HostCandidate {
             #[diesel(sql_type = Uuid)]
-            host_id: uuid::Uuid,
+            host_id: HostId,
         }
 
         // SAFETY: We are using `format!` to place a custom generated ORDER BY clause into a sql
@@ -213,7 +215,7 @@ impl Host {
     }
 
     pub async fn regions_for(
-        org_id: uuid::Uuid,
+        org_id: OrgId,
         host_type: Option<HostType>,
         conn: &mut super::Conn,
     ) -> crate::Result<Vec<String>> {
@@ -239,9 +241,9 @@ pub struct NewHost<'a> {
     pub ip_range_to: ipnetwork::IpNetwork,
     pub ip_gateway: ipnetwork::IpNetwork,
     /// The id of the org that owns and operates this host.
-    pub org_id: uuid::Uuid,
+    pub org_id: OrgId,
     /// This is the id of the user that created this host.
-    pub created_by: uuid::Uuid,
+    pub created_by: UserId,
     // The id of the region where this host is located.
     pub region_id: Option<uuid::Uuid>,
 }
@@ -249,16 +251,10 @@ pub struct NewHost<'a> {
 impl NewHost<'_> {
     /// Creates a new `Host` in the db, including the necessary related rows.
     pub async fn create(self, conn: &mut super::Conn) -> Result<Host> {
+        let ip_addr = self.ip_addr.parse()?;
         let ip_gateway = self.ip_gateway.ip();
         let ip_range_from = self.ip_range_from.ip();
         let ip_range_to = self.ip_range_to.ip();
-
-        // Ensure gateway IP is not amongst the ones created in the IP range
-        if super::IpAddress::in_range(ip_gateway, ip_range_from, ip_range_to) {
-            return Err(Error::IpGatewayError(anyhow!(
-                "{ip_gateway} is in range {ip_range_from} - {ip_range_to}",
-            )));
-        }
 
         let host: Host = diesel::insert_into(hosts::table)
             .values(self)
@@ -267,7 +263,7 @@ impl NewHost<'_> {
 
         // Create IP range for new host
         let create_range = super::NewIpAddressRange::try_new(ip_range_from, ip_range_to, host.id)?;
-        create_range.create(conn).await?;
+        create_range.create(&[ip_addr, ip_gateway], conn).await?;
 
         Ok(host)
     }
@@ -276,7 +272,7 @@ impl NewHost<'_> {
 #[derive(Debug, Clone, AsChangeset)]
 #[diesel(table_name = hosts)]
 pub struct UpdateHost<'a> {
-    pub id: Uuid,
+    pub id: HostId,
     pub name: Option<&'a str>,
     pub version: Option<&'a str>,
     pub cpu_count: Option<i64>,
@@ -301,10 +297,10 @@ impl UpdateHost<'_> {
     }
 }
 
-#[derive(Debug, Default, AsChangeset)]
+#[derive(Debug, AsChangeset)]
 #[diesel(table_name = hosts)]
 pub struct UpdateHostMetrics {
-    pub id: uuid::Uuid,
+    pub id: HostId,
     pub used_cpu: Option<i32>,
     pub used_memory: Option<i64>,
     pub used_disk_space: Option<i64>,
@@ -318,14 +314,16 @@ pub struct UpdateHostMetrics {
 
 impl UpdateHostMetrics {
     /// Performs a selective update of only the columns related to metrics of the provided nodes.
-    pub async fn update_metrics(updates: Vec<Self>, conn: &mut super::Conn) -> Result<()> {
+    pub async fn update_metrics(updates: Vec<Self>, conn: &mut super::Conn) -> Result<Vec<Host>> {
+        let mut results = Vec::with_capacity(updates.len());
         for update in updates {
-            diesel::update(hosts::table.find(update.id))
+            let updated = diesel::update(hosts::table.find(update.id))
                 .set(update)
-                .execute(conn)
+                .get_result(conn)
                 .await?;
+            results.push(updated);
         }
-        Ok(())
+        Ok(results)
     }
 }
 

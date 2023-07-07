@@ -2,9 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use tracing::warn;
 use url::Url;
 
-use crate::auth::token::{Cipher, Claims, Endpoint};
+use crate::auth::claims::Claims;
+use crate::auth::endpoint::Endpoint;
+use crate::auth::resource::Resource;
+use crate::auth::token::Cipher;
 use crate::config::{token, Config};
 use crate::models;
 
@@ -12,14 +16,16 @@ pub struct MailClient {
     client: sendgrid::SGClient,
     token_config: Arc<token::Config>,
     base_url: Url,
+    cipher: Arc<Cipher>,
 }
 
 impl MailClient {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, cipher: Arc<Cipher>) -> Self {
         Self {
             client: sendgrid::SGClient::new(&*config.mail.sendgrid_api_key),
             token_config: config.token.clone(),
             base_url: config.mail.ui_base_url.clone(),
+            cipher,
         }
     }
 
@@ -39,26 +45,21 @@ impl MailClient {
         .await
     }
 
-    pub async fn registration_confirmation(
-        &self,
-        user: &models::User,
-        cipher: &Cipher,
-    ) -> crate::Result<()> {
+    pub async fn registration_confirmation(&self, user: &models::User) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/register.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
 
-        let iat = chrono::Utc::now();
-        let exp = self
+        let expires = self
             .token_config
             .expire
             .registration_confirmation
             .try_into()?;
         let endpoints = [Endpoint::AuthConfirm];
-        let claims = Claims::new_user(user.id, iat, exp, endpoints)?;
+        let claims = Claims::user_from_now(expires, user.id, endpoints);
 
-        let token = cipher.jwt.encode(&claims)?;
+        let token = self.cipher.jwt.encode(&claims)?;
         let link = format!("{}/verified?token={}", self.base_url, *token);
         let mut context = HashMap::new();
         context.insert("link".to_owned(), link);
@@ -82,7 +83,8 @@ impl MailClient {
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
-        let link = format!("{}/invite-registered?uid={}", self.base_url, invitee.id);
+
+        let link = format!("{}/invite-registered?uid={}", self.base_url, *invitee.id);
         let inviter = format!(
             "{} {} ({})",
             inviter.first_name, inviter.last_name, inviter.email
@@ -107,15 +109,13 @@ impl MailClient {
         inviter: &models::User,
         invitee: Recipient<'_>,
         expiration: impl std::fmt::Display,
-        cipher: &Cipher,
     ) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/invite_user.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
-        let iat = chrono::Utc::now();
 
-        let exp = self.token_config.expire.invitation.try_into()?;
+        let expires = self.token_config.expire.invitation.try_into()?;
         let endpoints = [
             Endpoint::UserCreate,
             Endpoint::InvitationAccept,
@@ -124,20 +124,14 @@ impl MailClient {
         let mut data = HashMap::new();
         data.insert("email".to_string(), invitation.invitee_email.clone());
         data.insert("invitation_id".to_string(), invitation.id.to_string());
-        data.insert("org_id".to_string(), invitation.created_for_org.to_string());
+        data.insert("org_id".to_string(), invitation.org_id.to_string());
 
         // A little bit lame but not that big of a deal: the id of the invitation as the id of the
         // user because there is no user here yet.
-        let claims = Claims::new_with_data(
-            crate::auth::token::ResourceType::Org,
-            invitation.created_for_org,
-            iat,
-            exp,
-            endpoints.into_iter().collect(),
-            data,
-        )?;
+        let resource = Resource::Org(invitation.org_id);
+        let claims = Claims::from_now(expires, resource, endpoints);
+        let token = self.cipher.jwt.encode(&claims)?;
 
-        let token = cipher.jwt.encode(&claims)?;
         let accept_link = format!("{}/accept-invite?token={}", self.base_url, *token);
         let decline_link = format!("{}/decline-invite?token={}", self.base_url, *token);
         let inviter = format!(
@@ -162,18 +156,17 @@ impl MailClient {
 
     /// Sends a password reset email to the specified user, containing a JWT that they can use to
     /// authenticate themselves to reset their password.
-    pub async fn reset_password(&self, user: &models::User, cipher: &Cipher) -> crate::Result<()> {
+    pub async fn reset_password(&self, user: &models::User) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/reset_password.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
 
-        let iat = chrono::Utc::now();
-        let exp = self.token_config.expire.password_reset.try_into()?;
+        let expires = self.token_config.expire.password_reset.try_into()?;
         let endpoints = [Endpoint::AuthUpdatePassword];
-        let claims = Claims::new_user(user.id, iat, exp, endpoints)?;
+        let claims = Claims::user_from_now(expires, user.id, endpoints);
+        let token = self.cipher.jwt.encode(&claims)?;
 
-        let token = cipher.jwt.encode(&claims)?;
         let link = format!("{}/password_reset?token={}", self.base_url, *token);
         let context = HashMap::from([("link".to_string(), link)]);
 
@@ -214,9 +207,9 @@ impl MailClient {
             ..Default::default()
         };
 
-        // Don't fail if mail couldn't be sent
-        if let Err(e) = self.client.send(mail).await {
-            tracing::error!("Failure to send email {e}");
+        // TODO: better error handling
+        if let Err(err) = self.client.send(mail).await {
+            warn!("Failed to send email: {err}");
         }
 
         Ok(())

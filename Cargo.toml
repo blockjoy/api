@@ -4,7 +4,7 @@ edition = "2021"
 name = "blockvisor_api"
 publish = false
 resolver = "2"
-version = "0.2.0"
+version = "0.2.0-rc.1"
 
 [profile.release]
 codegen-units = 1
@@ -18,6 +18,7 @@ argon2 = "0.5.0"
 axum = "0.6.18"
 aws-sdk-s3 = "0.28.0"
 base64 = "0.21.2"
+blake3 = "1.4.0"
 chrono = { version = "0.4.26", features = ["serde"] }
 cidr-utils = "0.5.10"
 derive_more = "0.99.17"
@@ -25,6 +26,7 @@ diesel = { version = "2.1.0", default-features = false, features = ["postgres", 
 diesel-async = { version = "0.3.1", features = ["bb8", "postgres"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 diesel_migrations = { version = "2.0.0", features = ["postgres"] }
+diesel-derive-newtype = "2.1.0"
 displaydoc = "0.2.4"
 futures-util = "0.3.28"
 h2 = "0.3.19"
@@ -35,6 +37,7 @@ ipnet = "2.7.2"
 ipnetwork = "0.20"
 jsonwebtoken = "8.3.0"
 mockito = "1.1.0"
+password-hash = "0.5.0"
 petname = "1.1.3"
 pin-project = "1.1.0"
 prost = "0.11.9"
@@ -45,9 +48,11 @@ rhai = { version = "1.15.0", features = ["serde", "sync"] }
 rumqttc = "0.22.0"
 rustls = { version = "0.21.2", features = ["dangerous_configuration"] }
 rustls-native-certs = "0.6.3"
+semver = "1.0.17"
 sendgrid = { version = "0.19.0", default-features = false, features = ["rustls", "async"] }
 serde = { version = "1.0.164", features = ["derive", "rc"] }
 serde_json = { version = "1.0.97", features = ["raw_value"] }
+strum = { version = "0.25.0", features = ["derive"] }
 thiserror = "1.0.40"
 tokio = { version = "1.28.2", default-features = false, features = ["io-util", "sync", "macros", "sync", "rt-multi-thread"] }
 tokio-postgres = "0.7.8"
@@ -58,12 +63,12 @@ tonic = { version = "0.9.2", features = ["tls-roots"] }
 tower = { version = "0.4.13", features = ["tokio", "tracing", "util"] }
 tower-http = { version = "0.4.1", features = ["cors", "trace", "compression-gzip", "auth"] }
 tracing = "0.1.37"
+tracing-log = "0.1.3"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 url = { version = "2.4.0", features = ["serde"] }
 uuid = { version = "1.3.4", features = ["serde", "v4"] }
 validator = { version = "0.16.1", features = ["derive"] }
-password-hash = "0.5.0"
-semver = "1.0.17"
+zeroize = { version = "1.6.0", features = ["zeroize_derive"] }
 
 [dev-dependencies]
 blockvisor_api = { path = ".", features = ["integration-test"] }
@@ -74,4 +79,5 @@ tempfile = "3.6.0"
 tonic-build = "0.9.2"
 
 [features]
+default = []
 integration-test = []

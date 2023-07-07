@@ -207,7 +207,7 @@ impl Cookbook {
     pub async fn list_bundles(&self) -> crate::Result<Vec<api::BundleIdentifier>> {
         Ok(self
             .client
-            .list(&self.bundle_bucket, "/")
+            .list(&self.bundle_bucket, "")
             .await?
             .iter()
             .flat_map(api::BundleIdentifier::from_key)
@@ -226,6 +226,26 @@ impl Cookbook {
         );
         let script = self.client.read_string(&self.bucket, &path).await?;
         Self::script_to_metadata(&self.engine, &script)
+    }
+
+    pub async fn get_download_manifest(
+        &self,
+        id: api::ConfigIdentifier,
+        network: String,
+    ) -> crate::Result<api::DownloadManifest> {
+        let path = format!(
+            "{}/{}/{}/{}/manifest.json",
+            id.protocol, id.node_type, id.node_version, network
+        );
+        let mut manifest: manifest::DownloadManifest =
+            serde_json::from_str(&self.client.read_string(&self.bucket, &path).await?)?;
+        for mut chunk in manifest.chunks.iter_mut() {
+            chunk.url = self
+                .client
+                .download_url(&self.bucket, &chunk.key, self.expiration)
+                .await?;
+        }
+        Ok(manifest.try_into()?)
     }
 
     fn script_to_metadata(
@@ -258,7 +278,6 @@ impl api::ConfigIdentifier {
             protocol: protocol.to_string(),
             node_type: node_type.to_string(),
             node_version: node_version.to_string(),
-            status: 0,
         };
         Ok(id)
     }
@@ -448,6 +467,105 @@ pub mod script {
             assert_eq!(goerli.meta.get("param_c").unwrap(), "value_c");
 
             Ok(())
+        }
+    }
+}
+
+/// WARNING! These structures were brutally copy pasted
+/// from BlockvisorD repository (blockvisor/babel_api/src/engine.rs)
+/// To be removed once switched to monorepo.
+mod manifest {
+    use crate::grpc::api;
+    use anyhow::bail;
+    use serde::{Deserialize, Serialize};
+    use std::path::PathBuf;
+
+    #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+    pub struct FileLocation {
+        pub path: PathBuf,
+        pub pos: u64,
+        pub size: u64,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Checksum {
+        Sha1([u8; 20]),
+        Sha256([u8; 32]),
+        Blake3([u8; 32]),
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+    pub struct Chunk {
+        pub key: String,
+        pub url: String,
+        pub checksum: Checksum,
+        pub size: u64,
+        pub destinations: Vec<FileLocation>,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Compression {}
+
+    #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+    pub struct DownloadManifest {
+        pub total_size: u64,
+        pub compression: Option<Compression>,
+        pub chunks: Vec<Chunk>,
+    }
+
+    impl TryInto<api::Compression> for Compression {
+        type Error = anyhow::Error;
+        fn try_into(self) -> Result<api::Compression, Self::Error> {
+            bail!("Invalid compression type");
+        }
+    }
+
+    impl TryInto<api::DownloadManifest> for DownloadManifest {
+        type Error = anyhow::Error;
+        fn try_into(self) -> Result<api::DownloadManifest, Self::Error> {
+            let compression: Option<api::Compression> = if let Some(compression) = self.compression
+            {
+                Some(compression.try_into()?)
+            } else {
+                None
+            };
+            let chunks = self
+                .chunks
+                .into_iter()
+                .map(|value| {
+                    let (checksum_type, checksum) = match value.checksum {
+                        Checksum::Sha1(value) => (api::ChecksumType::Sha1, value.to_vec()),
+                        Checksum::Sha256(value) => (api::ChecksumType::Sha256, value.to_vec()),
+                        Checksum::Blake3(value) => (api::ChecksumType::Blake3, value.to_vec()),
+                    };
+                    let destinations = value
+                        .destinations
+                        .into_iter()
+                        .map(|value| {
+                            Ok(api::FileLocation {
+                                path: value.path.to_string_lossy().to_string(),
+                                position_bytes: value.pos,
+                                size_bytes: value.size,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, Self::Error>>()?;
+                    Ok(api::Chunk {
+                        key: value.key,
+                        url: value.url,
+                        checksum_type: checksum_type.into(),
+                        checksum,
+                        size: value.size,
+                        destinations,
+                    })
+                })
+                .collect::<Result<Vec<_>, Self::Error>>()?;
+            Ok(api::DownloadManifest {
+                total_size: self.total_size,
+                compression: compression.map(|value| value.into()),
+                chunks,
+            })
         }
     }
 }

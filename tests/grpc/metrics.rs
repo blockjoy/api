@@ -9,7 +9,7 @@ async fn responds_ok_for_write_node() {
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let node = tester.node().await;
     let mut metrics = std::collections::HashMap::new();
@@ -43,7 +43,7 @@ async fn responds_ok_for_write_node_empty() {
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let metrics = std::collections::HashMap::new();
     let req = api::MetricsServiceNodeRequest { metrics };
@@ -56,7 +56,7 @@ async fn responds_ok_for_write_host() {
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let mut metrics = std::collections::HashMap::new();
     let metric = api::HostMetrics {
@@ -92,7 +92,7 @@ async fn responds_ok_for_write_host_empty() {
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
-    let jwt = tester.context().cipher.jwt.encode(&claims).unwrap();
+    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
 
     let metrics = std::collections::HashMap::new();
     let req = api::MetricsServiceHostRequest { metrics };

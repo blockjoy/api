@@ -4,18 +4,22 @@ mod success;
 use anyhow::anyhow;
 use diesel_async::scoped_futures::ScopedFutureExt;
 
+use crate::auth::claims::Claims;
+use crate::auth::endpoint::Endpoint;
+use crate::auth::resource::Resource;
+use crate::models;
+use crate::timestamp::NanosUtc;
+
 use super::api::{self, command_service_server};
 use super::helpers::required;
-use crate::auth::token::{Claims, Endpoint, Resource};
-use crate::{auth, models};
 
 #[tonic::async_trait]
-impl command_service_server::CommandService for super::GrpcImpl {
+impl command_service_server::CommandService for super::Grpc {
     async fn update(
         &self,
         req: tonic::Request<api::CommandServiceUpdateRequest>,
     ) -> super::Resp<api::CommandServiceUpdateResponse> {
-        self.trx(|c| update(self, req, c).scope_boxed())
+        self.trx(|c| update(req, c).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -39,11 +43,10 @@ impl command_service_server::CommandService for super::GrpcImpl {
 }
 
 async fn update(
-    impler: &super::GrpcImpl,
     req: tonic::Request<api::CommandServiceUpdateRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::CommandServiceUpdateResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::CommandUpdate, conn).await?;
+    let claims = conn.claims(&req, Endpoint::CommandUpdate).await?;
     let req = req.into_inner();
     let command = models::Command::find_by_id(req.id.parse()?, conn).await?;
     let host = command.host(conn).await?;
@@ -65,9 +68,7 @@ async fn update(
             // We got back an error status code. In practice, blockvisord sends 0 for
             // success and 1 for failure, but we treat every non-zero exit code as an
             // error, not just 1.
-            recover::recover(impler, &cmd, conn)
-                .await
-                .unwrap_or_default()
+            recover::recover(&cmd, conn).await.unwrap_or_default()
         }
         None => vec![],
     };
@@ -84,7 +85,7 @@ async fn ack(
     req: tonic::Request<api::CommandServiceAckRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::CommandServiceAckResponse> {
-    let claims = auth::get_claims(&req, Endpoint::CommandAck, conn).await?;
+    let claims = conn.claims(&req, Endpoint::CommandAck).await?;
     let req = req.into_inner();
     let command = models::Command::find_by_id(req.id.parse()?, conn).await?;
     let host = command.host(conn).await?;
@@ -93,10 +94,9 @@ async fn ack(
     if !is_allowed {
         super::forbidden!("Access denied");
     }
-    if command.acked_at.is_some() {
-        super::forbidden!("Already acknowledged");
+    if command.acked_at.is_none() {
+        command.ack(conn).await?;
     }
-    command.ack(conn).await?;
     let resp = api::CommandServiceAckResponse {};
     Ok(tonic::Response::new(resp))
 }
@@ -105,7 +105,7 @@ async fn pending(
     req: tonic::Request<api::CommandServicePendingRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::CommandServicePendingResponse> {
-    let claims = auth::get_claims(&req, Endpoint::CommandPending, conn).await?;
+    let claims = conn.claims(&req, Endpoint::CommandPending).await?;
     let req = req.into_inner();
     let host_id = req.host_id.parse()?;
     let host = models::Host::find_by_id(host_id, conn).await?;
@@ -179,18 +179,18 @@ impl api::Command {
         // Extract the node id from the model, if there is one.
         let node_id = || model.node_id.ok_or_else(required("command.node_id"));
         // Closure to conveniently construct a api:: from the data that we need to have.
-        let node_cmd = |command, node_id| {
+        let node_cmd = |command, node_id| -> Result<api::Command, crate::error::Error> {
             Ok(api::Command {
                 id: model.id.to_string(),
                 response: model.response.clone(),
                 exit_code: model.exit_status,
-                acked_at: model.acked_at.map(super::try_dt_to_ts).transpose()?,
+                acked_at: model.acked_at.map(NanosUtc::from).map(Into::into),
                 command: Some(command::Command::Node(api::NodeCommand {
                     node_id,
                     host_id: model.host_id.to_string(),
                     command: Some(command),
                     api_command_id: model.id.to_string(),
-                    created_at: Some(super::try_dt_to_ts(model.created_at)?),
+                    created_at: Some(NanosUtc::from(model.created_at).into()),
                 })),
             })
         };
@@ -203,7 +203,7 @@ impl api::Command {
                 id: model.id.to_string(),
                 response: model.response.clone(),
                 exit_code: model.exit_status,
-                acked_at: model.acked_at.map(super::try_dt_to_ts).transpose()?,
+                acked_at: model.acked_at.map(NanosUtc::from).map(Into::into),
                 command: Some(command::Command::Host(api::HostCommand { host_id })),
             })
         };
@@ -348,11 +348,13 @@ impl api::Parameter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Context;
+    use crate::tests::TestDb;
 
     #[tokio::test]
     async fn test_create_firewall_rules() {
-        let context = crate::config::Context::new_with_default_toml().unwrap();
-        let db = crate::TestDb::setup(context).await;
+        let context = Context::from_default_toml().await.unwrap();
+        let db = TestDb::setup(context).await;
         let node = db.node().await;
         api::Command::rules(&node).unwrap();
     }

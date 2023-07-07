@@ -3,19 +3,23 @@ use std::collections::HashMap;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::OptionFuture;
 
-use super::api::{self, node_service_server};
-use super::helpers;
-use crate::auth::token::{Claims, Endpoint, Resource};
+use crate::auth::claims::Claims;
+use crate::auth::endpoint::Endpoint;
+use crate::auth::resource::{HostId, NodeId, Resource, UserId};
 use crate::cookbook::script::HardwareRequirements;
-use crate::{auth, models};
+use crate::models;
+use crate::timestamp::NanosUtc;
+
+use super::api::{self, node_service_server};
+use super::{helpers, Grpc};
 
 #[tonic::async_trait]
-impl node_service_server::NodeService for super::GrpcImpl {
+impl node_service_server::NodeService for Grpc {
     async fn create(
         &self,
         req: tonic::Request<api::NodeServiceCreateRequest>,
     ) -> super::Resp<api::NodeServiceCreateResponse> {
-        self.trx(|c| create(self, req, c).scope_boxed())
+        self.trx(|c| create(req, c).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -63,7 +67,7 @@ impl node_service_server::NodeService for super::GrpcImpl {
         &self,
         req: tonic::Request<api::NodeServiceDeleteRequest>,
     ) -> super::Resp<api::NodeServiceDeleteResponse> {
-        self.trx(|c| delete(self, req, c).scope_boxed())
+        self.trx(|c| delete(req, c).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -104,7 +108,7 @@ async fn get(
     req: tonic::Request<api::NodeServiceGetRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::NodeServiceGetResponse> {
-    let claims = auth::get_claims(&req, Endpoint::NodeCreate, conn).await?;
+    let claims = conn.claims(&req, Endpoint::NodeGet).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
@@ -126,7 +130,7 @@ async fn list(
     req: tonic::Request<api::NodeServiceListRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::NodeServiceListResponse> {
-    let claims = auth::get_claims(&req, Endpoint::NodeList, conn).await?;
+    let claims = conn.claims(&req, Endpoint::NodeList).await?;
     let filter = req.into_inner().as_filter()?;
     let is_allowed = match claims.resource() {
         Resource::User(user_id) => models::Org::is_member(user_id, filter.org_id, conn).await?,
@@ -144,11 +148,10 @@ async fn list(
 }
 
 async fn create(
-    grpc: &super::GrpcImpl,
     req: tonic::Request<api::NodeServiceCreateRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::NodeServiceCreateResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::NodeCreate, conn).await?;
+    let claims = conn.claims(&req, Endpoint::NodeCreate).await?;
     let Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
 
     let user = models::User::find_by_id(user_id, conn).await?;
@@ -156,7 +159,8 @@ async fn create(
     let blockchain = models::Blockchain::find_by_id(req.blockchain_id.parse()?, conn).await?;
     // We want to cast a string like `NODE_TYPE_VALIDATOR` to `validator`.
     let node_type = &req.node_type().as_str_name()[10..];
-    let reqs = grpc
+    let reqs = conn
+        .context
         .cookbook
         .rhai_metadata(&blockchain.name, node_type, &req.version)
         .await?
@@ -175,9 +179,7 @@ async fn create(
     } else {
         None
     };
-    let node = new_node
-        .create(host, &grpc.dns, &grpc.cookbook, conn)
-        .await?;
+    let node = new_node.create(host, conn).await?;
     // The user sends in the properties in a key-value style, that is,
     // { property name: property value }. We want to store this as
     // { property id: property value }. In order to map property names to property ids we can use
@@ -213,7 +215,7 @@ async fn update_config(
     req: tonic::Request<api::NodeServiceUpdateConfigRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::NodeServiceUpdateConfigResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::NodeUpdateConfig, conn).await?;
+    let claims = conn.claims(&req, Endpoint::NodeUpdateConfig).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
@@ -228,7 +230,8 @@ async fn update_config(
     let update_node = req.as_update()?;
     let user = claims
         .resource()
-        .map_user(|id| models::User::find_by_id(id, conn));
+        .user()
+        .map(|id| models::User::find_by_id(id, conn));
     let user = OptionFuture::from(user).await.transpose()?;
     let node = update_node.update(conn).await?;
     let create_notif = create_node_command(&node, models::CommandType::UpdateNode, conn).await?;
@@ -242,7 +245,7 @@ async fn update_status(
     req: tonic::Request<api::NodeServiceUpdateStatusRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::NodeServiceUpdateStatusResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::NodeUpdateStatus, conn).await?;
+    let claims = conn.claims(&req, Endpoint::NodeUpdateStatus).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
     if !matches!(claims.resource(), Resource::Host(host_id) if node.host_id == host_id) {
@@ -251,7 +254,8 @@ async fn update_status(
     let update_node = req.as_update()?;
     let user = claims
         .resource()
-        .map_user(|id| models::User::find_by_id(id, conn));
+        .user()
+        .map(|id| models::User::find_by_id(id, conn));
     let user = OptionFuture::from(user).await.transpose()?;
     let node = update_node.update(conn).await?;
     let node_message = api::NodeMessage::updated(node, user, conn).await?;
@@ -260,11 +264,10 @@ async fn update_status(
 }
 
 async fn delete(
-    grpc: &super::GrpcImpl,
     req: tonic::Request<api::NodeServiceDeleteRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::NodeServiceDeleteResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::NodeDelete, conn).await?;
+    let claims = conn.claims(&req, Endpoint::NodeDelete).await?;
     let Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.id.parse()?, conn).await?;
@@ -274,7 +277,7 @@ async fn delete(
     }
     // 1. Delete node, if the node belongs to the current user
     // Key files are deleted automatically because of 'on delete cascade' in tables DDL
-    models::Node::delete(node.id, &grpc.dns, conn).await?;
+    models::Node::delete(node.id, conn).await?;
 
     let host_id = node.host_id;
     // 2. Do NOT delete reserved IP addresses, but set assigned to false
@@ -312,7 +315,7 @@ async fn start(
     req: tonic::Request<api::NodeServiceStartRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::NodeServiceStartResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::NodeStart, conn).await?;
+    let claims = conn.claims(&req, Endpoint::NodeStart).await?;
     let req = req.into_inner();
     change_node_state(&req.id, models::CommandType::RestartNode, claims, conn).await
 }
@@ -321,7 +324,7 @@ async fn stop(
     req: tonic::Request<api::NodeServiceStopRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::NodeServiceStopResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::NodeStop, conn).await?;
+    let claims = conn.claims(&req, Endpoint::NodeStop).await?;
     let req = req.into_inner();
     change_node_state(&req.id, models::CommandType::KillNode, claims, conn).await
 }
@@ -330,7 +333,7 @@ async fn restart(
     req: tonic::Request<api::NodeServiceRestartRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::NodeServiceRestartResponse>> {
-    let claims = auth::get_claims(&req, Endpoint::NodeRestart, conn).await?;
+    let claims = conn.claims(&req, Endpoint::NodeRestart).await?;
     let req = req.into_inner();
     change_node_state(&req.id, models::CommandType::RestartNode, claims, conn).await
 }
@@ -398,8 +401,8 @@ impl api::Node {
             .into_iter()
             .map(|b| (b.id, b))
             .collect();
-        let user_ids: Vec<_> = nodes.iter().flat_map(|n| n.created_by).collect();
-        let users: HashMap<_, _> = models::User::find_by_ids(&user_ids, conn)
+        let user_ids = nodes.iter().flat_map(|n| n.created_by).collect();
+        let users: HashMap<_, _> = models::User::find_by_ids(user_ids, conn)
             .await?
             .into_iter()
             .map(|u| (u.id, u))
@@ -408,7 +411,7 @@ impl api::Node {
         let nprops = models::NodeProperty::by_nodes(&nodes, conn).await?;
         let bprops = models::BlockchainProperty::by_node_props(&nprops, conn).await?;
         let bprops: HashMap<_, _> = bprops.into_iter().map(|prop| (prop.id, prop)).collect();
-        let mut props_map: HashMap<uuid::Uuid, Vec<(_, _)>> = HashMap::new();
+        let mut props_map: HashMap<NodeId, Vec<(_, _)>> = HashMap::new();
         for nprop in nprops {
             let blockchain_property_id = nprop.blockchain_property_id;
             props_map
@@ -502,8 +505,8 @@ impl api::Node {
             node_type: 0, // We use the setter to set this field for type-safety
             properties,
             block_height: node.block_height.map(u64::try_from).transpose()?,
-            created_at: Some(super::try_dt_to_ts(node.created_at)?),
-            updated_at: Some(super::try_dt_to_ts(node.updated_at)?),
+            created_at: Some(NanosUtc::from(node.created_at).into()),
+            updated_at: Some(NanosUtc::from(node.updated_at).into()),
             status: 0,            // We use the setter to set this field for type-safety
             staking_status: None, // We use the setter to set this field for type-safety
             container_status: 0,  // We use the setter to set this field for type-safety
@@ -535,7 +538,7 @@ impl api::Node {
 impl api::NodeServiceCreateRequest {
     pub fn as_new(
         &self,
-        user_id: uuid::Uuid,
+        user_id: UserId,
         req: HardwareRequirements,
     ) -> crate::Result<models::NewNode<'_>> {
         let placement = self
@@ -560,7 +563,7 @@ impl api::NodeServiceCreateRequest {
             .map(api::FilteredIpAddr::as_model)
             .collect();
         Ok(models::NewNode {
-            id: uuid::Uuid::new_v4(),
+            id: uuid::Uuid::new_v4().into(),
             org_id: self.org_id.parse()?,
             name: petname::Petnames::large().generate_one(3, "_"),
             version: &self.version,
@@ -589,7 +592,7 @@ impl api::NodeServiceCreateRequest {
         })
     }
 
-    fn host_id(&self) -> crate::Result<Option<uuid::Uuid>> {
+    fn host_id(&self) -> crate::Result<Option<HostId>> {
         let placement = self
             .placement
             .as_ref()
@@ -645,7 +648,7 @@ impl api::NodeServiceListRequest {
 }
 
 impl api::NodeServiceUpdateConfigRequest {
-    pub fn as_update(&self) -> crate::Result<models::UpdateNode> {
+    pub fn as_update(&self) -> crate::Result<models::UpdateNode<'_>> {
         // Convert the ip list from the gRPC structures to the database models.
         let allow_ips: Vec<models::FilteredIpAddr> = self
             .allow_ips
@@ -678,7 +681,7 @@ impl api::NodeServiceUpdateConfigRequest {
 }
 
 impl api::NodeServiceUpdateStatusRequest {
-    pub fn as_update(&self) -> crate::Result<models::UpdateNode> {
+    pub fn as_update(&self) -> crate::Result<models::UpdateNode<'_>> {
         Ok(models::UpdateNode {
             id: self.id.parse()?,
             name: None,

@@ -14,19 +14,26 @@ use derive_more::{Deref, DerefMut};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use helper_traits::GrpcClient;
+use rand::distributions::{Alphanumeric, DistString};
+use rand::rngs::OsRng;
 use tempfile::{NamedTempFile, TempPath};
 use tokio::net::{UnixListener, UnixStream};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tonic::Response;
+use tracing::subscriber::DefaultGuard;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{fmt, EnvFilter, Registry};
 
+use blockvisor_api::auth::claims::{Claims, Expirable};
+use blockvisor_api::auth::endpoint::Endpoints;
+use blockvisor_api::auth::resource::ResourceEntry;
 use blockvisor_api::auth::token::refresh::Refresh;
-use blockvisor_api::auth::token::{jwt, Claims, Endpoints, ResourceType};
-use blockvisor_api::cloudflare::CloudflareApi;
+use blockvisor_api::auth::token::{Cipher, RequestToken};
 use blockvisor_api::config::Context;
 use blockvisor_api::grpc::api::auth_service_client::AuthServiceClient;
 use blockvisor_api::models::{self, Conn};
-use blockvisor_api::{TestCloudflareApi, TestCookbook, TestDb};
+use blockvisor_api::tests::TestDb;
 
 type AuthService = AuthServiceClient<tonic::transport::Channel>;
 
@@ -40,14 +47,15 @@ pub struct Tester {
     #[deref_mut]
     db: TestDb,
     server_input: Arc<TempPath>,
-    cloudflare: Arc<Option<TestCloudflareApi>>,
-    cookbook: Arc<Option<TestCookbook>>,
+    rng: OsRng,
 }
 
 impl Tester {
     /// Creates a new tester with the cloudflare API mocked.
     pub async fn new() -> Self {
-        let context = Context::new_with_default_toml().unwrap();
+        let _guard = init_tracing();
+
+        let context = Context::with_mocked().await.unwrap();
         let db = TestDb::setup(context).await;
         let pool = db.pool.clone();
 
@@ -58,13 +66,8 @@ impl Tester {
         let uds = UnixListener::bind(&*socket).unwrap();
         let stream = UnixListenerStream::new(uds);
 
-        let mock_cloudflare = TestCloudflareApi::new().await;
-        let cloudflare_api = mock_cloudflare.get_cloudflare_api();
-        let mock_cookbook = TestCookbook::new().await;
-        let cookbook = mock_cookbook.get_cookbook_api();
-
         tokio::spawn(async {
-            blockvisor_api::grpc::server(pool, cloudflare_api, cookbook)
+            blockvisor_api::grpc::server(pool)
                 .await
                 .serve_with_incoming(stream)
                 .await
@@ -74,8 +77,7 @@ impl Tester {
         Tester {
             db,
             server_input: Arc::clone(&socket),
-            cloudflare: Arc::new(Some(mock_cloudflare)),
-            cookbook: Arc::new(Some(mock_cookbook)),
+            rng: OsRng::default(),
         }
     }
 
@@ -83,16 +85,12 @@ impl Tester {
         &self.db.pool.context
     }
 
-    /// Returns the cloudflare API, if it was mocked.
-    pub async fn cloudflare(&self) -> Option<CloudflareApi> {
-        self.cloudflare
-            .as_ref()
-            .as_ref()
-            .map(|cf| cf.get_cloudflare_api())
-    }
-
     pub async fn conn(&self) -> Conn {
         self.db.conn().await
+    }
+
+    pub fn cipher(&self) -> &Cipher {
+        &self.context().auth.cipher
     }
 
     /// Returns an admin user, so a user that has maximal permissions.
@@ -113,9 +111,8 @@ impl Tester {
 
     pub async fn admin_refresh(&self) -> Refresh {
         let admin = self.user().await;
-        let iat = chrono::Utc::now();
-        let exp = chrono::Duration::minutes(15);
-        Refresh::new(admin.id, iat, exp).unwrap()
+        let expires = chrono::Duration::minutes(15);
+        Refresh::from_now(expires, admin.id)
     }
 
     pub async fn hosts(&self) -> Vec<models::Host> {
@@ -159,19 +156,19 @@ impl Tester {
         };
 
         let resp = self.send(AuthService::login, req).await.unwrap();
-        self.context().cipher.jwt.decode(&resp.token).unwrap()
+        let token = match resp.token.parse().unwrap() {
+            RequestToken::Bearer(token) => token,
+            _ => panic!("Unexpected RequestToken type"),
+        };
+
+        self.cipher().jwt.decode(&token).unwrap()
     }
 
     pub fn host_token(&self, host: &models::Host) -> Claims {
-        let iat = chrono::Utc::now();
-        Claims::new(
-            ResourceType::Host,
-            host.id,
-            iat,
-            chrono::Duration::minutes(15),
-            Endpoints::Wildcard,
-        )
-        .unwrap()
+        let resource = ResourceEntry::new_host(host.id).into();
+        let expirable = Expirable::from_now(chrono::Duration::minutes(15));
+
+        Claims::new(resource, expirable, Endpoints::Wildcard)
     }
 
     pub async fn node(&self) -> models::Node {
@@ -242,7 +239,7 @@ impl Tester {
         &self,
         f: F,
         req: Req,
-        jwt: &jwt::Encoded,
+        token: &str,
     ) -> Result<Resp, tonic::Status>
     where
         F: for<'any> TestableFunction<'any, In, tonic::Request<In>, Response<Resp>, Client>,
@@ -250,7 +247,7 @@ impl Tester {
         Client: GrpcClient<Channel> + Debug + 'static,
     {
         let mut req = req.into_request();
-        let auth_header = format!("Bearer {}", jwt.as_ref()).parse().unwrap();
+        let auth_header = format!("Bearer {}", token).parse().unwrap();
         req.metadata_mut().insert("authorization", auth_header);
 
         self.send_(f, req).await
@@ -269,7 +266,7 @@ impl Tester {
         Client: GrpcClient<Channel> + Debug + 'static,
     {
         let claims = self.admin_token().await;
-        let jwt = self.context().cipher.jwt.encode(&claims).unwrap();
+        let jwt = self.cipher().jwt.encode(&claims).unwrap();
 
         self.send_with(f, req, &jwt).await
     }
@@ -295,6 +292,18 @@ impl Tester {
         let mut client = Client::create(channel);
         let resp: Response<Resp> = f(&mut client, req).await?;
         Ok(resp.into_inner())
+    }
+
+    pub fn rng(&mut self) -> &mut OsRng {
+        &mut self.rng
+    }
+
+    pub fn rand_string(&mut self, len: usize) -> String {
+        Alphanumeric.sample_string(&mut self.rng, len)
+    }
+
+    pub fn rand_email(&mut self) -> String {
+        format!("{}@{}.com", self.rand_string(8), self.rand_string(8))
     }
 }
 
@@ -330,4 +339,12 @@ where
     Client: 'static,
 {
     type Fut = Fut;
+}
+
+fn init_tracing() -> DefaultGuard {
+    let env = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let fmt = fmt::Layer::default();
+    let registry = Registry::default().with(env).with(fmt);
+
+    tracing::subscriber::set_default(registry)
 }

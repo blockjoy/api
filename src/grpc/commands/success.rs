@@ -1,5 +1,7 @@
 //! This module contains code regarding registering successful commands.
 
+use tracing::error;
+
 use crate::models;
 
 /// Some endpoints require some additional action from us when we recieve a success message back
@@ -15,15 +17,15 @@ pub(super) async fn register(succeeded_cmd: &models::Command, conn: &mut models:
 /// the database. The `event` we pass in is `Succeeded`.
 async fn create_node_success(succeeded_cmd: &models::Command, conn: &mut models::Conn) {
     let Some(node_id) = succeeded_cmd.node_id else {
-        tracing::error!("`CreateNode` command has no node id!");
+        error!("`CreateNode` command has no node id!");
         return;
     };
     let Ok(node) = models::Node::find_by_id(node_id, conn).await else {
-        tracing::error!("Could not get node for node_id {node_id}");
+        error!("Could not get node for node_id {node_id}");
         return;
     };
     let Ok(blockchain) = models::Blockchain::find_by_id(node.blockchain_id, conn).await else {
-        tracing::error!("Could not get blockchain for node {node_id}");
+        error!("Could not get blockchain for node {node_id}");
         return;
     };
 

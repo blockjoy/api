@@ -1,22 +1,25 @@
+use blockvisor_api::auth::resource::{OrgId, UserId};
 use blockvisor_api::grpc::api;
-use blockvisor_api::{models, TestDb};
+use blockvisor_api::models;
+use blockvisor_api::tests::TestDb;
 use futures_util::{stream, StreamExt};
+use uuid::Uuid;
 
 type Service = api::babel_service_client::BabelServiceClient<super::Channel>;
 
 fn create_new_node<'a>(
     index: usize,
-    org_id: &'a uuid::Uuid,
-    blockchain_id: &'a uuid::Uuid,
-    user_id: &'a uuid::Uuid,
+    org_id: OrgId,
+    blockchain_id: &'a Uuid,
+    user_id: UserId,
     version: &'a str,
     node_type: &'a models::NodeType,
 ) -> models::NewNode<'a> {
-    let id = uuid::Uuid::new_v4();
-    let name = format!("node-{}-{}", index, id);
+    let id = Uuid::new_v4();
+    let name = format!("node-{index}-{id}");
     models::NewNode {
-        id,
-        org_id: org_id.to_owned(),
+        id: id.into(),
+        org_id,
         blockchain_id: blockchain_id.to_owned(),
         chain_status: models::NodeChainStatus::Unknown,
         sync_status: models::NodeSyncStatus::Syncing,
@@ -32,7 +35,7 @@ fn create_new_node<'a>(
         disk_size_bytes: 0,
         network: "some network",
         node_type: *node_type,
-        created_by: user_id.to_owned(),
+        created_by: user_id,
         scheduler_similarity: None,
         scheduler_resource: Some(models::ResourceAffinity::MostResources),
         allow_ips: serde_json::json!([]),
@@ -57,14 +60,12 @@ async fn test_notify_success() {
             let ip = ip_address.clone();
             async move {
                 let version = if i % 2 == 0 { "1.0.0" } else { "2.0.0" };
-                let org_id = org.id.to_owned();
                 let blockchain_id = blockchain.id.to_owned();
-                let user_id = user.id.to_owned();
                 let req = create_new_node(
                     i,
-                    &org_id,
+                    org.id,
                     &blockchain_id,
-                    &user_id,
+                    user.id,
                     version,
                     &models::NodeType::Validator,
                 );
@@ -84,7 +85,7 @@ async fn test_notify_success() {
 
     // Create request object
     let request = api::BabelServiceNotifyRequest {
-        uuid: uuid::Uuid::new_v4().to_string(),
+        uuid: Uuid::new_v4().to_string(),
         config: Some(api::BabelConfig {
             node_version: target_version.to_string(),
             node_type: models::NodeType::Validator.to_string(),
@@ -124,14 +125,12 @@ async fn test_nothing_to_notify_no_nodes_to_update_all_up_to_date() {
             let h = host_id;
             let ip = ip_address.clone();
             async move {
-                let org_id = org.id.to_owned();
                 let blockchain_id = blockchain.id.to_owned();
-                let user_id = user.id.to_owned();
                 let req = create_new_node(
                     i,
-                    &org_id,
+                    org.id,
                     &blockchain_id,
-                    &user_id,
+                    user.id,
                     "2.0.0",
                     &models::NodeType::Validator,
                 );
@@ -146,7 +145,7 @@ async fn test_nothing_to_notify_no_nodes_to_update_all_up_to_date() {
 
     // Create request object
     let request = api::BabelServiceNotifyRequest {
-        uuid: uuid::Uuid::new_v4().to_string(),
+        uuid: Uuid::new_v4().to_string(),
         config: Some(api::BabelConfig {
             node_version: "2.0.0".to_string(),
             node_type: models::NodeType::Validator.to_string(),
@@ -173,14 +172,12 @@ async fn test_nothing_to_notify_no_nodes_to_update_diff_node_type() {
             let h = host_id;
             let ip = ip_address.clone();
             async move {
-                let org_id = org.id.to_owned();
                 let blockchain_id = blockchain.id.to_owned();
-                let user_id = user.id.to_owned();
                 let req = create_new_node(
                     i,
-                    &org_id,
+                    org.id,
                     &blockchain_id,
-                    &user_id,
+                    user.id,
                     "1.0.0",
                     &models::NodeType::Miner,
                 );
@@ -195,7 +192,7 @@ async fn test_nothing_to_notify_no_nodes_to_update_diff_node_type() {
 
     // Create request object
     let request = api::BabelServiceNotifyRequest {
-        uuid: uuid::Uuid::new_v4().to_string(),
+        uuid: Uuid::new_v4().to_string(),
         config: Some(api::BabelConfig {
             node_version: "2.0.0".to_string(),
             node_type: models::NodeType::Validator.to_string(),

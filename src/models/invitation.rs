@@ -1,20 +1,21 @@
-use super::schema::invitations;
-use crate::Result;
 use chrono::{DateTime, Utc};
-use diesel::prelude::*;
+use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
+
+use crate::auth::resource::{OrgId, UserId};
+use crate::Result;
+
+use super::schema::invitations;
 
 #[derive(Debug, Queryable)]
 pub struct Invitation {
     pub id: uuid::Uuid,
-    pub created_by_user: uuid::Uuid,
-    pub created_for_org: uuid::Uuid,
+    pub created_by: UserId,
+    pub org_id: OrgId,
     pub invitee_email: String,
     pub created_at: DateTime<Utc>,
     pub accepted_at: Option<DateTime<Utc>>,
     pub declined_at: Option<DateTime<Utc>>,
-    pub created_by_user_name: String,
-    pub created_for_org_name: String,
 }
 
 impl Invitation {
@@ -38,13 +39,13 @@ impl Invitation {
         let mut query = invitations::table.into_boxed();
 
         if let Some(org_id) = filter.org_id {
-            query = query.filter(invitations::created_for_org.eq(org_id));
+            query = query.filter(invitations::org_id.eq(org_id));
         }
         if let Some(invitee_email) = filter.invitee_email {
             query = query.filter(invitations::invitee_email.eq(invitee_email));
         }
         if let Some(created_by) = filter.created_by {
-            query = query.filter(invitations::created_by_user.eq(created_by));
+            query = query.filter(invitations::created_by.eq(created_by));
         }
         if let Some(true) = filter.accepted {
             query = query.filter(invitations::accepted_at.is_not_null());
@@ -64,6 +65,21 @@ impl Invitation {
             .get_results(conn)
             .await?;
         Ok(invites)
+    }
+
+    pub async fn has_open_invite(
+        org_id: OrgId,
+        email: &str,
+        conn: &mut super::Conn,
+    ) -> Result<bool> {
+        let invitation = invitations::table
+            .filter(invitations::org_id.eq(org_id))
+            .filter(invitations::invitee_email.eq(email))
+            .filter(invitations::accepted_at.is_null())
+            .filter(invitations::declined_at.is_null());
+        Ok(diesel::select(dsl::exists(invitation))
+            .get_result(conn)
+            .await?)
     }
 
     pub async fn accept(self, conn: &mut super::Conn) -> Result<Self> {
@@ -91,12 +107,12 @@ impl Invitation {
 
     pub async fn remove_by_org_user(
         user_email: &str,
-        org_id: uuid::Uuid,
+        org_id: OrgId,
         conn: &mut super::Conn,
     ) -> Result<()> {
         let to_delete = invitations::table
             .filter(invitations::invitee_email.eq(user_email))
-            .filter(invitations::created_for_org.eq(org_id));
+            .filter(invitations::org_id.eq(org_id));
         diesel::delete(to_delete).execute(conn).await?;
         Ok(())
     }
@@ -105,10 +121,8 @@ impl Invitation {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = invitations)]
 pub struct NewInvitation {
-    pub created_by_user: uuid::Uuid,
-    pub created_by_user_name: String,
-    pub created_for_org: uuid::Uuid,
-    pub created_for_org_name: String,
+    pub created_by: UserId,
+    pub org_id: OrgId,
     pub invitee_email: String,
 }
 
@@ -124,9 +138,9 @@ impl NewInvitation {
 }
 
 pub struct InvitationFilter<'a> {
-    pub org_id: Option<uuid::Uuid>,
+    pub org_id: Option<OrgId>,
     pub invitee_email: Option<&'a str>,
-    pub created_by: Option<uuid::Uuid>,
+    pub created_by: Option<UserId>,
     pub accepted: Option<bool>,
     pub declined: Option<bool>,
 }

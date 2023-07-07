@@ -1,15 +1,16 @@
-use super::node_type::*;
-use super::schema::nodes;
-use super::string_to_array;
-use super::Paginate;
-use crate::{cloudflare::CloudflareApi, cookbook};
+mod property;
+pub use property::NodeProperty;
+
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
-mod property;
-pub use property::NodeProperty;
+use crate::auth::resource::{HostId, NodeId, OrgId, UserId};
+
+use super::node_type::*;
+use super::schema::nodes;
+use super::{string_to_array, Paginate};
 
 /// ContainerStatus reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
@@ -78,9 +79,9 @@ pub enum NodeChainStatus {
 
 #[derive(Clone, Debug, Queryable, AsChangeset)]
 pub struct Node {
-    pub id: uuid::Uuid,
-    pub org_id: uuid::Uuid,
-    pub host_id: uuid::Uuid,
+    pub id: NodeId,
+    pub org_id: OrgId,
+    pub host_id: HostId,
     pub name: String,
     pub version: String,
     pub ip_addr: String,
@@ -104,7 +105,7 @@ pub struct Node {
     pub disk_size_bytes: i64,
     pub host_name: String,
     pub network: String,
-    pub created_by: Option<uuid::Uuid>,
+    pub created_by: Option<UserId>,
     pub dns_record_id: String,
     allow_ips: serde_json::Value,
     deny_ips: serde_json::Value,
@@ -115,13 +116,13 @@ pub struct Node {
 
 #[derive(Clone, Debug)]
 pub struct NodeFilter {
-    pub org_id: uuid::Uuid,
+    pub org_id: OrgId,
     pub offset: u64,
     pub limit: u64,
     pub status: Vec<NodeChainStatus>,
     pub node_types: Vec<NodeType>,
     pub blockchains: Vec<uuid::Uuid>,
-    pub host_id: Option<uuid::Uuid>,
+    pub host_id: Option<HostId>,
 }
 
 #[derive(Clone, Debug)]
@@ -133,16 +134,16 @@ pub struct NodeSelfUpgradeFilter {
 }
 
 impl Node {
-    pub async fn find_by_id(id: uuid::Uuid, conn: &mut super::Conn) -> crate::Result<Self> {
+    pub async fn find_by_id(id: NodeId, conn: &mut super::Conn) -> crate::Result<Self> {
         let node = nodes::table.find(id).get_result(conn).await?;
         Ok(node)
     }
 
     pub async fn find_by_ids(
-        ids: impl IntoIterator<Item = uuid::Uuid>,
+        ids: impl IntoIterator<Item = NodeId>,
         conn: &mut super::Conn,
     ) -> crate::Result<Vec<Self>> {
-        let mut ids: Vec<uuid::Uuid> = ids.into_iter().collect();
+        let mut ids: Vec<NodeId> = ids.into_iter().collect();
         ids.sort();
         ids.dedup();
         let node = nodes::table
@@ -206,32 +207,24 @@ impl Node {
         Ok(node)
     }
 
-    pub async fn delete(
-        node_id: uuid::Uuid,
-        cf_api: &CloudflareApi,
-        conn: &mut super::Conn,
-    ) -> crate::Result<()> {
+    pub async fn delete(node_id: NodeId, conn: &mut super::Conn) -> crate::Result<()> {
         let node = Node::find_by_id(node_id, conn).await?;
 
         diesel::delete(nodes::table.find(node_id))
             .execute(conn)
             .await?;
 
-        if let Err(e) = cf_api.remove_node_dns(node.dns_record_id).await {
-            tracing::error!("Could not remove DNS for node! {e}");
-        }
+        let _res = conn.context.dns.remove_node_dns(&node.dns_record_id).await;
 
         Ok(())
     }
 
     /// Finds the next possible host for this node to be tried on.
-    pub async fn find_host(
-        &self,
-        cookbook: &cookbook::Cookbook,
-        conn: &mut super::Conn,
-    ) -> crate::Result<super::Host> {
+    pub async fn find_host(&self, conn: &mut super::Conn) -> crate::Result<super::Host> {
         let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
-        let requirements = cookbook
+        let requirements = conn
+            .context
+            .cookbook
             .rhai_metadata(&chain.name, &self.node_type.to_string(), &self.version)
             .await?
             .requirements;
@@ -329,8 +322,8 @@ pub struct FilteredIpAddr {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = nodes)]
 pub struct NewNode<'a> {
-    pub id: uuid::Uuid,
-    pub org_id: uuid::Uuid,
+    pub id: NodeId,
+    pub org_id: OrgId,
     pub name: String,
     pub version: &'a str,
     pub blockchain_id: uuid::Uuid,
@@ -348,7 +341,7 @@ pub struct NewNode<'a> {
     pub allow_ips: serde_json::Value,
     pub deny_ips: serde_json::Value,
     pub node_type: NodeType,
-    pub created_by: uuid::Uuid,
+    pub created_by: UserId,
     /// Controls whether to run the node on hosts that contain nodes similar to this one.
     pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
     /// Controls whether to run the node on hosts that are full or empty.
@@ -359,15 +352,13 @@ impl NewNode<'_> {
     pub async fn create(
         self,
         host: Option<super::Host>,
-        cf_api: &CloudflareApi,
-        cookbook: &cookbook::Cookbook,
         conn: &mut super::Conn,
     ) -> crate::Result<Node> {
         let no_sched = || anyhow!("If there is no host_id, the scheduler is required");
         let host = match host {
             Some(host) => host,
             None => {
-                self.find_host(self.scheduler().ok_or_else(no_sched)?, cookbook, conn)
+                self.find_host(self.scheduler().ok_or_else(no_sched)?, conn)
                     .await?
             }
         };
@@ -378,7 +369,11 @@ impl NewNode<'_> {
             .to_string();
 
         let ip_gateway = host.ip_gateway.ip().to_string();
-        let dns_record_id = cf_api.get_node_dns(&self.name, ip_addr.clone()).await?;
+        let dns_record_id = conn
+            .context
+            .dns
+            .get_node_dns(&self.name, ip_addr.clone())
+            .await?;
 
         diesel::insert_into(nodes::table)
             .values((
@@ -403,14 +398,15 @@ impl NewNode<'_> {
     pub async fn find_host(
         &self,
         scheduler: super::NodeScheduler,
-        cookbook: &cookbook::Cookbook,
         conn: &mut super::Conn,
     ) -> crate::Result<super::Host> {
         use crate::Error::NoMatchingHostError;
 
         let chain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
 
-        let requirements = cookbook
+        let requirements = conn
+            .context
+            .cookbook
             .rhai_metadata(&chain.name, &self.node_type.to_string(), self.version)
             .await?
             .requirements;
@@ -442,7 +438,7 @@ impl NewNode<'_> {
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = nodes)]
 pub struct UpdateNode<'a> {
-    pub id: uuid::Uuid,
+    pub id: NodeId,
     pub name: Option<&'a str>,
     pub version: Option<&'a str>,
     pub ip_addr: Option<&'a str>,
@@ -472,7 +468,7 @@ impl UpdateNode<'_> {
 #[derive(Debug, Insertable, AsChangeset)]
 #[diesel(table_name = nodes)]
 pub struct UpdateNodeMetrics {
-    pub id: uuid::Uuid,
+    pub id: NodeId,
     pub block_height: Option<i64>,
     pub block_age: Option<i64>,
     pub staking_status: Option<NodeStakingStatus>,
@@ -483,37 +479,42 @@ pub struct UpdateNodeMetrics {
 
 impl UpdateNodeMetrics {
     /// Performs a selective update of only the columns related to metrics of the provided nodes.
-    pub async fn update_metrics(updates: Vec<Self>, conn: &mut super::Conn) -> crate::Result<()> {
+    pub async fn update_metrics(
+        updates: Vec<Self>,
+        conn: &mut super::Conn,
+    ) -> crate::Result<Vec<Node>> {
+        let mut results = Vec::with_capacity(updates.len());
         for update in updates {
-            diesel::update(nodes::table.find(update.id))
+            let updated = diesel::update(nodes::table.find(update.id))
                 .set(update)
-                .execute(conn)
+                .get_result(conn)
                 .await?;
+            results.push(updated);
         }
-        Ok(())
+        Ok(results)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::*;
     use crate::config::Context;
     use crate::models;
-    use crate::TestDb;
+    use crate::tests::TestDb;
 
     #[tokio::test]
     async fn can_filter_nodes() -> anyhow::Result<()> {
-        let context = Context::new_with_default_toml().unwrap();
+        let context = Context::with_mocked().await.unwrap();
         let db = TestDb::setup(context).await;
         let name = format!("test_{}", petname::petname(3, "_"));
 
-        let cloudflare = crate::TestCloudflareApi::new().await;
-        let cloudflare_api = cloudflare.get_cloudflare_api();
         let blockchain = db.blockchain().await;
         let user = db.user().await;
         let org = db.org().await;
         let req = NewNode {
-            id: uuid::Uuid::new_v4(),
+            id: Uuid::new_v4().into(),
             org_id: org.id,
             blockchain_id: blockchain.id,
             chain_status: NodeChainStatus::Unknown,
@@ -540,10 +541,7 @@ mod tests {
         let mut conn = db.conn().await;
         let host = db.host().await;
         let host_id = host.id;
-        let cookbook = crate::TestCookbook::new().await.get_cookbook_api();
-        req.create(Some(host), &cloudflare_api, &cookbook, &mut conn)
-            .await
-            .unwrap();
+        req.create(Some(host), &mut conn).await.unwrap();
 
         let filter = models::NodeFilter {
             status: vec![models::NodeChainStatus::Unknown],

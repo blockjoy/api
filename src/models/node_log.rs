@@ -1,7 +1,11 @@
-use super::schema::node_logs;
+use std::collections::HashMap;
+
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use std::collections::HashMap;
+
+use crate::auth::resource::{HostId, NodeId};
+
+use super::schema::node_logs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumNodeLogEvent"]
@@ -28,8 +32,8 @@ pub enum NodeLogEvent {
 #[derive(Debug, Queryable)]
 pub struct NodeLog {
     pub id: uuid::Uuid,
-    pub host_id: uuid::Uuid,
-    pub node_id: uuid::Uuid,
+    pub host_id: HostId,
+    pub node_id: NodeId,
     pub event: NodeLogEvent,
     pub blockchain_name: String,
     pub node_type: super::NodeType,
@@ -67,11 +71,11 @@ impl NodeLog {
         deployments: &[Self],
         conn: &mut super::Conn,
     ) -> crate::Result<Vec<(super::Host, usize)>> {
-        let mut counts: HashMap<uuid::Uuid, usize> = HashMap::new();
+        let mut counts: HashMap<HostId, usize> = HashMap::new();
         for deployment in deployments {
             *counts.entry(deployment.host_id).or_insert(0) += 1;
         }
-        let host_ids: Vec<uuid::Uuid> = counts.keys().copied().collect();
+        let host_ids: Vec<HostId> = counts.keys().copied().collect();
         let hosts = super::Host::by_ids(&host_ids, conn).await?;
         let hosts = hosts
             .into_iter()
@@ -86,8 +90,8 @@ impl NodeLog {
 #[derive(Insertable)]
 #[diesel(table_name = node_logs)]
 pub struct NewNodeLog<'a> {
-    pub host_id: uuid::Uuid,
-    pub node_id: uuid::Uuid,
+    pub host_id: HostId,
+    pub node_id: NodeId,
     pub event: NodeLogEvent,
     pub blockchain_name: &'a str,
     pub node_type: super::NodeType,

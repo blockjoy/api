@@ -1,14 +1,17 @@
-use super::schema::node_key_files;
-use crate::Result;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
+
+use crate::auth::resource::NodeId;
+use crate::Result;
+
+use super::schema::node_key_files;
 
 #[derive(Debug, Queryable)]
 pub struct NodeKeyFile {
     pub id: uuid::Uuid,
     pub name: String,
     pub content: String,
-    pub node_id: uuid::Uuid,
+    pub node_id: NodeId,
 }
 
 impl NodeKeyFile {
@@ -26,7 +29,7 @@ impl NodeKeyFile {
 pub struct NewNodeKeyFile<'a> {
     pub name: &'a str,
     pub content: &'a str,
-    pub node_id: uuid::Uuid,
+    pub node_id: NodeId,
 }
 
 impl NewNodeKeyFile<'_> {

@@ -2,12 +2,14 @@ use anyhow::Context;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use tonic::{Request, Response};
 
+use crate::auth::endpoint::Endpoint;
+use crate::auth::resource::Resource;
+use crate::models;
+
 use super::api::{self, key_file_service_server};
-use crate::auth::token::{Endpoint, Resource};
-use crate::{auth, models};
 
 #[tonic::async_trait]
-impl key_file_service_server::KeyFileService for super::GrpcImpl {
+impl key_file_service_server::KeyFileService for super::Grpc {
     async fn create(
         &self,
         req: Request<api::KeyFileServiceCreateRequest>,
@@ -29,7 +31,7 @@ async fn create(
     req: Request<api::KeyFileServiceCreateRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::KeyFileServiceCreateResponse> {
-    let claims = auth::get_claims(&req, Endpoint::KeyFileCreate, conn).await?;
+    let claims = conn.claims(&req, Endpoint::KeyFileCreate).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.node_id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
@@ -62,7 +64,7 @@ async fn list(
     req: Request<api::KeyFileServiceListRequest>,
     conn: &mut models::Conn,
 ) -> super::Result<api::KeyFileServiceListResponse> {
-    let claims = auth::get_claims(&req, Endpoint::KeyFileList, conn).await?;
+    let claims = conn.claims(&req, Endpoint::KeyFileList).await?;
     let req = req.into_inner();
     let node = models::Node::find_by_id(req.node_id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {

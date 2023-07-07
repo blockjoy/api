@@ -1,157 +1,130 @@
+pub mod claims;
+pub mod endpoint;
+pub mod resource;
 pub mod token;
 
-use token::refresh::Refresh;
-use token::{Claims, Endpoint};
+use std::sync::Arc;
 
-use crate::config::Context;
+use displaydoc::Display;
+use thiserror::Error;
+use tonic::Status;
+use tracing::error;
+
+use crate::config::token::Config;
 use crate::models::Conn;
 
-pub const TOKEN_EXPIRATION_MINS: &str = "TOKEN_EXPIRATION_MINS";
-pub const REFRESH_EXPIRATION_USER_MINS: &str = "REFRESH_EXPIRATION_USER_MINS";
-pub const REFRESH_EXPIRATION_HOST_MINS: &str = "REFRESH_EXPIRATION_HOST_MINS";
+use self::claims::Claims;
+use self::endpoint::Endpoint;
+use self::token::api_key::Validated;
+use self::token::refresh::{self, Refresh, RequestCookie};
+use self::token::{Cipher, RequestToken};
 
-/// This function is the workhorse of our authentication process. It takes the extensions of the
-/// request and returns the `Claims` that the authentication process provided.
-pub async fn get_claims<T>(
-    req: &tonic::Request<T>,
-    endpoint: Endpoint,
-    conn: &mut Conn,
-) -> crate::Result<Claims> {
-    let meta = req
-        .metadata()
-        .get("authorization")
-        .ok_or_else(|| crate::Error::invalid_auth("No JWT or API key"))?
-        .to_str()?;
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Claims are missing Endpoint: {0:?}
+    ClaimsMissingEndpoint(Endpoint),
+    /// Failed to decode JWT: {0}
+    DecodeJwt(token::jwt::Error),
+    /// Failed to decode refresh BearerToken: {0}
+    DecodeRefresh(refresh::Error),
+    /// Failed to parse RequestToken: {0}
+    ParseRequestToken(token::Error),
+    /// Failed to parse refresh header: {0}
+    RefreshHeader(refresh::Error),
+    /// Failed to parse token expiry: {0}
+    TokenExpires(crate::config::Error),
+    /// Failed to validate api key: {0}
+    ValidateApiKey(token::api_key::Error),
+}
 
-    let claims = match (
-        claims_from_jwt(meta, conn),
-        claims_from_api_key(meta, conn).await,
-    ) {
-        (Ok(claims), _) => claims,
-        (_, Ok(claims)) => claims,
-        (Err(e1), Err(e2)) => {
-            let msg = format!("Neither JWT nor API key are valid: `{e1}` and `{e2}`");
-            return Err(crate::Error::invalid_auth(msg));
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        error!("{}: {err}", std::any::type_name::<Error>());
+
+        use Error::*;
+        match err {
+            ClaimsMissingEndpoint(_) => Status::permission_denied("No access to this endpoint."),
+            DecodeJwt(_) => Status::permission_denied("Invalid JWT token."),
+            DecodeRefresh(_) | RefreshHeader(_) => {
+                Status::permission_denied("Invalid refresh token.")
+            }
+            ParseRequestToken(e) => e.into(),
+            TokenExpires(_) => Status::internal("Internal error."),
+            ValidateApiKey(_) => Status::permission_denied("Invalid API key."),
         }
-    };
+    }
+}
 
-    if !claims.endpoints.includes(endpoint) {
-        return Err(crate::Error::invalid_auth("No access to this endpoint"));
+/// The entry point into the authentication process.
+pub struct Auth {
+    pub cipher: Arc<Cipher>,
+    pub token_expires: chrono::Duration,
+}
+
+impl Auth {
+    pub fn new(config: &Config) -> Result<Self, Error> {
+        let cipher = Arc::new(Cipher::new(&config.secret));
+        let token_expires = config
+            .expire
+            .token
+            .try_into()
+            .map_err(Error::TokenExpires)?;
+
+        Ok(Auth {
+            cipher,
+            token_expires,
+        })
     }
 
-    Ok(claims)
-}
+    pub async fn claims<T>(
+        &self,
+        req: &tonic::Request<T>,
+        endpoint: Endpoint,
+        conn: &mut Conn,
+    ) -> Result<Claims, Error> {
+        let token: RequestToken = req
+            .metadata()
+            .try_into()
+            .map_err(Error::ParseRequestToken)?;
 
-fn claims_from_jwt(meta: &str, conn: &Conn) -> crate::Result<Claims> {
-    const ERROR_MSG: &str = "Authorization meta must start with `Bearer `";
-    let stripped = meta
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| crate::Error::invalid_auth(ERROR_MSG))?;
+        let claims = match token {
+            RequestToken::ApiKey(token) => Validated::from_token(&token, conn)
+                .await
+                .map_err(Error::ValidateApiKey)?
+                .claims(self.token_expires),
 
-    conn.context.cipher.jwt.decode(stripped).map_err(Into::into)
-}
+            RequestToken::Bearer(token) => {
+                self.cipher.jwt.decode(&token).map_err(Error::DecodeJwt)?
+            }
+        };
 
-async fn claims_from_api_key(_meta: &str, _conn: &mut Conn) -> crate::Result<Claims> {
-    Err(crate::Error::unexpected("Chris will implement this"))
-}
+        if !claims.endpoints.includes(endpoint) {
+            return Err(Error::ClaimsMissingEndpoint(endpoint));
+        }
 
-pub fn get_refresh<T>(
-    req: &tonic::Request<T>,
-    context: &Context,
-) -> crate::Result<Option<Refresh>> {
-    let meta = match req.metadata().get("cookie") {
-        Some(meta) => meta.to_str()?,
-        None => return Ok(None),
-    };
-    let Some(refresh_idx) = meta.find("refresh=") else { return Ok(None) };
-    let end_idx = meta[refresh_idx..]
-        .find(';')
-        .map(|offset| offset + refresh_idx)
-        .unwrap_or(meta.len());
-    if refresh_idx > end_idx {
-        return Ok(None);
-    };
-
-    // Note that `refresh + 8` can never cause an out of bounds access, because we found the string
-    // `"refresh="` and then `";"` after that, so there must be at least 10 characters occuring
-    // after `refresh_idx`
-    let refresh = context
-        .cipher
-        .refresh
-        .decode(&meta[refresh_idx + 8..end_idx])?;
-
-    Ok(Some(refresh))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::Context;
-    use crate::{auth, TestDb};
-
-    #[test]
-    fn test_get_refresh() {
-        let context = Context::new_with_default_toml().unwrap();
-
-        let refresh = Refresh::new(
-            uuid::Uuid::new_v4(),
-            chrono::Utc::now(),
-            chrono::Duration::minutes(1),
-        )
-        .unwrap();
-
-        let mut req = tonic::Request::new(());
-        req.metadata_mut()
-            .insert("cookie", context.cipher.refresh.cookie(&refresh).unwrap());
-
-        let res = get_refresh(&req, &context).unwrap().unwrap();
-        assert_eq!(res.resource_id, refresh.resource_id);
+        Ok(claims)
     }
 
-    #[tokio::test]
-    async fn test_crafted_evil_refresh() {
-        let context = Context::new_with_default_toml().unwrap();
-        let mut req = tonic::Request::new(());
-
-        req.metadata_mut()
-            .insert("cookie", ";refresh=".parse().unwrap());
-        assert!(get_refresh(&req, &context).is_err());
-
-        req.metadata_mut()
-            .insert("cookie", "refresh=;".parse().unwrap());
-        assert!(get_refresh(&req, &context).is_err());
+    pub fn refresh<T>(&self, req: &tonic::Request<T>) -> Result<Refresh, Error> {
+        let cookie: RequestCookie = req.metadata().try_into().map_err(Error::RefreshHeader)?;
+        self.cipher
+            .refresh
+            .decode(&cookie.encoded)
+            .map_err(Error::DecodeRefresh)
     }
 
-    #[tokio::test]
-    async fn test_extra_cookies() {
-        let context = Context::new_with_default_toml().unwrap();
-        let db = TestDb::setup(context.clone()).await;
-
-        let iat = chrono::Utc::now();
-        let exp = chrono::Duration::seconds(65);
-        let refresh = auth::Refresh::new(db.user().await.id, iat, exp).unwrap();
-
-        let refresh = context.cipher.refresh.encode(&refresh).unwrap();
-
-        let mut req = tonic::Request::new(());
-        req.metadata_mut().insert(
-            "cookie",
-            format!("other_meta=v1; refresh={}; another=v2; ", *refresh)
-                .parse()
-                .unwrap(),
-        );
-        get_refresh(&req, &context).unwrap().unwrap();
-
-        req.metadata_mut().insert(
-            "cookie",
-            format!("other_meta=v1; refresh={}", *refresh)
-                .parse()
-                .unwrap(),
-        );
-        get_refresh(&req, &context).unwrap().unwrap();
-
-        req.metadata_mut()
-            .insert("cookie", format!("refresh={}", *refresh).parse().unwrap());
-        get_refresh(&req, &context).unwrap().unwrap();
+    /// Try to get a `Refresh` token from the request headers.
+    ///
+    /// Will return `Ok(None)` if the header is missing so that an alternative
+    /// representation may be tried (e.g. from a gRPC request body).
+    pub fn maybe_refresh<T>(&self, req: &tonic::Request<T>) -> Result<Option<Refresh>, Error> {
+        use refresh::Error::*;
+        match self.refresh(req) {
+            Ok(refresh) => Ok(Some(refresh)),
+            Err(Error::RefreshHeader(
+                MissingCookieHeader | MissingCookieRefresh | EmptyCookieRefresh,
+            )) => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 }

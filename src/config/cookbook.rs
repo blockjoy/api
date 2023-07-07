@@ -5,6 +5,7 @@ use tonic::metadata::errors;
 use url::Url;
 
 use super::provider::{self, Provider};
+use super::{HumanTime, Redacted};
 
 const DIR_CHAINS_PREFIX_VAR: &str = "DIR_CHAINS_PREFIX";
 const DIR_CHAINS_PREFIX_ENTRY: &str = "cookbook.prefix";
@@ -51,10 +52,10 @@ pub struct Config {
     pub dir_chains_prefix: String,
     pub r2_bucket: String,
     pub r2_url: Url,
-    pub presigned_url_expiration: super::HumanTime,
+    pub presigned_url_expiration: HumanTime,
     pub region: String,
-    pub key_id: super::Redacted<String>,
-    pub key: super::Redacted<String>,
+    pub key_id: Redacted<String>,
+    pub key: Redacted<String>,
     pub bundle_bucket: String,
 }
 

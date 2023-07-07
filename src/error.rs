@@ -18,6 +18,15 @@ pub enum Error {
     #[error("Duplicate resource conflict on constraint {constraint}.")]
     DuplicateResource { constraint: String },
 
+    #[error("Authentication error: {0}")]
+    Auth(#[from] crate::auth::Error),
+
+    #[error("Claims authentication error: {0}")]
+    Claims(#[from] crate::auth::claims::Error),
+
+    #[error("Token authentication error: {0}")]
+    Token(#[from] crate::auth::token::Error),
+
     #[error("invalid authentication credentials: {0}")]
     InvalidAuthentication(String),
 
@@ -27,7 +36,7 @@ pub enum Error {
     #[error("Error processing JWT: {0}")]
     Jwt(#[from] crate::auth::token::jwt::Error),
 
-    #[error("Error processing refreshToken: {0}")]
+    #[error("Error processing refresh token: {0}")]
     RefreshToken(#[from] crate::auth::token::refresh::Error),
 
     #[error("Error related to JSON parsing or serialization: {0}")]
@@ -77,7 +86,7 @@ pub enum Error {
     MqttError(#[from] rumqttc::ClientError),
 
     #[error("Cloudflare integration error: {0}")]
-    DnsError(#[from] crate::cloudflare::DnsError),
+    Dns(#[from] crate::dns::Error),
 
     #[error("Could not select a matching host")]
     NoMatchingHostError(String),
@@ -146,6 +155,8 @@ impl From<Error> for tonic::Status {
             NotFoundError(_) => tonic::Status::not_found(msg),
             DuplicateResource { .. } => tonic::Status::invalid_argument(msg),
             UuidParseError(_) | IpParseError(_) => tonic::Status::invalid_argument(msg),
+            Auth(err) => err.into(),
+            Token(err) => err.into(),
             InvalidAuthentication(_) => tonic::Status::unauthenticated(msg),
             InsufficientPermissions(_) => tonic::Status::permission_denied(msg),
             UserConfirmationError => tonic::Status::unauthenticated(msg),

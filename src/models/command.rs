@@ -1,8 +1,11 @@
-use crate::models::schema::commands;
-use crate::Result;
+use chrono::{DateTime, Utc};
 use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
 use uuid::Uuid;
+
+use crate::auth::resource::{HostId, NodeId};
+use crate::models::schema::commands;
+use crate::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumHostCmd"]
@@ -27,15 +30,15 @@ pub enum CommandType {
 #[derive(Clone, Debug, Queryable, Identifiable)]
 pub struct Command {
     pub id: Uuid,
-    pub host_id: Uuid,
+    pub host_id: HostId,
     pub cmd: CommandType,
     pub sub_cmd: Option<String>,
     pub response: Option<String>,
     pub exit_status: Option<i32>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub node_id: Option<Uuid>,
-    pub acked_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub node_id: Option<NodeId>,
+    pub acked_at: Option<DateTime<Utc>>,
 }
 
 type Pending = dsl::Filter<commands::table, dsl::IsNull<commands::exit_status>>;
@@ -47,7 +50,7 @@ impl Command {
     }
 
     pub async fn find_pending_by_host(
-        host_id: Uuid,
+        host_id: HostId,
         conn: &mut super::Conn,
     ) -> Result<Vec<Command>> {
         let commands = Self::pending()
@@ -58,7 +61,7 @@ impl Command {
         Ok(commands)
     }
 
-    pub async fn delete_pending(node_id: uuid::Uuid, conn: &mut super::Conn) -> Result<()> {
+    pub async fn delete_pending(node_id: NodeId, conn: &mut super::Conn) -> Result<()> {
         diesel::delete(Self::pending().filter(commands::node_id.eq(node_id)))
             .execute(conn)
             .await?;
@@ -90,10 +93,10 @@ impl Command {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = commands)]
 pub struct NewCommand<'a> {
-    pub host_id: uuid::Uuid,
+    pub host_id: HostId,
     pub cmd: CommandType,
     pub sub_cmd: Option<&'a str>,
-    pub node_id: Option<Uuid>,
+    pub node_id: Option<NodeId>,
 }
 
 impl NewCommand<'_> {

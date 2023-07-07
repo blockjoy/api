@@ -127,11 +127,11 @@ impl Blockchain {
 mod tests {
     use crate::config::Context;
     use crate::models::{NodeSelfUpgradeFilter, NodeType};
-    use crate::TestDb;
+    use crate::tests::TestDb;
 
     #[tokio::test]
     async fn test_add_version_existing_version() {
-        let context = Context::new_with_default_toml().unwrap();
+        let context = Context::from_default_toml().await.unwrap();
         let db = TestDb::setup(context).await;
 
         let mut conn = db.conn().await;
@@ -150,7 +150,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_version_non_existing_version() {
-        let context = Context::new_with_default_toml().unwrap();
+        let context = Context::from_default_toml().await.unwrap();
         let db = TestDb::setup(context).await;
         let mut conn = db.conn().await;
 
