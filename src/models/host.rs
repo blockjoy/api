@@ -7,7 +7,7 @@ use diesel_async::RunQueryDsl;
 use crate::auth::resource::{HostId, OrgId, UserId};
 use crate::{cookbook::script::HardwareRequirements, Result};
 
-use super::schema::hosts;
+use super::schema::{hosts, regions};
 use super::Paginate;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
@@ -219,7 +219,20 @@ impl Host {
         host_type: Option<HostType>,
         conn: &mut super::Conn,
     ) -> crate::Result<Vec<String>> {
-        todo!()
+        let mut query = hosts::table
+            .filter(hosts::org_id.eq(org_id))
+            .inner_join(regions::table)
+            .into_boxed();
+        if let Some(host_type) = host_type {
+            query = query.filter(hosts::host_type.eq(host_type));
+        }
+
+        let regions = query
+            .select(regions::name)
+            .distinct()
+            .get_results(conn)
+            .await?;
+        Ok(regions)
     }
 }
 

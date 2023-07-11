@@ -346,6 +346,8 @@ pub struct NewNode<'a> {
     pub scheduler_similarity: Option<super::SimilarNodeAffinity>,
     /// Controls whether to run the node on hosts that are full or empty.
     pub scheduler_resource: Option<super::ResourceAffinity>,
+    /// The region where this node should be deployed.
+    pub scheduler_region: Option<uuid::Uuid>,
 }
 
 impl NewNode<'_> {
@@ -429,6 +431,7 @@ impl NewNode<'_> {
     fn scheduler(&self) -> Option<super::NodeScheduler> {
         let Some(resource) = self.scheduler_resource else { return None; };
         Some(super::NodeScheduler {
+            region: self.scheduler_region,
             similarity: self.scheduler_similarity,
             resource,
         })
@@ -534,6 +537,7 @@ mod tests {
             created_by: user.id,
             scheduler_similarity: None,
             scheduler_resource: Some(models::ResourceAffinity::MostResources),
+            scheduler_region: None,
             allow_ips: serde_json::json!([]),
             deny_ips: serde_json::json!([]),
         };

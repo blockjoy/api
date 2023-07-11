@@ -562,6 +562,8 @@ impl api::NodeServiceCreateRequest {
             .iter()
             .map(api::FilteredIpAddr::as_model)
             .collect();
+        let region_id = scheduler.and_then(|s| s.region.parse()).transpose()?;
+        let region = todo!();
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4().into(),
             org_id: self.org_id.parse()?,

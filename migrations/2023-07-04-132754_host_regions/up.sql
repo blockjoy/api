@@ -1,6 +1,6 @@
 CREATE TABLE regions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(50) NOT NULL UNIQUE
+    name TEXT NOT NULL UNIQUE
 );
 
 ALTER TABLE hosts ADD COLUMN region_id UUID NULL REFERENCES regions ON DELETE SET NULL;

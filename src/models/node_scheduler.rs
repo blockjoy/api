@@ -4,6 +4,8 @@
 /// that the final field of this struct is required, in order to make sure that the affinity of
 /// nodes is always defined.
 pub struct NodeScheduler {
+    /// Controls in which region the node should be deployed.
+    pub region: Option<String>,
     /// Controls whether we want to group nodes of the same kind together or spread them out over
     /// multiple hosts.
     pub similarity: Option<SimilarNodeAffinity>,
