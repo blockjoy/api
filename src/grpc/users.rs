@@ -154,9 +154,9 @@ async fn get_billing(
 ) -> super::Result<api::UserServiceGetBillingResponse> {
     let claims = conn.claims(&req, Endpoint::UserGetBilling).await?;
     let req = req.into_inner();
-    let user = models::User::find_by_id(req.user_id.parse()?, conn).await?;
+    let user_id = req.user_id.parse()?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => user_id == user.id,
+        Resource::User(user_id_) => user_id == user_id_,
         Resource::Org(_) => false,
         Resource::Host(_) => false,
         Resource::Node(_) => false,
@@ -164,6 +164,7 @@ async fn get_billing(
     if !is_allowed {
         super::forbidden!("Access denied for users get billing")
     }
+    let user = models::User::find_by_id(user_id, conn).await?;
     let resp = api::UserServiceGetBillingResponse {
         billing_id: user.billing_id,
     };
@@ -176,9 +177,9 @@ async fn update_billing(
 ) -> super::Result<api::UserServiceUpdateBillingResponse> {
     let claims = conn.claims(&req, Endpoint::UserUpdateBilling).await?;
     let req = req.into_inner();
-    let mut user = models::User::find_by_id(req.user_id.parse()?, conn).await?;
+    let user_id = req.user_id.parse()?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => user_id == user.id,
+        Resource::User(user_id_) => user_id == user_id_,
         Resource::Org(_) => false,
         Resource::Host(_) => false,
         Resource::Node(_) => false,
@@ -186,6 +187,7 @@ async fn update_billing(
     if !is_allowed {
         super::forbidden!("Access denied for users update billing")
     }
+    let mut user = models::User::find_by_id(user_id, conn).await?;
     user.billing_id = req.billing_id;
     user.update(conn).await?;
     let resp = api::UserServiceUpdateBillingResponse {
@@ -200,9 +202,9 @@ async fn delete_billing(
 ) -> super::Result<api::UserServiceDeleteBillingResponse> {
     let claims = conn.claims(&req, Endpoint::UserDeleteBilling).await?;
     let req = req.into_inner();
-    let user = models::User::find_by_id(req.user_id.parse()?, conn).await?;
+    let user_id = req.user_id.parse()?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => user_id == user.id,
+        Resource::User(user_id_) => user_id == user_id_,
         Resource::Org(_) => false,
         Resource::Host(_) => false,
         Resource::Node(_) => false,
@@ -210,6 +212,7 @@ async fn delete_billing(
     if !is_allowed {
         super::forbidden!("Access not allowed")
     }
+    let user = models::User::find_by_id(user_id, conn).await?;
     user.delete_billing(conn).await?;
     let resp = api::UserServiceDeleteBillingResponse {};
     Ok(tonic::Response::new(resp))
