@@ -3,8 +3,12 @@ use std::collections::HashMap;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::join_all;
 
+use crate::config::Context;
+use crate::cookbook;
+use crate::database::{Conn, Transaction};
+use crate::models::blockchain::{Blockchain, BlockchainProperty};
+use crate::models::NodeType;
 use crate::timestamp::NanosUtc;
-use crate::{cookbook, models};
 
 use super::api::{self, blockchain_service_server, SupportedNodeProperty};
 
@@ -14,24 +18,29 @@ impl blockchain_service_server::BlockchainService for super::Grpc {
         &self,
         req: tonic::Request<api::BlockchainServiceGetRequest>,
     ) -> super::Resp<api::BlockchainServiceGetResponse> {
-        self.run(|c| get(req, c).scope_boxed()).await
+        self.context
+            .read(|conn, ctx| get(req, conn, ctx).scope_boxed())
+            .await
     }
 
     async fn list(
         &self,
         req: tonic::Request<api::BlockchainServiceListRequest>,
     ) -> super::Resp<api::BlockchainServiceListResponse> {
-        self.run(|c| list(req, c).scope_boxed()).await
+        self.context
+            .read(|conn, ctx| list(req, conn, ctx).scope_boxed())
+            .await
     }
 }
 
 async fn get(
     req: tonic::Request<api::BlockchainServiceGetRequest>,
-    conn: &mut models::Conn,
+    conn: &mut Conn<'_>,
+    _ctx: &Context,
 ) -> super::Result<api::BlockchainServiceGetResponse> {
     let req: api::BlockchainServiceGetRequest = req.into_inner();
     let id = req.id.parse()?;
-    let blockchain = models::Blockchain::find_by_id(id, conn).await?;
+    let blockchain = Blockchain::find_by_id(id, conn).await?;
     let resp = api::BlockchainServiceGetResponse {
         blockchain: Some(api::Blockchain::from_model(blockchain, conn).await?),
     };
@@ -39,19 +48,20 @@ async fn get(
 }
 
 async fn list(
-    _: tonic::Request<api::BlockchainServiceListRequest>,
-    conn: &mut models::Conn,
+    _req: tonic::Request<api::BlockchainServiceListRequest>,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> super::Result<api::BlockchainServiceListResponse> {
     // We need to combine info from two seperate sources: the database and cookbook. Since
     // cookbook is slow, the step where we call it is parallelized.
 
     // We query the necessary blockchains from the database.
-    let blockchains = models::Blockchain::find_all(conn).await?;
+    let blockchains = Blockchain::find_all(conn).await?;
 
     // This list will contain the dto's that are sent over gRPC after the information from
     // cookbook has been added to them.
     let mut grpc_blockchains = api::Blockchain::from_models(blockchains.clone(), conn).await?;
-    let cookbook = conn.context.cookbook.clone();
+    let cookbook = ctx.cookbook.clone();
 
     // Now we need to combine this info with the networks that are stored in the cookbook
     // service. Since we want to do this in parallel, this list will contain a number of futures
@@ -135,11 +145,8 @@ async fn try_get_networks(
 }
 
 impl api::Blockchain {
-    async fn from_models(
-        models: Vec<models::Blockchain>,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Vec<Self>> {
-        let properties = models::BlockchainProperty::by_blockchains(&models, conn).await?;
+    async fn from_models(models: Vec<Blockchain>, conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
+        let properties = BlockchainProperty::by_blockchains(&models, conn).await?;
         let mut properties_map: HashMap<uuid::Uuid, Vec<_>> = HashMap::new();
         for property in properties {
             properties_map
@@ -169,15 +176,15 @@ impl api::Blockchain {
             .collect()
     }
 
-    async fn from_model(model: models::Blockchain, conn: &mut models::Conn) -> crate::Result<Self> {
+    async fn from_model(model: Blockchain, conn: &mut Conn<'_>) -> crate::Result<Self> {
         Ok(Self::from_models(vec![model], conn).await?[0].clone())
     }
 }
 
 impl api::SupportedNodeType {
-    fn from_models(models: Vec<models::BlockchainProperty>) -> crate::Result<Vec<Self>> {
+    fn from_models(models: Vec<BlockchainProperty>) -> crate::Result<Vec<Self>> {
         // First we partition the properties by node type and version.
-        let mut properties: HashMap<(models::NodeType, String), Vec<_>> = HashMap::new();
+        let mut properties: HashMap<(NodeType, String), Vec<_>> = HashMap::new();
         for model in models {
             properties
                 .entry((model.node_type, model.version.clone()))
@@ -204,7 +211,7 @@ impl api::SupportedNodeType {
 }
 
 impl api::SupportedNodeProperty {
-    fn from_model(model: &models::BlockchainProperty) -> Self {
+    fn from_model(model: &BlockchainProperty) -> Self {
         let mut prop = SupportedNodeProperty {
             name: model.name.clone(),
             default: model.default.clone(),

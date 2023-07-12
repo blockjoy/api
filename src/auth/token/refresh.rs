@@ -209,7 +209,6 @@ mod tests {
     use uuid::Uuid;
 
     use crate::config::Context;
-    use crate::tests::TestDb;
     use crate::timestamp::SecondsUtc;
 
     use super::*;
@@ -259,8 +258,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_extra_cookies() {
-        let context = Context::from_default_toml().await.unwrap();
-        let db = TestDb::setup(context.clone()).await;
+        let (context, db) = Context::with_mocked().await.unwrap();
 
         let resource_id = db.user().await.id;
         let refresh = Refresh::from_now(seconds(60), resource_id);

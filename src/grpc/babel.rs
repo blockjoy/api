@@ -2,7 +2,10 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use tracing::log::{debug, info};
 
 use crate::auth::endpoint::Endpoint;
-use crate::models;
+use crate::config::Context;
+use crate::database::{Conn, Transaction};
+use crate::models::command::NewCommand;
+use crate::models::{Blockchain, CommandType, Node, NodeSelfUpgradeFilter, NodeType};
 
 use super::api::{self, babel_service_server};
 use super::helpers::required;
@@ -15,7 +18,8 @@ impl babel_service_server::BabelService for super::Grpc {
         &self,
         req: tonic::Request<api::BabelServiceNotifyRequest>,
     ) -> super::Resp<api::BabelServiceNotifyResponse> {
-        self.trx(|c| notify(req, c).scope_boxed())
+        self.context
+            .write(|conn, ctx| notify(req, conn, ctx).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -24,17 +28,18 @@ impl babel_service_server::BabelService for super::Grpc {
 
 async fn notify(
     req: tonic::Request<api::BabelServiceNotifyRequest>,
-    conn: &mut models::Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> crate::Result<super::Outcome<api::BabelServiceNotifyResponse>> {
     // TODO: decide who is allowed to call this endpoint
-    let _claims = conn.claims(&req, Endpoint::BabelNotify).await?;
+    let _claims = ctx.claims(&req, Endpoint::BabelNotify).await?;
     let req = req.into_inner();
     debug!("New Request Version: {:?}", req);
     let filter = req.info_filter(conn).await?;
-    let nodes_to_upgrade = models::Node::find_all_to_upgrade(&filter, conn).await?;
+    let nodes_to_upgrade = Node::find_all_to_upgrade(&filter, conn).await?;
     debug!("Nodes to upgrade: {nodes_to_upgrade:?}");
 
-    let blockchain = models::Blockchain::find_by_id(filter.blockchain_id, conn).await?;
+    let blockchain = Blockchain::find_by_id(filter.blockchain_id, conn).await?;
     blockchain.add_version(&filter, conn).await?;
     let mut node_ids = vec![];
     let mut commands = vec![];
@@ -42,9 +47,9 @@ async fn notify(
         let node_id = node.id.to_string();
         node.version = filter.version.clone();
         node.node_type = filter.node_type;
-        let new_command = models::NewCommand {
+        let new_command = NewCommand {
             host_id: node.host_id,
-            cmd: models::CommandType::UpgradeNode,
+            cmd: CommandType::UpgradeNode,
             sub_cmd: None,
             node_id: Some(node.id),
         };
@@ -63,16 +68,13 @@ async fn notify(
 }
 
 impl api::BabelServiceNotifyRequest {
-    async fn info_filter(
-        self,
-        conn: &mut models::Conn,
-    ) -> crate::Result<models::NodeSelfUpgradeFilter> {
+    async fn info_filter(self, conn: &mut Conn<'_>) -> crate::Result<NodeSelfUpgradeFilter> {
         let conf = self.config.ok_or_else(required("config"))?;
-        let node_type: models::NodeType = conf.node_type.parse().map_err(|e| {
+        let node_type: NodeType = conf.node_type.parse().map_err(|e| {
             crate::Error::BabelConfigConvertError(format!("Cannot convert node_type {e}"))
         })?;
-        let blockchain = models::Blockchain::find_by_name(&conf.protocol, conn).await?;
-        Ok(models::NodeSelfUpgradeFilter {
+        let blockchain = Blockchain::find_by_name(&conf.protocol, conn).await?;
+        Ok(NodeSelfUpgradeFilter {
             version: conf.node_version,
             node_type,
             blockchain_id: blockchain.id,

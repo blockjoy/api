@@ -1,4 +1,5 @@
-use blockvisor_api::{grpc::api, models};
+use blockvisor_api::grpc::api;
+use blockvisor_api::models::User;
 
 type Service = api::user_service_client::UserServiceClient<super::Channel>;
 
@@ -78,8 +79,8 @@ async fn can_confirm_unconfirmed_user() {
     assert!(user.confirmed_at.is_none());
 
     let mut conn = tester.conn().await;
-    models::User::confirm(user.id, &mut conn).await.unwrap();
-    let user = models::User::find_by_id(user.id, &mut conn).await.unwrap();
+    User::confirm(user.id, &mut conn).await.unwrap();
+    let user = User::find_by_id(user.id, &mut conn).await.unwrap();
 
     user.confirmed_at.unwrap();
 }
@@ -90,7 +91,7 @@ async fn cannot_confirm_confirmed_user() {
     let user = tester.user().await;
     let mut conn = tester.conn().await;
     user.confirmed_at.unwrap();
-    models::User::confirm(user.id, &mut conn)
+    User::confirm(user.id, &mut conn)
         .await
         .expect_err("Already confirmed user confirmed again");
 }
@@ -103,13 +104,11 @@ async fn can_check_if_user_confirmed() {
     assert!(user.confirmed_at.is_none());
 
     let mut conn = tester.conn().await;
-    models::User::confirm(user.id, &mut conn).await.unwrap();
-    let user = models::User::find_by_id(user.id, &mut conn).await.unwrap();
+    User::confirm(user.id, &mut conn).await.unwrap();
+    let user = User::find_by_id(user.id, &mut conn).await.unwrap();
 
     assert!(user.confirmed_at.is_some());
-    assert!(models::User::is_confirmed(user.id, &mut conn)
-        .await
-        .unwrap());
+    assert!(User::is_confirmed(user.id, &mut conn).await.unwrap());
 }
 
 #[tokio::test]
@@ -119,9 +118,7 @@ async fn returns_false_for_unconfirmed_user_at_check_if_user_confirmed() {
 
     assert!(user.confirmed_at.is_none());
     let mut conn = tester.conn().await;
-    assert!(!models::User::is_confirmed(user.id, &mut conn)
-        .await
-        .unwrap());
+    assert!(!User::is_confirmed(user.id, &mut conn).await.unwrap());
 }
 
 #[tokio::test]

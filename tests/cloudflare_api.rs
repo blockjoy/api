@@ -3,14 +3,14 @@ mod setup;
 use blockvisor_api::config::{Config, Context};
 use blockvisor_api::dns::{Cloudflare, Dns};
 use blockvisor_api::grpc::{api, api::node_service_client};
-use blockvisor_api::models;
+use blockvisor_api::models::Node;
 use tonic::transport;
 
 type Service = node_service_client::NodeServiceClient<transport::Channel>;
 
 #[tokio::test]
 async fn can_create_node_dns() -> anyhow::Result<()> {
-    let context = Context::with_mocked().await.unwrap();
+    let (context, _db) = Context::with_mocked().await.unwrap();
 
     let name = format!("test_{}", petname::petname(3, "_"));
     let id = context
@@ -49,7 +49,7 @@ async fn can_create_node_with_dns() -> anyhow::Result<()> {
     let resp = tester.send_admin(Service::create, req).await.unwrap();
 
     let node_id = resp.node.unwrap().id.parse().unwrap();
-    let node = models::Node::find_by_id(node_id, &mut conn).await.unwrap();
+    let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
     assert!(!node.dns_record_id.is_empty());
 
     Ok(())

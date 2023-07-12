@@ -1,5 +1,6 @@
 use blockvisor_api::grpc::api;
-use blockvisor_api::models;
+use blockvisor_api::models::host::{Host, UpdateHost};
+use blockvisor_api::models::schema;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
@@ -209,13 +210,13 @@ async fn responds_permission_denied_for_delete() {
 
 #[tokio::test]
 async fn can_update_host_info() {
-    use models::schema::hosts;
+    use schema::hosts;
     // TODO @Thomas: This doesn't really test the api, should this be here or maybe in
     // `src/models/host.rs`?
 
     let tester = super::Tester::new().await;
     let host = tester.host().await;
-    let update_host = models::UpdateHost {
+    let update_host = UpdateHost {
         id: host.id,
         name: Some("tester"),
         ip_range_from: Some("192.168.0.10".parse().unwrap()),
@@ -236,7 +237,7 @@ async fn can_update_host_info() {
 
     // Fetch host after update to see if it really worked as expected
 
-    let updated_host: models::Host = hosts::table
+    let updated_host: Host = hosts::table
         .filter(hosts::id.eq(host.id))
         .get_result(&mut conn)
         .await

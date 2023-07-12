@@ -1,17 +1,15 @@
 use blockvisor_api::auth::resource::NodeId;
 use blockvisor_api::grpc::api;
-use blockvisor_api::models;
+use blockvisor_api::models::command::{Command, CommandType, NewCommand};
+use blockvisor_api::models::host::Host;
+use blockvisor_api::models::node::UpdateNode;
 
 type Service = api::command_service_client::CommandServiceClient<super::Channel>;
 
-async fn create_command(
-    tester: &super::Tester,
-    node_id: NodeId,
-    cmd_type: models::CommandType,
-) -> models::Command {
+async fn create_command(tester: &super::Tester, node_id: NodeId, cmd_type: CommandType) -> Command {
     let host = tester.host().await;
     let mut conn = tester.conn().await;
-    let new_cmd = models::NewCommand {
+    let new_cmd = NewCommand {
         host_id: host.id,
         cmd: cmd_type,
         sub_cmd: None,
@@ -26,10 +24,8 @@ async fn responds_ok_for_update() {
     let tester = super::Tester::new().await;
     let mut conn = tester.conn().await;
     let node = tester.node().await;
-    let cmd = create_command(&tester, node.id, models::CommandType::CreateNode).await;
-    let host = models::Host::find_by_id(cmd.host_id, &mut conn)
-        .await
-        .unwrap();
+    let cmd = create_command(&tester, node.id, CommandType::CreateNode).await;
+    let host = Host::find_by_id(cmd.host_id, &mut conn).await.unwrap();
 
     let claims = tester.host_token(&host);
     let jwt = tester.cipher().jwt.encode(&claims).unwrap();
@@ -42,9 +38,7 @@ async fn responds_ok_for_update() {
 
     tester.send_with(Service::update, req, &jwt).await.unwrap();
 
-    let cmd = models::Command::find_by_id(cmd.id, &mut conn)
-        .await
-        .unwrap();
+    let cmd = Command::find_by_id(cmd.id, &mut conn).await.unwrap();
 
     assert_eq!(cmd.response.unwrap(), "hugo boss");
     assert_eq!(cmd.exit_status.unwrap(), 98);
@@ -55,7 +49,7 @@ async fn responds_ok_for_pending() {
     let tester = super::Tester::new().await;
     let mut conn = tester.conn().await;
     let node = tester.node().await;
-    let update = models::UpdateNode {
+    let update = UpdateNode {
         id: node.id,
         name: None,
         version: None,
@@ -72,10 +66,8 @@ async fn responds_ok_for_pending() {
         deny_ips: None,
     };
     update.update(&mut conn).await.unwrap();
-    let cmd = create_command(&tester, node.id, models::CommandType::CreateNode).await;
-    let host = models::Host::find_by_id(cmd.host_id, &mut conn)
-        .await
-        .unwrap();
+    let cmd = create_command(&tester, node.id, CommandType::CreateNode).await;
+    let host = Host::find_by_id(cmd.host_id, &mut conn).await.unwrap();
 
     let claims = tester.host_token(&host);
     let jwt = tester.cipher().jwt.encode(&claims).unwrap();

@@ -1,12 +1,14 @@
 use std::net::IpAddr;
 
 use anyhow::anyhow;
-use diesel::{dsl, prelude::*};
+use diesel::dsl;
+use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use ipnet::{IpAddrRange, Ipv4AddrRange};
 use ipnetwork::IpNetwork;
 
 use crate::auth::resource::HostId;
+use crate::database::Conn;
 use crate::{Error, Result};
 
 use super::schema::ip_addresses;
@@ -35,11 +37,7 @@ impl NewIpAddressRange {
         }
     }
 
-    pub async fn create(
-        self,
-        exclude: &[IpAddr],
-        conn: &mut super::Conn,
-    ) -> Result<Vec<IpAddress>> {
+    pub async fn create(self, exclude: &[IpAddr], conn: &mut Conn<'_>) -> Result<Vec<IpAddress>> {
         let host_id = self.host_id;
         let start_range = Self::to_ipv4(self.from)?;
         let stop_range = Self::to_ipv4(self.to)?;
@@ -80,7 +78,7 @@ pub struct IpAddress {
 
 impl IpAddress {
     /// Helper returning the next valid IP address for host identified by `host_id`
-    pub async fn next_for_host(host_id: HostId, conn: &mut super::Conn) -> Result<Self> {
+    pub async fn next_for_host(host_id: HostId, conn: &mut Conn<'_>) -> Result<Self> {
         let ip: Self = ip_addresses::table
             .filter(ip_addresses::host_id.eq(host_id))
             .filter(ip_addresses::is_assigned.eq(false))
@@ -92,7 +90,7 @@ impl IpAddress {
     }
 
     /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
-    pub async fn assign(id: uuid::Uuid, host_id: HostId, conn: &mut super::Conn) -> Result<Self> {
+    pub async fn assign(id: uuid::Uuid, host_id: HostId, conn: &mut Conn<'_>) -> Result<Self> {
         let fields = UpdateIpAddress {
             id,
             host_id: Some(host_id),
@@ -103,7 +101,7 @@ impl IpAddress {
     }
 
     /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
-    pub async fn unassign(id: uuid::Uuid, host_id: HostId, conn: &mut super::Conn) -> Result<Self> {
+    pub async fn unassign(id: uuid::Uuid, host_id: HostId, conn: &mut Conn<'_>) -> Result<Self> {
         let fields = UpdateIpAddress {
             id,
             host_id: Some(host_id),
@@ -117,14 +115,14 @@ impl IpAddress {
         from < ip && to > ip
     }
 
-    pub async fn assigned(ip: IpAddr, conn: &mut super::Conn) -> Result<bool> {
+    pub async fn assigned(ip: IpAddr, conn: &mut Conn<'_>) -> Result<bool> {
         let ip = IpNetwork::new(ip, 32)?;
         let row = ip_addresses::table.filter(ip_addresses::ip.eq(ip));
         let assigned = diesel::select(dsl::exists(row)).get_result(conn).await?;
         Ok(assigned)
     }
 
-    pub async fn find_by_node(node_ip: IpAddr, conn: &mut super::Conn) -> Result<Self> {
+    pub async fn find_by_node(node_ip: IpAddr, conn: &mut Conn<'_>) -> Result<Self> {
         let ip = IpNetwork::new(node_ip, 32)?;
         let ip = ip_addresses::table
             .filter(ip_addresses::ip.eq(ip))
@@ -143,7 +141,7 @@ pub struct UpdateIpAddress {
 }
 
 impl UpdateIpAddress {
-    pub async fn update(self, conn: &mut super::Conn) -> Result<IpAddress> {
+    pub async fn update(self, conn: &mut Conn<'_>) -> Result<IpAddress> {
         let ip = diesel::update(ip_addresses::table.find(self.id))
             .set(self)
             .get_result(conn)
@@ -154,21 +152,20 @@ impl UpdateIpAddress {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use crate::config::Context;
-    use crate::tests::TestDb;
+
+    use super::*;
 
     #[tokio::test]
     async fn should_create_ip_range() -> anyhow::Result<()> {
-        let context = Context::from_default_toml().await.unwrap();
-        let db = TestDb::setup(context).await;
+        let (_ctx, db) = Context::with_mocked().await.unwrap();
+        let mut conn = db.conn().await;
 
         let new_range = NewIpAddressRange::try_new(
             "192.129.0.10".parse().unwrap(),
             "192.129.0.20".parse().unwrap(),
             db.host().await.id,
         )?;
-        let mut conn = db.conn().await;
         let range = new_range.create(&[], &mut conn).await?;
         assert_eq!(range.len(), 11);
 
@@ -178,8 +175,7 @@ mod test {
     #[tokio::test]
     #[should_panic]
     async fn should_fail_creating_ip_range() {
-        let context = Context::from_default_toml().await.unwrap();
-        let db = TestDb::setup(context).await;
+        let (_ctx, db) = Context::with_mocked().await.unwrap();
 
         NewIpAddressRange::try_new(
             "192.129.0.20".parse().unwrap(),

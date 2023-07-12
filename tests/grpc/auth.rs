@@ -3,7 +3,7 @@ use blockvisor_api::auth::endpoint::Endpoint;
 use blockvisor_api::auth::token::refresh::Refresh;
 use blockvisor_api::auth::token::RequestToken;
 use blockvisor_api::grpc::api::{self, auth_service_client};
-use blockvisor_api::models;
+use blockvisor_api::models::user::User;
 
 type Service = auth_service_client::AuthServiceClient<super::Channel>;
 
@@ -55,7 +55,7 @@ async fn responds_ok_with_valid_credentials_for_confirm() {
     tester.send_with(Service::confirm, req, &jwt).await.unwrap();
 
     let mut conn = tester.conn().await;
-    let confirmed = models::User::is_confirmed(tester.unconfirmed_user().await.id, &mut conn)
+    let confirmed = User::is_confirmed(tester.unconfirmed_user().await.id, &mut conn)
         .await
         .unwrap();
     assert!(confirmed);

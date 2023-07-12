@@ -1,5 +1,5 @@
 use blockvisor_api::grpc::api;
-use blockvisor_api::models;
+use blockvisor_api::models::node_key_file::NewNodeKeyFile;
 
 type Service = api::key_file_service_client::KeyFileServiceClient<super::Channel>;
 
@@ -31,13 +31,13 @@ async fn responds_ok_with_valid_node_id() {
 
     let mut conn = tester.conn().await;
     let node = tester.node().await;
-    let file = models::NewNodeKeyFile {
+    let file = NewNodeKeyFile {
         name: "my-key.txt",
         content:
             "asödlfasdf asdfjaöskdjfalsdjföasjdf afa sdffasdfasldfjasödfj asdföalksdföalskdjfa",
         node_id: node.id,
     };
-    models::NewNodeKeyFile::bulk_create(vec![file], &mut conn)
+    NewNodeKeyFile::bulk_create(vec![file], &mut conn)
         .await
         .unwrap();
     let req = api::KeyFileServiceListRequest {

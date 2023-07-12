@@ -4,7 +4,8 @@ use prost::Message;
 use tracing::warn;
 
 use crate::config::mqtt;
-use crate::models;
+use crate::database::Conn;
+use crate::models::{Host, Invitation, Node, Org, User};
 
 use super::api::{self, host_message, node_message, org_message};
 
@@ -172,7 +173,7 @@ impl api::OrgMessage {
         }
     }
 
-    pub fn created(model: api::Org, user: models::User) -> Self {
+    pub fn created(model: api::Org, user: User) -> Self {
         Self {
             message: Some(org_message::Message::Created(api::OrgCreated {
                 // Over MQTT, there is no current user so we pass None as a second argument.
@@ -184,7 +185,7 @@ impl api::OrgMessage {
         }
     }
 
-    pub fn updated(model: api::Org, user: models::User) -> Self {
+    pub fn updated(model: api::Org, user: User) -> Self {
         Self {
             message: Some(org_message::Message::Updated(api::OrgUpdated {
                 // Over MQTT, there is no current user so we pass None as a second argument.
@@ -196,10 +197,10 @@ impl api::OrgMessage {
         }
     }
 
-    pub fn deleted(model: models::Org, user: models::User) -> Self {
+    pub fn deleted(org: Org, user: User) -> Self {
         Self {
             message: Some(org_message::Message::Deleted(api::OrgDeleted {
-                org_id: model.id.to_string(),
+                org_id: org.id.to_string(),
                 deleted_by: user.id.to_string(),
                 deleted_by_name: user.name(),
                 deleted_by_email: user.email,
@@ -208,15 +209,15 @@ impl api::OrgMessage {
     }
 
     pub async fn invitation_created(
-        model: models::Org,
-        invitation: models::Invitation,
-        conn: &mut models::Conn,
+        org: Org,
+        invitation: Invitation,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Self> {
         let invitation = api::Invitation::from_model(invitation, conn).await?;
         Ok(Self {
             message: Some(org_message::Message::InvitationCreated(
                 api::InvitationCreated {
-                    org_id: model.id.to_string(),
+                    org_id: org.id.to_string(),
                     invitation: Some(invitation),
                 },
             )),
@@ -224,17 +225,17 @@ impl api::OrgMessage {
     }
 
     pub async fn invitation_accepted(
-        model: models::Org,
-        invitation: models::Invitation,
-        user: models::User,
-        conn: &mut models::Conn,
+        org: Org,
+        invitation: Invitation,
+        user: User,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Self> {
         let invitation = api::Invitation::from_model(invitation, conn).await?;
         let user = api::User::from_model(user)?;
         Ok(Self {
             message: Some(org_message::Message::InvitationAccepted(
                 api::InvitationAccepted {
-                    org_id: model.id.to_string(),
+                    org_id: org.id.to_string(),
                     invitation: Some(invitation),
                     user: Some(user),
                 },
@@ -243,15 +244,15 @@ impl api::OrgMessage {
     }
 
     pub async fn invitation_declined(
-        model: models::Org,
-        invitation: models::Invitation,
-        conn: &mut models::Conn,
+        org: Org,
+        invitation: Invitation,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Self> {
         let invitation = api::Invitation::from_model(invitation, conn).await?;
         Ok(Self {
             message: Some(org_message::Message::InvitationDeclined(
                 api::InvitationDeclined {
-                    org_id: model.id.to_string(),
+                    org_id: org.id.to_string(),
                     invitation: Some(invitation),
                 },
             )),
@@ -269,14 +270,10 @@ impl api::HostMessage {
         }
     }
 
-    pub async fn created(
-        model: models::Host,
-        user: models::User,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Self> {
+    pub async fn created(host: Host, user: User, conn: &mut Conn<'_>) -> crate::Result<Self> {
         Ok(Self {
             message: Some(host_message::Message::Created(api::HostCreated {
-                host: Some(api::Host::from_model(model, conn).await?),
+                host: Some(api::Host::from_model(host, conn).await?),
                 created_by: user.id.to_string(),
                 created_by_name: user.name(),
                 created_by_email: user.email,
@@ -284,14 +281,10 @@ impl api::HostMessage {
         })
     }
 
-    pub async fn updated(
-        model: models::Host,
-        user: models::User,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Self> {
+    pub async fn updated(host: Host, user: User, conn: &mut Conn<'_>) -> crate::Result<Self> {
         Ok(Self {
             message: Some(host_message::Message::Updated(api::HostUpdated {
-                host: Some(api::Host::from_model(model, conn).await?),
+                host: Some(api::Host::from_model(host, conn).await?),
                 updated_by: Some(user.id.to_string()),
                 updated_by_name: Some(user.name()),
                 updated_by_email: Some(user.email),
@@ -299,10 +292,7 @@ impl api::HostMessage {
         })
     }
 
-    pub async fn updated_many(
-        models: Vec<models::Host>,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Vec<Self>> {
+    pub async fn updated_many(models: Vec<Host>, conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
         api::Host::from_models(models, conn)
             .await?
             .into_iter()
@@ -319,10 +309,10 @@ impl api::HostMessage {
             .collect()
     }
 
-    pub fn deleted(model: models::Host, user: models::User) -> Self {
+    pub fn deleted(host: Host, user: User) -> Self {
         Self {
             message: Some(host_message::Message::Deleted(api::HostDeleted {
-                host_id: model.id.to_string(),
+                host_id: host.id.to_string(),
                 deleted_by: user.id.to_string(),
                 deleted_by_name: user.name(),
                 deleted_by_email: user.email,
@@ -359,10 +349,10 @@ impl api::NodeMessage {
         }
     }
 
-    pub fn created(model: api::Node, user: models::User) -> Self {
+    pub fn created(node: api::Node, user: User) -> Self {
         Self {
             message: Some(node_message::Message::Created(api::NodeCreated {
-                node: Some(model),
+                node: Some(node),
                 created_by: user.id.to_string(),
                 created_by_name: user.name(),
                 created_by_email: user.email,
@@ -371,13 +361,13 @@ impl api::NodeMessage {
     }
 
     pub async fn updated(
-        model: models::Node,
-        user: Option<models::User>,
-        conn: &mut models::Conn,
+        node: Node,
+        user: Option<User>,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Self> {
         Ok(Self {
             message: Some(node_message::Message::Updated(api::NodeUpdated {
-                node: Some(api::Node::from_model(model, conn).await?),
+                node: Some(api::Node::from_model(node, conn).await?),
                 updated_by: user.as_ref().map(|u| u.id.to_string()),
                 updated_by_name: user.as_ref().map(|u| u.name()),
                 updated_by_email: user.map(|u| u.email),
@@ -385,10 +375,7 @@ impl api::NodeMessage {
         })
     }
 
-    pub async fn updated_many(
-        models: Vec<models::Node>,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Vec<Self>> {
+    pub async fn updated_many(models: Vec<Node>, conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
         api::Node::from_models(models, conn)
             .await?
             .into_iter()
@@ -405,12 +392,12 @@ impl api::NodeMessage {
             .collect()
     }
 
-    pub fn deleted(model: models::Node, user: models::User) -> Self {
+    pub fn deleted(node: Node, user: User) -> Self {
         Self {
             message: Some(node_message::Message::Deleted(api::NodeDeleted {
-                node_id: model.id.to_string(),
-                host_id: model.host_id.to_string(),
-                org_id: model.org_id.to_string(),
+                node_id: node.id.to_string(),
+                host_id: node.host_id.to_string(),
+                org_id: node.org_id.to_string(),
                 deleted_by: user.id.to_string(),
                 deleted_by_name: user.name(),
                 deleted_by_email: user.email,
@@ -437,14 +424,13 @@ impl api::Command {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::config::Context;
-    use crate::tests::TestDb;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_send_hosts() {
-        let context = Context::from_default_toml().await.unwrap();
-        let db = TestDb::setup(context.clone()).await;
+        let (context, db) = Context::with_mocked().await.unwrap();
         let mut conn = db.conn().await;
 
         let host = db.host().await;
@@ -466,8 +452,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_nodes() {
-        let context = Context::from_default_toml().await.unwrap();
-        let db = TestDb::setup(context.clone()).await;
+        let (context, db) = Context::with_mocked().await.unwrap();
         let mut conn = db.conn().await;
 
         let node = db.node().await;
@@ -490,8 +475,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_commands() {
-        let context = Context::from_default_toml().await.unwrap();
-        let db = TestDb::setup(context.clone()).await;
+        let (context, db) = Context::with_mocked().await.unwrap();
 
         let command = db.command().await;
         let mut conn = db.conn().await;

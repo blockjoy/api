@@ -1,7 +1,10 @@
-use crate::models::{self, schema::blockchain_properties};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use std::collections::HashMap;
+
+use crate::database::Conn;
+use crate::models::schema::blockchain_properties;
+use crate::models::{NodeProperty, NodeType};
 
 #[derive(Debug, Clone, Insertable, Queryable)]
 #[diesel(table_name = blockchain_properties)]
@@ -9,7 +12,7 @@ pub struct BlockchainProperty {
     pub id: uuid::Uuid,
     pub blockchain_id: uuid::Uuid,
     pub version: String,
-    pub node_type: models::NodeType,
+    pub node_type: NodeType,
     pub name: String,
     pub default: Option<String>,
     pub ui_type: BlockchainPropertyUiType,
@@ -18,10 +21,7 @@ pub struct BlockchainProperty {
 }
 
 impl BlockchainProperty {
-    pub async fn bulk_create(
-        props: Vec<Self>,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Vec<Self>> {
+    pub async fn bulk_create(props: Vec<Self>, conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
         let props = diesel::insert_into(blockchain_properties::table)
             .values(props)
             .get_results(conn)
@@ -31,7 +31,7 @@ impl BlockchainProperty {
 
     pub async fn by_blockchain(
         blockchain: &super::Blockchain,
-        conn: &mut models::Conn,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Vec<Self>> {
         let props = blockchain_properties::table
             .filter(blockchain_properties::blockchain_id.eq(blockchain.id))
@@ -42,7 +42,7 @@ impl BlockchainProperty {
 
     pub async fn by_blockchains(
         blockchains: &[super::Blockchain],
-        conn: &mut models::Conn,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Vec<Self>> {
         let ids: Vec<_> = blockchains.iter().map(|b| b.id).collect();
         let props = blockchain_properties::table
@@ -54,8 +54,8 @@ impl BlockchainProperty {
 
     pub async fn by_blockchain_node_type(
         blockchain: &super::Blockchain,
-        node_type: models::NodeType,
-        conn: &mut models::Conn,
+        node_type: NodeType,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Vec<Self>> {
         let props = blockchain_properties::table
             .filter(blockchain_properties::blockchain_id.eq(blockchain.id))
@@ -67,8 +67,8 @@ impl BlockchainProperty {
 
     /// Returns a map from blockchain_property_id to the `name` field of that blockchain property.
     pub async fn by_node_props(
-        nprops: &[models::NodeProperty],
-        conn: &mut models::Conn,
+        nprops: &[NodeProperty],
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Vec<Self>> {
         let ids: Vec<_> = nprops
             .iter()
@@ -84,9 +84,9 @@ impl BlockchainProperty {
     /// Returns a map from blockchain_property_id to the `name` field of that blockchain property.
     pub async fn id_to_name_map(
         blockchain: &super::Blockchain,
-        node_type: models::NodeType,
+        node_type: NodeType,
         version: &str,
-        conn: &mut models::Conn,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<HashMap<uuid::Uuid, String>> {
         let props: Vec<Self> = blockchain_properties::table
             .filter(blockchain_properties::blockchain_id.eq(blockchain.id))

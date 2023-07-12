@@ -7,9 +7,9 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::auth::resource::{OrgId, UserId};
+use crate::database::Conn;
 
 use super::schema::subscriptions;
-use super::Conn;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -43,7 +43,7 @@ pub struct Subscription {
 }
 
 impl Subscription {
-    pub async fn find_by_id(id: SubscriptionId, conn: &mut Conn) -> Result<Self, Error> {
+    pub async fn find_by_id(id: SubscriptionId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         subscriptions::table
             .find(id)
             .get_result(conn)
@@ -51,7 +51,7 @@ impl Subscription {
             .map_err(Error::FindById)
     }
 
-    pub async fn find_by_org(org_id: OrgId, conn: &mut Conn) -> Result<Self, Error> {
+    pub async fn find_by_org(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         subscriptions::table
             .filter(subscriptions::org_id.eq(org_id))
             .get_result(conn)
@@ -59,7 +59,7 @@ impl Subscription {
             .map_err(Error::FindByOrg)
     }
 
-    pub async fn find_by_user(user_id: UserId, conn: &mut Conn) -> Result<Vec<Self>, Error> {
+    pub async fn find_by_user(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         subscriptions::table
             .filter(subscriptions::user_id.eq(user_id))
             .get_results(conn)
@@ -67,7 +67,7 @@ impl Subscription {
             .map_err(Error::FindByUser)
     }
 
-    pub async fn delete(id: SubscriptionId, conn: &mut Conn) -> Result<(), Error> {
+    pub async fn delete(id: SubscriptionId, conn: &mut Conn<'_>) -> Result<(), Error> {
         let deleted = diesel::delete(subscriptions::table.find(id))
             .execute(conn)
             .await
@@ -98,7 +98,7 @@ impl NewSubscription {
         }
     }
 
-    pub async fn create(self, conn: &mut Conn) -> Result<Subscription, Error> {
+    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Subscription, Error> {
         diesel::insert_into(subscriptions::table)
             .values(self)
             .get_result(conn)

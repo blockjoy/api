@@ -4,7 +4,11 @@ use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
 use crate::auth::resource::{HostId, NodeId};
+use crate::database::Conn;
 
+use super::host::Host;
+use super::node::Node;
+use super::node_type::NodeType;
 use super::schema::node_logs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
@@ -36,13 +40,13 @@ pub struct NodeLog {
     pub node_id: NodeId,
     pub event: NodeLogEvent,
     pub blockchain_name: String,
-    pub node_type: super::NodeType,
+    pub node_type: NodeType,
     pub version: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl NodeLog {
-    pub async fn by_node(node: &super::Node, conn: &mut super::Conn) -> crate::Result<Vec<Self>> {
+    pub async fn by_node(node: &Node, conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
         let deployments = node_logs::table
             .filter(node_logs::node_id.eq(node.id))
             .get_results(conn)
@@ -53,9 +57,9 @@ impl NodeLog {
     /// Finds all deployments belonging to the provided node, that were created after the provided
     /// date.
     pub async fn by_node_since(
-        node: &super::Node,
+        node: &Node,
         since: chrono::DateTime<chrono::Utc>,
-        conn: &mut super::Conn,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Self> {
         let deployment = node_logs::table
             .filter(node_logs::node_id.eq(node.id))
@@ -69,17 +73,17 @@ impl NodeLog {
     /// the number of `CreateSent` events that were undertaken.
     pub async fn hosts_tried(
         deployments: &[Self],
-        conn: &mut super::Conn,
-    ) -> crate::Result<Vec<(super::Host, usize)>> {
+        conn: &mut Conn<'_>,
+    ) -> crate::Result<Vec<(Host, usize)>> {
         let mut counts: HashMap<HostId, usize> = HashMap::new();
         for deployment in deployments {
             *counts.entry(deployment.host_id).or_insert(0) += 1;
         }
         let host_ids: Vec<HostId> = counts.keys().copied().collect();
-        let hosts = super::Host::by_ids(&host_ids, conn).await?;
+        let hosts = Host::by_ids(&host_ids, conn).await?;
         let hosts = hosts
             .into_iter()
-            .map(|h @ super::Host { id, .. }| (h, counts[&id]))
+            .map(|h @ Host { id, .. }| (h, counts[&id]))
             .collect();
         Ok(hosts)
     }
@@ -94,13 +98,13 @@ pub struct NewNodeLog<'a> {
     pub node_id: NodeId,
     pub event: NodeLogEvent,
     pub blockchain_name: &'a str,
-    pub node_type: super::NodeType,
+    pub node_type: NodeType,
     pub version: &'a str,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl NewNodeLog<'_> {
-    pub async fn create(self, conn: &mut super::Conn) -> crate::Result<NodeLog> {
+    pub async fn create(self, conn: &mut Conn<'_>) -> crate::Result<NodeLog> {
         let deployment = diesel::insert_into(node_logs::table)
             .values(self)
             .get_result(conn)

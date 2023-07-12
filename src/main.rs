@@ -15,7 +15,9 @@ async fn main() -> anyhow::Result<()> {
     migrate(&context.config);
 
     info!("Starting server...");
-    server::start(context).await
+    server::start(context).await?;
+
+    Ok(())
 }
 
 fn init_tracing() {
@@ -31,6 +33,6 @@ fn init_tracing() {
 fn migrate(config: &Config) {
     diesel::PgConnection::establish(config.database.url.as_str())
         .expect("Could not migrate database!")
-        .run_pending_migrations(blockvisor_api::MIGRATIONS)
+        .run_pending_migrations(blockvisor_api::database::MIGRATIONS)
         .expect("Failed to run migrations");
 }

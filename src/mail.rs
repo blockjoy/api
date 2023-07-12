@@ -10,7 +10,7 @@ use crate::auth::endpoint::Endpoint;
 use crate::auth::resource::Resource;
 use crate::auth::token::Cipher;
 use crate::config::{token, Config};
-use crate::models;
+use crate::models::{Invitation, User};
 
 pub struct MailClient {
     client: sendgrid::SGClient,
@@ -30,7 +30,7 @@ impl MailClient {
     }
 
     /// Sends a notification if the user has updated his password
-    pub async fn update_password(&self, user: &models::User) -> crate::Result<()> {
+    pub async fn update_password(&self, user: &User) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/update_password.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
@@ -45,7 +45,7 @@ impl MailClient {
         .await
     }
 
-    pub async fn registration_confirmation(&self, user: &models::User) -> crate::Result<()> {
+    pub async fn registration_confirmation(&self, user: &User) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/register.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
@@ -75,8 +75,8 @@ impl MailClient {
 
     pub async fn invitation_for_registered(
         &self,
-        inviter: &models::User,
-        invitee: &models::User,
+        inviter: &User,
+        invitee: &User,
         expiration: impl std::fmt::Display,
     ) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/invite_registered_user.toml");
@@ -105,8 +105,8 @@ impl MailClient {
 
     pub async fn invitation(
         &self,
-        invitation: &models::Invitation,
-        inviter: &models::User,
+        invitation: &Invitation,
+        inviter: &User,
         invitee: Recipient<'_>,
         expiration: impl std::fmt::Display,
     ) -> crate::Result<()> {
@@ -156,7 +156,7 @@ impl MailClient {
 
     /// Sends a password reset email to the specified user, containing a JWT that they can use to
     /// authenticate themselves to reset their password.
-    pub async fn reset_password(&self, user: &models::User) -> crate::Result<()> {
+    pub async fn reset_password(&self, user: &User) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/reset_password.toml");
         // SAFETY: assume we can write toml and also protected by test
         let templates = toml::from_str(TEMPLATES)
@@ -228,7 +228,7 @@ impl<'a> Recipient<'a> {
         self.preferred_language.unwrap_or("en")
     }
 
-    fn redact_user(value: &'a models::User) -> Self {
+    fn redact_user(value: &'a User) -> Self {
         Self {
             first_name: &value.first_name,
             last_name: &value.last_name,

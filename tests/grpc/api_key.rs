@@ -1,10 +1,11 @@
 use blockvisor_api::auth::claims::Claims;
 use blockvisor_api::auth::resource::{ResourceEntry, UserId};
 use blockvisor_api::auth::token::jwt;
+use blockvisor_api::database::tests::seed;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models::api_key::{ApiKey, ApiResource};
-use blockvisor_api::models::{NewOrgUser, NewUser, Org, OrgRole, User};
-use blockvisor_api::tests::SEED_ORG_ID;
+use blockvisor_api::models::org::{NewOrgUser, Org, OrgRole};
+use blockvisor_api::models::user::{NewUser, User};
 use blockvisor_api::timestamp::NanosUtc;
 use tonic::transport::Channel;
 use uuid::Uuid;
@@ -307,7 +308,7 @@ async fn create_user(test: &mut Tester, email: &str, org_role: OrgRole) -> (User
     let conn = &mut test.conn().await;
 
     let user = NewUser::new(email, "Test", email, TEST_PASSWORD).unwrap();
-    let org_id = SEED_ORG_ID.parse().unwrap();
+    let org_id = seed::ORG_ID.parse().unwrap();
     let created = user.create(conn).await.unwrap();
     let user_id = created.id;
 

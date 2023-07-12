@@ -1,7 +1,11 @@
-use super::schema::token_blacklist;
-use crate::Result;
-use diesel::{dsl, prelude::*};
+use diesel::dsl;
+use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
+
+use crate::database::Conn;
+use crate::Result;
+
+use super::schema::token_blacklist;
 
 #[derive(Debug, Clone, Insertable, Queryable)]
 #[diesel(table_name = token_blacklist)]
@@ -11,7 +15,7 @@ pub struct BlacklistToken {
 }
 
 impl BlacklistToken {
-    pub async fn create(self, conn: &mut super::Conn) -> Result<Self> {
+    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Self> {
         let tkn = diesel::insert_into(token_blacklist::table)
             .values(self)
             .get_result(conn)
@@ -20,7 +24,7 @@ impl BlacklistToken {
     }
 
     /// Returns true if token is on the blacklist
-    pub async fn is_listed(token: String, conn: &mut super::Conn) -> Result<bool> {
+    pub async fn is_listed(token: String, conn: &mut Conn<'_>) -> Result<bool> {
         let token = token_blacklist::table.filter(token_blacklist::token.eq(token));
         let is_listed = diesel::select(dsl::exists(token)).get_result(conn).await?;
 
@@ -43,21 +47,20 @@ pub enum TokenType {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::config::Context;
-    use crate::tests::TestDb;
+
+    use super::*;
 
     #[tokio::test]
     async fn can_blacklist_any_token() {
-        let context = Context::from_default_toml().await.unwrap();
-        let tester = TestDb::setup(context).await;
+        let (_ctx, db) = Context::with_mocked().await.unwrap();
 
         let token = "some-fancy-token".to_string();
         let model = BlacklistToken {
             token: token.clone(),
             token_type: TokenType::UserAuth,
         };
-        let mut conn = tester.conn().await;
+        let mut conn = db.conn().await;
         let blt = model.create(&mut conn).await.unwrap();
 
         assert_eq!(blt.token, token);

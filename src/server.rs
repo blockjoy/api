@@ -1,118 +1,70 @@
 use std::sync::Arc;
 
-use diesel::{ConnectionError, ConnectionResult};
-use diesel_async::pooled_connection::bb8::Pool;
-use diesel_async::pooled_connection::AsyncDieselConnectionManager;
-use diesel_async::AsyncPgConnection;
-use futures_util::future::BoxFuture;
+use displaydoc::Display;
+use futures::select;
 use futures_util::FutureExt;
+use thiserror::Error;
+use tokio::sync::broadcast::{self, Receiver, Sender};
+use tracing::error;
 
 use crate::config::Context;
 use crate::hybrid_server::hybrid;
-use crate::{grpc, http, models};
+use crate::{grpc, http};
 
-pub async fn start(context: Arc<Context>) -> anyhow::Result<()> {
-    let config = context.config.as_ref();
-
-    let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_setup(
-        config.database.url.as_str(),
-        establish_connection,
-    );
-    let pool = Pool::builder()
-        .max_size(config.database.pool.max_conns)
-        .min_idle(Some(config.database.pool.min_conns))
-        .max_lifetime(Some(*config.database.pool.max_lifetime))
-        .idle_timeout(Some(*config.database.pool.idle_timeout))
-        .build(manager)
-        .await?;
-
-    let db = models::DbPool::new(pool, context.clone());
-
-    let rest = http::server(db.clone()).await.into_make_service();
-    let grpc = grpc::server(db).await.into_service();
-    let hybrid = hybrid(rest, grpc);
-
-    axum::Server::bind(&config.database.bind_addr())
-        .serve(hybrid)
-        .await
-        .map_err(Into::into)
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Server error: {0}
+    Server(hyper::Error),
+    /// Stopping server because of: {0}
+    Shutdown(Arc<Shutdown>),
 }
 
-fn root_certs() -> rustls::RootCertStore {
-    let mut roots = rustls::RootCertStore::empty();
-    let certs = rustls_native_certs::load_native_certs().expect("Certs not loadable!");
-    let certs: Vec<_> = certs.into_iter().map(|cert| cert.0).collect();
-    roots.add_parsable_certificates(&certs);
-    roots
+pub async fn start(context: Arc<Context>) -> Result<(), Error> {
+    let http = http::router(context.clone()).into_make_service();
+    let grpc = grpc::server(context.clone()).await.into_service();
+    let both = hybrid(http, grpc);
+
+    let server = axum::Server::bind(&context.config.database.bind_addr()).serve(both);
+    let mut shutdown_rx = context.alert.shutdown_rx();
+
+    select! {
+        result = server.fuse() => result.map_err(Error::Server),
+        reason = shutdown_rx.recv().fuse() => Err(Error::Shutdown(reason.expect("shutdown_tx")))
+    }
 }
 
-/// This function is a custom establish function for a new `AsyncPgConnection`. The difference
-/// between this one and the standard one is that is function requires TLS.
-fn establish_connection(config: &str) -> BoxFuture<'_, ConnectionResult<AsyncPgConnection>> {
-    let fut = async {
-        let rustls_config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_custom_certificate_verifier(Arc::new(DontVerifyHostName::new(root_certs())))
-            .with_no_client_auth();
-        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(rustls_config);
-        let (client, conn) = tokio_postgres::connect(config, tls)
-            .await
-            .map_err(|e| ConnectionError::BadConnection(e.to_string()))?;
-        tokio::spawn(async move {
-            if let Err(e) = conn.await {
-                eprintln!("Database connection: {e}");
-            }
-        });
-        AsyncPgConnection::try_from(client).await
-    };
-    fut.boxed()
+pub struct Alert {
+    shutdown_tx: Sender<Arc<Shutdown>>,
 }
 
-/// And now we come upon a sad state of affairs. The database is served not from a host name but
-/// from an IP-address. This means that we cannot verify the hostname of the SSL certificate and we
-/// have to implement a custom certificate verifier for our certificate. The custom implementation
-/// falls back to the stardard `WebPkiVerifier`, but when it sees an `UnsupportedNameType` error
-/// being returned from the verification process, it marks the verification as succeeded. This
-/// emulates the default behaviour of SQLx and libpq.
-struct DontVerifyHostName {
-    pki: rustls::client::WebPkiVerifier,
-}
+impl Alert {
+    pub fn new(capacity: usize) -> Self {
+        let (shutdown_tx, _) = broadcast::channel(capacity);
 
-impl DontVerifyHostName {
-    fn new(roots: rustls::RootCertStore) -> Self {
-        Self {
-            pki: rustls::client::WebPkiVerifier::new(roots, None),
+        Alert { shutdown_tx }
+    }
+
+    pub fn shutdown_rx(&self) -> Receiver<Arc<Shutdown>> {
+        self.shutdown_tx.subscribe()
+    }
+
+    pub fn shutdown(&self, reason: Shutdown) {
+        if let Err(err) = self.shutdown_tx.send(Arc::new(reason)) {
+            error!("Failed to send shutdown signal: {err}");
         }
     }
 }
 
-impl rustls::client::ServerCertVerifier for DontVerifyHostName {
-    fn verify_server_cert(
-        &self,
-        end_entity: &rustls::Certificate,
-        intermediates: &[rustls::Certificate],
-        server_name: &rustls::ServerName,
-        scts: &mut dyn Iterator<Item = &[u8]>,
-        ocsp_response: &[u8],
-        now: std::time::SystemTime,
-    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-        // We do the standard authentication process, check for the expected error, and mark it as
-        // a success.
-        let outcome = self.pki.verify_server_cert(
-            end_entity,
-            intermediates,
-            server_name,
-            scts,
-            ocsp_response,
-            now,
-        );
-        match outcome {
-            Ok(o) => Ok(o),
-            // Err(rustls::Error::UnsupportedNameType) => {
-            //     Ok(rustls::client::ServerCertVerified::assertion())
-            // }
-            // Err(e) => Err(e),
-            Err(_) => Ok(rustls::client::ServerCertVerified::assertion()),
-        }
+impl Default for Alert {
+    fn default() -> Self {
+        Alert::new(1)
     }
+}
+
+#[derive(Debug, Display)]
+pub enum Shutdown {
+    /// Shutdown Error: {0}
+    Error(Box<dyn std::error::Error + Send + Sync + 'static>),
+    /// Shutdown reason: {0}
+    Reason(String),
 }

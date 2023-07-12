@@ -109,7 +109,7 @@ impl From<NodeType> for i32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::NodeType;
+    use super::*;
 
     #[test]
     fn returns_valid_string_for_value() {

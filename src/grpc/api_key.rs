@@ -6,8 +6,9 @@ use tracing::error;
 
 use crate::auth::endpoint::Endpoint;
 use crate::auth::resource::ResourceEntry;
+use crate::config::Context;
+use crate::database::{Conn, Transaction};
 use crate::models::api_key::{ApiKey, ApiResource, NewApiKey, UpdateLabel, UpdateScope};
-use crate::models::Conn;
 use crate::timestamp::NanosUtc;
 
 use super::api::{self, api_key_service_server::ApiKeyService};
@@ -64,52 +65,63 @@ impl ApiKeyService for Grpc {
         &self,
         req: Request<api::CreateApiKeyRequest>,
     ) -> super::Resp<api::CreateApiKeyResponse> {
-        self.trx(|tx| create(req, tx).scope_boxed()).await
+        self.context
+            .write(|conn, ctx| create(req, conn, ctx).scope_boxed())
+            .await
     }
 
     async fn list(
         &self,
         req: Request<api::ListApiKeyRequest>,
     ) -> super::Resp<api::ListApiKeyResponse> {
-        self.run(|c| list(req, c).scope_boxed()).await
+        self.context
+            .read(|conn, ctx| list(req, conn, ctx).scope_boxed())
+            .await
     }
 
     async fn update(
         &self,
         req: Request<api::UpdateApiKeyRequest>,
     ) -> super::Resp<api::UpdateApiKeyResponse> {
-        self.trx(|tx| update(req, tx).scope_boxed()).await
+        self.context
+            .write(|conn, ctx| update(req, conn, ctx).scope_boxed())
+            .await
     }
 
     async fn regenerate(
         &self,
         req: Request<api::RegenerateApiKeyRequest>,
     ) -> super::Resp<api::RegenerateApiKeyResponse> {
-        self.trx(|tx| regenerate(req, tx).scope_boxed()).await
+        self.context
+            .write(|conn, ctx| regenerate(req, conn, ctx).scope_boxed())
+            .await
     }
 
     async fn delete(
         &self,
         req: Request<api::DeleteApiKeyRequest>,
     ) -> super::Resp<api::DeleteApiKeyResponse> {
-        self.trx(|tx| delete(req, tx).scope_boxed()).await
+        self.context
+            .write(|conn, ctx| delete(req, conn, ctx).scope_boxed())
+            .await
     }
 }
 
 async fn create(
     req: Request<api::CreateApiKeyRequest>,
-    tx: &mut Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> super::Resp<api::CreateApiKeyResponse, Error> {
-    let claims = tx.claims(&req, Endpoint::ApiKeyCreate).await?;
+    let claims = ctx.claims(&req, Endpoint::ApiKeyCreate).await?;
 
     let req = req.into_inner();
     let scope = req.scope.ok_or(Error::MissingCreateScope)?;
 
     let entry = ResourceEntry::try_from(scope)?;
-    let ensure = claims.ensure_admin(entry.into(), tx).await?;
+    let ensure = claims.ensure_admin(entry.into(), conn).await?;
     let user_id = ensure.user().ok_or(Error::ClaimsNotUser)?.user_id();
 
-    let created = NewApiKey::create(tx, user_id, req.label, entry).await?;
+    let created = NewApiKey::create(user_id, req.label, entry, conn, ctx).await?;
 
     let resp = api::CreateApiKeyResponse {
         api_key: Some(created.secret.into()),
@@ -120,9 +132,10 @@ async fn create(
 
 async fn list(
     req: Request<api::ListApiKeyRequest>,
-    conn: &mut Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> super::Resp<api::ListApiKeyResponse, Error> {
-    let claims = conn.claims(&req, Endpoint::ApiKeyList).await?;
+    let claims = ctx.claims(&req, Endpoint::ApiKeyList).await?;
     let user_id = claims.resource().user().ok_or(Error::ClaimsNotUser)?;
 
     let keys = ApiKey::find_by_user(user_id, conn).await?;
@@ -134,26 +147,33 @@ async fn list(
 
 async fn update(
     req: Request<api::UpdateApiKeyRequest>,
-    tx: &mut Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> super::Resp<api::UpdateApiKeyResponse, Error> {
-    let claims = tx.claims(&req, Endpoint::ApiKeyUpdate).await?;
+    let claims = ctx.claims(&req, Endpoint::ApiKeyUpdate).await?;
 
     let req = req.into_inner();
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
 
-    let existing = ApiKey::find_by_id(key_id, tx).await?;
+    let existing = ApiKey::find_by_id(key_id, conn).await?;
     let entry = ResourceEntry::from(&existing);
-    let _ = claims.ensure_admin(entry.into(), tx).await?;
+    let _ = claims.ensure_admin(entry.into(), conn).await?;
 
     let mut updated_at = None;
 
     if let Some(label) = req.label {
-        updated_at = UpdateLabel::new(key_id, label).update(tx).await.map(Some)?;
+        updated_at = UpdateLabel::new(key_id, label)
+            .update(conn)
+            .await
+            .map(Some)?;
     }
 
     if let Some(scope) = req.scope {
         let entry = ResourceEntry::try_from(scope)?;
-        updated_at = UpdateScope::new(key_id, entry).update(tx).await.map(Some)?;
+        updated_at = UpdateScope::new(key_id, entry)
+            .update(conn)
+            .await
+            .map(Some)?;
     }
 
     let updated_at = updated_at
@@ -169,18 +189,19 @@ async fn update(
 
 async fn regenerate(
     req: Request<api::RegenerateApiKeyRequest>,
-    tx: &mut Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> super::Resp<api::RegenerateApiKeyResponse, Error> {
-    let claims = tx.claims(&req, Endpoint::ApiKeyRegenerate).await?;
+    let claims = ctx.claims(&req, Endpoint::ApiKeyRegenerate).await?;
 
     let req = req.into_inner();
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
 
-    let existing = ApiKey::find_by_id(key_id, tx).await?;
+    let existing = ApiKey::find_by_id(key_id, conn).await?;
     let entry = ResourceEntry::from(&existing);
-    let _ = claims.ensure_admin(entry.into(), tx).await?;
+    let _ = claims.ensure_admin(entry.into(), conn).await?;
 
-    let new_key = NewApiKey::regenerate(key_id, tx).await?;
+    let new_key = NewApiKey::regenerate(key_id, conn, ctx).await?;
     let updated_at = new_key.api_key.updated_at.ok_or(Error::MissingUpdatedAt)?;
 
     let resp = api::RegenerateApiKeyResponse {
@@ -192,18 +213,19 @@ async fn regenerate(
 
 async fn delete(
     req: Request<api::DeleteApiKeyRequest>,
-    tx: &mut Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> super::Resp<api::DeleteApiKeyResponse, Error> {
-    let claims = tx.claims(&req, Endpoint::ApiKeyDelete).await?;
+    let claims = ctx.claims(&req, Endpoint::ApiKeyDelete).await?;
 
     let req = req.into_inner();
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
 
-    let existing = ApiKey::find_by_id(key_id, tx).await?;
+    let existing = ApiKey::find_by_id(key_id, conn).await?;
     let entry = ResourceEntry::from(&existing);
-    let _ = claims.ensure_admin(entry.into(), tx).await?;
+    let _ = claims.ensure_admin(entry.into(), conn).await?;
 
-    ApiKey::delete(key_id, tx).await?;
+    ApiKey::delete(key_id, conn).await?;
 
     let resp = api::DeleteApiKeyResponse {};
     Ok(Response::new(resp))

@@ -1,11 +1,13 @@
 //! This module contains code regarding recovery from failed commands.
 
-use std::vec;
-
 use tracing::error;
 
+use crate::config::Context;
+use crate::database::Conn;
 use crate::grpc::{self, api};
-use crate::models;
+use crate::models::command::NewCommand;
+use crate::models::node_log::{NewNodeLog, NodeLogEvent};
+use crate::models::{Blockchain, Command, CommandType, Node};
 
 /// When we get a failed command back from blockvisord, we can try to recover from this. This is
 /// currently only implemented for failed node creates. Note that this function largely ignores
@@ -13,19 +15,21 @@ use crate::models;
 /// make our best effort to recover. If a command won't send but it not essential for process, we
 /// ignore and continue.
 pub(super) async fn recover(
-    failed_cmd: &models::Command,
-    conn: &mut models::Conn,
+    failed_cmd: &Command,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> crate::Result<Vec<api::Command>> {
-    if failed_cmd.cmd == models::CommandType::CreateNode {
-        recover_created(failed_cmd, conn).await
+    if failed_cmd.cmd == CommandType::CreateNode {
+        recover_created(failed_cmd, conn, ctx).await
     } else {
         Ok(vec![])
     }
 }
 
 async fn recover_created(
-    failed_cmd: &models::Command,
-    conn: &mut models::Conn,
+    failed_cmd: &Command,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> crate::Result<Vec<api::Command>> {
     let mut vec = vec![];
     let Some(node_id) = failed_cmd.node_id else {
@@ -43,13 +47,13 @@ async fn recover_created(
     //    c. Otherwise, we cannot recover.
     // 4. Use the previous decision to send a new create message to the right instance of
     //    blockvisord, or mark the current node as failed and send an MQTT message to the front end.
-    let Ok(mut node) = models::Node::find_by_id(node_id, conn).await else {
+    let Ok(mut node) = Node::find_by_id(node_id, conn).await else {
         error!("Could not get node for node_id {node_id}");
         return Err(crate::Error::ValidationError (
             "Could not get node for node_id".to_string(),
         ));
     };
-    let Ok(blockchain) = models::Blockchain::find_by_id(node.blockchain_id, conn).await else {
+    let Ok(blockchain) = Blockchain::find_by_id(node.blockchain_id, conn).await else {
         error!("Could not get blockchain for node {node_id}");
         return Err(crate::Error::ValidationError (
             "Could not get blockchain for node".to_string(),
@@ -63,10 +67,10 @@ async fn recover_created(
     //    be unexpected, but we abort here when we fail to create that log. This is because the logs
     //    table is used to decide whether or not to retry. If logging our result failed, we may end
     //    up in an infinite loop.
-    let new_log = models::NewNodeLog {
+    let new_log = NewNodeLog {
         host_id: node.host_id,
         node_id,
-        event: models::NodeLogEvent::Failed,
+        event: NodeLogEvent::Failed,
         blockchain_name: &blockchain.name,
         node_type: node.node_type,
         version: &node.version,
@@ -80,14 +84,14 @@ async fn recover_created(
     };
 
     // 3. We now find the host that is next in line, and assign our node to that host.
-    let Ok(host) = node.find_host(conn).await else {
+    let Ok(host) = node.find_host(conn, ctx).await else {
         // We were unable to find a new host. This may happen because the system is out of resources
         // or because we have retried to many times. Either way we have to log that this retry was
         // canceled.
-        let new_log = models::NewNodeLog {
+        let new_log = NewNodeLog {
             host_id: node.host_id,
             node_id,
-            event: models::NodeLogEvent::Canceled,
+            event: NodeLogEvent::Canceled,
             blockchain_name: &blockchain.name,
             node_type: node.node_type,
             version: &node.version,
@@ -110,9 +114,7 @@ async fn recover_created(
     };
 
     // 4. We notify blockvisor of our retry via an MQTT message.
-    if let Ok(cmd) =
-        grpc::nodes::create_node_command(&node, models::CommandType::CreateNode, conn).await
-    {
+    if let Ok(cmd) = grpc::nodes::create_node_command(&node, CommandType::CreateNode, conn).await {
         if let Ok(create_cmd) = api::Command::from_model(&cmd, conn).await {
             vec.push(create_cmd)
         } else {
@@ -122,9 +124,7 @@ async fn recover_created(
         error!("Could not create node create command while recovering");
     }
     // we also start the node.
-    if let Ok(cmd) =
-        grpc::nodes::create_node_command(&node, models::CommandType::RestartNode, conn).await
-    {
+    if let Ok(cmd) = grpc::nodes::create_node_command(&node, CommandType::RestartNode, conn).await {
         if let Ok(start_cmd) = api::Command::from_model(&cmd, conn).await {
             vec.push(start_cmd);
         } else {
@@ -141,15 +141,11 @@ async fn recover_created(
 
 /// Send a delete message to blockvisord, to delete the given node. We do this to assist blockvisord
 /// to clean up after a failed node create.
-async fn send_delete(
-    node: &models::Node,
-    commands: &mut Vec<api::Command>,
-    conn: &mut models::Conn,
-) {
+async fn send_delete(node: &Node, commands: &mut Vec<api::Command>, conn: &mut Conn<'_>) {
     let node_id = node.id.to_string();
-    let cmd = models::NewCommand {
+    let cmd = NewCommand {
         host_id: node.host_id,
-        cmd: models::CommandType::DeleteNode,
+        cmd: CommandType::DeleteNode,
         // NOTE: the node id goes into the sub_cmd field, since the node has just been deleted, so
         // using the `node_id` field would cause an integrity error.
         sub_cmd: Some(&node_id),

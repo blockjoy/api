@@ -9,7 +9,11 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 
 use crate::auth::endpoint::Endpoint;
 use crate::auth::resource::Resource;
-use crate::models;
+use crate::config::Context;
+use crate::database::{Conn, Transaction};
+use crate::models::host::{Host, UpdateHostMetrics};
+use crate::models::node::{Node, UpdateNodeMetrics};
+use crate::models::org::Org;
 
 use super::api::{self, metrics_service_server};
 
@@ -22,7 +26,8 @@ impl metrics_service_server::MetricsService for super::Grpc {
         &self,
         req: tonic::Request<api::MetricsServiceNodeRequest>,
     ) -> super::Resp<api::MetricsServiceNodeResponse> {
-        self.trx(|c| node(req, c).scope_boxed())
+        self.context
+            .write(|conn, ctx| node(req, conn, ctx).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -32,7 +37,8 @@ impl metrics_service_server::MetricsService for super::Grpc {
         &self,
         req: tonic::Request<api::MetricsServiceHostRequest>,
     ) -> super::Resp<api::MetricsServiceHostResponse> {
-        self.trx(|c| host(req, c).scope_boxed())
+        self.context
+            .write(|conn, ctx| host(req, conn, ctx).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -41,19 +47,20 @@ impl metrics_service_server::MetricsService for super::Grpc {
 
 async fn node(
     req: tonic::Request<api::MetricsServiceNodeRequest>,
-    conn: &mut models::Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> crate::Result<super::Outcome<api::MetricsServiceNodeResponse>> {
-    let claims = conn.claims(&req, Endpoint::MetricsNode).await?;
+    let claims = ctx.claims(&req, Endpoint::MetricsNode).await?;
     let req = req.into_inner();
-    let updates: Vec<models::UpdateNodeMetrics> = req
+    let updates: Vec<UpdateNodeMetrics> = req
         .metrics
         .into_iter()
         .map(|(k, v)| v.as_metrics_update(&k))
         .collect::<crate::Result<_>>()?;
-    let nodes = models::Node::find_by_ids(updates.iter().map(|u| u.id), conn).await?;
+    let nodes = Node::find_by_ids(updates.iter().map(|u| u.id), conn).await?;
     let is_allowed = match claims.resource() {
         Resource::User(user_id) => {
-            let memberships = models::Org::memberships(user_id, conn).await?;
+            let memberships = Org::memberships(user_id, conn).await?;
             let org_ids: HashSet<_> = memberships.into_iter().map(|ou| ou.org_id).collect();
             nodes.iter().all(|n| org_ids.contains(&n.org_id))
         }
@@ -64,7 +71,7 @@ async fn node(
     if !is_allowed {
         super::forbidden!("Access denied for metrics node");
     }
-    let nodes = models::UpdateNodeMetrics::update_metrics(updates, conn).await?;
+    let nodes = UpdateNodeMetrics::update_metrics(updates, conn).await?;
     let msgs = api::NodeMessage::updated_many(nodes, conn).await?;
     let resp = api::MetricsServiceNodeResponse {};
     Ok(super::Outcome::new(resp).with_msgs(msgs))
@@ -72,19 +79,20 @@ async fn node(
 
 async fn host(
     req: tonic::Request<api::MetricsServiceHostRequest>,
-    conn: &mut models::Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> crate::Result<super::Outcome<api::MetricsServiceHostResponse>> {
-    let claims = conn.claims(&req, Endpoint::MetricsNode).await?;
+    let claims = ctx.claims(&req, Endpoint::MetricsNode).await?;
     let req = req.into_inner();
-    let updates: Vec<models::UpdateHostMetrics> = req
+    let updates: Vec<UpdateHostMetrics> = req
         .metrics
         .into_iter()
         .map(|(k, v)| v.as_metrics_update(&k))
         .collect::<crate::Result<_>>()?;
-    let hosts = models::Host::find_by_ids(updates.iter().map(|u| u.id), conn).await?;
+    let hosts = Host::find_by_ids(updates.iter().map(|u| u.id), conn).await?;
     let is_allowed = match claims.resource() {
         Resource::User(user_id) => {
-            let memberships = models::Org::memberships(user_id, conn).await?;
+            let memberships = Org::memberships(user_id, conn).await?;
             let org_ids: HashSet<_> = memberships.into_iter().map(|ou| ou.org_id).collect();
             hosts.iter().all(|h| org_ids.contains(&h.org_id))
         }
@@ -95,16 +103,16 @@ async fn host(
     if !is_allowed {
         super::forbidden!("Access denied for metrics host");
     }
-    let hosts = models::UpdateHostMetrics::update_metrics(updates, conn).await?;
+    let hosts = UpdateHostMetrics::update_metrics(updates, conn).await?;
     let msgs = api::HostMessage::updated_many(hosts, conn).await?;
     let resp = api::MetricsServiceHostResponse {};
     Ok(super::Outcome::new(resp).with_msgs(msgs))
 }
 
 impl api::NodeMetrics {
-    pub fn as_metrics_update(self, id: &str) -> crate::Result<models::UpdateNodeMetrics> {
+    pub fn as_metrics_update(self, id: &str) -> crate::Result<UpdateNodeMetrics> {
         let id = id.parse()?;
-        Ok(models::UpdateNodeMetrics {
+        Ok(UpdateNodeMetrics {
             id,
             block_height: self.height.map(i64::try_from).transpose()?,
             block_age: self.block_age.map(i64::try_from).transpose()?,
@@ -117,9 +125,9 @@ impl api::NodeMetrics {
 }
 
 impl api::HostMetrics {
-    pub fn as_metrics_update(self, id: &str) -> crate::Result<models::UpdateHostMetrics> {
+    pub fn as_metrics_update(self, id: &str) -> crate::Result<UpdateHostMetrics> {
         let id = id.parse()?;
-        Ok(models::UpdateHostMetrics {
+        Ok(UpdateHostMetrics {
             id,
             used_cpu: self.used_cpu.map(i32::try_from).transpose()?,
             used_memory: self.used_memory.map(i64::try_from).transpose()?,

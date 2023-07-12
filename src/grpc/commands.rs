@@ -7,7 +7,12 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use crate::auth::claims::Claims;
 use crate::auth::endpoint::Endpoint;
 use crate::auth::resource::Resource;
-use crate::models;
+use crate::config::Context;
+use crate::database::{Conn, Transaction};
+use crate::models::blockchain::{Blockchain, BlockchainProperty};
+use crate::models::command::UpdateCommand;
+use crate::models::node::FilteredIpAddr;
+use crate::models::{Command, Host, Node, Org};
 use crate::timestamp::NanosUtc;
 
 use super::api::{self, command_service_server};
@@ -19,7 +24,8 @@ impl command_service_server::CommandService for super::Grpc {
         &self,
         req: tonic::Request<api::CommandServiceUpdateRequest>,
     ) -> super::Resp<api::CommandServiceUpdateResponse> {
-        self.trx(|c| update(req, c).scope_boxed())
+        self.context
+            .write(|conn, ctx| update(req, conn, ctx).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -29,24 +35,29 @@ impl command_service_server::CommandService for super::Grpc {
         &self,
         req: tonic::Request<api::CommandServiceAckRequest>,
     ) -> super::Resp<api::CommandServiceAckResponse> {
-        self.trx(|c| ack(req, c).scope_boxed()).await
+        self.context
+            .write(|conn, ctx| ack(req, conn, ctx).scope_boxed())
+            .await
     }
 
     async fn pending(
         &self,
         req: tonic::Request<api::CommandServicePendingRequest>,
     ) -> super::Resp<api::CommandServicePendingResponse> {
-        self.run(|c| pending(req, c).scope_boxed()).await
+        self.context
+            .read(|conn, ctx| pending(req, conn, ctx).scope_boxed())
+            .await
     }
 }
 
 async fn update(
     req: tonic::Request<api::CommandServiceUpdateRequest>,
-    conn: &mut models::Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> crate::Result<super::Outcome<api::CommandServiceUpdateResponse>> {
-    let claims = conn.claims(&req, Endpoint::CommandUpdate).await?;
+    let claims = ctx.claims(&req, Endpoint::CommandUpdate).await?;
     let req = req.into_inner();
-    let command = models::Command::find_by_id(req.id.parse()?, conn).await?;
+    let command = Command::find_by_id(req.id.parse()?, conn).await?;
     let host = command.host(conn).await?;
     let node = command.node(conn).await?;
     let is_allowed = access_allowed(claims, node.as_ref(), &host, conn).await?;
@@ -66,7 +77,7 @@ async fn update(
             // We got back an error status code. In practice, blockvisord sends 0 for
             // success and 1 for failure, but we treat every non-zero exit code as an
             // error, not just 1.
-            recover::recover(&cmd, conn).await.unwrap_or_default()
+            recover::recover(&cmd, conn, ctx).await.unwrap_or_default()
         }
         None => vec![],
     };
@@ -81,11 +92,12 @@ async fn update(
 
 async fn ack(
     req: tonic::Request<api::CommandServiceAckRequest>,
-    conn: &mut models::Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> super::Result<api::CommandServiceAckResponse> {
-    let claims = conn.claims(&req, Endpoint::CommandAck).await?;
+    let claims = ctx.claims(&req, Endpoint::CommandAck).await?;
     let req = req.into_inner();
-    let command = models::Command::find_by_id(req.id.parse()?, conn).await?;
+    let command = Command::find_by_id(req.id.parse()?, conn).await?;
     let host = command.host(conn).await?;
     let node = command.node(conn).await?;
     let is_allowed = access_allowed(claims, node.as_ref(), &host, conn).await?;
@@ -101,14 +113,15 @@ async fn ack(
 
 async fn pending(
     req: tonic::Request<api::CommandServicePendingRequest>,
-    conn: &mut models::Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> super::Result<api::CommandServicePendingResponse> {
-    let claims = conn.claims(&req, Endpoint::CommandPending).await?;
+    let claims = ctx.claims(&req, Endpoint::CommandPending).await?;
     let req = req.into_inner();
     let host_id = req.host_id.parse()?;
-    let host = models::Host::find_by_id(host_id, conn).await?;
+    let host = Host::find_by_id(host_id, conn).await?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => models::Org::is_member(user_id, host.org_id, conn).await?,
+        Resource::User(user_id) => Org::is_member(user_id, host.org_id, conn).await?,
         Resource::Org(org_id) => host.org_id == org_id,
         Resource::Host(host_id) => host_id == host.id,
         Resource::Node(_) => false,
@@ -116,7 +129,7 @@ async fn pending(
     if !is_allowed {
         super::forbidden!("Access denied for command pending");
     }
-    let cmds = models::Command::find_pending_by_host(host_id, conn).await?;
+    let cmds = Command::find_pending_by_host(host_id, conn).await?;
     let mut commands = Vec::with_capacity(cmds.len());
     for cmd in cmds {
         let grpc_cmd = api::Command::from_model(&cmd, conn).await?;
@@ -128,16 +141,16 @@ async fn pending(
 
 async fn access_allowed(
     claims: Claims,
-    node: Option<&models::Node>,
-    host: &models::Host,
-    conn: &mut models::Conn,
+    node: Option<&Node>,
+    host: &Host,
+    conn: &mut Conn<'_>,
 ) -> crate::Result<bool> {
     let allowed = match claims.resource() {
         Resource::User(user_id) => {
             if let Some(node) = &node {
-                models::Org::is_member(user_id, node.org_id, conn).await?
+                Org::is_member(user_id, node.org_id, conn).await?
             } else {
-                models::Org::is_member(user_id, host.org_id, conn).await?
+                Org::is_member(user_id, host.org_id, conn).await?
             }
         }
         Resource::Org(org_id) => {
@@ -166,13 +179,11 @@ async fn access_allowed(
 }
 
 impl api::Command {
-    pub async fn from_model(
-        model: &models::Command,
-        conn: &mut models::Conn,
-    ) -> crate::Result<api::Command> {
+    pub async fn from_model(model: &Command, conn: &mut Conn<'_>) -> crate::Result<api::Command> {
         use api::command;
         use api::node_command::Command;
-        use models::CommandType::*;
+
+        use crate::models::command::CommandType::*;
 
         // Extract the node id from the model, if there is one.
         let node_id = || model.node_id.ok_or_else(required("command.node_id "));
@@ -211,15 +222,15 @@ impl api::Command {
             KillNode => node_cmd_default_id(Command::Stop(api::NodeStop {})),
             ShutdownNode => node_cmd_default_id(Command::Stop(api::NodeStop {})),
             UpdateNode => {
-                let node = models::Node::find_by_id(node_id()?, conn).await?;
+                let node = Node::find_by_id(node_id()?, conn).await?;
                 let cmd = Command::Update(api::NodeUpdate {
                     rules: Self::rules(&node)?,
                 });
                 node_cmd_default_id(cmd)
             }
             UpgradeNode => {
-                let node = models::Node::find_by_id(node_id()?, conn).await?;
-                let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
+                let node = Node::find_by_id(node_id()?, conn).await?;
+                let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
                 let mut image = api::ContainerImage {
                     protocol: blockchain.name,
                     node_version: node.version.to_lowercase(),
@@ -234,9 +245,9 @@ impl api::Command {
 
             // The following should be HostCommands
             CreateNode => {
-                let node = models::Node::find_by_id(node_id()?, conn).await?;
-                let blockchain = models::Blockchain::find_by_id(node.blockchain_id, conn).await?;
-                let id_to_name_map = models::BlockchainProperty::id_to_name_map(
+                let node = Node::find_by_id(node_id()?, conn).await?;
+                let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
+                let id_to_name_map = BlockchainProperty::id_to_name_map(
                     &blockchain,
                     node.node_type,
                     &node.version,
@@ -289,10 +300,10 @@ impl api::Command {
         }
     }
 
-    pub fn rules(node: &models::Node) -> crate::Result<Vec<api::Rule>> {
+    pub fn rules(node: &Node) -> crate::Result<Vec<api::Rule>> {
         fn firewall_rules(
             // I'll leave the Vec for now, maybe we need it later
-            denied_or_allowed_ips: Vec<models::FilteredIpAddr>,
+            denied_or_allowed_ips: Vec<FilteredIpAddr>,
             action: api::Action,
         ) -> crate::Result<Vec<api::Rule>> {
             let mut rules = vec![];
@@ -324,8 +335,8 @@ impl api::Command {
 }
 
 impl api::CommandServiceUpdateRequest {
-    fn as_update(&self) -> crate::Result<models::UpdateCommand<'_>> {
-        Ok(models::UpdateCommand {
+    fn as_update(&self) -> crate::Result<UpdateCommand<'_>> {
+        Ok(UpdateCommand {
             id: self.id.parse()?,
             response: self.response.as_deref(),
             exit_status: self.exit_code,
@@ -345,14 +356,13 @@ impl api::Parameter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::config::Context;
-    use crate::tests::TestDb;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_create_firewall_rules() {
-        let context = Context::from_default_toml().await.unwrap();
-        let db = TestDb::setup(context).await;
+        let (_ctx, db) = Context::with_mocked().await.unwrap();
         let node = db.node().await;
         api::Command::rules(&node).unwrap();
     }

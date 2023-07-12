@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use blockvisor_api::auth::claims::{Claims, Expirable};
 use blockvisor_api::auth::endpoint::{Endpoint, Endpoints};
 use blockvisor_api::auth::resource::ResourceEntry;
-use blockvisor_api::{grpc::api, models};
+use blockvisor_api::grpc::api;
+use blockvisor_api::models::invitation::NewInvitation;
+use blockvisor_api::models::org::Org;
 
 type Service = api::org_service_client::OrgServiceClient<super::Channel>;
 
@@ -56,9 +58,7 @@ async fn responds_error_for_delete_on_personal_org() {
     let tester = super::Tester::new().await;
     let user = tester.user().await;
     let mut conn = tester.conn().await;
-    let org = models::Org::find_personal_org(&user, &mut conn)
-        .await
-        .unwrap();
+    let org = Org::find_personal_org(&user, &mut conn).await.unwrap();
     let req = api::OrgServiceDeleteRequest {
         id: org.id.to_string(),
     };
@@ -85,7 +85,7 @@ async fn member_count_works() {
     assert_eq!(resp.org.unwrap().member_count, 1);
 
     // Now we invite someone new.
-    let new_invitation = models::NewInvitation {
+    let new_invitation = NewInvitation {
         created_by: user.id,
         org_id: org.id,
         invitee_email: "test@here.com".to_string(),

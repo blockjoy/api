@@ -1,10 +1,14 @@
-use super::schema::blockchains;
+mod property;
+pub use property::{BlockchainProperty, BlockchainPropertyUiType};
+
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use tracing::log::warn;
 
-mod property;
-pub use property::{BlockchainProperty, BlockchainPropertyUiType};
+use crate::database::Conn;
+
+use super::node::NodeSelfUpgradeFilter;
+use super::schema::blockchains;
 
 #[derive(Clone, Debug, Queryable, Identifiable, AsChangeset)]
 pub struct Blockchain {
@@ -19,7 +23,7 @@ pub struct Blockchain {
 }
 
 impl Blockchain {
-    pub async fn find_all(conn: &mut super::Conn) -> crate::Result<Vec<Self>> {
+    pub async fn find_all(conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
         let chains = blockchains::table
             .order_by(super::lower(blockchains::name))
             .get_results(conn)
@@ -28,16 +32,13 @@ impl Blockchain {
         Ok(chains)
     }
 
-    pub async fn find_by_id(id: uuid::Uuid, conn: &mut super::Conn) -> crate::Result<Self> {
+    pub async fn find_by_id(id: uuid::Uuid, conn: &mut Conn<'_>) -> crate::Result<Self> {
         let chain = blockchains::table.find(id).get_result(conn).await?;
 
         Ok(chain)
     }
 
-    pub async fn find_by_ids(
-        ids: &[uuid::Uuid],
-        conn: &mut super::Conn,
-    ) -> crate::Result<Vec<Self>> {
+    pub async fn find_by_ids(ids: &[uuid::Uuid], conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
         let chains = blockchains::table
             .filter(blockchains::id.eq_any(ids))
             .order_by(super::lower(blockchains::name))
@@ -47,22 +48,19 @@ impl Blockchain {
         Ok(chains)
     }
 
-    pub async fn find_by_name(blockchain: &str, c: &mut super::Conn) -> crate::Result<Self> {
+    pub async fn find_by_name(blockchain: &str, conn: &mut Conn<'_>) -> crate::Result<Self> {
         blockchains::table
             .filter(super::lower(blockchains::name).eq(super::lower(blockchain)))
-            .first(c)
+            .first(conn)
             .await
             .map_err(Into::into)
     }
 
-    pub async fn properties(
-        &self,
-        conn: &mut super::Conn,
-    ) -> crate::Result<Vec<BlockchainProperty>> {
+    pub async fn properties(&self, conn: &mut Conn<'_>) -> crate::Result<Vec<BlockchainProperty>> {
         BlockchainProperty::by_blockchain(self, conn).await
     }
 
-    pub async fn update(&self, c: &mut super::Conn) -> crate::Result<Self> {
+    pub async fn update(&self, c: &mut Conn<'_>) -> crate::Result<Self> {
         let mut self_to_update = self.clone();
         self_to_update.updated_at = chrono::Utc::now();
         diesel::update(blockchains::table.find(self_to_update.id))
@@ -76,8 +74,8 @@ impl Blockchain {
     /// by copying the required blockchain properties from an older version.
     pub async fn add_version(
         &self,
-        filter: &super::NodeSelfUpgradeFilter,
-        conn: &mut super::Conn,
+        filter: &NodeSelfUpgradeFilter,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<()> {
         // First we query all the props to see if the version already exists.
         let props =
@@ -113,7 +111,7 @@ impl Blockchain {
                 node_type: filter.node_type,
                 name: "self-hosted".to_string(),
                 default: None,
-                ui_type: super::BlockchainPropertyUiType::Text,
+                ui_type: BlockchainPropertyUiType::Text,
                 disabled: false,
                 required: false,
             }]
@@ -127,14 +125,12 @@ impl Blockchain {
 mod tests {
     use crate::config::Context;
     use crate::models::{NodeSelfUpgradeFilter, NodeType};
-    use crate::tests::TestDb;
 
     #[tokio::test]
     async fn test_add_version_existing_version() {
-        let context = Context::from_default_toml().await.unwrap();
-        let db = TestDb::setup(context).await;
-
+        let (_ctx, db) = Context::with_mocked().await.unwrap();
         let mut conn = db.conn().await;
+
         let node_type = NodeType::Validator;
         let blockchain = db.blockchain().await;
         let n_properties = blockchain.properties(&mut conn).await.unwrap().len();
@@ -150,8 +146,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_version_non_existing_version() {
-        let context = Context::from_default_toml().await.unwrap();
-        let db = TestDb::setup(context).await;
+        let (_ctx, db) = Context::with_mocked().await.unwrap();
         let mut conn = db.conn().await;
 
         let node_type = NodeType::Validator;

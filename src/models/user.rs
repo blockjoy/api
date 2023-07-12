@@ -8,7 +8,9 @@ use rand::rngs::OsRng;
 use validator::Validate;
 
 use crate::auth::resource::UserId;
+use crate::database::Conn;
 
+use super::org::NewOrg;
 use super::schema::users;
 
 #[derive(Debug, Clone, Queryable, AsChangeset)]
@@ -29,7 +31,7 @@ pub struct User {
 type NotDeleted = dsl::Filter<users::table, dsl::IsNull<users::deleted_at>>;
 
 impl User {
-    pub async fn find_by_id(id: UserId, conn: &mut super::Conn) -> crate::Result<Self> {
+    pub async fn find_by_id(id: UserId, conn: &mut Conn<'_>) -> crate::Result<Self> {
         let user = User::not_deleted().find(id).get_result(conn).await?;
         Ok(user)
     }
@@ -47,18 +49,14 @@ impl User {
             .map_err(|_| crate::Error::invalid_auth("Invalid email or password."))
     }
 
-    pub async fn email_reset_password(&self, conn: &mut super::Conn) -> crate::Result<()> {
-        conn.context.mail.reset_password(self).await
-    }
-
-    pub async fn find_all(conn: &mut super::Conn) -> crate::Result<Vec<Self>> {
+    pub async fn find_all(conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
         let users = users::table.get_results(conn).await?;
         Ok(users)
     }
 
     pub async fn find_by_ids(
         mut user_ids: Vec<UserId>,
-        conn: &mut super::Conn,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Vec<Self>> {
         user_ids.sort();
         user_ids.dedup();
@@ -69,7 +67,7 @@ impl User {
         Ok(users)
     }
 
-    pub async fn find_by_email(email: &str, conn: &mut super::Conn) -> crate::Result<Self> {
+    pub async fn find_by_email(email: &str, conn: &mut Conn<'_>) -> crate::Result<Self> {
         let users = Self::not_deleted()
             .filter(super::lower(users::email).eq(&email.trim().to_lowercase()))
             .get_result(conn)
@@ -77,7 +75,7 @@ impl User {
         Ok(users)
     }
 
-    pub async fn update(&self, conn: &mut super::Conn) -> crate::Result<Self> {
+    pub async fn update(&self, conn: &mut Conn<'_>) -> crate::Result<Self> {
         let updated = diesel::update(users::table.find(self.id))
             .set(self)
             .get_result(conn)
@@ -88,7 +86,7 @@ impl User {
     pub async fn update_password(
         &self,
         password: &str,
-        conn: &mut super::Conn,
+        conn: &mut Conn<'_>,
     ) -> crate::Result<Self> {
         let argon2 = Argon2::default();
         let salt = SaltString::generate(&mut OsRng);
@@ -109,7 +107,7 @@ impl User {
     }
 
     /// Check if user can be found by email, is confirmed and has provided a valid password
-    pub async fn login(email: &str, password: &str, conn: &mut super::Conn) -> crate::Result<Self> {
+    pub async fn login(email: &str, password: &str, conn: &mut Conn<'_>) -> crate::Result<Self> {
         let user = Self::find_by_email(email, conn)
             .await
             .map_err(|_e| crate::Error::invalid_auth("Email or password is invalid."))?;
@@ -122,7 +120,7 @@ impl User {
         }
     }
 
-    pub async fn confirm(user_id: UserId, conn: &mut super::Conn) -> crate::Result<()> {
+    pub async fn confirm(user_id: UserId, conn: &mut Conn<'_>) -> crate::Result<()> {
         let target_user = Self::not_deleted()
             .find(user_id)
             .filter(users::confirmed_at.is_null());
@@ -144,7 +142,7 @@ impl User {
         }
     }
 
-    pub async fn is_confirmed(id: UserId, conn: &mut super::Conn) -> crate::Result<bool> {
+    pub async fn is_confirmed(id: UserId, conn: &mut Conn<'_>) -> crate::Result<bool> {
         let is_confirmed = Self::not_deleted()
             .find(id)
             .select(users::confirmed_at.is_not_null())
@@ -154,7 +152,7 @@ impl User {
     }
 
     /// Mark user deleted if no more nodes belong to it
-    pub async fn delete(id: UserId, conn: &mut super::Conn) -> crate::Result<()> {
+    pub async fn delete(id: UserId, conn: &mut Conn<'_>) -> crate::Result<()> {
         diesel::update(users::table.find(id))
             .set(users::deleted_at.eq(chrono::Utc::now()))
             .execute(conn)
@@ -162,7 +160,7 @@ impl User {
         Ok(())
     }
 
-    pub async fn delete_billing(&self, conn: &mut super::Conn) -> crate::Result<()> {
+    pub async fn delete_billing(&self, conn: &mut Conn<'_>) -> crate::Result<()> {
         let no_billing: Option<String> = None;
         diesel::update(users::table)
             .set(users::billing_id.eq(no_billing))
@@ -226,13 +224,13 @@ impl<'a> NewUser<'a> {
         }
     }
 
-    pub async fn create(self, conn: &mut super::Conn) -> crate::Result<User> {
+    pub async fn create(self, conn: &mut Conn<'_>) -> crate::Result<User> {
         let user: User = diesel::insert_into(users::table)
             .values(self)
             .get_result(conn)
             .await?;
 
-        let org = super::NewOrg {
+        let org = NewOrg {
             name: "Personal",
             is_personal: true,
         };
@@ -251,7 +249,7 @@ pub struct UpdateUser<'a> {
 }
 
 impl<'a> UpdateUser<'a> {
-    pub async fn update(self, conn: &mut super::Conn) -> crate::Result<User> {
+    pub async fn update(self, conn: &mut Conn<'_>) -> crate::Result<User> {
         let user = diesel::update(users::table.find(self.id))
             .set(self)
             .get_result(conn)

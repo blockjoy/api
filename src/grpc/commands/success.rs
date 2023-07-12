@@ -2,37 +2,41 @@
 
 use tracing::error;
 
-use crate::models;
+use crate::database::Conn;
+use crate::models::blockchain::Blockchain;
+use crate::models::command::{Command, CommandType};
+use crate::models::node::Node;
+use crate::models::node_log::{NewNodeLog, NodeLogEvent};
 
 /// Some endpoints require some additional action from us when we recieve a success message back
 /// from blockvisord. For now this is limited to creating a node_logs entry when
 /// CreateNode has succeeded, but this may expand over time.
-pub(super) async fn register(succeeded_cmd: &models::Command, conn: &mut models::Conn) {
-    if succeeded_cmd.cmd == models::CommandType::CreateNode {
+pub(super) async fn register(succeeded_cmd: &Command, conn: &mut Conn<'_>) {
+    if succeeded_cmd.cmd == CommandType::CreateNode {
         create_node_success(succeeded_cmd, conn).await;
     }
 }
 
 /// In case of a successful node deployment, we are expected to write node_logs entry to
 /// the database. The `event` we pass in is `Succeeded`.
-async fn create_node_success(succeeded_cmd: &models::Command, conn: &mut models::Conn) {
+async fn create_node_success(succeeded_cmd: &Command, conn: &mut Conn<'_>) {
     let Some(node_id) = succeeded_cmd.node_id else {
         error!("`CreateNode` command has no node id!");
         return;
     };
-    let Ok(node) = models::Node::find_by_id(node_id, conn).await else {
+    let Ok(node) = Node::find_by_id(node_id, conn).await else {
         error!("Could not get node for node_id {node_id}");
         return;
     };
-    let Ok(blockchain) = models::Blockchain::find_by_id(node.blockchain_id, conn).await else {
+    let Ok(blockchain) = Blockchain::find_by_id(node.blockchain_id, conn).await else {
         error!("Could not get blockchain for node {node_id}");
         return;
     };
 
-    let new_log = models::NewNodeLog {
+    let new_log = NewNodeLog {
         host_id: node.host_id,
         node_id,
-        event: models::NodeLogEvent::Succeeded,
+        event: NodeLogEvent::Succeeded,
         blockchain_name: &blockchain.name,
         node_type: node.node_type,
         version: &node.version,

@@ -1,5 +1,5 @@
 use blockvisor_api::grpc::api;
-use blockvisor_api::models;
+use blockvisor_api::models::node::{NodeChainStatus, NodeStakingStatus, NodeSyncStatus};
 
 type Service = api::metrics_service_client::MetricsServiceClient<super::Channel>;
 
@@ -28,13 +28,10 @@ async fn responds_ok_for_write_node() {
     let node = tester.node().await;
     assert_eq!(node.block_height, Some(10));
     assert_eq!(node.block_age, Some(5));
-    assert_eq!(
-        node.staking_status,
-        Some(models::NodeStakingStatus::Validating)
-    );
+    assert_eq!(node.staking_status, Some(NodeStakingStatus::Validating));
     assert_eq!(node.consensus, Some(false));
-    assert_eq!(node.chain_status, models::NodeChainStatus::Electing);
-    assert_eq!(node.sync_status, models::NodeSyncStatus::Synced);
+    assert_eq!(node.chain_status, NodeChainStatus::Electing);
+    assert_eq!(node.sync_status, NodeSyncStatus::Synced);
 }
 
 #[tokio::test]

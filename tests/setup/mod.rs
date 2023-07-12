@@ -10,6 +10,16 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 
+use blockvisor_api::auth::claims::{Claims, Expirable};
+use blockvisor_api::auth::endpoint::Endpoints;
+use blockvisor_api::auth::resource::ResourceEntry;
+use blockvisor_api::auth::token::refresh::Refresh;
+use blockvisor_api::auth::token::{Cipher, RequestToken};
+use blockvisor_api::config::Context;
+use blockvisor_api::database::tests::TestDb;
+use blockvisor_api::database::Conn;
+use blockvisor_api::grpc::api::auth_service_client::AuthServiceClient;
+use blockvisor_api::models::{Blockchain, Host, Node, Org, User};
 use derive_more::{Deref, DerefMut};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -25,16 +35,6 @@ use tracing::subscriber::DefaultGuard;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Registry};
 
-use blockvisor_api::auth::claims::{Claims, Expirable};
-use blockvisor_api::auth::endpoint::Endpoints;
-use blockvisor_api::auth::resource::ResourceEntry;
-use blockvisor_api::auth::token::refresh::Refresh;
-use blockvisor_api::auth::token::{Cipher, RequestToken};
-use blockvisor_api::config::Context;
-use blockvisor_api::grpc::api::auth_service_client::AuthServiceClient;
-use blockvisor_api::models::{self, Conn};
-use blockvisor_api::tests::TestDb;
-
 type AuthService = AuthServiceClient<tonic::transport::Channel>;
 
 /// Our integration testing helper struct. Can be created cheaply with `new`, and is able to
@@ -46,6 +46,7 @@ pub struct Tester {
     #[deref]
     #[deref_mut]
     db: TestDb,
+    context: Arc<Context>,
     server_input: Arc<TempPath>,
     rng: OsRng,
 }
@@ -54,10 +55,7 @@ impl Tester {
     /// Creates a new tester with the cloudflare API mocked.
     pub async fn new() -> Self {
         let _guard = init_tracing();
-
-        let context = Context::with_mocked().await.unwrap();
-        let db = TestDb::setup(context).await;
-        let pool = db.pool.clone();
+        let (context, db) = Context::with_mocked().await.unwrap();
 
         let socket = NamedTempFile::new().unwrap();
         let socket = Arc::new(socket.into_temp_path());
@@ -66,8 +64,9 @@ impl Tester {
         let uds = UnixListener::bind(&*socket).unwrap();
         let stream = UnixListenerStream::new(uds);
 
-        tokio::spawn(async {
-            blockvisor_api::grpc::server(pool)
+        let server_context = context.clone();
+        tokio::spawn(async move {
+            blockvisor_api::grpc::server(server_context)
                 .await
                 .serve_with_incoming(stream)
                 .await
@@ -76,30 +75,31 @@ impl Tester {
 
         Tester {
             db,
+            context,
             server_input: Arc::clone(&socket),
             rng: OsRng::default(),
         }
-    }
-
-    pub fn context(&self) -> &Context {
-        &self.db.pool.context
     }
 
     pub async fn conn(&self) -> Conn {
         self.db.conn().await
     }
 
+    pub fn context(&self) -> &Context {
+        &self.context
+    }
+
     pub fn cipher(&self) -> &Cipher {
-        &self.context().auth.cipher
+        &self.context.auth.cipher
     }
 
     /// Returns an admin user, so a user that has maximal permissions.
-    pub async fn user(&self) -> models::User {
+    pub async fn user(&self) -> User {
         self.db.user().await
     }
 
     /// Returns a pleb user, that has the same permissions but it is not confirmed.
-    pub async fn unconfirmed_user(&self) -> models::User {
+    pub async fn unconfirmed_user(&self) -> User {
         self.db.unconfirmed_user().await
     }
 
@@ -115,41 +115,41 @@ impl Tester {
         Refresh::from_now(expires, admin.id)
     }
 
-    pub async fn hosts(&self) -> Vec<models::Host> {
-        use models::schema::hosts;
+    pub async fn hosts(&self) -> Vec<Host> {
+        use blockvisor_api::models::schema::hosts;
         let mut conn = self.conn().await;
         hosts::table.get_results(&mut conn).await.unwrap()
     }
 
-    pub async fn host(&self) -> models::Host {
+    pub async fn host(&self) -> Host {
         self.hosts().await.pop().unwrap()
     }
 
-    pub async fn host2(&self) -> models::Host {
+    pub async fn host2(&self) -> Host {
         let mut hosts = self.hosts().await;
         hosts.pop().unwrap();
         hosts.pop().unwrap()
     }
 
-    pub async fn org(&self) -> models::Org {
+    pub async fn org(&self) -> Org {
         self.db.org().await
     }
 
-    pub async fn org_for(&self, user: &models::User) -> models::Org {
-        use models::schema::{orgs, orgs_users};
+    pub async fn org_for(&self, user: &User) -> Org {
+        use blockvisor_api::models::schema::{orgs, orgs_users};
 
         let mut conn = self.conn().await;
         orgs::table
             .filter(orgs::is_personal.eq(false))
             .filter(orgs_users::user_id.eq(user.id))
             .inner_join(orgs_users::table)
-            .select(models::Org::as_select())
+            .select(Org::as_select())
             .get_result(&mut conn)
             .await
             .unwrap()
     }
 
-    pub async fn user_token(&self, user: &models::User) -> Claims {
+    pub async fn user_token(&self, user: &User) -> Claims {
         let req = blockvisor_api::grpc::api::AuthServiceLoginRequest {
             email: user.email.clone(),
             password: "abc12345".to_string(),
@@ -164,20 +164,20 @@ impl Tester {
         self.cipher().jwt.decode(&token).unwrap()
     }
 
-    pub fn host_token(&self, host: &models::Host) -> Claims {
+    pub fn host_token(&self, host: &Host) -> Claims {
         let resource = ResourceEntry::new_host(host.id).into();
         let expirable = Expirable::from_now(chrono::Duration::minutes(15));
 
         Claims::new(resource, expirable, Endpoints::Wildcard)
     }
 
-    pub async fn node(&self) -> models::Node {
+    pub async fn node(&self) -> Node {
         let mut conn = self.conn().await;
         let node_id = "cdbbc736-f399-42ab-86cf-617ce983011d".parse().unwrap();
-        models::Node::find_by_id(node_id, &mut conn).await.unwrap()
+        Node::find_by_id(node_id, &mut conn).await.unwrap()
     }
 
-    pub async fn blockchain(&self) -> models::Blockchain {
+    pub async fn blockchain(&self) -> Blockchain {
         self.db.blockchain().await
     }
 

@@ -1,8 +1,10 @@
 use chrono::{DateTime, Utc};
-use diesel::{dsl, prelude::*};
+use diesel::dsl;
+use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
 use crate::auth::resource::{OrgId, UserId};
+use crate::database::Conn;
 use crate::Result;
 
 use super::schema::invitations;
@@ -19,12 +21,12 @@ pub struct Invitation {
 }
 
 impl Invitation {
-    pub async fn find_by_id(id: uuid::Uuid, conn: &mut super::Conn) -> Result<Self> {
+    pub async fn find_by_id(id: uuid::Uuid, conn: &mut Conn<'_>) -> Result<Self> {
         let invitation = invitations::table.find(id).get_result(conn).await?;
         Ok(invitation)
     }
 
-    pub async fn received(email: &str, conn: &mut super::Conn) -> Result<Vec<Self>> {
+    pub async fn received(email: &str, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
         let pending = invitations::table
             .filter(invitations::invitee_email.eq(email))
             .filter(invitations::accepted_at.is_null())
@@ -35,7 +37,7 @@ impl Invitation {
         Ok(pending)
     }
 
-    pub async fn filter(filter: InvitationFilter<'_>, conn: &mut super::Conn) -> Result<Vec<Self>> {
+    pub async fn filter(filter: InvitationFilter<'_>, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
         let mut query = invitations::table.into_boxed();
 
         if let Some(org_id) = filter.org_id {
@@ -67,11 +69,7 @@ impl Invitation {
         Ok(invites)
     }
 
-    pub async fn has_open_invite(
-        org_id: OrgId,
-        email: &str,
-        conn: &mut super::Conn,
-    ) -> Result<bool> {
+    pub async fn has_open_invite(org_id: OrgId, email: &str, conn: &mut Conn<'_>) -> Result<bool> {
         let invitation = invitations::table
             .filter(invitations::org_id.eq(org_id))
             .filter(invitations::invitee_email.eq(email))
@@ -82,7 +80,7 @@ impl Invitation {
             .await?)
     }
 
-    pub async fn accept(self, conn: &mut super::Conn) -> Result<Self> {
+    pub async fn accept(self, conn: &mut Conn<'_>) -> Result<Self> {
         let invitation = diesel::update(invitations::table.find(self.id))
             .set(invitations::accepted_at.eq(chrono::Utc::now()))
             .get_result(conn)
@@ -90,7 +88,7 @@ impl Invitation {
         Ok(invitation)
     }
 
-    pub async fn decline(&self, conn: &mut super::Conn) -> Result<Self> {
+    pub async fn decline(&self, conn: &mut Conn<'_>) -> Result<Self> {
         let invitation = diesel::update(invitations::table.find(self.id))
             .set(invitations::declined_at.eq(chrono::Utc::now()))
             .get_result(conn)
@@ -98,7 +96,7 @@ impl Invitation {
         Ok(invitation)
     }
 
-    pub async fn revoke(&self, conn: &mut super::Conn) -> Result<()> {
+    pub async fn revoke(&self, conn: &mut Conn<'_>) -> Result<()> {
         diesel::delete(invitations::table.find(self.id))
             .execute(conn)
             .await?;
@@ -108,7 +106,7 @@ impl Invitation {
     pub async fn remove_by_org_user(
         user_email: &str,
         org_id: OrgId,
-        conn: &mut super::Conn,
+        conn: &mut Conn<'_>,
     ) -> Result<()> {
         let to_delete = invitations::table
             .filter(invitations::invitee_email.eq(user_email))
@@ -127,7 +125,7 @@ pub struct NewInvitation {
 }
 
 impl NewInvitation {
-    pub async fn create(mut self, conn: &mut super::Conn) -> Result<Invitation> {
+    pub async fn create(mut self, conn: &mut Conn<'_>) -> Result<Invitation> {
         self.invitee_email = self.invitee_email.trim().to_lowercase();
         let invitation = diesel::insert_into(invitations::table)
             .values(self)

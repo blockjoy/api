@@ -1,7 +1,9 @@
 use std::ops::DerefMut;
 
 use blockvisor_api::grpc::api;
-use blockvisor_api::models;
+use blockvisor_api::models::command::{Command, CommandType};
+use blockvisor_api::models::node::Node;
+use blockvisor_api::models::schema;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
@@ -36,7 +38,7 @@ async fn responds_ok_for_update_config() {
         .unwrap();
 
     let mut conn = tester.conn().await;
-    let node = models::Node::find_by_id(node_id.parse().unwrap(), &mut conn)
+    let node = Node::find_by_id(node_id.parse().unwrap(), &mut conn)
         .await
         .unwrap();
 
@@ -256,17 +258,17 @@ async fn responds_ok_with_valid_data_for_delete() {
 
 async fn validate_command(tester: &super::Tester) {
     let mut conn = tester.conn().await;
-    let commands_empty: Vec<models::Command> = models::schema::commands::table
+    let commands_empty: Vec<Command> = schema::commands::table
         .filter(
-            models::schema::commands::node_id
+            schema::commands::node_id
                 .is_null()
-                .and(models::schema::commands::cmd.ne(models::CommandType::DeleteNode))
-                .or(models::schema::commands::cmd
-                    .eq(models::CommandType::DeleteNode)
-                    .and(models::schema::commands::sub_cmd.is_null())
-                    .and(models::schema::commands::node_id.is_null())),
+                .and(schema::commands::cmd.ne(CommandType::DeleteNode))
+                .or(schema::commands::cmd
+                    .eq(CommandType::DeleteNode)
+                    .and(schema::commands::sub_cmd.is_null())
+                    .and(schema::commands::node_id.is_null())),
         )
-        .load::<models::Command>(conn.deref_mut())
+        .load::<Command>(conn.deref_mut())
         .await
         .unwrap();
 

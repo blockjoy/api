@@ -2,7 +2,6 @@ mod setup;
 
 use axum::http::{Request, StatusCode};
 use blockvisor_api::config::Context;
-use blockvisor_api::tests::TestDb;
 use hyper::Body;
 use tower::ServiceExt;
 
@@ -18,11 +17,10 @@ fn possible_routes() -> Vec<(&'static str, &'static str, StatusCode)> {
 
 #[tokio::test]
 async fn test_possible_routes() -> anyhow::Result<()> {
-    let context = Context::from_default_toml().await.unwrap();
-    let db = TestDb::setup(context).await;
+    let (context, _db) = Context::with_mocked().await.unwrap();
 
     let routes = possible_routes();
-    let app = blockvisor_api::http::server(db.pool.clone()).await;
+    let app = blockvisor_api::http::router(context.clone());
 
     let mut cnt = 1;
 

@@ -27,8 +27,8 @@ use crate::auth::claims::{Claims, Expirable};
 use crate::auth::endpoint::{Endpoint, Endpoints};
 use crate::auth::resource::{Resource, ResourceEntry, ResourceType};
 use crate::auth::token::ApiToken;
-use crate::models::api_key::ApiKey;
-use crate::models::Conn;
+use crate::database::Conn;
+use crate::models::ApiKey;
 
 const SALT_BYTES: usize = 16;
 const SECRET_BYTES: usize = 20;
@@ -76,7 +76,7 @@ pub enum Error {
 pub struct Validated(ApiKey);
 
 impl Validated {
-    pub async fn from_token(token: &ApiToken, conn: &mut Conn) -> Result<Self, Error> {
+    pub async fn from_token(token: &ApiToken, conn: &mut Conn<'_>) -> Result<Self, Error> {
         let api_key = ApiKey::find_by_id(token.key_id, conn)
             .await
             .map_err(Error::FindKeyId)?;

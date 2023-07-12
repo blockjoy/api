@@ -5,10 +5,11 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
 use crate::auth::resource::{OrgId, UserId};
+use crate::database::Conn;
 use crate::Result;
 
 use super::schema::{orgs, orgs_users};
-use super::Conn;
+use super::user::User;
 
 #[derive(Debug, Clone, Queryable, Selectable)]
 pub struct Org {
@@ -23,12 +24,12 @@ pub struct Org {
 type NotDeleted = dsl::Filter<orgs::table, dsl::IsNull<orgs::deleted_at>>;
 
 impl Org {
-    pub async fn find_by_id(org_id: OrgId, conn: &mut Conn) -> crate::Result<Self> {
+    pub async fn find_by_id(org_id: OrgId, conn: &mut Conn<'_>) -> crate::Result<Self> {
         let org = Org::not_deleted().find(org_id).get_result(conn).await?;
         Ok(org)
     }
 
-    pub async fn find_by_ids(mut org_ids: Vec<OrgId>, conn: &mut super::Conn) -> Result<Vec<Self>> {
+    pub async fn find_by_ids(mut org_ids: Vec<OrgId>, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
         org_ids.sort();
         org_ids.dedup();
         let orgs = orgs::table
@@ -38,7 +39,7 @@ impl Org {
         Ok(orgs)
     }
 
-    pub async fn filter(member_id: Option<UserId>, conn: &mut Conn) -> Result<Vec<Self>> {
+    pub async fn filter(member_id: Option<UserId>, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
         let mut query = Self::not_deleted()
             .left_join(orgs_users::table)
             .into_boxed();
@@ -55,7 +56,7 @@ impl Org {
         Ok(orgs)
     }
 
-    pub async fn memberships(user_id: UserId, conn: &mut Conn) -> Result<Vec<OrgUser>> {
+    pub async fn memberships(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<OrgUser>> {
         let orgs = orgs_users::table
             .filter(orgs_users::user_id.eq(user_id))
             .select(OrgUser::as_select())
@@ -65,7 +66,7 @@ impl Org {
         Ok(orgs)
     }
 
-    pub async fn find_personal_org(user: &super::User, conn: &mut Conn) -> Result<Org> {
+    pub async fn find_personal_org(user: &User, conn: &mut Conn<'_>) -> Result<Org> {
         let org = Self::not_deleted()
             .filter(orgs::is_personal)
             .filter(orgs_users::user_id.eq(user.id))
@@ -78,7 +79,7 @@ impl Org {
     }
 
     /// Checks if the user is a member.
-    pub async fn is_member(user_id: UserId, org_id: OrgId, conn: &mut Conn) -> Result<bool> {
+    pub async fn is_member(user_id: UserId, org_id: OrgId, conn: &mut Conn<'_>) -> Result<bool> {
         let target_user = orgs_users::table
             .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::org_id.eq(org_id));
@@ -90,7 +91,7 @@ impl Org {
 
     /// Checks if the user is a member with the role `Admin` or above (the other option being
     /// `Owner`).
-    pub async fn is_admin(user_id: UserId, org_id: OrgId, conn: &mut Conn) -> Result<bool> {
+    pub async fn is_admin(user_id: UserId, org_id: OrgId, conn: &mut Conn<'_>) -> Result<bool> {
         let target_user = orgs_users::table
             .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::org_id.eq(org_id))
@@ -105,12 +106,12 @@ impl Org {
         &self,
         user_id: UserId,
         role: OrgRole,
-        conn: &mut Conn,
+        conn: &mut Conn<'_>,
     ) -> Result<OrgUser> {
         NewOrgUser::new(self.id, user_id, role).create(conn).await
     }
 
-    pub async fn remove_member(&self, user: &super::User, conn: &mut Conn) -> Result<()> {
+    pub async fn remove_member(&self, user: &User, conn: &mut Conn<'_>) -> Result<()> {
         let org_user = orgs_users::table
             .filter(orgs_users::user_id.eq(user.id))
             .filter(orgs_users::org_id.eq(self.id));
@@ -119,7 +120,7 @@ impl Org {
     }
 
     /// Marks the the given organization as deleted
-    pub async fn delete(&self, conn: &mut Conn) -> Result<()> {
+    pub async fn delete(&self, conn: &mut Conn<'_>) -> Result<()> {
         let to_delete = orgs::table
             .filter(orgs::id.eq(self.id))
             .filter(orgs::is_personal.eq(false));
@@ -130,7 +131,7 @@ impl Org {
         Ok(())
     }
 
-    pub async fn node_counts(orgs: &[Self], conn: &mut Conn) -> Result<HashMap<OrgId, u64>> {
+    pub async fn node_counts(orgs: &[Self], conn: &mut Conn<'_>) -> Result<HashMap<OrgId, u64>> {
         use super::schema::nodes;
 
         let org_ids: Vec<_> = orgs.iter().map(|o| o.id).collect();
@@ -160,7 +161,7 @@ pub struct NewOrg<'a> {
 
 impl<'a> NewOrg<'a> {
     /// Creates a new organization
-    pub async fn create(self, user_id: UserId, conn: &mut Conn) -> Result<Org> {
+    pub async fn create(self, user_id: UserId, conn: &mut Conn<'_>) -> Result<Org> {
         let org: Org = diesel::insert_into(orgs::table)
             .values(self)
             .get_result(conn)
@@ -182,7 +183,7 @@ pub struct UpdateOrg<'a> {
 
 impl<'a> UpdateOrg<'a> {
     /// Updates an organization
-    pub async fn update(self, conn: &mut Conn) -> Result<Org> {
+    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Org> {
         let org = diesel::update(orgs::table.find(self.id))
             .set((self, orgs::updated_at.eq(chrono::Utc::now())))
             .get_result(conn)
@@ -206,10 +207,7 @@ pub struct OrgUser {
 impl OrgUser {
     /// For a given list of orgs, returns a map from org id to all the orgs_users entries belonging
     /// to that org.
-    pub async fn by_orgs(
-        orgs: &[super::Org],
-        conn: &mut Conn,
-    ) -> Result<HashMap<OrgId, Vec<Self>>> {
+    pub async fn by_orgs(orgs: &[Org], conn: &mut Conn<'_>) -> Result<HashMap<OrgId, Vec<Self>>> {
         let org_ids: Vec<OrgId> = orgs.iter().map(|o| o.id).collect();
         let org_users: Vec<Self> = orgs_users::table
             .filter(orgs_users::org_id.eq_any(org_ids))
@@ -222,7 +220,7 @@ impl OrgUser {
         Ok(res)
     }
 
-    pub async fn by_user_org(user_id: UserId, org_id: OrgId, conn: &mut Conn) -> Result<Self> {
+    pub async fn by_user_org(user_id: UserId, org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self> {
         let org_user = orgs_users::table
             .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::org_id.eq(org_id))
@@ -231,7 +229,7 @@ impl OrgUser {
         Ok(org_user)
     }
 
-    pub async fn by_token(token: &str, conn: &mut Conn) -> Result<Self> {
+    pub async fn by_token(token: &str, conn: &mut Conn<'_>) -> Result<Self> {
         let org_user = orgs_users::table
             .filter(orgs_users::host_provision_token.eq(token))
             .get_result(conn)
@@ -239,7 +237,7 @@ impl OrgUser {
         Ok(org_user)
     }
 
-    pub async fn reset_token(&self, conn: &mut Conn) -> Result<String> {
+    pub async fn reset_token(&self, conn: &mut Conn<'_>) -> Result<String> {
         let token = Self::token();
         let to_update = orgs_users::table
             .filter(orgs_users::user_id.eq(self.user_id))
@@ -278,7 +276,7 @@ impl NewOrgUser {
         }
     }
 
-    pub async fn create(self, conn: &mut Conn) -> Result<OrgUser> {
+    pub async fn create(self, conn: &mut Conn<'_>) -> Result<OrgUser> {
         let org_user = diesel::insert_into(orgs_users::table)
             .values((self, orgs_users::host_provision_token.eq(OrgUser::token())))
             .get_result(conn)

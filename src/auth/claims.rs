@@ -6,7 +6,8 @@ use thiserror::Error;
 use tonic::Status;
 use tracing::error;
 
-use crate::models::{Conn, Host, Node, Org};
+use crate::database::Conn;
+use crate::models::{Host, Node, Org};
 use crate::timestamp::SecondsUtc;
 
 use super::endpoint::{Endpoint, Endpoints};
@@ -104,7 +105,7 @@ impl Claims {
     }
 
     /// Ensure that `Claims` can access the requested `Resource` as an Org member.
-    pub async fn ensure(self, resource: Resource, conn: &mut Conn) -> Result<Ensure, Error> {
+    pub async fn ensure(self, resource: Resource, conn: &mut Conn<'_>) -> Result<Ensure, Error> {
         let claims = match resource {
             Resource::User(id) => self.ensure_user(id).map(Into::into),
             Resource::Org(id) => self.ensure_org(id, false, conn).await.map(Into::into),
@@ -116,7 +117,11 @@ impl Claims {
     }
 
     /// Ensure that `Claims` can access the requested `Resource` as an Org admin.
-    pub async fn ensure_admin(self, resource: Resource, conn: &mut Conn) -> Result<Ensure, Error> {
+    pub async fn ensure_admin(
+        self,
+        resource: Resource,
+        conn: &mut Conn<'_>,
+    ) -> Result<Ensure, Error> {
         let claims = match resource {
             Resource::User(id) => self.ensure_user(id).map(Into::into),
             Resource::Org(id) => self.ensure_org(id, true, conn).await.map(Into::into),
@@ -141,7 +146,7 @@ impl Claims {
         self,
         org_id: OrgId,
         org_admin: bool,
-        conn: &mut Conn,
+        conn: &mut Conn<'_>,
     ) -> Result<OrgClaims, Error> {
         let claims = self;
         match claims.resource() {
@@ -169,7 +174,7 @@ impl Claims {
         self,
         host_id: HostId,
         org_admin: bool,
-        conn: &mut Conn,
+        conn: &mut Conn<'_>,
     ) -> Result<HostClaims, Error> {
         let claims = self;
         match claims.resource() {
@@ -213,7 +218,7 @@ impl Claims {
         self,
         node_id: NodeId,
         org_admin: bool,
-        conn: &mut Conn,
+        conn: &mut Conn<'_>,
     ) -> Result<NodeClaims, Error> {
         let claims = self;
         match claims.resource() {

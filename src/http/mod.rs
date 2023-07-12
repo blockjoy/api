@@ -1,24 +1,27 @@
-use crate::http::routes::forbiddenenticated_routes;
-use crate::models;
-use axum::{Extension, Router};
+pub mod handlers;
+pub mod response;
+
+use std::sync::Arc;
+
+use axum::routing::Router;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-pub mod handlers;
-pub mod mqtt;
-pub mod routes;
+use crate::config::Context;
 
-pub async fn server(db: models::DbPool) -> Router {
-    forbiddenenticated_routes()
-        // Common layers need to be added first to make it available to ALL routes
-        .layer(
-            CorsLayer::new()
-                .allow_headers(Any)
-                .allow_methods(Any)
-                .allow_origin(Any),
-        )
+use self::handlers::{health, mqtt};
+
+pub fn router(context: Arc<Context>) -> Router {
+    let cors = CorsLayer::new()
+        .allow_headers(Any)
+        .allow_methods(Any)
+        .allow_origin(Any);
+
+    Router::new()
+        .layer(cors)
         .layer(CompressionLayer::new())
-        .layer(Extension(db))
         .layer(TraceLayer::new_for_http())
+        .nest("/mqtt", mqtt::router(context.clone()))
+        .merge(health::router(context))
 }

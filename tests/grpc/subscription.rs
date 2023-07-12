@@ -1,7 +1,6 @@
 use blockvisor_api::auth::resource::{OrgId, UserId};
 use blockvisor_api::grpc::api;
-use blockvisor_api::models::subscription::SubscriptionId;
-use blockvisor_api::models::Org;
+use blockvisor_api::models::{Org, SubscriptionId};
 use tonic::transport::Channel;
 
 use super::Tester;
@@ -13,12 +12,12 @@ async fn subscription_service_api_requests() {
     let mut test = Tester::new().await;
     let user = test.user().await;
     let user_id = user.id;
+    let external_id = test.rand_string(8);
 
     let mut conn = test.conn().await;
     let org = Org::find_personal_org(&user, &mut conn).await.unwrap();
     let org_id = org.id;
 
-    let external_id = test.rand_string(8);
     let created = create(&test, org_id, user_id, &external_id).await.unwrap();
     let sub = created.subscription.unwrap();
     let sub_id = sub.id.clone();

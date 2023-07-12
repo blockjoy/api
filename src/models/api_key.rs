@@ -7,7 +7,8 @@ use thiserror::Error;
 
 use crate::auth::resource::{Resource, ResourceEntry, ResourceId, ResourceType, UserId};
 use crate::auth::token::api_key::{BearerSecret, KeyHash, KeyId, Salt, Secret};
-use crate::models::Conn;
+use crate::config::Context;
+use crate::database::Conn;
 
 use super::schema::api_keys;
 
@@ -50,7 +51,7 @@ pub struct ApiKey {
 }
 
 impl ApiKey {
-    pub async fn find_by_id(key_id: KeyId, conn: &mut Conn) -> Result<Self, Error> {
+    pub async fn find_by_id(key_id: KeyId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         api_keys::table
             .find(key_id)
             .get_result(conn)
@@ -58,7 +59,7 @@ impl ApiKey {
             .map_err(Error::FindById)
     }
 
-    pub async fn find_by_user(user_id: UserId, conn: &mut Conn) -> Result<Vec<Self>, Error> {
+    pub async fn find_by_user(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         api_keys::table
             .filter(api_keys::user_id.eq(user_id))
             .get_results(conn)
@@ -69,7 +70,7 @@ impl ApiKey {
     pub async fn regenerate(
         key_id: KeyId,
         key_hash: KeyHash,
-        tx: &mut Conn,
+        conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
         diesel::update(api_keys::table)
             .filter(api_keys::id.eq(key_id))
@@ -77,14 +78,14 @@ impl ApiKey {
                 api_keys::key_hash.eq(key_hash),
                 api_keys::updated_at.eq(Utc::now()),
             ))
-            .get_result(tx)
+            .get_result(conn)
             .await
             .map_err(Error::Regenerate)
     }
 
-    pub async fn delete(key_id: KeyId, tx: &mut Conn) -> Result<(), Error> {
+    pub async fn delete(key_id: KeyId, conn: &mut Conn<'_>) -> Result<(), Error> {
         let deleted = diesel::delete(api_keys::table.find(key_id))
-            .execute(tx)
+            .execute(conn)
             .await
             .map_err(Error::DeleteKey)?;
 
@@ -121,13 +122,14 @@ pub struct NewApiKey {
 
 impl NewApiKey {
     pub async fn create(
-        tx: &mut Conn,
         user_id: UserId,
         label: String,
         entry: ResourceEntry,
+        conn: &mut Conn<'_>,
+        ctx: &Context,
     ) -> Result<Created, Error> {
         let (salt, secret) = {
-            let mut rng = tx.context.rng.lock().await;
+            let mut rng = ctx.rng.lock().await;
             let salt = Salt::generate(&mut *rng);
             let secret = Secret::generate(&mut *rng);
             (salt, secret)
@@ -145,7 +147,7 @@ impl NewApiKey {
 
         let api_key: ApiKey = diesel::insert_into(api_keys::table)
             .values(new_api_key)
-            .get_result(tx)
+            .get_result(conn)
             .await
             .map_err(Error::CreateNew)?;
 
@@ -154,15 +156,19 @@ impl NewApiKey {
         Ok(Created { api_key, secret })
     }
 
-    pub async fn regenerate(key_id: KeyId, tx: &mut Conn) -> Result<Created, Error> {
-        let existing = ApiKey::find_by_id(key_id, tx).await?;
+    pub async fn regenerate(
+        key_id: KeyId,
+        conn: &mut Conn<'_>,
+        ctx: &Context,
+    ) -> Result<Created, Error> {
+        let existing = ApiKey::find_by_id(key_id, conn).await?;
         let new_secret = {
-            let mut rng = tx.context.rng.lock().await;
+            let mut rng = ctx.rng.lock().await;
             Secret::generate(&mut *rng)
         };
 
         let key_hash = KeyHash::from(&existing.key_salt, &new_secret);
-        let updated = ApiKey::regenerate(key_id, key_hash, tx).await?;
+        let updated = ApiKey::regenerate(key_id, key_hash, conn).await?;
         let secret = BearerSecret::new(updated.id, new_secret);
 
         Ok(Created {
@@ -190,10 +196,10 @@ impl UpdateLabel {
         UpdateLabel { id, label }
     }
 
-    pub async fn update(self, tx: &mut Conn) -> Result<DateTime<Utc>, Error> {
+    pub async fn update(self, conn: &mut Conn<'_>) -> Result<DateTime<Utc>, Error> {
         let updated: ApiKey = diesel::update(api_keys::table.find(self.id))
             .set((self, api_keys::updated_at.eq(Utc::now())))
-            .get_result(tx)
+            .get_result(conn)
             .await
             .map_err(Error::UpdateLabel)?;
 
@@ -218,10 +224,10 @@ impl UpdateScope {
         }
     }
 
-    pub async fn update(self, tx: &mut Conn) -> Result<DateTime<Utc>, Error> {
+    pub async fn update(self, conn: &mut Conn<'_>) -> Result<DateTime<Utc>, Error> {
         let updated: ApiKey = diesel::update(api_keys::table.find(self.id))
             .set((self, api_keys::updated_at.eq(Utc::now())))
-            .get_result(tx)
+            .get_result(conn)
             .await
             .map_err(Error::UpdateLabel)?;
 

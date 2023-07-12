@@ -2,8 +2,10 @@ use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
 use crate::auth::resource::NodeId;
+use crate::database::Conn;
 use crate::Result;
 
+use super::node::Node;
 use super::schema::node_key_files;
 
 #[derive(Debug, Queryable)]
@@ -15,7 +17,7 @@ pub struct NodeKeyFile {
 }
 
 impl NodeKeyFile {
-    pub async fn find_by_node(node: &super::Node, conn: &mut super::Conn) -> Result<Vec<Self>> {
+    pub async fn find_by_node(node: &Node, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
         let files = node_key_files::table
             .filter(node_key_files::node_id.eq(node.id))
             .get_results(conn)
@@ -35,7 +37,7 @@ pub struct NewNodeKeyFile<'a> {
 impl NewNodeKeyFile<'_> {
     pub async fn bulk_create(
         key_files: Vec<Self>,
-        conn: &mut super::Conn,
+        conn: &mut Conn<'_>,
     ) -> Result<Vec<NodeKeyFile>> {
         let files = diesel::insert_into(node_key_files::table)
             .values(key_files)

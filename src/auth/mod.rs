@@ -11,7 +11,7 @@ use tonic::Status;
 use tracing::error;
 
 use crate::config::token::Config;
-use crate::models::Conn;
+use crate::database::Conn;
 
 use self::claims::Claims;
 use self::endpoint::Endpoint;
@@ -23,6 +23,8 @@ use self::token::{Cipher, RequestToken};
 pub enum Error {
     /// Claims are missing Endpoint: {0:?}
     ClaimsMissingEndpoint(Endpoint),
+    /// Database error: {0}
+    Database(#[from] crate::database::Error),
     /// Failed to decode JWT: {0}
     DecodeJwt(token::jwt::Error),
     /// Failed to decode refresh BearerToken: {0}
@@ -49,7 +51,7 @@ impl From<Error> for Status {
                 Status::permission_denied("Invalid refresh token.")
             }
             ParseRequestToken(e) => e.into(),
-            TokenExpires(_) => Status::internal("Internal error."),
+            Database(_) | TokenExpires(_) => Status::internal("Internal error."),
             ValidateApiKey(_) => Status::permission_denied("Invalid API key."),
         }
     }
@@ -80,29 +82,34 @@ impl Auth {
         &self,
         req: &tonic::Request<T>,
         endpoint: Endpoint,
-        conn: &mut Conn,
+        conn: &mut Conn<'_>,
     ) -> Result<Claims, Error> {
         let token: RequestToken = req
             .metadata()
             .try_into()
             .map_err(Error::ParseRequestToken)?;
 
-        let claims = match token {
-            RequestToken::ApiKey(token) => Validated::from_token(&token, conn)
-                .await
-                .map_err(Error::ValidateApiKey)?
-                .claims(self.token_expires),
-
-            RequestToken::Bearer(token) => {
-                self.cipher.jwt.decode(&token).map_err(Error::DecodeJwt)?
-            }
-        };
-
+        let claims = self.claims_from_token(&token, conn).await?;
         if !claims.endpoints.includes(endpoint) {
             return Err(Error::ClaimsMissingEndpoint(endpoint));
         }
 
         Ok(claims)
+    }
+
+    pub async fn claims_from_token(
+        &self,
+        token: &RequestToken,
+        conn: &mut Conn<'_>,
+    ) -> Result<Claims, Error> {
+        match token {
+            RequestToken::ApiKey(token) => Validated::from_token(token, conn)
+                .await
+                .map_err(Error::ValidateApiKey)
+                .map(|v| v.claims(self.token_expires)),
+
+            RequestToken::Bearer(token) => self.cipher.jwt.decode(token).map_err(Error::DecodeJwt),
+        }
     }
 
     pub fn refresh<T>(&self, req: &tonic::Request<T>) -> Result<Refresh, Error> {

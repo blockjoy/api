@@ -5,9 +5,13 @@ use tonic::{Request, Status};
 
 use crate::auth::endpoint::Endpoint;
 use crate::auth::resource::{Resource, ResourceEntry, UserId};
-use crate::models::Conn;
+use crate::config::Context;
+use crate::database::{Conn, Transaction};
+use crate::mail;
+use crate::models::invitation::{Invitation, InvitationFilter, NewInvitation};
+use crate::models::org::{Org, OrgRole};
+use crate::models::user::User;
 use crate::timestamp::NanosUtc;
-use crate::{mail, models};
 
 use super::api::{self, invitation_service_server};
 use super::helpers::required;
@@ -18,7 +22,8 @@ impl invitation_service_server::InvitationService for super::Grpc {
         &self,
         req: Request<api::InvitationServiceCreateRequest>,
     ) -> super::Resp<api::InvitationServiceCreateResponse> {
-        self.trx(|c| create(req, c).scope_boxed())
+        self.context
+            .write(|conn, ctx| create(req, conn, ctx).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -28,14 +33,17 @@ impl invitation_service_server::InvitationService for super::Grpc {
         &self,
         req: Request<api::InvitationServiceListRequest>,
     ) -> super::Resp<api::InvitationServiceListResponse> {
-        self.run(|c| list(req, c).scope_boxed()).await
+        self.context
+            .read(|conn, ctx| list(req, conn, ctx).scope_boxed())
+            .await
     }
 
     async fn accept(
         &self,
         req: Request<api::InvitationServiceAcceptRequest>,
     ) -> super::Resp<api::InvitationServiceAcceptResponse> {
-        self.trx(|c| accept(req, c).scope_boxed())
+        self.context
+            .write(|conn, ctx| accept(req, conn, ctx).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -45,7 +53,8 @@ impl invitation_service_server::InvitationService for super::Grpc {
         &self,
         req: Request<api::InvitationServiceDeclineRequest>,
     ) -> super::Resp<api::InvitationServiceDeclineResponse> {
-        self.trx(|c| decline(req, c).scope_boxed())
+        self.context
+            .write(|conn, ctx| decline(req, conn, ctx).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -55,7 +64,8 @@ impl invitation_service_server::InvitationService for super::Grpc {
         &self,
         req: Request<api::InvitationServiceRevokeRequest>,
     ) -> super::Resp<api::InvitationServiceRevokeResponse> {
-        self.trx(|c| revoke(req, c).scope_boxed())
+        self.context
+            .write(|conn, ctx| revoke(req, conn, ctx).scope_boxed())
             .await?
             .into_resp(&self.notifier)
             .await
@@ -64,16 +74,17 @@ impl invitation_service_server::InvitationService for super::Grpc {
 
 async fn create(
     req: Request<api::InvitationServiceCreateRequest>,
-    conn: &mut Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> crate::Result<super::Outcome<api::InvitationServiceCreateResponse>> {
-    let claims = conn.claims(&req, Endpoint::InvitationCreate).await?;
+    let claims = ctx.claims(&req, Endpoint::InvitationCreate).await?;
     let req = req.into_inner();
     // In principle, it is allowed for resources other than a user to create an invite, but we
     // currently include a field `created_by_user` with a created invite.
     let (is_allowed, caller) = match claims.resource() {
         Resource::User(user_id) => {
-            let caller = models::User::find_by_id(user_id, conn).await?;
-            let is_allowed = models::Org::is_admin(caller.id, req.org_id.parse()?, conn).await?;
+            let caller = User::find_by_id(user_id, conn).await?;
+            let is_allowed = Org::is_admin(caller.id, req.org_id.parse()?, conn).await?;
             (is_allowed, caller)
         }
         Resource::Org(_) => todo!(),
@@ -85,14 +96,14 @@ async fn create(
     }
 
     let org_id = req.org_id.parse()?;
-    if models::Invitation::has_open_invite(org_id, &req.invitee_email, conn).await? {
+    if Invitation::has_open_invite(org_id, &req.invitee_email, conn).await? {
         super::forbidden!("User is already invited");
     }
 
     // Check if the user-to-invite is not already a member of the organization
-    let invited_user = models::User::find_by_email(&req.invitee_email, conn).await;
+    let invited_user = User::find_by_email(&req.invitee_email, conn).await;
     if let Ok(invited_user) = &invited_user {
-        if models::Org::is_member(invited_user.id, org_id, conn).await? {
+        if Org::is_member(invited_user.id, org_id, conn).await? {
             super::forbidden!("Already a member");
         }
     }
@@ -104,8 +115,7 @@ async fn create(
             // Note that here we abort the transaction if sending the email failed. This way we do
             // not get invites in the db that we cannot send emails to. The existence of such an
             // invite would prevent them from trying to recreate again at a later point.
-            conn.context
-                .mail
+            ctx.mail
                 .invitation_for_registered(&caller, &user, "1 week")
                 .await?;
         }
@@ -117,14 +127,13 @@ async fn create(
                 preferred_language: None,
             };
 
-            conn.context
-                .mail
+            ctx.mail
                 .invitation(&invitation, &caller, invitee, "1 week")
                 .await?;
         }
     }
 
-    let org = models::Org::find_by_id(invitation.org_id, conn).await?;
+    let org = Org::find_by_id(invitation.org_id, conn).await?;
     let msg = api::OrgMessage::invitation_created(org, invitation, conn).await?;
     let resp = api::InvitationServiceCreateResponse {};
     Ok(super::Outcome::new(resp).with_msg(msg))
@@ -132,9 +141,10 @@ async fn create(
 
 async fn list(
     req: Request<api::InvitationServiceListRequest>,
-    conn: &mut Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> super::Result<api::InvitationServiceListResponse> {
-    let claims = conn.claims(&req, Endpoint::InvitationList).await?;
+    let claims = ctx.claims(&req, Endpoint::InvitationList).await?;
     let req = req.into_inner();
 
     let entry = if let Some(org_id) = &req.org_id {
@@ -142,7 +152,7 @@ async fn list(
     } else if let Some(user_id) = &req.created_by {
         ResourceEntry::new_user(user_id.parse()?)
     } else if let Some(invitee_email) = &req.invitee_email {
-        let user = models::User::find_by_email(invitee_email, conn).await?;
+        let user = User::find_by_email(invitee_email, conn).await?;
         ResourceEntry::new_user(user.id)
     } else {
         super::forbidden!("Access denied for invitations list");
@@ -151,7 +161,7 @@ async fn list(
     let _ = claims.ensure(entry.into(), conn).await?;
 
     let filter = req.as_filter()?;
-    let invitations = models::Invitation::filter(filter, conn).await?;
+    let invitations = Invitation::filter(filter, conn).await?;
     let invitations = api::Invitation::from_models(invitations, conn).await?;
     let resp = api::InvitationServiceListResponse { invitations };
     Ok(tonic::Response::new(resp))
@@ -159,20 +169,21 @@ async fn list(
 
 async fn accept(
     req: Request<api::InvitationServiceAcceptRequest>,
-    conn: &mut Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> crate::Result<super::Outcome<api::InvitationServiceAcceptResponse>> {
-    let claims = conn.claims(&req, Endpoint::InvitationAccept).await?;
+    let claims = ctx.claims(&req, Endpoint::InvitationAccept).await?;
     let req = req.into_inner();
     let invitation_id = req.invitation_id.parse()?;
-    let invitation = models::Invitation::find_by_id(invitation_id, conn).await?;
+    let invitation = Invitation::find_by_id(invitation_id, conn).await?;
     let is_allowed = match claims.resource() {
         Resource::User(user_id) => {
-            let user = models::User::find_by_id(user_id, conn).await?;
+            let user = User::find_by_id(user_id, conn).await?;
             invitation.invitee_email == user.email
         }
         Resource::Org(org_id) => {
             let email = claims.data.get("email").ok_or_else(required("email"))?;
-            let user = models::User::find_by_email(email, conn).await?;
+            let user = User::find_by_email(email, conn).await?;
             invitation.org_id == org_id && invitation.invitee_email == user.email
         }
         Resource::Host(_) => false,
@@ -189,14 +200,12 @@ async fn accept(
     }
 
     let invitation = invitation.accept(conn).await?;
-    let org = models::Org::find_by_id(invitation.org_id, conn).await?;
+    let org = Org::find_by_id(invitation.org_id, conn).await?;
     // Only registered users can accept an invitation
-    let new_member = models::User::find_by_email(&invitation.invitee_email, conn).await?;
-    let org_user = org
-        .add_member(new_member.id, models::OrgRole::Member, conn)
-        .await?;
-    let org = models::Org::find_by_id(org_user.org_id, conn).await?;
-    let user = models::User::find_by_id(org_user.user_id, conn).await?;
+    let new_member = User::find_by_email(&invitation.invitee_email, conn).await?;
+    let org_user = org.add_member(new_member.id, OrgRole::Member, conn).await?;
+    let org = Org::find_by_id(org_user.org_id, conn).await?;
+    let user = User::find_by_id(org_user.user_id, conn).await?;
     let msg = api::OrgMessage::invitation_accepted(org, invitation, user, conn).await?;
     let resp = api::InvitationServiceAcceptResponse {};
     Ok(super::Outcome::new(resp).with_msg(msg))
@@ -204,15 +213,16 @@ async fn accept(
 
 async fn decline(
     req: Request<api::InvitationServiceDeclineRequest>,
-    conn: &mut Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> crate::Result<super::Outcome<api::InvitationServiceDeclineResponse>> {
-    let claims = conn.claims(&req, Endpoint::InvitationDecline).await?;
+    let claims = ctx.claims(&req, Endpoint::InvitationDecline).await?;
     let req = req.into_inner();
     let invitation_id = req.invitation_id.parse()?;
-    let invitation = models::Invitation::find_by_id(invitation_id, conn).await?;
+    let invitation = Invitation::find_by_id(invitation_id, conn).await?;
     let is_allowed = match claims.resource() {
         Resource::User(user_id) => {
-            let user = models::User::find_by_id(user_id, conn).await?;
+            let user = User::find_by_id(user_id, conn).await?;
             invitation.invitee_email == user.email
         }
         Resource::Org(org_id) => {
@@ -233,7 +243,7 @@ async fn decline(
     }
 
     invitation.decline(conn).await?;
-    let org = models::Org::find_by_id(invitation.org_id, conn).await?;
+    let org = Org::find_by_id(invitation.org_id, conn).await?;
     let msg = api::OrgMessage::invitation_declined(org, invitation, conn).await?;
     let resp = api::InvitationServiceDeclineResponse {};
     Ok(super::Outcome::new(resp).with_msg(msg))
@@ -241,14 +251,15 @@ async fn decline(
 
 async fn revoke(
     req: Request<api::InvitationServiceRevokeRequest>,
-    conn: &mut Conn,
+    conn: &mut Conn<'_>,
+    ctx: &Context,
 ) -> crate::Result<super::Outcome<api::InvitationServiceRevokeResponse>> {
-    let claims = conn.claims(&req, Endpoint::InvitationRevoke).await?;
+    let claims = ctx.claims(&req, Endpoint::InvitationRevoke).await?;
     let req = req.into_inner();
     let invitation_id = req.invitation_id.parse()?;
-    let invitation = models::Invitation::find_by_id(invitation_id, conn).await?;
+    let invitation = Invitation::find_by_id(invitation_id, conn).await?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => models::Org::is_member(user_id, invitation.org_id, conn).await?,
+        Resource::User(user_id) => Org::is_member(user_id, invitation.org_id, conn).await?,
         Resource::Org(_) => false,
         Resource::Host(_) => false,
         Resource::Node(_) => false,
@@ -263,15 +274,15 @@ async fn revoke(
         return Err(Status::failed_precondition("Invite is declined").into());
     }
     invitation.revoke(conn).await?;
-    let org = models::Org::find_by_id(invitation.org_id, conn).await?;
+    let org = Org::find_by_id(invitation.org_id, conn).await?;
     let msg = api::OrgMessage::invitation_declined(org, invitation, conn).await?;
     let resp = api::InvitationServiceRevokeResponse {};
     Ok(super::Outcome::new(resp).with_msg(msg))
 }
 
 impl api::InvitationServiceCreateRequest {
-    pub fn into_new(self, user_id: UserId) -> crate::Result<models::NewInvitation> {
-        Ok(models::NewInvitation {
+    pub fn into_new(self, user_id: UserId) -> crate::Result<NewInvitation> {
+        Ok(NewInvitation {
             created_by: user_id,
             org_id: self.org_id.parse()?,
             invitee_email: self.invitee_email,
@@ -280,19 +291,16 @@ impl api::InvitationServiceCreateRequest {
 }
 
 impl api::Invitation {
-    async fn from_models(
-        models: Vec<models::Invitation>,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Vec<Self>> {
+    async fn from_models(models: Vec<Invitation>, conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
         let creator_ids = models.iter().map(|i| i.created_by).collect();
-        let creators: HashMap<_, _> = models::User::find_by_ids(creator_ids, conn)
+        let creators: HashMap<_, _> = User::find_by_ids(creator_ids, conn)
             .await?
             .into_iter()
             .map(|u| (u.id, u))
             .collect();
 
         let org_ids = models.iter().map(|i| i.org_id).collect();
-        let orgs: HashMap<_, _> = models::Org::find_by_ids(org_ids, conn)
+        let orgs: HashMap<_, _> = Org::find_by_ids(org_ids, conn)
             .await?
             .into_iter()
             .map(|o| (o.id, o))
@@ -308,20 +316,13 @@ impl api::Invitation {
             .collect()
     }
 
-    pub async fn from_model(
-        model: models::Invitation,
-        conn: &mut models::Conn,
-    ) -> crate::Result<Self> {
-        let creator = models::User::find_by_id(model.created_by, conn).await?;
-        let org = models::Org::find_by_id(model.org_id, conn).await?;
+    pub async fn from_model(model: Invitation, conn: &mut Conn<'_>) -> crate::Result<Self> {
+        let creator = User::find_by_id(model.created_by, conn).await?;
+        let org = Org::find_by_id(model.org_id, conn).await?;
         Self::new(model, &creator, &org)
     }
 
-    fn new(
-        model: models::Invitation,
-        creator: &models::User,
-        org: &models::Org,
-    ) -> crate::Result<Self> {
+    fn new(model: Invitation, creator: &User, org: &Org) -> crate::Result<Self> {
         let mut invitation = Self {
             id: model.id.to_string(),
             created_by: model.created_by.to_string(),
@@ -346,10 +347,10 @@ impl api::Invitation {
 }
 
 impl api::InvitationServiceListRequest {
-    fn as_filter(&self) -> crate::Result<models::InvitationFilter<'_>> {
+    fn as_filter(&self) -> crate::Result<InvitationFilter<'_>> {
         let status = self.status();
         let status = (status != api::InvitationStatus::Unspecified).then_some(status);
-        Ok(models::InvitationFilter {
+        Ok(InvitationFilter {
             org_id: self.org_id.as_ref().map(|id| id.parse()).transpose()?,
             invitee_email: self.invitee_email.as_deref(),
             created_by: self.created_by.as_ref().map(|id| id.parse()).transpose()?,
