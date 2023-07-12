@@ -36,6 +36,27 @@ impl user_service_server::UserService for super::Grpc {
     ) -> super::Resp<api::UserServiceDeleteResponse> {
         self.trx(|c| delete(req, c).scope_boxed()).await
     }
+
+    async fn get_billing(
+        &self,
+        req: tonic::Request<api::UserServiceGetBillingRequest>,
+    ) -> super::Resp<api::UserServiceGetBillingResponse> {
+        self.trx(|c| get_billing(req, c).scope_boxed()).await
+    }
+
+    async fn update_billing(
+        &self,
+        req: tonic::Request<api::UserServiceUpdateBillingRequest>,
+    ) -> super::Resp<api::UserServiceUpdateBillingResponse> {
+        self.trx(|c| update_billing(req, c).scope_boxed()).await
+    }
+
+    async fn delete_billing(
+        &self,
+        req: tonic::Request<api::UserServiceDeleteBillingRequest>,
+    ) -> super::Resp<api::UserServiceDeleteBillingResponse> {
+        self.trx(|c| delete_billing(req, c).scope_boxed()).await
+    }
 }
 
 async fn create(
@@ -75,7 +96,7 @@ async fn get(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Access not allowed")
+        super::forbidden!("Access denied for users get")
     }
     let resp = api::UserServiceGetResponse {
         user: Some(api::User::from_model(user)?),
@@ -97,7 +118,7 @@ async fn update(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Access not allowed")
+        super::forbidden!("Access denied for users update")
     }
     let user = req.as_update()?.update(conn).await?;
     let resp = api::UserServiceUpdateResponse {
@@ -120,10 +141,77 @@ async fn delete(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Access not allowed")
+        super::forbidden!("Access denied for users delete")
     }
     models::User::delete(user.id, conn).await?;
     let resp = api::UserServiceDeleteResponse {};
+    Ok(tonic::Response::new(resp))
+}
+
+async fn get_billing(
+    req: tonic::Request<api::UserServiceGetBillingRequest>,
+    conn: &mut models::Conn,
+) -> super::Result<api::UserServiceGetBillingResponse> {
+    let claims = conn.claims(&req, Endpoint::UserGetBilling).await?;
+    let req = req.into_inner();
+    let user = models::User::find_by_id(req.user_id.parse()?, conn).await?;
+    let is_allowed = match claims.resource() {
+        Resource::User(user_id) => user_id == user.id,
+        Resource::Org(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
+    };
+    if !is_allowed {
+        super::forbidden!("Access denied for users get billing")
+    }
+    let resp = api::UserServiceGetBillingResponse {
+        billing_id: user.billing_id,
+    };
+    Ok(tonic::Response::new(resp))
+}
+
+async fn update_billing(
+    req: tonic::Request<api::UserServiceUpdateBillingRequest>,
+    conn: &mut models::Conn,
+) -> super::Result<api::UserServiceUpdateBillingResponse> {
+    let claims = conn.claims(&req, Endpoint::UserUpdateBilling).await?;
+    let req = req.into_inner();
+    let mut user = models::User::find_by_id(req.user_id.parse()?, conn).await?;
+    let is_allowed = match claims.resource() {
+        Resource::User(user_id) => user_id == user.id,
+        Resource::Org(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
+    };
+    if !is_allowed {
+        super::forbidden!("Access denied for users update billing")
+    }
+    user.billing_id = req.billing_id;
+    user.update(conn).await?;
+    let resp = api::UserServiceUpdateBillingResponse {
+        billing_id: user.billing_id,
+    };
+    Ok(tonic::Response::new(resp))
+}
+
+async fn delete_billing(
+    req: tonic::Request<api::UserServiceDeleteBillingRequest>,
+    conn: &mut models::Conn,
+) -> super::Result<api::UserServiceDeleteBillingResponse> {
+    let claims = conn.claims(&req, Endpoint::UserDeleteBilling).await?;
+    let req = req.into_inner();
+    let user = models::User::find_by_id(req.user_id.parse()?, conn).await?;
+    let is_allowed = match claims.resource() {
+        Resource::User(user_id) => user_id == user.id,
+        Resource::Org(_) => false,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
+    };
+    if !is_allowed {
+        super::forbidden!("Access not allowed")
+    }
+    user.delete_billing(conn).await?;
+    let resp = api::UserServiceDeleteBillingResponse {};
     Ok(tonic::Response::new(resp))
 }
 
@@ -136,7 +224,6 @@ impl api::User {
             last_name: model.last_name,
             created_at: Some(NanosUtc::from(model.created_at).into()),
             updated_at: None,
-            billing_id: model.billing_id,
         };
         Ok(user)
     }
@@ -159,7 +246,6 @@ impl api::UserServiceUpdateRequest {
             id: self.id.parse()?,
             first_name: self.first_name.as_deref(),
             last_name: self.last_name.as_deref(),
-            billing_id: self.billing_id.as_deref(),
         })
     }
 }

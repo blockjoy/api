@@ -94,6 +94,9 @@ pub enum Endpoint {
     UserGet = 1102,
     UserUpdate = 1103,
     UserDelete = 1104,
+    UserGetBilling = 1105,
+    UserUpdateBilling = 1106,
+    UserDeleteBilling = 1107,
 
     BabelAll = 1200,
     BabelNotify = 1201,

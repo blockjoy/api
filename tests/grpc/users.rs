@@ -53,7 +53,6 @@ async fn responds_permission_denied_with_diff_users_for_update() {
         id: tester.unconfirmed_user().await.id.to_string(),
         first_name: Some("Hugo".to_string()),
         last_name: Some("Boss".to_string()),
-        billing_id: None,
     };
     let status = tester.send_admin(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::PermissionDenied);
@@ -67,26 +66,8 @@ async fn responds_ok_with_equal_users_for_update() {
         id: user.id.to_string(),
         first_name: Some("Hugo".to_string()),
         last_name: Some("Boss".to_string()),
-        billing_id: None,
     };
     tester.send_admin(Service::update, req).await.unwrap();
-}
-
-#[tokio::test]
-async fn can_update_with_billing_id() {
-    let tester = super::Tester::new().await;
-    let user = tester.user().await;
-
-    let billing_id = "billing".to_string();
-    let req = api::UserServiceUpdateRequest {
-        id: user.id.to_string(),
-        first_name: None,
-        last_name: None,
-        billing_id: Some(billing_id.clone()),
-    };
-
-    let user = tester.send_admin(Service::update, req).await.unwrap().user;
-    assert_eq!(user.unwrap().billing_id.unwrap(), billing_id);
 }
 
 #[tokio::test]
@@ -141,4 +122,54 @@ async fn returns_false_for_unconfirmed_user_at_check_if_user_confirmed() {
     assert!(!models::User::is_confirmed(user.id, &mut conn)
         .await
         .unwrap());
+}
+
+#[tokio::test]
+async fn test_billing() {
+    const TOTALLY_REAL_BILLING_ID: &str = "the most billy of ids";
+
+    let tester = super::Tester::new().await;
+    let user = tester.user().await;
+    assert!(user.billing_id.is_none());
+
+    // Test that we indeed get no billing id back
+    let get = api::UserServiceGetBillingRequest {
+        user_id: user.id.to_string(),
+    };
+    let resp = tester
+        .send_admin(Service::get_billing, get.clone())
+        .await
+        .unwrap();
+    assert!(resp.billing_id.is_none());
+
+    // Test that we can set a billing id
+    let update = api::UserServiceUpdateBillingRequest {
+        user_id: user.id.to_string(),
+        billing_id: Some(TOTALLY_REAL_BILLING_ID.to_string()),
+    };
+    let resp = tester
+        .send_admin(Service::update_billing, update)
+        .await
+        .unwrap();
+    assert!(resp.billing_id.is_some());
+
+    // Test that we can retrieve said billing id
+    let resp = tester
+        .send_admin(Service::get_billing, get.clone())
+        .await
+        .unwrap();
+    assert!(resp.billing_id.is_some());
+
+    // Test that we can delete the billing id
+    let delete = api::UserServiceDeleteBillingRequest {
+        user_id: user.id.to_string(),
+    };
+    tester
+        .send_admin(Service::delete_billing, delete)
+        .await
+        .unwrap();
+
+    // Test that it indeed is gone
+    let resp = tester.send_admin(Service::get_billing, get).await.unwrap();
+    assert!(resp.billing_id.is_some());
 }
