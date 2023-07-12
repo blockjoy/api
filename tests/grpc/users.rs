@@ -171,5 +171,5 @@ async fn test_billing() {
 
     // Test that it indeed is gone
     let resp = tester.send_admin(Service::get_billing, get).await.unwrap();
-    assert!(resp.billing_id.is_some());
+    assert!(resp.billing_id.is_none());
 }

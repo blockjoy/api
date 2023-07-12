@@ -162,7 +162,7 @@ async fn get_billing(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Access denied for users get billing")
+        super::forbidden!("Access denied for users get billing");
     }
     let user = models::User::find_by_id(user_id, conn).await?;
     let resp = api::UserServiceGetBillingResponse {
@@ -185,7 +185,7 @@ async fn update_billing(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Access denied for users update billing")
+        super::forbidden!("Access denied for users update billing");
     }
     let mut user = models::User::find_by_id(user_id, conn).await?;
     user.billing_id = req.billing_id;
@@ -210,7 +210,7 @@ async fn delete_billing(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Access not allowed")
+        super::forbidden!("Access denied for users delete billing");
     }
     let user = models::User::find_by_id(user_id, conn).await?;
     user.delete_billing(conn).await?;
