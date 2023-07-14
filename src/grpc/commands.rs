@@ -44,21 +44,21 @@ async fn update(
     req: tonic::Request<api::CommandServiceUpdateRequest>,
     conn: &mut models::Conn,
 ) -> crate::Result<super::Outcome<api::CommandServiceUpdateResponse>> {
-    let claims = conn.claims(&req, Endpoint::CommandUpdate).await?;
+    let claims = dbg!(conn.claims(&req, Endpoint::CommandUpdate).await)?;
     let req = req.into_inner();
-    let command = models::Command::find_by_id(req.id.parse()?, conn).await?;
+    let command = dbg!(models::Command::find_by_id(req.id.parse()?, conn).await)?;
     let host = command.host(conn).await?;
     let node = command.node(conn).await?;
-    let is_allowed = access_allowed(claims, node.as_ref(), &host, conn).await?;
+    let is_allowed = dbg!(access_allowed(claims, node.as_ref(), &host, conn).await)?;
     if !is_allowed {
         super::forbidden!("Access denied for command update of {}", req.id);
     }
     let update_cmd = req.as_update()?;
-    let cmd = update_cmd.update(conn).await?;
+    let cmd = dbg!(update_cmd.update(conn).await)?;
     let commands = match cmd.exit_status {
         Some(0) => {
             // Some responses require us to register success.
-            success::register(&cmd, conn).await;
+            dbg!(success::register(&cmd, conn).await);
             vec![]
         }
         // Will match any integer other than 0.
@@ -66,11 +66,11 @@ async fn update(
             // We got back an error status code. In practice, blockvisord sends 0 for
             // success and 1 for failure, but we treat every non-zero exit code as an
             // error, not just 1.
-            recover::recover(&cmd, conn).await.unwrap_or_default()
+            dbg!(recover::recover(&cmd, conn).await).unwrap_or_default()
         }
         None => vec![],
     };
-    let command = api::Command::from_model(&cmd, conn).await?;
+    let command = dbg!(api::Command::from_model(&cmd, conn).await)?;
     let resp = api::CommandServiceUpdateResponse {
         command: Some(command.clone()),
     };
