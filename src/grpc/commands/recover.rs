@@ -17,7 +17,7 @@ pub(super) async fn recover(
     conn: &mut models::Conn,
 ) -> crate::Result<Vec<api::Command>> {
     if failed_cmd.cmd == models::CommandType::CreateNode {
-        recover_created(failed_cmd, conn).await
+        dbg!(recover_created(failed_cmd, conn).await)
     } else {
         Ok(vec![])
     }
@@ -72,7 +72,7 @@ async fn recover_created(
         version: &node.version,
         created_at: chrono::Utc::now(),
     };
-    let Ok(_) = new_log.create(conn).await else {
+    let Ok(_) = dbg!(new_log.create(conn).await) else {
         error!("Failed to create deployment log entry!");
         return Err(crate::Error::ValidationError (
             "Failed to create deployment log entry".to_string(),
@@ -80,7 +80,7 @@ async fn recover_created(
     };
 
     // 3. We now find the host that is next in line, and assign our node to that host.
-    let Ok(host) = node.find_host(conn).await else {
+    let Ok(host) = dbg!(node.find_host(conn).await) else {
         // We were unable to find a new host. This may happen because the system is out of resources
         // or because we have retried to many times. Either way we have to log that this retry was
         // canceled.
@@ -93,7 +93,7 @@ async fn recover_created(
             version: &node.version,
             created_at: chrono::Utc::now(),
         };
-        match new_log.create(conn).await {
+        match dbg!(new_log.create(conn).await) {
             Ok(_) => return Ok(vec![]),
             Err(e) => {
                 let msg = format!("Failed to create cancelation log entry: {e}");
