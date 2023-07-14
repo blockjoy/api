@@ -7,7 +7,7 @@ use crate::auth::claims::Claims;
 use crate::auth::endpoint::Endpoint;
 use crate::auth::resource::{HostId, NodeId, Resource, UserId};
 use crate::cookbook::script::HardwareRequirements;
-use crate::models;
+use crate::models::{self, NodeScheduler};
 use crate::timestamp::NanosUtc;
 
 use super::api::{self, node_service_server};
@@ -165,7 +165,7 @@ async fn create(
         .rhai_metadata(&blockchain.name, node_type, &req.version)
         .await?
         .requirements;
-    let new_node = req.as_new(user.id, reqs)?;
+    let new_node = req.as_new(user.id, reqs, conn).await?;
     // The host_id will either be determined by the scheduler, or by the host_id.
     // Therfore we pass in an optional host_id for the node creation to fall back on if
     // there is no scheduler.
@@ -384,8 +384,17 @@ impl api::Node {
 
         let host = models::Host::find_by_id(node.host_id, conn).await?;
         let org = models::Org::find_by_id(node.org_id, conn).await?;
+        let region = node.region(conn).await?;
 
-        Self::new(node, &blockchain, user.as_ref(), props, &org, &host)
+        Self::new(
+            node,
+            &blockchain,
+            user.as_ref(),
+            props,
+            &org,
+            &host,
+            region.as_ref(),
+        )
     }
 
     /// This function is used to create many ui nodes from many database nodes. The same
@@ -395,8 +404,8 @@ impl api::Node {
         nodes: Vec<models::Node>,
         conn: &mut models::Conn,
     ) -> crate::Result<Vec<Self>> {
-        let blockchain_ids: Vec<_> = nodes.iter().map(|n| n.blockchain_id).collect();
-        let blockchains: HashMap<_, _> = models::Blockchain::find_by_ids(&blockchain_ids, conn)
+        let blockchain_ids = nodes.iter().map(|n| n.blockchain_id).collect();
+        let blockchains: HashMap<_, _> = models::Blockchain::find_by_ids(blockchain_ids, conn)
             .await?
             .into_iter()
             .map(|b| (b.id, b))
@@ -420,22 +429,25 @@ impl api::Node {
                 .push((nprop, bprops[&blockchain_property_id].clone()));
         }
 
-        let mut org_ids: Vec<_> = nodes.iter().map(|n| n.org_id).collect();
-        org_ids.sort();
-        org_ids.dedup();
+        let org_ids = nodes.iter().map(|n| n.org_id).collect();
         let orgs: HashMap<_, _> = models::Org::find_by_ids(org_ids, conn)
             .await?
             .into_iter()
             .map(|org| (org.id, org))
             .collect();
 
-        let mut host_ids: Vec<_> = nodes.iter().map(|n| n.host_id).collect();
-        host_ids.sort();
-        host_ids.dedup();
+        let host_ids = nodes.iter().map(|n| n.host_id).collect();
         let hosts: HashMap<_, _> = models::Host::find_by_ids(host_ids, conn)
             .await?
             .into_iter()
             .map(|host| (host.id, host))
+            .collect();
+
+        let region_ids = nodes.iter().flat_map(|n| n.scheduler_region).collect();
+        let regions: HashMap<_, _> = models::Region::by_ids(region_ids, conn)
+            .await?
+            .into_iter()
+            .map(|region| (region.id, region))
             .collect();
 
         nodes
@@ -448,6 +460,7 @@ impl api::Node {
                     props_map[&node.id].clone(),
                     &orgs[&node.org_id],
                     &hosts[&node.host_id],
+                    node.scheduler_region.map(|id| &regions[&id]),
                 )
             })
             .collect()
@@ -461,6 +474,7 @@ impl api::Node {
         properties: Vec<(models::NodeProperty, models::BlockchainProperty)>,
         org: &models::Org,
         host: &models::Host,
+        region: Option<&models::Region>,
     ) -> crate::Result<Self> {
         use api::{ContainerStatus, NodeStatus, NodeType, StakingStatus, SyncStatus};
 
@@ -469,8 +483,16 @@ impl api::Node {
             .map(|(nprop, bprop)| api::NodeProperty::from_model(nprop, bprop))
             .collect();
 
-        let placement = node
-            .scheduler()
+        let scheduler = node
+            .scheduler_resource
+            .zip(region)
+            .map(|(resource, region)| NodeScheduler {
+                similarity: node.scheduler_similarity,
+                resource,
+                region: Some(region.clone()),
+            });
+
+        let placement = scheduler
             .map(api::NodeScheduler::new)
             // If there is a scheduler, we will return the scheduler variant of node placement.
             .map(api::node_placement::Placement::Scheduler)
@@ -536,10 +558,11 @@ impl api::Node {
 }
 
 impl api::NodeServiceCreateRequest {
-    pub fn as_new(
+    pub async fn as_new(
         &self,
         user_id: UserId,
         req: HardwareRequirements,
+        conn: &mut models::Conn,
     ) -> crate::Result<models::NewNode<'_>> {
         let placement = self
             .placement
@@ -562,8 +585,12 @@ impl api::NodeServiceCreateRequest {
             .iter()
             .map(api::FilteredIpAddr::as_model)
             .collect();
-        let region_id = scheduler.and_then(|s| s.region.parse()).transpose()?;
-        let region = todo!();
+        let region_id = scheduler
+            .map(|s| &s.region)
+            .map(|r| r.parse())
+            .transpose()?;
+        let region = region_id.map(|id| models::Region::by_id(id, conn));
+        let region = OptionFuture::from(region).await.transpose()?;
         Ok(models::NewNode {
             id: uuid::Uuid::new_v4().into(),
             org_id: self.org_id.parse()?,
@@ -591,6 +618,7 @@ impl api::NodeServiceCreateRequest {
             // Here we use `map` and `transpose`, because the scheduler is optional, but if it is
             // provided, the `resource` is not optional.
             scheduler_resource: scheduler.map(|s| s.resource().into_model()).transpose()?,
+            scheduler_region: region.map(|r| r.id),
         })
     }
 
@@ -722,7 +750,7 @@ impl api::NodeType {
         }
     }
 
-    fn into_model(self) -> models::NodeType {
+    pub fn into_model(self) -> models::NodeType {
         match self {
             Self::Unspecified => models::NodeType::Unknown,
             Self::Miner => models::NodeType::Miner,
@@ -913,7 +941,7 @@ impl api::NodeScheduler {
         let mut scheduler = Self {
             similarity: None,
             resource: 0,
-            region: None,
+            region: node.region.map(|r| r.name).unwrap_or_default(),
         };
         scheduler.set_resource(ResourceAffinity::from_model(node.resource));
         if let Some(similarity) = node.similarity {

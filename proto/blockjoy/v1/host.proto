@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package blockjoy.v1;
 
+import "blockjoy/v1/node.proto";
 import "google/protobuf/timestamp.proto";
 
 message Host {
@@ -172,6 +173,12 @@ message HostServiceRegionsRequest {
   string org_id = 1;
   // The type of host to include in this list.
   optional HostType host_type = 2;
+  // The id of the blockchain that should be ran inside the node.
+  string blockchain_id = 3;
+  // The version of the node software that is ran.
+  string version = 4;
+  // The type of node that you want to create.
+  NodeType node_type = 5;
 }
 
 message HostServiceRegionsResponse {

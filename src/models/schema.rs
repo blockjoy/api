@@ -266,6 +266,7 @@ diesel::table! {
         node_type -> EnumNodeType,
         scheduler_similarity -> Nullable<EnumNodeSimilarityAffinity>,
         scheduler_resource -> Nullable<EnumNodeResourceAffinity>,
+        scheduler_region -> Nullable<Uuid>,
     }
 }
 
@@ -298,8 +299,7 @@ diesel::table! {
 diesel::table! {
     regions (id) {
         id -> Uuid,
-        #[max_length = 50]
-        name -> Varchar,
+        name -> Text,
     }
 }
 
@@ -346,6 +346,7 @@ diesel::joinable!(node_properties -> nodes (node_id));
 diesel::joinable!(nodes -> blockchains (blockchain_id));
 diesel::joinable!(nodes -> hosts (host_id));
 diesel::joinable!(nodes -> orgs (org_id));
+diesel::joinable!(nodes -> regions (scheduler_region));
 diesel::joinable!(nodes -> users (created_by));
 diesel::joinable!(orgs_users -> orgs (org_id));
 diesel::joinable!(orgs_users -> users (user_id));

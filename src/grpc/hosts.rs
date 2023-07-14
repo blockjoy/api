@@ -326,8 +326,21 @@ async fn regions(
     if !is_allowed {
         super::forbidden!("Access not allowed")
     }
-    let host_types = req.host_type().as_model();
-    let regions = models::Host::regions_for(org_id, host_types, conn).await?;
+    let host_type = req.host_type().into_model();
+    let blockchain = models::Blockchain::find_by_id(req.blockchain_id.parse()?, conn).await?;
+    let node_type = req.node_type().into_model();
+    let requirements = conn
+        .context
+        .cookbook
+        .rhai_metadata(&blockchain.name, &node_type.to_string(), &req.version)
+        .await?
+        .requirements;
+    let regions =
+        models::Host::regions_for(org_id, blockchain, node_type, requirements, host_type, conn)
+            .await?
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
 
     let resp = api::HostServiceRegionsResponse { regions };
 
@@ -444,11 +457,11 @@ impl api::HostServiceUpdateRequest {
 }
 
 impl api::HostType {
-    fn as_model(self) -> Option<models::HostType> {
+    fn into_model(self) -> Option<models::HostType> {
         match self {
             api::HostType::Unspecified => None,
             api::HostType::Cloud => Some(models::HostType::Cloud),
-            api::HostType::Private => Some(models::HostType::Enterprise),
+            api::HostType::Private => Some(models::HostType::Private),
         }
     }
 }

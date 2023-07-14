@@ -50,7 +50,8 @@ async fn node(
         .into_iter()
         .map(|(k, v)| v.as_metrics_update(&k))
         .collect::<crate::Result<_>>()?;
-    let nodes = models::Node::find_by_ids(updates.iter().map(|u| u.id), conn).await?;
+    let node_ids = updates.iter().map(|u| u.id).collect();
+    let nodes = models::Node::find_by_ids(node_ids, conn).await?;
     let is_allowed = match claims.resource() {
         Resource::User(user_id) => {
             let memberships = models::Org::memberships(user_id, conn).await?;
@@ -81,7 +82,8 @@ async fn host(
         .into_iter()
         .map(|(k, v)| v.as_metrics_update(&k))
         .collect::<crate::Result<_>>()?;
-    let hosts = models::Host::find_by_ids(updates.iter().map(|u| u.id), conn).await?;
+    let host_ids = updates.iter().map(|u| u.id).collect();
+    let hosts = models::Host::find_by_ids(host_ids, conn).await?;
     let is_allowed = match claims.resource() {
         Resource::User(user_id) => {
             let memberships = models::Org::memberships(user_id, conn).await?;

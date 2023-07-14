@@ -258,6 +258,10 @@ pub mod tests {
 
             models::User::confirm(admin.id, conn).await.unwrap();
 
+            let region = models::Region::get_or_create("moneyland", conn)
+                .await
+                .unwrap();
+
             let host1 = models::NewHost {
                 name: "Host-1",
                 version: "0.1.0",
@@ -273,7 +277,7 @@ pub mod tests {
                 ip_gateway: "192.168.0.1".parse().unwrap(),
                 org_id,
                 created_by: user.id,
-                region_id: None,
+                region_id: Some(region.id),
             };
 
             host1.create(conn).await.unwrap();

@@ -76,7 +76,7 @@ service NodeService {
 message NodeServiceCreateRequest {
   // The id of the organization for which the node should be created.
   string org_id = 2;
-  // The id of the blockchain that shoudl be ran inside the node.
+  // The id of the blockchain that should be ran inside the node.
   string blockchain_id = 3;
   // The version of the node software that is ran.
   string version = 4;
@@ -256,7 +256,7 @@ message NodeScheduler {
   // The way we want the node to react to similar nodes being on a host.
   optional SimilarNodeAffinity similarity = 2;
   // The region where the node should be ran.
-  optional string region = 3;
+  string region = 3;
 }
 
 // IP Addresses used to filter access.

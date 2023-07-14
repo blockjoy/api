@@ -5,7 +5,7 @@
 /// nodes is always defined.
 pub struct NodeScheduler {
     /// Controls in which region the node should be deployed.
-    pub region: Option<String>,
+    pub region: Option<super::Region>,
     /// Controls whether we want to group nodes of the same kind together or spread them out over
     /// multiple hosts.
     pub similarity: Option<SimilarNodeAffinity>,

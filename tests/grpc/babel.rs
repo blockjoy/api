@@ -13,7 +13,7 @@ fn create_new_node<'a>(
     blockchain_id: &'a Uuid,
     user_id: UserId,
     version: &'a str,
-    node_type: &'a models::NodeType,
+    node_type: models::NodeType,
 ) -> models::NewNode<'a> {
     let id = Uuid::new_v4();
     let name = format!("node-{index}-{id}");
@@ -34,10 +34,11 @@ fn create_new_node<'a>(
         mem_size_bytes: 0,
         disk_size_bytes: 0,
         network: "some network",
-        node_type: *node_type,
+        node_type,
         created_by: user_id,
         scheduler_similarity: None,
         scheduler_resource: Some(models::ResourceAffinity::MostResources),
+        scheduler_region: None,
         allow_ips: serde_json::json!([]),
         deny_ips: serde_json::json!([]),
     }
@@ -67,7 +68,7 @@ async fn test_notify_success() {
                     &blockchain_id,
                     user.id,
                     version,
-                    &models::NodeType::Validator,
+                    models::NodeType::Validator,
                 );
                 let mut conn = t.conn().await.unwrap();
                 TestDb::create_node(&req, &h, &ip, &format!("dns-id-{i}"), &mut conn).await;
@@ -132,7 +133,7 @@ async fn test_nothing_to_notify_no_nodes_to_update_all_up_to_date() {
                     &blockchain_id,
                     user.id,
                     "2.0.0",
-                    &models::NodeType::Validator,
+                    models::NodeType::Validator,
                 );
                 let mut conn = t.conn().await.unwrap();
                 TestDb::create_node(&req, &h, &ip, format!("dns-id-{}", i).as_str(), &mut conn)
@@ -179,7 +180,7 @@ async fn test_nothing_to_notify_no_nodes_to_update_diff_node_type() {
                     &blockchain_id,
                     user.id,
                     "1.0.0",
-                    &models::NodeType::Miner,
+                    models::NodeType::Miner,
                 );
                 let mut conn = t.conn().await.unwrap();
                 TestDb::create_node(&req, &h, &ip, format!("dns-id-{}", i).as_str(), &mut conn)

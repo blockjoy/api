@@ -2,7 +2,7 @@ use super::schema::regions;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
-#[derive(Debug, Queryable)]
+#[derive(Debug, Clone, Queryable)]
 pub struct Region {
     pub id: uuid::Uuid,
     pub name: String,
@@ -18,6 +18,14 @@ impl Region {
         let ip = regions::table
             .filter(regions::id.eq_any(region_ids))
             .get_results(conn)
+            .await?;
+        Ok(ip)
+    }
+
+    pub async fn by_id(region_id: uuid::Uuid, conn: &mut super::Conn) -> crate::Result<Self> {
+        let ip = regions::table
+            .filter(regions::id.eq(region_id))
+            .get_result(conn)
             .await?;
         Ok(ip)
     }

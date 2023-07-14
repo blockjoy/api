@@ -35,9 +35,11 @@ impl Blockchain {
     }
 
     pub async fn find_by_ids(
-        ids: &[uuid::Uuid],
+        mut ids: Vec<uuid::Uuid>,
         conn: &mut super::Conn,
     ) -> crate::Result<Vec<Self>> {
+        ids.sort();
+        ids.dedup();
         let chains = blockchains::table
             .filter(blockchains::id.eq_any(ids))
             .order_by(super::lower(blockchains::name))
