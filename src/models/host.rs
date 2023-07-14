@@ -72,6 +72,15 @@ pub struct HostFilter {
     pub limit: u64,
 }
 
+pub struct HostRequirements {
+    pub requirements: HardwareRequirements,
+    pub blockchain_id: uuid::Uuid,
+    pub node_type: super::NodeType,
+    pub host_type: Option<super::HostType>,
+    pub scheduler: super::NodeScheduler,
+    pub org_id: Option<OrgId>,
+}
+
 impl Host {
     pub async fn find_by_id(id: HostId, conn: &mut super::Conn) -> Result<Self> {
         let host = hosts::table.find(id).get_result(conn).await?;
@@ -131,13 +140,8 @@ impl Host {
     /// hosts may be returned when our system is out of resources, and this case should be handled
     /// gracefully.
     pub async fn host_candidates(
-        requirements: HardwareRequirements,
-        blockchain_id: uuid::Uuid,
-        node_type: super::NodeType,
-        host_type: Option<super::HostType>,
-        scheduler: super::NodeScheduler,
+        reqs: HostRequirements,
         limit: Option<i64>,
-        org_id: Option<OrgId>,
         conn: &mut super::Conn,
     ) -> crate::Result<Vec<Host>> {
         use super::schema::sql_types::EnumNodeType;
@@ -148,6 +152,15 @@ impl Host {
             #[diesel(sql_type = Uuid)]
             host_id: HostId,
         }
+
+        let HostRequirements {
+            requirements,
+            blockchain_id,
+            node_type,
+            host_type,
+            scheduler,
+            org_id,
+        } = reqs;
 
         let order_by = scheduler.order_clause();
         let limit_clause = limit.map(|_| "LIMIT $6").unwrap_or_default();
@@ -246,20 +259,19 @@ impl Host {
             similarity: None,
             resource: super::ResourceAffinity::LeastResources,
         };
-        let regions = Self::host_candidates(
+        let requirements = super::HostRequirements {
             requirements,
-            blockchain.id,
+            blockchain_id: blockchain.id,
             node_type,
             host_type,
             scheduler,
-            None,
-            Some(org_id),
-            conn,
-        )
-        .await?
-        .into_iter()
-        .flat_map(|host| host.region_id)
-        .collect();
+            org_id: Some(org_id),
+        };
+        let regions = Self::host_candidates(requirements, None, conn)
+            .await?
+            .into_iter()
+            .flat_map(|host| host.region_id)
+            .collect();
         super::Region::by_ids(regions, conn).await
     }
 }

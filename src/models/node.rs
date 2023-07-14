@@ -232,17 +232,15 @@ impl Node {
 
         let candidates = match self.scheduler(conn).await? {
             Some(scheduler) => {
-                super::Host::host_candidates(
+                let reqs = super::HostRequirements {
                     requirements,
-                    self.blockchain_id,
-                    self.node_type,
-                    Some(super::HostType::Cloud),
+                    blockchain_id: self.blockchain_id,
+                    node_type: self.node_type,
+                    host_type: Some(super::HostType::Cloud),
                     scheduler,
-                    Some(2),
-                    None,
-                    conn,
-                )
-                .await?
+                    org_id: None,
+                };
+                super::Host::host_candidates(reqs, Some(2), conn).await?
             }
             None => vec![super::Host::find_by_id(self.host_id, conn).await?],
         };
@@ -425,17 +423,15 @@ impl NewNode<'_> {
             .rhai_metadata(&chain.name, &self.node_type.to_string(), self.version)
             .await?
             .requirements;
-        let candidates = super::Host::host_candidates(
+        let requirements = super::HostRequirements {
             requirements,
-            self.blockchain_id,
-            self.node_type,
-            Some(super::HostType::Cloud),
+            blockchain_id: self.blockchain_id,
+            node_type: self.node_type,
+            host_type: Some(super::HostType::Cloud),
             scheduler,
-            Some(1),
-            None,
-            conn,
-        )
-        .await?;
+            org_id: None,
+        };
+        let candidates = super::Host::host_candidates(requirements, Some(1), conn).await?;
         // Just take the first one if there is one.
         let best = candidates
             .into_iter()
