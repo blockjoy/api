@@ -32,7 +32,7 @@ impl Region {
 
     pub async fn get_or_create(name: &str, conn: &mut super::Conn) -> crate::Result<Self> {
         let region = diesel::insert_into(regions::table)
-            .values(regions::name.eq(name))
+            .values(regions::name.eq(name.to_lowercase()))
             .on_conflict(regions::name)
             .do_nothing()
             .get_result(conn)

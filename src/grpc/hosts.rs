@@ -341,9 +341,8 @@ async fn regions(
             .into_iter()
             .map(|r| r.name)
             .collect();
-
-    let resp = api::HostServiceRegionsResponse { regions };
-
+    let mut resp = api::HostServiceRegionsResponse { regions };
+    resp.regions.sort();
     Ok(tonic::Response::new(resp))
 }
 
