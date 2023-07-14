@@ -36,9 +36,7 @@ impl command_service_server::CommandService for super::Grpc {
         &self,
         req: tonic::Request<api::CommandServicePendingRequest>,
     ) -> super::Resp<api::CommandServicePendingResponse> {
-        let mut conn = self.conn().await?;
-        let resp = pending(req, &mut conn).await?;
-        Ok(resp)
+        self.run(|c| pending(req, c).scope_boxed()).await
     }
 }
 
@@ -53,7 +51,7 @@ async fn update(
     let node = command.node(conn).await?;
     let is_allowed = access_allowed(claims, node.as_ref(), &host, conn).await?;
     if !is_allowed {
-        super::forbidden!("Access denied");
+        super::forbidden!("Access denied for command update of {}", req.id);
     }
     let update_cmd = req.as_update()?;
     let cmd = update_cmd.update(conn).await?;
@@ -92,7 +90,7 @@ async fn ack(
     let node = command.node(conn).await?;
     let is_allowed = access_allowed(claims, node.as_ref(), &host, conn).await?;
     if !is_allowed {
-        super::forbidden!("Access denied");
+        super::forbidden!("Access denied for command ack of {}", req.id);
     }
     if command.acked_at.is_none() {
         command.ack(conn).await?;
@@ -116,7 +114,7 @@ async fn pending(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Access denied");
+        super::forbidden!("Access denied for command pending");
     }
     let cmds = models::Command::find_pending_by_host(host_id, conn).await?;
     let mut commands = Vec::with_capacity(cmds.len());
@@ -177,7 +175,7 @@ impl api::Command {
         use models::CommandType::*;
 
         // Extract the node id from the model, if there is one.
-        let node_id = || model.node_id.ok_or_else(required("command.node_id"));
+        let node_id = || model.node_id.ok_or_else(required("command.node_id "));
         // Closure to conveniently construct a api:: from the data that we need to have.
         let node_cmd = |command, node_id| -> Result<api::Command, crate::error::Error> {
             Ok(api::Command {

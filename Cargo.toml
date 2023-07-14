@@ -25,8 +25,8 @@ derive_more = "0.99.17"
 diesel = { version = "2.1.0", default-features = false, features = ["postgres", "without-deprecated", "uuid", "chrono", "serde_json", "network-address", "64-column-tables"] }
 diesel-async = { version = "0.3.1", features = ["bb8", "postgres"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
-diesel_migrations = { version = "2.0.0", features = ["postgres"] }
 diesel-derive-newtype = "2.1.0"
+diesel_migrations = { version = "2.0.0", features = ["postgres"] }
 displaydoc = "0.2.4"
 futures-util = "0.3.28"
 h2 = "0.3.19"

@@ -21,9 +21,7 @@ impl key_file_service_server::KeyFileService for super::Grpc {
         &self,
         req: Request<api::KeyFileServiceListRequest>,
     ) -> super::Resp<api::KeyFileServiceListResponse> {
-        let mut conn = self.conn().await?;
-        let resp = list(req, &mut conn).await?;
-        Ok(resp)
+        self.run(|c| list(req, c).scope_boxed()).await
     }
 }
 
@@ -41,7 +39,7 @@ async fn create(
         Resource::Node(node_id) => node_id == node.id,
     };
     if !is_allowed {
-        super::forbidden!("Access denied");
+        super::forbidden!("Access denied for key files create");
     }
     let key_files = req
         .key_files
@@ -74,7 +72,7 @@ async fn list(
         Resource::Node(node_id) => node_id == node.id,
     };
     if !is_allowed {
-        super::forbidden!("Access denied");
+        super::forbidden!("Access denied for key files list");
     }
     let key_files = models::NodeKeyFile::find_by_node(&node, conn).await?;
     let key_files = api::Keyfile::from_models(key_files);

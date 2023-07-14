@@ -29,18 +29,14 @@ impl node_service_server::NodeService for Grpc {
         &self,
         req: tonic::Request<api::NodeServiceGetRequest>,
     ) -> super::Resp<api::NodeServiceGetResponse> {
-        let mut conn = self.conn().await?;
-        let resp = get(req, &mut conn).await?;
-        Ok(resp)
+        self.run(|c| get(req, c).scope_boxed()).await
     }
 
     async fn list(
         &self,
         req: tonic::Request<api::NodeServiceListRequest>,
     ) -> super::Resp<api::NodeServiceListResponse> {
-        let mut conn = self.conn().await?;
-        let resp = list(req, &mut conn).await?;
-        Ok(resp)
+        self.run(|c| list(req, c).scope_boxed()).await
     }
 
     async fn update_config(
@@ -139,7 +135,7 @@ async fn list(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Access denied");
+        super::forbidden!("Access denied for nodes list");
     }
     let (node_count, nodes) = models::Node::filter(filter, conn).await?;
     let nodes = api::Node::from_models(nodes, conn).await?;
@@ -291,12 +287,13 @@ async fn delete(
 
     // Send delete node command
     let node_id = node.id.to_string();
+
     let new_command = models::NewCommand {
         host_id: node.host_id,
         cmd: models::CommandType::DeleteNode,
         sub_cmd: Some(&node_id),
-        // Note that the `node_id` goes into the `sub_cmd` field, not the node_id
-        // field, because the node was just deleted.
+        // Note that the `node_id` goes into the `sub_cmd` field, not the node_id field, because the
+        // node was just deleted.
         node_id: None,
     };
     let cmd = new_command.create(conn).await?;
@@ -457,7 +454,7 @@ impl api::Node {
                     node.clone(),
                     &blockchains[&node.blockchain_id],
                     node.created_by.and_then(|u_id| users.get(&u_id)),
-                    props_map[&node.id].clone(),
+                    props_map.get(&node.id).cloned().unwrap_or_default(),
                     &orgs[&node.org_id],
                     &hosts[&node.host_id],
                     node.scheduler_region.map(|id| &regions[&id]),

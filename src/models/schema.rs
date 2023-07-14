@@ -304,6 +304,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    subscriptions (id) {
+        id -> Uuid,
+        org_id -> Uuid,
+        user_id -> Uuid,
+        external_id -> Text,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::TokenType;
 
@@ -326,11 +335,10 @@ diesel::table! {
         last_name -> Varchar,
         confirmed_at -> Nullable<Timestamptz>,
         deleted_at -> Nullable<Timestamptz>,
-        external_id -> Nullable<Text>,
+        billing_id -> Nullable<Text>,
     }
 }
 
-diesel::joinable!(api_keys -> users (user_id));
 diesel::joinable!(blockchain_properties -> blockchains (blockchain_id));
 diesel::joinable!(commands -> hosts (host_id));
 diesel::joinable!(commands -> nodes (node_id));
@@ -350,6 +358,7 @@ diesel::joinable!(nodes -> regions (scheduler_region));
 diesel::joinable!(nodes -> users (created_by));
 diesel::joinable!(orgs_users -> orgs (org_id));
 diesel::joinable!(orgs_users -> users (user_id));
+diesel::joinable!(subscriptions -> orgs (org_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     api_keys,
@@ -366,6 +375,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     orgs,
     orgs_users,
     regions,
+    subscriptions,
     token_blacklist,
     users,
 );

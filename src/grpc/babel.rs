@@ -32,7 +32,7 @@ async fn notify(
     debug!("New Request Version: {:?}", req);
     let filter = req.info_filter(conn).await?;
     let nodes_to_upgrade = models::Node::find_all_to_upgrade(&filter, conn).await?;
-    debug!("Nodes to upgrade: {nodes_to_upgrade:?}",);
+    debug!("Nodes to upgrade: {nodes_to_upgrade:?}");
 
     let blockchain = models::Blockchain::find_by_id(filter.blockchain_id, conn).await?;
     blockchain.add_version(&filter, conn).await?;
@@ -57,7 +57,7 @@ async fn notify(
         node_ids.push(node_id);
     }
 
-    info!("Nodes to be upgraded has been processed: {node_ids:?}",);
+    info!("Nodes to be upgraded has been processed: {node_ids:?}");
     let resp = api::BabelServiceNotifyResponse { node_ids };
     Ok(super::Outcome::new(resp).with_msgs(commands))
 }

@@ -11,7 +11,8 @@ use crate::auth::resource::UserId;
 
 use super::schema::users;
 
-#[derive(Debug, Clone, Queryable)]
+#[derive(Debug, Clone, Queryable, AsChangeset)]
+#[diesel(treat_none_as_null = false)]
 pub struct User {
     pub id: UserId,
     pub email: String,
@@ -22,7 +23,7 @@ pub struct User {
     pub last_name: String,
     pub confirmed_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
-    pub external_id: Option<String>,
+    pub billing_id: Option<String>,
 }
 
 type NotDeleted = dsl::Filter<users::table, dsl::IsNull<users::deleted_at>>;
@@ -74,6 +75,14 @@ impl User {
             .get_result(conn)
             .await?;
         Ok(users)
+    }
+
+    pub async fn update(&self, conn: &mut super::Conn) -> crate::Result<Self> {
+        let updated = diesel::update(users::table.find(self.id))
+            .set(self)
+            .get_result(conn)
+            .await?;
+        Ok(updated)
     }
 
     pub async fn update_password(
@@ -148,6 +157,15 @@ impl User {
     pub async fn delete(id: UserId, conn: &mut super::Conn) -> crate::Result<()> {
         diesel::update(users::table.find(id))
             .set(users::deleted_at.eq(chrono::Utc::now()))
+            .execute(conn)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_billing(&self, conn: &mut super::Conn) -> crate::Result<()> {
+        let no_billing: Option<String> = None;
+        diesel::update(users::table)
+            .set(users::billing_id.eq(no_billing))
             .execute(conn)
             .await?;
         Ok(())
@@ -230,7 +248,6 @@ pub struct UpdateUser<'a> {
     pub id: UserId,
     pub first_name: Option<&'a str>,
     pub last_name: Option<&'a str>,
-    pub external_id: Option<&'a str>,
 }
 
 impl<'a> UpdateUser<'a> {
@@ -280,7 +297,7 @@ mod tests {
             last_name: "Ballington".to_string(),
             confirmed_at: Some(chrono::Utc::now()),
             deleted_at: None,
-            external_id: None,
+            billing_id: None,
         };
         user.verify_password("A password that cannot be hacked!1")
             .unwrap()

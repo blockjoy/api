@@ -20,6 +20,7 @@ mod org;
 mod paginate;
 mod region;
 pub mod schema;
+pub mod subscription;
 mod user;
 
 pub use blacklist_token::*;
@@ -73,7 +74,6 @@ impl DbPool {
         Self { pool, context }
     }
 
-    /// A non-transactional connection for read-only endpoints.
     pub async fn conn(&self) -> crate::Result<Conn> {
         Ok(Conn {
             inner: self.pool.get_owned().await?,
@@ -88,10 +88,25 @@ impl DbPool {
         T: Send + 'a,
         E: From<diesel::result::Error> + Into<tonic::Status> + Send + 'a,
     {
-        let mut conn = self.conn().await.map_err(crate::Error::from)?;
+        let mut conn = self.conn().await?;
         conn.transaction(|c| f(c).scope_boxed())
             .await
             .map_err(Into::into)
+    }
+
+    /// Run a closure without a transactional context.
+    // Most of the constraints here (i.e. the ScopedBoxFuture and the Send and 'a bounds on T) are
+    // not necessary here. They are here to ensure that any context where it is possible to call
+    // `run`, it is also possible to call `trx`, making it very easy to switch between a
+    // transactional and non-transactional context.
+    pub async fn run<'a, F, T, E>(&self, f: F) -> Result<T, tonic::Status>
+    where
+        F: for<'r> FnOnce(&'r mut Conn) -> ScopedBoxFuture<'a, 'r, Result<T, E>> + Send + 'a,
+        T: Send + 'a,
+        E: From<diesel::result::Error> + Into<tonic::Status> + Send + 'a,
+    {
+        let mut conn = self.conn().await?;
+        f(&mut conn).await.map_err(Into::into)
     }
 
     pub fn is_closed(&self) -> bool {

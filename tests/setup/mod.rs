@@ -77,7 +77,7 @@ impl Tester {
         Tester {
             db,
             server_input: Arc::clone(&socket),
-            rng: OsRng::default(),
+            rng: OsRng {},
         }
     }
 

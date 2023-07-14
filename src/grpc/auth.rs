@@ -27,6 +27,7 @@ const USER_ENDPOINTS: &[Endpoint] = &[
     Endpoint::MetricsAll,
     Endpoint::NodeAll,
     Endpoint::OrgAll,
+    Endpoint::SubscriptionAll,
     Endpoint::UserAll,
 ];
 
@@ -50,9 +51,7 @@ impl auth_service_server::AuthService for super::Grpc {
         &self,
         req: tonic::Request<api::AuthServiceRefreshRequest>,
     ) -> super::Resp<api::AuthServiceRefreshResponse> {
-        let mut conn = self.conn().await?;
-        let resp = refresh(req, &mut conn).await?;
-        Ok(resp)
+        self.trx(|c| refresh(req, c).scope_boxed()).await
     }
 
     /// This endpoint triggers the sending of the reset-password email. The actual resetting is

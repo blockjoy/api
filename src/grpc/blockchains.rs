@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::join_all;
 
 use crate::timestamp::NanosUtc;
@@ -13,18 +14,14 @@ impl blockchain_service_server::BlockchainService for super::Grpc {
         &self,
         req: tonic::Request<api::BlockchainServiceGetRequest>,
     ) -> super::Resp<api::BlockchainServiceGetResponse> {
-        let mut conn = self.conn().await?;
-        let resp = get(req, &mut conn).await?;
-        Ok(resp)
+        self.run(|c| get(req, c).scope_boxed()).await
     }
 
     async fn list(
         &self,
         req: tonic::Request<api::BlockchainServiceListRequest>,
     ) -> super::Resp<api::BlockchainServiceListResponse> {
-        let mut conn = self.conn().await?;
-        let resp = list(req, &mut conn).await?;
-        Ok(resp)
+        self.run(|c| list(req, c).scope_boxed()).await
     }
 }
 

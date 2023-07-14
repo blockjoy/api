@@ -148,7 +148,9 @@ impl From<Error> for tonic::Status {
     fn from(e: Error) -> Self {
         use Error::*;
 
-        let msg = format!("{e:?}");
+        tracing::warn!("Returning {e}");
+
+        let msg = format!("{e}");
 
         match e {
             ValidationError(_) => tonic::Status::invalid_argument(msg),

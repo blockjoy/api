@@ -1,3 +1,5 @@
+use diesel_async::scoped_futures::ScopedFutureExt;
+
 use crate::auth::endpoint::Endpoint;
 use crate::models;
 
@@ -9,9 +11,7 @@ impl discovery_service_server::DiscoveryService for super::Grpc {
         &self,
         req: tonic::Request<api::DiscoveryServiceServicesRequest>,
     ) -> super::Resp<api::DiscoveryServiceServicesResponse> {
-        let mut conn = self.conn().await?;
-        let resp = services(req, &mut conn).await?;
-        Ok(resp)
+        self.run(|c| services(req, c).scope_boxed()).await
     }
 }
 

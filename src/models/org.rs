@@ -31,7 +31,7 @@ impl Org {
     pub async fn find_by_ids(mut org_ids: Vec<OrgId>, conn: &mut super::Conn) -> Result<Vec<Self>> {
         org_ids.sort();
         org_ids.dedup();
-        let orgs = Org::not_deleted()
+        let orgs = orgs::table
             .filter(orgs::id.eq_any(org_ids))
             .get_results(conn)
             .await?;

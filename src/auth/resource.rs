@@ -125,8 +125,6 @@ impl Resource {
 #[derive(
     Clone, Copy, Debug, Display, PartialEq, Eq, Serialize, Deserialize, EnumString, IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
 pub enum ResourceType {
     User,
     Org,
@@ -177,7 +175,6 @@ impl From<HostId> for ResourceId {
 /// A serializable representation of the resource type and id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceEntry {
-    #[serde(rename = "resource")]
     pub resource_type: ResourceType,
     pub resource_id: ResourceId,
 }

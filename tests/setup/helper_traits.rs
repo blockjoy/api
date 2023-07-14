@@ -10,6 +10,7 @@ use blockvisor_api::grpc::api::key_file_service_client;
 use blockvisor_api::grpc::api::metrics_service_client;
 use blockvisor_api::grpc::api::node_service_client;
 use blockvisor_api::grpc::api::org_service_client;
+use blockvisor_api::grpc::api::subscription_service_client;
 use blockvisor_api::grpc::api::user_service_client;
 use tonic::transport::Channel;
 
@@ -24,6 +25,12 @@ impl GrpcClient<Channel> for api_key_service_client::ApiKeyServiceClient<Channel
 }
 
 impl GrpcClient<Channel> for auth_service_client::AuthServiceClient<Channel> {
+    fn create(channel: Channel) -> Self {
+        Self::new(channel)
+    }
+}
+
+impl GrpcClient<Channel> for babel_service_client::BabelServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
@@ -83,13 +90,13 @@ impl GrpcClient<Channel> for org_service_client::OrgServiceClient<Channel> {
     }
 }
 
-impl GrpcClient<Channel> for user_service_client::UserServiceClient<Channel> {
+impl GrpcClient<Channel> for subscription_service_client::SubscriptionServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }
 }
 
-impl GrpcClient<Channel> for babel_service_client::BabelServiceClient<Channel> {
+impl GrpcClient<Channel> for user_service_client::UserServiceClient<Channel> {
     fn create(channel: Channel) -> Self {
         Self::new(channel)
     }

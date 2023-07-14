@@ -13,4 +13,5 @@ mod key_files;
 mod metrics;
 mod nodes;
 mod organizations;
+mod subscription;
 mod users;

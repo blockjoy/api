@@ -21,6 +21,7 @@ fn main() {
                 "blockjoy/v1/mqtt.proto",
                 "blockjoy/v1/node.proto",
                 "blockjoy/v1/org.proto",
+                "blockjoy/v1/subscription.proto",
                 "blockjoy/v1/user.proto",
             ],
             &["proto"],

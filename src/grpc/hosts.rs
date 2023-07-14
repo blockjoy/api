@@ -45,16 +45,14 @@ impl host_service_server::HostService for super::Grpc {
         &self,
         req: tonic::Request<api::HostServiceGetRequest>,
     ) -> super::Resp<api::HostServiceGetResponse> {
-        let resp = get(req, &mut self.conn().await?).await?;
-        Ok(resp)
+        self.run(|c| get(req, c).scope_boxed()).await
     }
 
     async fn list(
         &self,
         req: tonic::Request<api::HostServiceListRequest>,
     ) -> super::Resp<api::HostServiceListResponse> {
-        let resp = list(req, &mut self.conn().await?).await?;
-        Ok(resp)
+        self.run(|c| list(req, c).scope_boxed()).await
     }
 
     async fn update(
@@ -181,7 +179,7 @@ async fn get(
         }
     };
     if !is_allowed {
-        super::forbidden!("Access denied");
+        super::forbidden!("Access denied for hosts get of {}", req.id);
     }
     let host = api::Host::from_model(host, conn).await?;
     let resp = api::HostServiceGetResponse { host: Some(host) };
@@ -202,7 +200,7 @@ async fn list(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Access denied");
+        super::forbidden!("Access denied for hosts list");
     }
     let (host_count, hosts) = models::Host::filter(req.as_filter()?, conn).await?;
     let hosts = api::Host::from_models(hosts, conn).await?;
@@ -219,7 +217,7 @@ async fn update(
     let host_id = req.id.parse()?;
     let host = models::Host::find_by_id(host_id, conn).await?;
     if !matches!(claims.resource(), Resource::Host(host_id) if host.id == host_id) {
-        super::forbidden!("Access not allowed - only host may update its own status")
+        super::forbidden!("Access denied for hosts update");
     }
     let updater = req.as_update()?;
     updater.update(conn).await?;
@@ -242,7 +240,7 @@ async fn delete(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Not allowed to delete host {host_id}!");
+        super::forbidden!("Access denied for hosts delete of {}", req.id);
     }
     models::Host::delete(host_id, conn).await?;
     let resp = api::HostServiceDeleteResponse {};

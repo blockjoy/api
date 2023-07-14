@@ -146,11 +146,14 @@ async fn send_delete(
     commands: &mut Vec<api::Command>,
     conn: &mut models::Conn,
 ) {
+    let node_id = node.id.to_string();
     let cmd = models::NewCommand {
         host_id: node.host_id,
         cmd: models::CommandType::DeleteNode,
-        sub_cmd: None,
-        node_id: Some(node.id),
+        // NOTE: the node id goes into the sub_cmd field, since the node has just been deleted, so
+        // using the `node_id` field would cause an integrity error.
+        sub_cmd: Some(&node_id),
+        node_id: None,
     };
     let Ok(cmd) = cmd.create(conn).await else {
         error!("Could not create node delete command while recovering");

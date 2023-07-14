@@ -63,7 +63,7 @@ async fn node(
         Resource::Node(node_id) => nodes.iter().all(|n| n.id == node_id),
     };
     if !is_allowed {
-        super::forbidden!("Access denied");
+        super::forbidden!("Access denied for metrics node");
     }
     let nodes = models::UpdateNodeMetrics::update_metrics(updates, conn).await?;
     let msgs = api::NodeMessage::updated_many(nodes, conn).await?;
@@ -95,7 +95,7 @@ async fn host(
         Resource::Node(_) => false,
     };
     if !is_allowed {
-        super::forbidden!("Access denied");
+        super::forbidden!("Access denied for metrics host");
     }
     let hosts = models::UpdateHostMetrics::update_metrics(updates, conn).await?;
     let msgs = api::HostMessage::updated_many(hosts, conn).await?;

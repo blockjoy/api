@@ -6,7 +6,7 @@ use anyhow::{anyhow, Context};
 use aws_sdk_s3::config::Credentials;
 
 use crate::config;
-use crate::grpc::{api, helpers::required};
+use crate::grpc::api;
 
 pub const RHAI_FILE_NAME: &str = "babel.rhai";
 pub const BABEL_IMAGE_NAME: &str = "blockjoy.gz";
@@ -53,17 +53,12 @@ impl Client for aws_sdk_s3::Client {
             .key(&path)
             .send()
             .await
-            .with_context(|| format!("Can't read file `{bucket}:{path}"))?;
-        let metadata = response.metadata().ok_or_else(required("metadata"))?;
-        if !metadata.contains_key("status") {
-            let err = format!("File at `{path}` not does not exist");
-            return Err(crate::Error::unexpected(err));
-        }
+            .with_context(|| format!("Can't read file `{bucket}:{path}`"))?;
         let bytes = response
             .body
             .collect()
             .await
-            .with_context(|| format!("Error querying file `{path}`"))?
+            .with_context(|| format!("Error querying file `{bucket}:{path}`"))?
             .into_bytes();
         Ok(bytes.to_vec())
     }
@@ -239,7 +234,7 @@ impl Cookbook {
         );
         let mut manifest: manifest::DownloadManifest =
             serde_json::from_str(&self.client.read_string(&self.bucket, &path).await?)?;
-        for mut chunk in manifest.chunks.iter_mut() {
+        for chunk in manifest.chunks.iter_mut() {
             chunk.url = self
                 .client
                 .download_url(&self.bucket, &chunk.key, self.expiration)

@@ -13,6 +13,7 @@ pub mod metrics;
 pub mod nodes;
 pub mod notification;
 pub mod orgs;
+pub mod subscription;
 pub mod users;
 
 #[allow(clippy::large_enum_variant)]
@@ -53,7 +54,7 @@ macro_rules! forbidden {
 use forbidden;
 
 type Result<T> = crate::Result<tonic::Response<T>>;
-type Resp<T> = std::result::Result<tonic::Response<T>, tonic::Status>;
+type Resp<T, E = tonic::Status> = std::result::Result<tonic::Response<T>, E>;
 type TracedServer = Stack<TraceLayer<SharedClassifier<GrpcErrorsAsFailures>>, Identity>;
 type DbServer = Stack<Extension<DbPool>, TracedServer>;
 type CorsServer = Stack<Stack<CorsLayer, DbServer>, Identity>;
@@ -130,7 +131,10 @@ pub async fn server(db: DbPool) -> Router<CorsServer> {
     let metrics = api::metrics_service_server::MetricsServiceServer::new(grpc.clone());
     let node = api::node_service_server::NodeServiceServer::new(grpc.clone());
     let organization = api::org_service_server::OrgServiceServer::new(grpc.clone());
+    let subscription =
+        api::subscription_service_server::SubscriptionServiceServer::new(grpc.clone());
     let user = api::user_service_server::UserServiceServer::new(grpc.clone());
+    let manifest = api::manifest_service_server::ManifestServiceServer::new(grpc.clone());
 
     let request_concurrency_limit = grpc.context.config.grpc.request_concurrency_limit;
 
@@ -162,5 +166,7 @@ pub async fn server(db: DbPool) -> Router<CorsServer> {
         .add_service(metrics)
         .add_service(node)
         .add_service(organization)
+        .add_service(subscription)
         .add_service(user)
+        .add_service(manifest)
 }

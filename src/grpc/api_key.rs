@@ -64,53 +64,42 @@ impl ApiKeyService for Grpc {
         &self,
         req: Request<api::CreateApiKeyRequest>,
     ) -> super::Resp<api::CreateApiKeyResponse> {
-        self.trx(|tx| create(req, tx).scope_boxed())
-            .await
-            .map(Response::new)
+        self.trx(|tx| create(req, tx).scope_boxed()).await
     }
 
     async fn list(
         &self,
         req: Request<api::ListApiKeyRequest>,
     ) -> super::Resp<api::ListApiKeyResponse> {
-        list(req, &mut self.conn().await?)
-            .await
-            .map(Response::new)
-            .map_err(Into::into)
+        self.run(|c| list(req, c).scope_boxed()).await
     }
 
     async fn update(
         &self,
         req: Request<api::UpdateApiKeyRequest>,
     ) -> super::Resp<api::UpdateApiKeyResponse> {
-        self.trx(|tx| update(req, tx).scope_boxed())
-            .await
-            .map(Response::new)
+        self.trx(|tx| update(req, tx).scope_boxed()).await
     }
 
     async fn regenerate(
         &self,
         req: Request<api::RegenerateApiKeyRequest>,
     ) -> super::Resp<api::RegenerateApiKeyResponse> {
-        self.trx(|tx| regenerate(req, tx).scope_boxed())
-            .await
-            .map(Response::new)
+        self.trx(|tx| regenerate(req, tx).scope_boxed()).await
     }
 
     async fn delete(
         &self,
         req: Request<api::DeleteApiKeyRequest>,
     ) -> super::Resp<api::DeleteApiKeyResponse> {
-        self.trx(|tx| delete(req, tx).scope_boxed())
-            .await
-            .map(Response::new)
+        self.trx(|tx| delete(req, tx).scope_boxed()).await
     }
 }
 
 async fn create(
     req: Request<api::CreateApiKeyRequest>,
     tx: &mut Conn,
-) -> Result<api::CreateApiKeyResponse, Error> {
+) -> super::Resp<api::CreateApiKeyResponse, Error> {
     let claims = tx.claims(&req, Endpoint::ApiKeyCreate).await?;
 
     let req = req.into_inner();
@@ -122,29 +111,31 @@ async fn create(
 
     let created = NewApiKey::create(tx, user_id, req.label, entry).await?;
 
-    Ok(api::CreateApiKeyResponse {
+    let resp = api::CreateApiKeyResponse {
         api_key: Some(created.secret.into()),
         created_at: Some(NanosUtc::from(created.api_key.created_at).into()),
-    })
+    };
+    Ok(Response::new(resp))
 }
 
 async fn list(
     req: Request<api::ListApiKeyRequest>,
     conn: &mut Conn,
-) -> Result<api::ListApiKeyResponse, Error> {
+) -> super::Resp<api::ListApiKeyResponse, Error> {
     let claims = conn.claims(&req, Endpoint::ApiKeyList).await?;
     let user_id = claims.resource().user().ok_or(Error::ClaimsNotUser)?;
 
     let keys = ApiKey::find_by_user(user_id, conn).await?;
     let api_keys = keys.into_iter().map(api::ListApiKey::from_model).collect();
 
-    Ok(api::ListApiKeyResponse { api_keys })
+    let resp = api::ListApiKeyResponse { api_keys };
+    Ok(Response::new(resp))
 }
 
 async fn update(
     req: Request<api::UpdateApiKeyRequest>,
     tx: &mut Conn,
-) -> Result<api::UpdateApiKeyResponse, Error> {
+) -> super::Resp<api::UpdateApiKeyResponse, Error> {
     let claims = tx.claims(&req, Endpoint::ApiKeyUpdate).await?;
 
     let req = req.into_inner();
@@ -170,15 +161,16 @@ async fn update(
         .map(NanosUtc::from)
         .map(Into::into)?;
 
-    Ok(api::UpdateApiKeyResponse {
+    let resp = api::UpdateApiKeyResponse {
         updated_at: Some(updated_at),
-    })
+    };
+    Ok(Response::new(resp))
 }
 
 async fn regenerate(
     req: Request<api::RegenerateApiKeyRequest>,
     tx: &mut Conn,
-) -> Result<api::RegenerateApiKeyResponse, Error> {
+) -> super::Resp<api::RegenerateApiKeyResponse, Error> {
     let claims = tx.claims(&req, Endpoint::ApiKeyRegenerate).await?;
 
     let req = req.into_inner();
@@ -191,16 +183,17 @@ async fn regenerate(
     let new_key = NewApiKey::regenerate(key_id, tx).await?;
     let updated_at = new_key.api_key.updated_at.ok_or(Error::MissingUpdatedAt)?;
 
-    Ok(api::RegenerateApiKeyResponse {
+    let resp = api::RegenerateApiKeyResponse {
         api_key: Some(new_key.secret.into()),
         updated_at: Some(NanosUtc::from(updated_at).into()),
-    })
+    };
+    Ok(Response::new(resp))
 }
 
 async fn delete(
     req: Request<api::DeleteApiKeyRequest>,
     tx: &mut Conn,
-) -> Result<api::DeleteApiKeyResponse, Error> {
+) -> super::Resp<api::DeleteApiKeyResponse, Error> {
     let claims = tx.claims(&req, Endpoint::ApiKeyDelete).await?;
 
     let req = req.into_inner();
@@ -212,7 +205,8 @@ async fn delete(
 
     ApiKey::delete(key_id, tx).await?;
 
-    Ok(api::DeleteApiKeyResponse {})
+    let resp = api::DeleteApiKeyResponse {};
+    Ok(Response::new(resp))
 }
 
 impl api::ListApiKey {

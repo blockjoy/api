@@ -94,6 +94,9 @@ pub enum Endpoint {
     UserGet = 1102,
     UserUpdate = 1103,
     UserDelete = 1104,
+    UserGetBilling = 1105,
+    UserUpdateBilling = 1106,
+    UserDeleteBilling = 1107,
 
     BabelAll = 1200,
     BabelNotify = 1201,
@@ -120,6 +123,12 @@ pub enum Endpoint {
     ApiKeyUpdate = 1603,
     ApiKeyRegenerate = 1604,
     ApiKeyDelete = 1605,
+
+    SubscriptionAll = 1700,
+    SubscriptionCreate = 1701,
+    SubscriptionGet = 1702,
+    SubscriptionList = 1703,
+    SubscriptionDelete = 1704,
 }
 
 impl Endpoint {
