@@ -93,13 +93,14 @@ async fn recover_created(
             version: &node.version,
             created_at: chrono::Utc::now(),
         };
-        let Ok(_) = new_log.create(conn).await else {
-            error!("Failed to create cancelation log entry!");
-            return Err(crate::Error::ValidationError (
-                "Failed to create cancelation log entry".to_string(),
-            ));
-        };
-        return Ok(vec![]);
+        match new_log.create(conn).await {
+            Ok(_) => return Ok(vec![]),
+            Err(e) => {
+                let msg = format!("Failed to create cancelation log entry: {e}");
+                error!(msg);
+                return Err(crate::Error::ValidationError(msg));
+            }
+        }
     };
     node.host_id = host.id;
     let Ok(node) = node.update(conn).await else {
