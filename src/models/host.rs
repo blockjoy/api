@@ -167,7 +167,7 @@ impl Host {
         let region_clause = scheduler
             .region
             .as_ref()
-            .map(|_| "AND region = $7")
+            .map(|_| "AND region_id = $7")
             .unwrap_or_default();
         let org_clause = org_id.map(|_| "AND org_id = $8").unwrap_or_default();
         let host_type_clause = host_type.map(|_| "AND host_type = $9").unwrap_or_default();
@@ -187,7 +187,7 @@ impl Host {
                 hosts.disk_size_bytes - (SELECT COALESCE(SUM(disk_size_bytes), 0)::BIGINT FROM nodes WHERE host_id = hosts.id) AS av_disk,
                 (SELECT COUNT(*) FROM ip_addresses WHERE ip_addresses.host_id = hosts.id AND NOT ip_addresses.is_assigned) AS ips,
                 (SELECT COUNT(*) FROM nodes WHERE host_id = hosts.id AND blockchain_id = $4 AND node_type = $5 AND host_type = 'cloud') AS n_similar,
-                hosts.region AS region,
+                hosts.region_id AS region_id,
                 hosts.org_id AS org_id,
                 hosts.host_type AS host_type
             FROM
