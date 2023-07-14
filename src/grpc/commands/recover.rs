@@ -72,11 +72,10 @@ async fn recover_created(
         version: &node.version,
         created_at: chrono::Utc::now(),
     };
-    let Ok(_) = dbg!(new_log.create(conn).await) else {
-        error!("Failed to create deployment log entry!");
-        return Err(crate::Error::ValidationError (
-            "Failed to create deployment log entry".to_string(),
-        ));
+    if let Err(e) = new_log.create(conn).await {
+        let msg = format!("Failed to create deployment log entry: {e}");
+        error!("{msg}");
+        return Err(crate::Error::ValidationError(msg));
     };
 
     // 3. We now find the host that is next in line, and assign our node to that host.
@@ -103,11 +102,13 @@ async fn recover_created(
         }
     };
     node.host_id = host.id;
-    let Ok(node) = node.update(conn).await else {
-        error!("Could not update node!");
-        return Err(crate::Error::ValidationError (
-            "Could not update node".to_string(),
-        ));
+    let node = match node.update(conn).await {
+        Ok(node) => node,
+        Err(e) => {
+            let msg = format!("Could not update node: {e}");
+            error!("{msg}");
+            return Err(crate::Error::ValidationError(msg));
+        }
     };
 
     // 4. We notify blockvisor of our retry via an MQTT message.

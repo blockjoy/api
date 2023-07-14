@@ -240,7 +240,7 @@ impl Node {
                     scheduler,
                     org_id: None,
                 };
-                super::Host::host_candidates(reqs, Some(2), conn).await?
+                dbg!(super::Host::host_candidates(reqs, Some(2), conn).await)?
             }
             None => vec![super::Host::find_by_id(self.host_id, conn).await?],
         };
