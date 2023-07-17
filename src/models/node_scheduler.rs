@@ -3,6 +3,7 @@
 /// and the `resource` field are both set, then `similarity` takes precedence over `resource`. Note
 /// that the final field of this struct is required, in order to make sure that the affinity of
 /// nodes is always defined.
+#[derive(Debug)]
 pub struct NodeScheduler {
     /// Controls in which region the node should be deployed.
     pub region: Option<super::Region>,

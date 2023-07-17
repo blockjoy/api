@@ -72,6 +72,7 @@ pub struct HostFilter {
     pub limit: u64,
 }
 
+#[derive(Debug)]
 pub struct HostRequirements {
     pub requirements: HardwareRequirements,
     pub blockchain_id: uuid::Uuid,
@@ -152,7 +153,7 @@ impl Host {
             #[diesel(sql_type = Uuid)]
             host_id: HostId,
         }
-
+        println!("its candidate time. and he candidated all over them");
         let HostRequirements {
             requirements,
             blockchain_id,
@@ -160,7 +161,9 @@ impl Host {
             host_type,
             scheduler,
             org_id,
-        } = reqs;
+        } = dbg!(reqs);
+        let hosts: Vec<Host> = hosts::table.get_results(conn).await?;
+        dbg!(hosts);
 
         let order_by = scheduler.order_clause();
         let limit_clause = limit.map(|_| "LIMIT $6").unwrap_or_default();
