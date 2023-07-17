@@ -88,7 +88,7 @@ pub enum Error {
     #[error("Cloudflare integration error: {0}")]
     Dns(#[from] crate::dns::Error),
 
-    #[error("Could not select a matching host")]
+    #[error("Could not select a matching host: {0}")]
     NoMatchingHostError(String),
 
     #[error("{0}")]
