@@ -124,6 +124,34 @@ async fn responds_ok_with_valid_data_for_create() {
 }
 
 #[tokio::test]
+async fn responds_ok_with_valid_data_for_create_schedule() {
+    let tester = super::Tester::new().await;
+    let blockchain = tester.blockchain().await;
+    let user = tester.user().await;
+    let org = tester.org_for(&user).await;
+    let req = api::NodeServiceCreateRequest {
+        org_id: org.id.to_string(),
+        blockchain_id: blockchain.id.to_string(),
+        node_type: api::NodeType::Validator.into(),
+        properties: vec![],
+        version: "3.3.0".to_string(),
+        network: "some network".to_string(),
+        placement: Some(api::NodePlacement {
+            placement: Some(api::node_placement::Placement::Scheduler(
+                api::NodeScheduler {
+                    similarity: None,
+                    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+                    region: "moneyland".to_string(),
+                },
+            )),
+        }),
+        allow_ips: vec![],
+        deny_ips: vec![],
+    };
+    tester.send_admin(Service::create, req).await.unwrap();
+}
+
+#[tokio::test]
 async fn responds_invalid_argument_with_invalid_data_for_create() {
     let tester = super::Tester::new().await;
     let blockchain = tester.blockchain().await;
