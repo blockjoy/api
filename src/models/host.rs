@@ -302,6 +302,7 @@ pub struct NewHost<'a> {
     pub created_by: UserId,
     // The id of the region where this host is located.
     pub region_id: Option<uuid::Uuid>,
+    pub host_type: HostType,
 }
 
 impl NewHost<'_> {

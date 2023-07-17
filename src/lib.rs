@@ -278,6 +278,7 @@ pub mod tests {
                 org_id,
                 created_by: user.id,
                 region_id: Some(region.id),
+                host_type: models::HostType::Cloud,
             };
 
             host1.create(conn).await.unwrap();
@@ -286,8 +287,8 @@ pub mod tests {
                 name: "Host-2",
                 version: "0.1.0",
                 cpu_count: 16,
-                mem_size_bytes: 1_612_312,  // 1.6 MB
-                disk_size_bytes: 1_612_312, // 1.6 MB
+                mem_size_bytes: 1_612_312_123_123,  // 1.6 TB
+                disk_size_bytes: 1_612_312_123_123, // 1.6 TB
                 os: "LuukOS",
                 os_version: "3",
                 ip_addr: "192.168.2.1",
@@ -298,6 +299,7 @@ pub mod tests {
                 org_id,
                 created_by: user.id,
                 region_id: Some(region.id),
+                host_type: models::HostType::Cloud,
             };
 
             let host2 = host2.create(conn).await.unwrap();

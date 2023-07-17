@@ -419,6 +419,7 @@ impl api::HostServiceCreateRequest {
             org_id,
             created_by: user_id,
             region_id: region.map(|r| r.id),
+            host_type: models::HostType::Cloud,
         })
     }
 }
