@@ -297,7 +297,7 @@ pub mod tests {
                 ip_gateway: "192.12.0.1".parse().unwrap(),
                 org_id,
                 created_by: user.id,
-                region_id: None,
+                region_id: Some(region.id),
             };
 
             let host2 = host2.create(conn).await.unwrap();
