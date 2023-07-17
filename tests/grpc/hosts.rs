@@ -101,7 +101,7 @@ async fn responds_ok_for_create() {
         ip_range_to: "172.168.0.10".to_string(),
         ip_gateway: "72.168.0.100".to_string(),
         org_id: Some(org_id),
-        region: None,
+        region: Some("europe-2-birmingham".to_string()),
     };
     tester.send(Service::create, req).await.unwrap();
 }
