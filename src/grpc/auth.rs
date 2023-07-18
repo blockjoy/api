@@ -178,18 +178,43 @@ async fn refresh(
         super::forbidden!("Jwt and refresh grantee don't match");
     }
 
-    // The following is a workaround that sort of patches existing host tokens. Removeme
-    if !decoded.endpoints.includes(Endpoint::CookbookAll) {
-        decoded.endpoints = match decoded.endpoints {
-            Endpoints::Wildcard => Endpoints::Wildcard,
-            Endpoints::Single(e) => Endpoints::Single(e),
-            Endpoints::Multiple(mut es) => {
-                es.push(Endpoint::BundleAll);
-                es.push(Endpoint::CookbookAll);
-                Endpoints::Multiple(es)
-            }
+    let wrong_endpoints = vec![
+        Endpoint::AuthRefresh,
+        Endpoint::BabelAll,
+        Endpoint::BlockchainAll,
+        Endpoint::BundleAll,
+        Endpoint::CommandAll,
+        Endpoint::CookbookAll,
+        Endpoint::DiscoveryAll,
+        Endpoint::HostGet,
+        Endpoint::HostList,
+        Endpoint::HostUpdate,
+        Endpoint::KeyFileAll,
+        Endpoint::MetricsAll,
+        Endpoint::NodeAll,
+    ];
+
+    decoded.endpoints = match decoded.endpoints {
+        Endpoints::Multiple(endpoints) if endpoints == wrong_endpoints => {
+            Endpoints::Multiple(vec![
+                Endpoint::AuthRefresh,
+                Endpoint::BabelAll,
+                Endpoint::BlockchainAll,
+                Endpoint::BundleAll,
+                Endpoint::CommandAll,
+                Endpoint::CookbookAll,
+                Endpoint::DiscoveryAll,
+                Endpoint::HostGet,
+                Endpoint::HostList,
+                Endpoint::HostUpdate,
+                Endpoint::KeyFileAll,
+                Endpoint::ManifestAll,
+                Endpoint::MetricsAll,
+                Endpoint::NodeAll,
+            ])
         }
-    }
+        other => other,
+    };
 
     let expires = conn.context.config.token.expire.token.try_into()?;
     let expirable = Expirable::from_now(expires);
