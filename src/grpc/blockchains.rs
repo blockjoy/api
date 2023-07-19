@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::join_all;
@@ -56,11 +56,10 @@ async fn list(
     // Now we need to combine this info with the networks that are stored in the cookbook
     // service. Since we want to do this in parallel, this list will contain a number of futures
     // that each resolve to a list of networks for that blockchain.
-    let mut network_futs = vec![];
+    let mut network_identifiers = HashSet::new();
     for blockchain in &blockchains {
         for node_properties in blockchain.properties(conn).await? {
-            network_futs.push(try_get_networks(
-                &cookbook,
+            network_identifiers.insert((
                 blockchain.id,
                 blockchain.name.clone(),
                 node_properties.node_type.to_string(),
@@ -68,7 +67,12 @@ async fn list(
             ));
         }
     }
-
+    let network_futs =
+        network_identifiers
+            .into_iter()
+            .map(|(b_id, b_name, node_type, node_version)| {
+                try_get_networks(&cookbook, b_id, b_name, node_type, node_version)
+            });
     let networks = join_all(network_futs).await;
 
     // Now that we have fetched our networks, we have to stuff them into the DTO's. To do this

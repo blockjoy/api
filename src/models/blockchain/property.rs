@@ -44,7 +44,9 @@ impl BlockchainProperty {
         blockchains: &[super::Blockchain],
         conn: &mut models::Conn,
     ) -> crate::Result<Vec<Self>> {
-        let ids: Vec<_> = blockchains.iter().map(|b| b.id).collect();
+        let mut ids: Vec<_> = blockchains.iter().map(|b| b.id).collect();
+        ids.sort();
+        ids.dedup();
         let props = blockchain_properties::table
             .filter(blockchain_properties::blockchain_id.eq_any(ids))
             .get_results(conn)
