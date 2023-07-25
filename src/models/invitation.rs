@@ -9,7 +9,7 @@ use crate::Result;
 
 use super::schema::invitations;
 
-#[derive(Debug, Queryable)]
+#[derive(Debug, Clone, Queryable)]
 pub struct Invitation {
     pub id: uuid::Uuid,
     pub created_by: UserId,

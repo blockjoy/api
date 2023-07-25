@@ -115,8 +115,10 @@ async fn create(
     }
 
     let org = Org::find_by_id(invitation.org_id, conn).await?;
-    let msg = api::OrgMessage::invitation_created(org, invitation, conn).await?;
-    let resp = api::InvitationServiceCreateResponse {};
+    let msg = api::OrgMessage::invitation_created(org, invitation.clone(), conn).await?;
+    let resp = api::InvitationServiceCreateResponse {
+        invitation: Some(api::Invitation::from_model(invitation, conn).await?),
+    };
 
     mqtt_tx.send(msg.into()).expect("mqtt_rx");
 

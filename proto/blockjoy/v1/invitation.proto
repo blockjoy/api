@@ -78,6 +78,7 @@ message InvitationServiceCreateRequest {
 }
 
 message InvitationServiceCreateResponse {
+  Invitation invitation = 1;
 }
 
 message InvitationServiceListRequest {
