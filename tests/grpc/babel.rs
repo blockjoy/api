@@ -1,5 +1,6 @@
 use blockvisor_api::auth::resource::{OrgId, UserId};
 use blockvisor_api::grpc::api;
+use blockvisor_api::models::blockchain::BlockchainId;
 use blockvisor_api::models::node::NewNode;
 use blockvisor_api::models::{
     ContainerStatus, NodeChainStatus, NodeStakingStatus, NodeSyncStatus, NodeType, ResourceAffinity,
@@ -12,7 +13,7 @@ type Service = api::babel_service_client::BabelServiceClient<super::Channel>;
 fn create_new_node<'a>(
     index: usize,
     org_id: OrgId,
-    blockchain_id: &'a Uuid,
+    blockchain_id: BlockchainId,
     user_id: UserId,
     version: &'a str,
     node_type: NodeType,
@@ -22,7 +23,7 @@ fn create_new_node<'a>(
     NewNode {
         id: id.into(),
         org_id,
-        blockchain_id: blockchain_id.to_owned(),
+        blockchain_id: blockchain_id,
         chain_status: NodeChainStatus::Unknown,
         sync_status: NodeSyncStatus::Syncing,
         container_status: ContainerStatus::Installing,

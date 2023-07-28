@@ -27,8 +27,7 @@ pub use ip_address::IpAddress;
 
 pub mod node;
 pub use node::{
-    ContainerStatus, Node, NodeChainStatus, NodeProperty, NodeSelfUpgradeFilter, NodeStakingStatus,
-    NodeSyncStatus,
+    ContainerStatus, Node, NodeChainStatus, NodeProperty, NodeStakingStatus, NodeSyncStatus,
 };
 
 pub mod node_key_file;

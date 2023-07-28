@@ -8,7 +8,7 @@ use crate::auth::claims::Claims;
 use crate::auth::endpoint::Endpoint;
 use crate::auth::resource::Resource;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
-use crate::models::blockchain::{Blockchain, BlockchainProperty};
+use crate::models::blockchain::{Blockchain, BlockchainProperty, BlockchainVersion};
 use crate::models::command::UpdateCommand;
 use crate::models::node::FilteredIpAddr;
 use crate::models::{Command, Host, Node, Org};
@@ -248,13 +248,10 @@ impl api::Command {
             CreateNode => {
                 let node = Node::find_by_id(node_id()?, conn).await?;
                 let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
-                let id_to_name_map = BlockchainProperty::id_to_name_map(
-                    &blockchain,
-                    node.node_type,
-                    &node.version,
-                    conn,
-                )
-                .await?;
+                let variant =
+                    BlockchainVersion::find(&blockchain, &node.version, node.node_type, conn)
+                        .await?;
+                let id_to_name_map = BlockchainProperty::id_to_name_map(&variant, conn).await?;
                 let mut image = api::ContainerImage {
                     protocol: blockchain.name,
                     node_version: node.version.to_lowercase(),

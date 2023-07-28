@@ -81,7 +81,7 @@ async fn retrieve_plugin(
         .cookbook
         .read_file(
             &id.protocol,
-            &id.node_type,
+            id.node_type().into_model(),
             &id.node_version,
             cookbook::RHAI_FILE_NAME,
         )
@@ -111,7 +111,7 @@ async fn retrieve_image(
         .cookbook
         .download_url(
             &id.protocol,
-            &id.node_type,
+            id.node_type().into_model(),
             &id.node_version,
             cookbook::BABEL_IMAGE_NAME,
         )
@@ -138,7 +138,7 @@ async fn retrieve_kernel(
         .cookbook
         .download_url(
             &id.protocol,
-            &id.node_type,
+            id.node_type().into_model(),
             &id.node_version,
             cookbook::KERNEL_NAME,
         )
@@ -161,9 +161,10 @@ async fn requirements(
 
     let req = req.into_inner();
     let id = req.id.ok_or_else(required("id"))?;
+    let node_type = id.node_type().into_model();
     let requirements = ctx
         .cookbook
-        .rhai_metadata(&id.protocol, &id.node_type, &id.node_version)
+        .rhai_metadata(&id.protocol, node_type, &id.node_version)
         .await?
         .requirements;
     let resp = api::CookbookServiceRequirementsResponse {
@@ -185,9 +186,10 @@ async fn net_configurations(
 
     let req = req.into_inner();
     let id = req.id.ok_or_else(required("id"))?;
+    let node_type = id.node_type().into_model();
     let networks = ctx
         .cookbook
-        .rhai_metadata(&id.protocol, &id.node_type, &id.node_version)
+        .rhai_metadata(&id.protocol, node_type, &id.node_version)
         .await?
         .nets
         .into_iter()

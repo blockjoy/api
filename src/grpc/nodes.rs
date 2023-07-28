@@ -148,8 +148,9 @@ async fn create(
     let user = User::find_by_id(user_id, conn).await?;
     let req = req.into_inner();
     let blockchain = Blockchain::find_by_id(req.blockchain_id.parse()?, conn).await?;
-    // We want to cast a string like `NODE_TYPE_VALIDATOR` to `validator`.
-    let node_type = &req.node_type().as_str_name()[10..];
+    let node_type = req.node_type().into_model();
+    // assert that a variant exists.
+    BlockchainVariant::find(&blockchain, &req.version, node_type, conn).await?;
     let reqs = ctx
         .cookbook
         .rhai_metadata(&blockchain.name, node_type, &req.version)
@@ -175,12 +176,12 @@ async fn create(
     // { property id: property value }. In order to map property names to property ids we can use
     // the id to name map, and then flip the keys and values to create an id to name map. Note that
     // this requires the names to be unique, but we expect this to be the case.
-    let name_to_id_map =
-        BlockchainProperty::id_to_name_map(&blockchain, node.node_type, &node.version, conn)
-            .await?
-            .into_iter()
-            .map(|(k, v)| (v, k))
-            .collect();
+    let variant = BlockchainVariant::find(&blockchain, &node.version, node.node_type, conn).await?;
+    let name_to_id_map = BlockchainProperty::id_to_name_map(&variant, conn)
+        .await?
+        .into_iter()
+        .map(|(k, v)| (v, k))
+        .collect();
     NodeProperty::bulk_create(req.properties(&node, name_to_id_map)?, conn).await?;
     let create_notif = create_node_command(&node, CommandType::CreateNode, conn).await?;
     let create_cmd = api::Command::from_model(&create_notif, conn).await?;

@@ -4,7 +4,7 @@ use tracing::log::{debug, info};
 use crate::auth::endpoint::Endpoint;
 use crate::database::{Conn, Transaction, WriteConn};
 use crate::models::command::NewCommand;
-use crate::models::{Blockchain, CommandType, Node, NodeSelfUpgradeFilter, NodeType};
+use crate::models::{Blockchain, CommandType, Node, NodeType};
 
 use super::api::{self, babel_service_server};
 use super::helpers::required;
@@ -32,7 +32,7 @@ async fn notify(
     let req = req.into_inner();
     debug!("New Request Version: {:?}", req);
     let filter = req.info_filter(conn).await?;
-    let nodes_to_upgrade = Node::find_all_to_upgrade(&filter, conn).await?;
+    let nodes_to_upgrade = Node::outdated(&filter, conn).await?;
     debug!("Nodes to upgrade: {nodes_to_upgrade:?}");
 
     let blockchain = Blockchain::find_by_id(filter.blockchain_id, conn).await?;
@@ -63,17 +63,17 @@ async fn notify(
     Ok(tonic::Response::new(resp))
 }
 
-impl api::BabelServiceNotifyRequest {
-    async fn info_filter(self, conn: &mut Conn<'_>) -> crate::Result<NodeSelfUpgradeFilter> {
-        let conf = self.config.ok_or_else(required("config"))?;
-        let node_type: NodeType = conf.node_type.parse().map_err(|e| {
-            crate::Error::BabelConfigConvertError(format!("Cannot convert node_type {e}"))
-        })?;
-        let blockchain = Blockchain::find_by_name(&conf.protocol, conn).await?;
-        Ok(NodeSelfUpgradeFilter {
-            version: conf.node_version,
-            node_type,
-            blockchain_id: blockchain.id,
-        })
-    }
-}
+// impl api::BabelServiceNotifyRequest {
+//     async fn info_filter(self, conn: &mut Conn<'_>) -> crate::Result<NodeSelfUpgradeFilter> {
+//         let conf = self.config.ok_or_else(required("config"))?;
+//         let node_type: NodeType = conf.node_type.parse().map_err(|e| {
+//             crate::Error::BabelConfigConvertError(format!("Cannot convert node_type {e}"))
+//         })?;
+//         let blockchain = Blockchain::find_by_name(&conf.protocol, conn).await?;
+//         Ok(NodeSelfUpgradeFilter {
+//             version: conf.node_version,
+//             node_type,
+//             blockchain_id: blockchain.id,
+//         })
+//     }
+// }

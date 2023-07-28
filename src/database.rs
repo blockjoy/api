@@ -422,6 +422,7 @@ pub mod tests {
 
     pub mod seed {
         use crate::grpc::common;
+        use crate::models::blockchain::BlockchainId;
         use crate::models::host::{MonthlyCostUsd, NewHost};
         use crate::models::ip_address::NewIpAddressRange;
         use crate::models::org::NewOrgUser;
@@ -461,7 +462,7 @@ pub mod tests {
                 diesel::sql_query(query).execute(conn).await.unwrap();
             }
 
-            let blockchain_id: Uuid = BLOCKCHAIN_ID.parse().unwrap();
+            let blockchain_id: BlockchainId = BLOCKCHAIN_ID.parse().unwrap();
             blockchains::table
                 .filter(blockchains::id.eq(blockchain_id))
                 .get_result(conn)
