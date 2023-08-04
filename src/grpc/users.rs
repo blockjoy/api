@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use diesel_async::scoped_futures::ScopedFutureExt;
 
 use crate::auth::endpoint::Endpoint;
@@ -120,7 +121,8 @@ async fn update(
         Resource::Host(_) => false,
         Resource::Node(_) => false,
     };
-    if !is_allowed {
+    let role_ok = req.role.map(|_| user.is_blockjoy_admin).unwrap_or(true);
+    if !is_allowed || !role_ok {
         super::forbidden!("Access denied for users update")
     }
     let user = req.as_update()?.update(conn).await?;
@@ -227,14 +229,16 @@ async fn delete_billing(
 
 impl api::User {
     pub fn from_model(model: User) -> crate::Result<Self> {
-        let user = Self {
+        let mut user = Self {
             id: model.id.to_string(),
             email: model.email,
             first_name: model.first_name,
             last_name: model.last_name,
+            role: 0,
             created_at: Some(NanosUtc::from(model.created_at).into()),
             updated_at: None,
         };
+        user.set_role(api::UserRole::from_model(model.is_blockjoy_admin));
         Ok(user)
     }
 }
@@ -256,6 +260,23 @@ impl api::UserServiceUpdateRequest {
             id: self.id.parse()?,
             first_name: self.first_name.as_deref(),
             last_name: self.last_name.as_deref(),
+            is_blockjoy_admin: self
+                .role
+                .map(|r| api::UserRole::from_i32(r).ok_or_else(|| anyhow!("Invalid org role: {r}")))
+                .transpose()?
+                .map(api::UserRole::into_model),
         })
+    }
+}
+
+impl api::UserRole {
+    pub fn from_model(is_admin: bool) -> Self {
+        is_admin
+            .then_some(Self::BlockjoyStaff)
+            .unwrap_or(Self::Unprivileged)
+    }
+
+    pub fn into_model(self) -> bool {
+        self == api::UserRole::BlockjoyStaff
     }
 }

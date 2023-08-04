@@ -254,6 +254,7 @@ pub struct UpdateUser<'a> {
     pub id: UserId,
     pub first_name: Option<&'a str>,
     pub last_name: Option<&'a str>,
+    pub is_blockjoy_admin: Option<bool>,
 }
 
 impl<'a> UpdateUser<'a> {

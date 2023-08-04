@@ -54,6 +54,7 @@ async fn responds_permission_denied_with_diff_users_for_update() {
         id: tester.unconfirmed_user().await.id.to_string(),
         first_name: Some("Hugo".to_string()),
         last_name: Some("Boss".to_string()),
+        role: None,
     };
     let status = tester.send_admin(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::PermissionDenied);
@@ -67,6 +68,7 @@ async fn responds_ok_with_equal_users_for_update() {
         id: user.id.to_string(),
         first_name: Some("Hugo".to_string()),
         last_name: Some("Boss".to_string()),
+        role: None,
     };
     tester.send_admin(Service::update, req).await.unwrap();
 }
