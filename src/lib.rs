@@ -76,6 +76,7 @@ pub mod tests {
                 key_id: "not actually a".parse().unwrap(),
                 key: "key".parse().unwrap(),
                 bundle_bucket: "bundles".to_string(),
+                kernel_bucket: "oui oui ceci sont les kernles".to_string(),
             };
             Arc::new(config)
         }

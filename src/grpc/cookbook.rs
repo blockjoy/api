@@ -4,7 +4,10 @@ use crate::auth::endpoint::Endpoint;
 use crate::cookbook;
 use crate::database::{ReadConn, Transaction};
 
-use super::api::{self, bundle_service_server, cookbook_service_server, manifest_service_server};
+use super::api::{
+    self, bundle_service_server, cookbook_service_server, kernel_service_server,
+    manifest_service_server,
+};
 use super::helpers::required;
 
 // --------------------------------------- Cookbook Service ---------------------------------------
@@ -290,7 +293,57 @@ async fn delete(
     Err(anyhow::anyhow!("Sod off").into())
 }
 
-// ---------------------------------------- Manifest Service ----------------------------------------
+// ---------------------------------------- Kernel Service ----------------------------------------
+
+#[tonic::async_trait]
+impl kernel_service_server::KernelService for super::Grpc {
+    async fn retrieve(
+        &self,
+        req: tonic::Request<api::KernelServiceRetrieveRequest>,
+    ) -> super::Resp<api::KernelServiceRetrieveResponse> {
+        self.read(|read| retrieve_kernel_(req, read).scope_boxed())
+            .await
+    }
+
+    async fn list_kernel_versions(
+        &self,
+        req: tonic::Request<api::KernelServiceListKernelVersionsRequest>,
+    ) -> super::Resp<api::KernelServiceListKernelVersionsResponse> {
+        self.read(|read| list_kernel_versions(req, read).scope_boxed())
+            .await
+    }
+}
+
+async fn retrieve_kernel_(
+    req: tonic::Request<api::KernelServiceRetrieveRequest>,
+    read: ReadConn<'_, '_>,
+) -> super::Result<api::KernelServiceRetrieveResponse> {
+    let ReadConn { conn, ctx } = read;
+    let _claims = ctx
+        .claims(&req, Endpoint::CookbookRetrieveKernel, conn)
+        .await?;
+
+    let req = req.into_inner();
+    let id = req.id.ok_or_else(required("id"))?;
+    let url = ctx.cookbook.download_url_kernel(&id.version).await?;
+    let location = api::ArchiveLocation { url };
+    let resp = api::KernelServiceRetrieveResponse {
+        location: Some(location),
+    };
+    Ok(tonic::Response::new(resp))
+}
+
+async fn list_kernel_versions(
+    _: tonic::Request<api::KernelServiceListKernelVersionsRequest>,
+    read: ReadConn<'_, '_>,
+) -> super::Result<api::KernelServiceListKernelVersionsResponse> {
+    let ReadConn { ctx, .. } = read;
+    let identifiers = ctx.cookbook.list_kernels().await?;
+    let resp = api::KernelServiceListKernelVersionsResponse { identifiers };
+    Ok(tonic::Response::new(resp))
+}
+
+// --------------------------------------- Manifest Service ---------------------------------------
 #[tonic::async_trait]
 impl manifest_service_server::ManifestService for super::Grpc {
     /// Retrieve image for specific version and state.

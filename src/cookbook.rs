@@ -18,6 +18,7 @@ pub struct Cookbook {
     pub prefix: String,
     pub bucket: String,
     pub bundle_bucket: String,
+    pub kernel_bucket: String,
     pub expiration: std::time::Duration,
     pub client: Arc<dyn Client>,
     pub engine: std::sync::Arc<rhai::Engine>,
@@ -133,6 +134,7 @@ impl Cookbook {
             prefix: config.dir_chains_prefix.clone(),
             bucket: config.r2_bucket.clone(),
             bundle_bucket: config.bundle_bucket.clone(),
+            kernel_bucket: config.kernel_bucket.clone(),
             expiration: config.presigned_url_expiration.to_std(),
             client: Arc::new(client),
             engine,
@@ -166,6 +168,13 @@ impl Cookbook {
         );
         self.client
             .download_url(&self.bucket, &path, self.expiration)
+            .await
+    }
+
+    pub async fn download_url_kernel(&self, version: &str) -> crate::Result<String> {
+        let path = format!("{version}/{KERNEL_NAME}");
+        self.client
+            .download_url(&self.kernel_bucket, &path, self.expiration)
             .await
     }
 
@@ -206,6 +215,16 @@ impl Cookbook {
             .await?
             .iter()
             .flat_map(api::BundleIdentifier::from_key)
+            .collect())
+    }
+
+    pub async fn list_kernels(&self) -> crate::Result<Vec<api::KernelIdentifier>> {
+        Ok(self
+            .client
+            .list(&self.kernel_bucket, "")
+            .await?
+            .iter()
+            .flat_map(api::KernelIdentifier::from_key)
             .collect())
     }
 
@@ -287,7 +306,22 @@ impl api::BundleIdentifier {
             return Err(anyhow!("File name should end in /{BUNDLE_NAME}, but is {key}").into());
         };
         semver::Version::parse(version).context("cannot parse version")?;
-        let id = api::BundleIdentifier {
+        let id = Self {
+            version: version.to_owned(),
+        };
+        Ok(id)
+    }
+}
+
+impl api::KernelIdentifier {
+    fn from_key(key: impl AsRef<str>) -> crate::Result<Self> {
+        // "5.10.174-build.1+fc.ufw/kernel.gz"
+        let key = key.as_ref();
+        // "5.10.174-build.1+fc.ufw"
+        let Some(version) = key.strip_suffix(&format!("/{KERNEL_NAME}")) else {
+            return Err(anyhow!("File name should end in /{KERNEL_NAME}, but is {key}").into());
+        };
+        let id = Self {
             version: version.to_owned(),
         };
         Ok(id)
