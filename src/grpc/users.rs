@@ -271,9 +271,11 @@ impl api::UserServiceUpdateRequest {
 
 impl api::UserRole {
     pub fn from_model(is_admin: bool) -> Self {
-        is_admin
-            .then_some(Self::BlockjoyStaff)
-            .unwrap_or(Self::Unprivileged)
+        if is_admin {
+            Self::BlockjoyStaff
+        } else {
+            Self::Unprivileged
+        }
     }
 
     pub fn into_model(self) -> bool {
