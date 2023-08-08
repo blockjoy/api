@@ -493,26 +493,34 @@ pub struct UpdateNodeMetrics {
 impl UpdateNodeMetrics {
     /// Performs a selective update of only the columns related to metrics of the provided nodes.
     pub async fn update_metrics(
-        updates: Vec<Self>,
+        mut updates: Vec<Self>,
         conn: &mut Conn<'_>,
-    ) -> crate::Result<Vec<Node>> {
-        let mut results = Vec::with_capacity(updates.len());
+    ) -> (Vec<Node>, Vec<crate::Error>) {
+        use anyhow::Context;
+
+        // We do this for determinism in our tests.
+        updates.sort_by_key(|u| u.id);
+
+        let mut nodes = Vec::with_capacity(updates.len());
+        let mut errors = Vec::new();
         for update in updates {
             let updated = diesel::update(nodes::table.find(update.id))
-                .set(update)
+                .set(&update)
                 .get_result(conn)
-                .await?;
-            results.push(updated);
+                .await
+                .with_context(|| format!("Failed to update node {}", update.id));
+            match updated {
+                Ok(updated) => nodes.push(updated),
+                Err(err) => errors.push(err.into()),
+            }
         }
-        Ok(results)
+        (nodes, errors)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use uuid::Uuid;
-
-    use crate::config::Context;
 
     use super::*;
 

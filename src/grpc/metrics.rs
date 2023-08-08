@@ -25,21 +25,29 @@ impl metrics_service_server::MetricsService for super::Grpc {
         &self,
         req: tonic::Request<api::MetricsServiceNodeRequest>,
     ) -> super::Resp<api::MetricsServiceNodeResponse> {
-        self.write(|write| node(req, write).scope_boxed()).await
+        let (resp, errors) = self.write(|write| node(req, write).scope_boxed()).await?;
+        match errors.len() {
+            0 => Ok(tonic::Response::new(resp)),
+            _ => Err(summarize(errors.into_iter())),
+        }
     }
 
     async fn host(
         &self,
         req: tonic::Request<api::MetricsServiceHostRequest>,
     ) -> super::Resp<api::MetricsServiceHostResponse> {
-        self.write(|write| host(req, write).scope_boxed()).await
+        let (resp, errors) = self.write(|write| host(req, write).scope_boxed()).await?;
+        match errors.len() {
+            0 => Ok(tonic::Response::new(resp)),
+            _ => Err(summarize(errors.into_iter())),
+        }
     }
 }
 
 async fn node(
     req: tonic::Request<api::MetricsServiceNodeRequest>,
     write: WriteConn<'_, '_>,
-) -> super::Result<api::MetricsServiceNodeResponse> {
+) -> crate::Result<(api::MetricsServiceNodeResponse, Vec<crate::Error>)> {
     let WriteConn { conn, ctx, mqtt_tx } = write;
     let claims = ctx.claims(&req, Endpoint::MetricsNode, conn).await?;
     let req = req.into_inner();
@@ -64,21 +72,20 @@ async fn node(
         super::forbidden!("Access denied for metrics node");
     }
 
-    let nodes = UpdateNodeMetrics::update_metrics(updates, conn).await?;
+    let (nodes, errors) = UpdateNodeMetrics::update_metrics(updates, conn).await;
     api::NodeMessage::updated_many(nodes, conn)
         .await?
         .into_iter()
         .for_each(|msg| mqtt_tx.send(msg.into()).expect("mqtt_rx"));
 
     let resp = api::MetricsServiceNodeResponse {};
-
-    Ok(tonic::Response::new(resp))
+    Ok((resp, errors))
 }
 
 async fn host(
     req: tonic::Request<api::MetricsServiceHostRequest>,
     write: WriteConn<'_, '_>,
-) -> super::Result<api::MetricsServiceHostResponse> {
+) -> crate::Result<(api::MetricsServiceHostResponse, Vec<crate::Error>)> {
     let WriteConn { conn, ctx, mqtt_tx } = write;
     let claims = ctx.claims(&req, Endpoint::MetricsNode, conn).await?;
     let req = req.into_inner();
@@ -103,15 +110,14 @@ async fn host(
         super::forbidden!("Access denied for metrics host");
     }
 
-    let hosts = UpdateHostMetrics::update_metrics(updates, conn).await?;
+    let (hosts, errors) = UpdateHostMetrics::update_metrics(updates, conn).await;
     api::HostMessage::updated_many(hosts, &claims, conn)
         .await?
         .into_iter()
         .for_each(|msg| mqtt_tx.send(msg.into()).expect("mqtt_rx"));
 
     let resp = api::MetricsServiceHostResponse {};
-
-    Ok(tonic::Response::new(resp))
+    Ok((resp, errors))
 }
 
 impl api::NodeMetrics {
@@ -145,4 +151,11 @@ impl api::HostMetrics {
             uptime: self.uptime.map(i64::try_from).transpose()?,
         })
     }
+}
+
+fn summarize(errors: impl Iterator<Item = crate::Error>) -> tonic::Status {
+    let msg = errors.fold(String::new(), |acc, e| {
+        acc + format!("{e:?}").as_str() + ","
+    });
+    tonic::Status::internal(msg)
 }

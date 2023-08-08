@@ -400,16 +400,29 @@ pub struct UpdateHostMetrics {
 
 impl UpdateHostMetrics {
     /// Performs a selective update of only the columns related to metrics of the provided nodes.
-    pub async fn update_metrics(updates: Vec<Self>, conn: &mut Conn<'_>) -> Result<Vec<Host>> {
-        let mut results = Vec::with_capacity(updates.len());
+    pub async fn update_metrics(
+        mut updates: Vec<Self>,
+        conn: &mut Conn<'_>,
+    ) -> (Vec<Host>, Vec<crate::Error>) {
+        use anyhow::Context;
+
+        // We do this for determinism in our tests.
+        updates.sort_by_key(|u| u.id);
+
+        let mut hosts = Vec::with_capacity(updates.len());
+        let mut errors = Vec::new();
         for update in updates {
             let updated = diesel::update(hosts::table.find(update.id))
-                .set(update)
+                .set(&update)
                 .get_result(conn)
-                .await?;
-            results.push(updated);
+                .await
+                .with_context(|| format!("Failed to update host {}", update.id));
+            match updated {
+                Ok(updated) => hosts.push(updated),
+                Err(err) => errors.push(err.into()),
+            }
         }
-        Ok(results)
+        (hosts, errors)
     }
 }
 
