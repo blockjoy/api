@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::auth::resource::{HostId, NodeId};
 use crate::database::Conn;
+use crate::error::QueryError;
 use crate::models::schema::commands;
 use crate::models::{Host, Node};
 use crate::Result;
@@ -47,8 +48,11 @@ type Pending = dsl::Filter<commands::table, dsl::IsNull<commands::exit_status>>;
 
 impl Command {
     pub async fn find_by_id(id: Uuid, conn: &mut Conn<'_>) -> Result<Self> {
-        let cmd = commands::table.find(id).get_result(conn).await?;
-        Ok(cmd)
+        commands::table
+            .find(id)
+            .get_result(conn)
+            .await
+            .for_table_id("commands", id)
     }
 
     pub async fn find_pending_by_host(

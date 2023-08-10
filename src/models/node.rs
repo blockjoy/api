@@ -10,6 +10,7 @@ use diesel_async::RunQueryDsl;
 use crate::auth::resource::{HostId, NodeId, OrgId, UserId};
 use crate::config::Context;
 use crate::database::Conn;
+use crate::error::QueryError;
 use crate::models::schema::nodes;
 use crate::models::{
     string_to_array, Blockchain, Host, HostRequirements, HostType, IpAddress, NodeLog,
@@ -140,8 +141,11 @@ pub struct NodeSelfUpgradeFilter {
 
 impl Node {
     pub async fn find_by_id(id: NodeId, conn: &mut Conn<'_>) -> crate::Result<Self> {
-        let node = nodes::table.find(id).get_result(conn).await?;
-        Ok(node)
+        nodes::table
+            .find(id)
+            .get_result(conn)
+            .await
+            .for_table_id("nodes", id)
     }
 
     pub async fn find_by_ids(
@@ -150,11 +154,11 @@ impl Node {
     ) -> crate::Result<Vec<Self>> {
         ids.sort();
         ids.dedup();
-        let node = nodes::table
+        nodes::table
             .filter(nodes::id.eq_any(ids))
             .get_results(conn)
-            .await?;
-        Ok(node)
+            .await
+            .for_table("nodes")
     }
 
     pub async fn properties(&self, conn: &mut Conn<'_>) -> crate::Result<Vec<NodeProperty>> {
@@ -197,7 +201,8 @@ impl Node {
         let (total, nodes) = query
             .paginate(limit.try_into()?, offset.try_into()?)
             .get_results_counted(conn)
-            .await?;
+            .await
+            .for_table("nodes")?;
         Ok((total.try_into()?, nodes))
     }
 

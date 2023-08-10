@@ -12,8 +12,11 @@ pub enum Error {
     #[error("{0}")]
     ValidationError(String),
 
-    #[error("{0}")]
-    NotFoundError(diesel::result::Error),
+    #[error("No record found on table `{1}`")]
+    NotFoundError(diesel::result::Error, &'static str),
+
+    #[error("No record with id `{2}` found on table `{1}`")]
+    NotFoundForIdError(diesel::result::Error, &'static str, String),
 
     #[error("Duplicate resource conflict on constraint {constraint}.")]
     DuplicateResource { constraint: String },
@@ -169,7 +172,8 @@ impl From<Error> for tonic::Status {
 
         match e {
             ValidationError(_) => tonic::Status::invalid_argument(msg),
-            NotFoundError(_) => tonic::Status::not_found(msg),
+            NotFoundError(_, _) => tonic::Status::not_found(msg),
+            NotFoundForIdError(_, _, _) => tonic::Status::not_found(msg),
             DuplicateResource { .. } => tonic::Status::invalid_argument(msg),
             UuidParseError(_) | IpParseError(_) => tonic::Status::invalid_argument(msg),
             Auth(err) => err.into(),
@@ -201,7 +205,6 @@ impl From<diesel::result::Error> for Error {
         use diesel::result::Error::*;
 
         match value {
-            NotFound => Self::NotFoundError(value),
             DatabaseError(UniqueViolation, err) => Self::DuplicateResource {
                 constraint: err.message().to_string(),
             },
@@ -220,7 +223,7 @@ impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let status_code = match self {
             Error::ValidationError(_) => StatusCode::BAD_REQUEST,
-            Error::NotFoundError(_) => StatusCode::NOT_FOUND,
+            Error::NotFoundError(_, _) | Self::NotFoundForIdError(_, _, _) => StatusCode::NOT_FOUND,
             Error::DuplicateResource { .. } => StatusCode::CONFLICT,
             Error::InvalidAuthentication(_) => StatusCode::UNAUTHORIZED,
             Error::InsufficientPermissions(_) => StatusCode::FORBIDDEN,
@@ -243,4 +246,42 @@ fn error_chain_fmt(
         current = cause.source();
     }
     Ok(())
+}
+
+pub trait QueryError {
+    type Ok;
+
+    /// If there is a clear table that this query failed for, use method to add that info to the
+    /// error.
+    fn for_table(self, table: &'static str) -> crate::Result<Self::Ok>;
+
+    /// If there is a clear table and id that this query failed for, use method to add that info to
+    /// the error.
+    fn for_table_id(
+        self,
+        table: &'static str,
+        id: impl std::fmt::Display,
+    ) -> crate::Result<Self::Ok>;
+}
+
+impl<T> QueryError for std::result::Result<T, diesel::result::Error> {
+    type Ok = T;
+
+    fn for_table(self, table: &'static str) -> crate::Result<T> {
+        use diesel::result::Error::NotFound;
+
+        self.map_err(|e| match e {
+            NotFound => crate::Error::NotFoundError(NotFound, table),
+            other => other.into(),
+        })
+    }
+
+    fn for_table_id(self, table: &'static str, id: impl std::fmt::Display) -> crate::Result<T> {
+        use diesel::result::Error::NotFound;
+
+        self.map_err(|e| match e {
+            NotFound => crate::Error::NotFoundForIdError(NotFound, table, id.to_string()),
+            other => other.into(),
+        })
+    }
 }

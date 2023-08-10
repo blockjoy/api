@@ -11,6 +11,7 @@ use crate::auth::resource::Resource;
 use crate::auth::resource::{HostId, OrgId, UserId};
 use crate::cookbook::script::HardwareRequirements;
 use crate::database::Conn;
+use crate::error::QueryError;
 use crate::grpc::common;
 use crate::models::ip_address::NewIpAddressRange;
 use crate::models::Paginate;
@@ -100,27 +101,21 @@ pub struct HostRequirements {
 
 impl Host {
     pub async fn find_by_id(id: HostId, conn: &mut Conn<'_>) -> Result<Self> {
-        let host = hosts::table.find(id).get_result(conn).await?;
-        Ok(host)
+        hosts::table
+            .find(id)
+            .get_result(conn)
+            .await
+            .for_table_id("hosts", id)
     }
 
     pub async fn find_by_ids(mut ids: Vec<HostId>, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
         ids.sort();
         ids.dedup();
-        let hosts = hosts::table
+        hosts::table
             .filter(hosts::id.eq_any(ids))
             .get_results(conn)
-            .await?;
-        Ok(hosts)
-    }
-
-    pub async fn by_ids(ids: &[HostId], conn: &mut Conn<'_>) -> Result<Vec<Self>> {
-        let hosts: Vec<Self> = hosts::table
-            .filter(hosts::id.eq_any(ids))
-            .get_results(conn)
-            .await?;
-        let hosts_map: HashMap<_, _> = hosts.into_iter().map(|h| (h.id, h)).collect();
-        Ok(ids.iter().map(|id| hosts_map[id].clone()).collect())
+            .await
+            .for_table("hosts")
     }
 
     /// For each provided argument, filters the hosts by that argument.
@@ -140,11 +135,11 @@ impl Host {
     }
 
     pub async fn find_by_name(name: &str, conn: &mut Conn<'_>) -> Result<Self> {
-        let host = hosts::table
+        hosts::table
             .filter(hosts::name.eq(name))
             .get_result(conn)
-            .await?;
-        Ok(host)
+            .await
+            .for_table_id("hosts", name)
     }
 
     pub async fn delete(id: HostId, conn: &mut Conn<'_>) -> Result<usize> {
@@ -235,9 +230,9 @@ impl Host {
             .bind::<Nullable<crate::models::schema::sql_types::EnumHostType>, _>(host_type)
             .get_results(conn)
             .await?;
-        let host_ids: Vec<_> = hosts.into_iter().map(|h| h.host_id).collect();
+        let host_ids = hosts.into_iter().map(|h| h.host_id).collect();
 
-        Self::by_ids(&host_ids, conn).await
+        Self::find_by_ids(host_ids, conn).await
     }
 
     pub async fn node_counts<H>(
