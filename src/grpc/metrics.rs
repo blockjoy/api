@@ -154,8 +154,7 @@ impl api::HostMetrics {
 }
 
 fn summarize(errors: impl Iterator<Item = crate::Error>) -> tonic::Status {
-    let msg = errors.fold(String::new(), |acc, e| {
-        acc + format!("{e:?}").as_str() + ","
-    });
+    let combine = |s1, s2| s1 + format!("{s2:?}").as_str() + ",";
+    let msg = errors.fold(String::new(), combine);
     tonic::Status::internal(msg)
 }
