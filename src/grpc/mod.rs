@@ -28,6 +28,7 @@ pub mod common {
     }
 }
 
+use std::fmt::Write;
 use std::sync::Arc;
 
 use axum::Extension;
@@ -136,4 +137,29 @@ pub async fn server(context: Arc<Context>) -> Router<CorsServer> {
         .add_service(organization)
         .add_service(subscription)
         .add_service(user)
+}
+
+fn fmt_mac(bytes: [u8; 6]) -> String {
+    let mut res = String::with_capacity(17);
+    for (idx, byte) in bytes.into_iter().enumerate() {
+        // Writing to a String cannot fail, see:
+        // https://github.com/rust-lang/rust/blob/1.47.0/library/alloc/src/string.rs#L2414-L2427
+        // So we can freely unwrap here.
+        write!(res, "{byte:02x?}").unwrap();
+        if idx != 5 {
+            write!(res, ":").unwrap();
+        }
+    }
+    res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fmt_mac() {
+        assert_eq!(fmt_mac([0, 0, 0, 0, 0, 0]), "00:00:00:00:00:00");
+        assert_eq!(fmt_mac([15, 10, 16, 255, 0, 0]), "0f:0a:10:ff:00:00");
+    }
 }

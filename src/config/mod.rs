@@ -6,6 +6,7 @@ pub mod key_service;
 pub mod log;
 pub mod mail;
 pub mod mqtt;
+pub mod network;
 pub mod token;
 
 pub mod context;
@@ -61,6 +62,8 @@ pub enum Error {
         &'static str,
         Box<dyn std::error::Error + Send + Sync + 'static>,
     ),
+    /// Failed to parse network Config: {0}
+    Network(network::Error),
     /// Failed to parse token Config: {0}
     Token(token::Error),
 }
@@ -76,6 +79,7 @@ pub struct Config {
     pub log: Arc<log::Config>,
     pub mail: Arc<mail::Config>,
     pub mqtt: Arc<mqtt::Config>,
+    pub network: Arc<network::Config>,
     pub token: Arc<token::Config>,
 }
 
@@ -139,6 +143,9 @@ impl TryFrom<&Provider> for Config {
         let mqtt = mqtt::Config::try_from(provider)
             .map(Arc::new)
             .map_err(Error::Mqtt)?;
+        let network = network::Config::try_from(provider)
+            .map(Arc::new)
+            .map_err(Error::Network)?;
         let token = token::Config::try_from(provider)
             .map(Arc::new)
             .map_err(Error::Token)?;
@@ -152,6 +159,7 @@ impl TryFrom<&Provider> for Config {
             log,
             mail,
             mqtt,
+            network,
             token,
         })
     }

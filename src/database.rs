@@ -424,6 +424,7 @@ pub mod tests {
         use crate::grpc::common;
         use crate::models::host::{MonthlyCostUsd, NewHost};
         use crate::models::ip_address::NewIpAddressRange;
+        use crate::models::node::NewNode;
         use crate::models::org::NewOrgUser;
         use crate::models::user::NewUser;
         use crate::models::{
@@ -613,6 +614,7 @@ pub mod tests {
                     nodes::mem_size_bytes.eq(1024 * 1024 * 1024),
                     nodes::scheduler_resource.eq(ResourceAffinity::LeastResources),
                     nodes::version.eq("3.3.0"),
+                    nodes::mac_address.eq(NewNode::mac_addr([3, 2, 1], conn).await.unwrap()),
                 ))
                 .execute(conn)
                 .await

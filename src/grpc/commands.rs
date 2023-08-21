@@ -278,6 +278,7 @@ impl api::Command {
                     properties,
                     rules: Self::rules(&node)?,
                     network: node.network,
+                    mac_address: super::fmt_mac(node.mac_address),
                 };
                 node_create.set_node_type(api::NodeType::from_model(node.node_type));
                 let cmd = Command::Create(node_create);

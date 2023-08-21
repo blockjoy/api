@@ -153,6 +153,7 @@ impl Tester {
                 nodes::host_id.eq(host_id_param),
                 nodes::ip_addr.eq(ip_add_param),
                 nodes::dns_record_id.eq(dns_id),
+                nodes::mac_address.eq(NewNode::mac_addr([1, 2, 3], &mut conn).await.unwrap()),
             ))
             .execute(&mut conn)
             .await

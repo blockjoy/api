@@ -65,3 +65,6 @@ refresh_user = "20h"
 password_reset = "5m"
 registration_confirmation = "30m"
 invitation = "168m"
+
+[network]
+node_mac_address_prefix = "AA:92:34"

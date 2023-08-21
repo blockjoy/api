@@ -268,6 +268,7 @@ diesel::table! {
         scheduler_similarity -> Nullable<EnumNodeSimilarityAffinity>,
         scheduler_resource -> Nullable<EnumNodeResourceAffinity>,
         scheduler_region -> Nullable<Uuid>,
+        mac_address -> Macaddr,
     }
 }
 

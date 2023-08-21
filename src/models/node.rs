@@ -1,4 +1,5 @@
 mod property;
+use diesel::sql_types::Int8;
 use futures_util::future::OptionFuture;
 pub use property::NodeProperty;
 
@@ -118,6 +119,7 @@ pub struct Node {
     pub scheduler_similarity: Option<SimilarNodeAffinity>,
     pub scheduler_resource: Option<ResourceAffinity>,
     pub scheduler_region: Option<uuid::Uuid>,
+    pub mac_address: [u8; 6],
 }
 
 #[derive(Clone, Debug)]
@@ -389,6 +391,7 @@ impl NewNode<'_> {
 
         let ip_gateway = host.ip_gateway.ip().to_string();
         let dns_record_id = ctx.dns.get_node_dns(&self.name, ip_addr.clone()).await?;
+        let mac_address = Self::mac_addr(ctx.config.network.node_mac_address_prefix, conn).await?;
 
         diesel::insert_into(nodes::table)
             .values((
@@ -398,6 +401,7 @@ impl NewNode<'_> {
                 nodes::ip_addr.eq(ip_addr),
                 nodes::host_name.eq(&host.name),
                 nodes::dns_record_id.eq(dns_record_id),
+                nodes::mac_address.eq(mac_address),
             ))
             .get_result(conn)
             .await
@@ -440,6 +444,22 @@ impl NewNode<'_> {
             .next()
             .ok_or_else(|| NoMatchingHostError("The system is out of resources".to_string()))?;
         Ok(best)
+    }
+
+    pub async fn mac_addr(prefix: [u8; 3], conn: &mut Conn<'_>) -> crate::Result<[u8; 6]> {
+        let val: NextMacAddress = diesel::sql_query("SELECT nextval('node_mac_addresses');")
+            .get_result(conn)
+            .await?;
+        let val: u32 = val.nextval.try_into()?;
+        let mac_address_postfix = val.to_le_bytes(); // french programmer be like
+        Ok([
+            prefix[0],
+            prefix[1],
+            prefix[2],
+            mac_address_postfix[2],
+            mac_address_postfix[1],
+            mac_address_postfix[0],
+        ])
     }
 
     async fn scheduler(&self, conn: &mut Conn<'_>) -> crate::Result<Option<NodeScheduler>> {
@@ -512,6 +532,12 @@ impl UpdateNodeMetrics {
         }
         Ok(results)
     }
+}
+
+#[derive(QueryableByName)]
+struct NextMacAddress {
+    #[diesel(sql_type = Int8)]
+    nextval: i64,
 }
 
 #[cfg(test)]
