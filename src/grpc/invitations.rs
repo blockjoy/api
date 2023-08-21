@@ -97,7 +97,7 @@ async fn create(
             // not get invites in the db that we cannot send emails to. The existence of such an
             // invite would prevent them from trying to recreate again at a later point.
             ctx.mail
-                .invitation_for_registered(&caller, &user, "1 week")
+                .invitation_for_registered(&caller, &user, &invitation, "1 week")
                 .await?;
         }
         Err(_) => {

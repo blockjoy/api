@@ -9,6 +9,7 @@ use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
 use crate::database::Conn;
+use crate::error::QueryError;
 
 use super::schema::blockchains;
 
@@ -53,9 +54,11 @@ impl Blockchain {
     }
 
     pub async fn find_by_id(id: BlockchainId, conn: &mut Conn<'_>) -> crate::Result<Self> {
-        let chain = blockchains::table.find(id).get_result(conn).await?;
-
-        Ok(chain)
+        blockchains::table
+            .find(id)
+            .get_result(conn)
+            .await
+            .for_table_id("blockchains", id)
     }
 
     pub async fn find_by_ids(
@@ -78,7 +81,7 @@ impl Blockchain {
             .filter(super::lower(blockchains::name).eq(super::lower(blockchain)))
             .first(conn)
             .await
-            .map_err(Into::into)
+            .for_table_id("blockchains", blockchain)
     }
 
     // pub async fn properties(&self, conn: &mut Conn<'_>) -> crate::Result<Vec<BlockchainProperty>> {

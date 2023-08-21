@@ -6,12 +6,10 @@ use anyhow::{Context, Result};
 const PROTO_DIR: &str = "proto";
 
 fn main() -> Result<()> {
-    let mut builder = tonic_build::configure();
-
     #[cfg(any(test, feature = "integration-test"))]
-    {
-        builder = builder.build_client(true);
-    }
+    let builder = tonic_build::configure().build_client(true);
+    #[cfg(not(any(test, feature = "integration-test")))]
+    let builder = tonic_build::configure();
 
     builder
         .build_server(true)

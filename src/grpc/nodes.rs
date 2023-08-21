@@ -101,7 +101,10 @@ async fn get(
     let req = req.into_inner();
     let node = Node::find_by_id(req.id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => Org::is_member(user_id, node.org_id, conn).await?,
+        Resource::User(user_id) => {
+            Org::is_member(user_id, node.org_id, conn).await?
+                || User::is_blockjoy_admin(user_id, conn).await?
+        }
         Resource::Org(org_id) => node.org_id == org_id,
         Resource::Host(host_id) => node.host_id == host_id,
         Resource::Node(node_id) => node.id == node_id,
@@ -123,7 +126,10 @@ async fn list(
     let claims = ctx.claims(&req, Endpoint::NodeList, conn).await?;
     let filter = req.into_inner().as_filter()?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => Org::is_member(user_id, filter.org_id, conn).await?,
+        Resource::User(user_id) => {
+            Org::is_member(user_id, filter.org_id, conn).await?
+                || User::is_blockjoy_admin(user_id, conn).await?
+        }
         Resource::Org(org_id) => filter.org_id == org_id,
         Resource::Host(_) => false,
         Resource::Node(_) => false,
@@ -163,7 +169,7 @@ async fn create(
     let host_id = req.host_id()?;
     let host = if let Some(host_id) = host_id {
         let host = Host::find_by_id(host_id, conn).await?;
-        if !Org::is_member(user.id, host.org_id, conn).await? {
+        if !Org::is_member(user.id, host.org_id, conn).await? && !user.is_blockjoy_admin {
             super::forbidden!("Must be member of org");
         }
         Some(host)
@@ -209,7 +215,10 @@ async fn update_config(
     let req = req.into_inner();
     let node = Node::find_by_id(req.id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => Org::is_member(user_id, node.org_id, conn).await?,
+        Resource::User(user_id) => {
+            Org::is_member(user_id, node.org_id, conn).await?
+                || User::is_blockjoy_admin(user_id, conn).await?
+        }
         Resource::Org(org_id) => org_id == node.org_id,
         Resource::Host(host_id) => host_id == node.host_id,
         Resource::Node(node_id) => node_id == node.id,
@@ -243,7 +252,12 @@ async fn update_status(
     let claims = ctx.claims(&req, Endpoint::NodeUpdateStatus, conn).await?;
     let req = req.into_inner();
     let node = Node::find_by_id(req.id.parse()?, conn).await?;
-    if !matches!(claims.resource(), Resource::Host(host_id) if node.host_id == host_id) {
+    let is_allowed = match claims.resource() {
+        Resource::User(user_id) => User::is_blockjoy_admin(user_id, conn).await?,
+        Resource::Host(host_id) => host_id == node.host_id,
+        _ => false,
+    };
+    if !is_allowed {
         super::forbidden!("Access not allowed - only host owning node may update its status")
     }
     let update_node = req.as_update()?;
@@ -271,7 +285,9 @@ async fn delete(
     let req = req.into_inner();
     let node = Node::find_by_id(req.id.parse()?, conn).await?;
 
-    if !Org::is_member(user_id, node.org_id, conn).await? {
+    if !Org::is_member(user_id, node.org_id, conn).await?
+        && !User::is_blockjoy_admin(user_id, conn).await?
+    {
         super::forbidden!("User cannot delete node");
     }
     // 1. Delete node, if the node belongs to the current user
@@ -353,7 +369,10 @@ async fn change_node_state<Res: Default>(
 ) -> super::Result<Res> {
     let node = Node::find_by_id(id.parse()?, conn).await?;
     let is_allowed = match claims.resource() {
-        Resource::User(user_id) => Org::is_member(user_id, node.org_id, conn).await?,
+        Resource::User(user_id) => {
+            Org::is_member(user_id, node.org_id, conn).await?
+                || User::is_blockjoy_admin(user_id, conn).await?
+        }
         Resource::Org(org_id) => org_id == node.org_id,
         Resource::Host(host_id) => host_id == node.host_id,
         Resource::Node(node_id) => node_id == node.id,

@@ -1,9 +1,0 @@
-/.idea
-/compile/target
-blockjoy/.DS_Store
-/clients/ts/package-lock.json
-/clients/ts/node_modules
-package-lock.json
-node_modules
-generated
-.DS_STORE

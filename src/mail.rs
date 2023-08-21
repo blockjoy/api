@@ -77,6 +77,7 @@ impl MailClient {
         &self,
         inviter: &User,
         invitee: &User,
+        invitation: &Invitation,
         expiration: impl std::fmt::Display,
     ) -> crate::Result<()> {
         const TEMPLATES: &str = include_str!("../mails/invite_registered_user.toml");
@@ -84,14 +85,14 @@ impl MailClient {
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
 
-        let link = format!("{}/invite-registered?uid={}", self.base_url, *invitee.id);
-        let inviter = format!(
-            "{} {} ({})",
-            inviter.first_name, inviter.last_name, inviter.email
-        );
+        let query_params = format!("?invitation_id={}", invitation.id);
+        let link = format!("{}/invite-registered{query_params}", self.base_url);
+        let decline_link = format!("{}/decline-registered{query_params}", self.base_url);
+        let inviter = format!("{} ({})", inviter.name(), inviter.email);
         let mut context = HashMap::new();
         context.insert("inviter".to_owned(), inviter);
         context.insert("link".to_owned(), link);
+        context.insert("decline_link".to_owned(), decline_link);
         context.insert("expiration".to_owned(), expiration.to_string());
 
         self.send_mail(
@@ -129,15 +130,15 @@ impl MailClient {
         // A little bit lame but not that big of a deal: the id of the invitation as the id of the
         // user because there is no user here yet.
         let resource = Resource::Org(invitation.org_id);
-        let claims = Claims::from_now(expires, resource, endpoints);
+        let data = [("email".to_string(), invitee.email.to_owned())]
+            .into_iter()
+            .collect();
+        let claims = Claims::from_now(expires, resource, endpoints).with_data(data);
         let token = self.cipher.jwt.encode(&claims)?;
 
         let accept_link = format!("{}/accept-invite?token={}", self.base_url, *token);
         let decline_link = format!("{}/decline-invite?token={}", self.base_url, *token);
-        let inviter = format!(
-            "{} {} ({})",
-            inviter.first_name, inviter.last_name, inviter.email
-        );
+        let inviter = format!("{} ({})", inviter.name(), inviter.email);
         let context = HashMap::from([
             ("inviter".to_owned(), inviter),
             ("accept_link".to_owned(), accept_link),

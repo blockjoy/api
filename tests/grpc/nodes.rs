@@ -3,15 +3,19 @@ use std::ops::DerefMut;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models::command::{Command, CommandType};
 use blockvisor_api::models::node::Node;
-use blockvisor_api::models::schema;
+use blockvisor_api::models::{schema, User};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
+use uuid::Uuid;
+
+use crate::setup::helper::rpc;
+use crate::setup::Tester;
 
 type Service = api::node_service_client::NodeServiceClient<super::Channel>;
 
 #[tokio::test]
 async fn responds_ok_for_update_config() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
 
     let host = tester.host().await;
     let claims = tester.host_token(&host);
@@ -57,9 +61,9 @@ async fn responds_ok_for_update_config() {
 
 #[tokio::test]
 async fn responds_not_found_without_any_for_get() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
     let req = api::NodeServiceGetRequest {
-        id: uuid::Uuid::new_v4().to_string(),
+        id: Uuid::new_v4().to_string(),
     };
     let status = tester.send_admin(Service::get, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::NotFound);
@@ -68,7 +72,7 @@ async fn responds_not_found_without_any_for_get() {
 
 #[tokio::test]
 async fn responds_ok_with_id_for_get() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
     let node = tester.node().await;
     let req = api::NodeServiceGetRequest {
         id: node.id.to_string(),
@@ -79,7 +83,7 @@ async fn responds_ok_with_id_for_get() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_data_for_create() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
     let blockchain = tester.blockchain().await;
     let user = tester.user().await;
     let org = tester.org_for(&user).await;
@@ -127,7 +131,7 @@ async fn responds_ok_with_valid_data_for_create() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_data_for_create_schedule() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
     let blockchain = tester.blockchain().await;
     let user = tester.user().await;
     let org = tester.org_for(&user).await;
@@ -155,7 +159,7 @@ async fn responds_ok_with_valid_data_for_create_schedule() {
 
 #[tokio::test]
 async fn responds_invalid_argument_with_invalid_data_for_create() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
     let blockchain = tester.blockchain().await;
     let req = api::NodeServiceCreateRequest {
         // This is an invalid uuid so the api call should fail.
@@ -184,7 +188,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_data_for_update_config() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
     let node = tester.node().await;
     let req = api::NodeServiceUpdateConfigRequest {
         id: node.id.to_string(),
@@ -201,7 +205,7 @@ async fn responds_ok_with_valid_data_for_update_config() {
 
 #[tokio::test]
 async fn responds_ok_for_start_stop_restart() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
     let node = tester.node().await;
     let req = api::NodeServiceStartRequest {
         id: node.id.to_string(),
@@ -222,7 +226,7 @@ async fn responds_ok_for_start_stop_restart() {
 
 #[tokio::test]
 async fn responds_permission_denied_with_user_token_for_update_status() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
 
     let user = tester.user().await;
     let claims = tester.user_token(&user).await;
@@ -244,7 +248,7 @@ async fn responds_permission_denied_with_user_token_for_update_status() {
 
 #[tokio::test]
 async fn responds_internal_with_invalid_data_for_update_config() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
     let req = api::NodeServiceUpdateConfigRequest {
         // This is an invalid uuid so the api call should fail.
         id: "wowowow".to_string(),
@@ -260,10 +264,10 @@ async fn responds_internal_with_invalid_data_for_update_config() {
 
 #[tokio::test]
 async fn responds_not_found_with_invalid_id_for_update_config() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
     let req = api::NodeServiceUpdateConfigRequest {
         // This uuid will not exist, so the api call should fail.
-        id: uuid::Uuid::new_v4().to_string(),
+        id: Uuid::new_v4().to_string(),
         ..Default::default()
     };
     let status = tester
@@ -276,7 +280,7 @@ async fn responds_not_found_with_invalid_id_for_update_config() {
 
 #[tokio::test]
 async fn responds_ok_with_valid_data_for_delete() {
-    let tester = super::Tester::new().await;
+    let tester = Tester::new().await;
     let node = tester.node().await;
     let req = api::NodeServiceDeleteRequest {
         id: node.id.to_string(),
@@ -285,7 +289,34 @@ async fn responds_ok_with_valid_data_for_delete() {
     validate_command(&tester).await;
 }
 
-async fn validate_command(tester: &super::Tester) {
+#[tokio::test]
+async fn can_get_node_if_blockjoy_admin() {
+    let mut test = Tester::new().await;
+
+    let org_user = rpc::new_org_user(&mut test).await;
+
+    let node = test.node().await;
+    let req = api::NodeServiceGetRequest {
+        id: node.id.to_string(),
+    };
+
+    // different org can't get node
+    let result = test
+        .send_with(Service::get, req.clone(), &org_user.jwt)
+        .await;
+    assert!(result.is_err());
+
+    let conn = &mut test.conn().await;
+    let mut user = User::find_by_id(org_user.user_id, conn).await.unwrap();
+    user.is_blockjoy_admin = true;
+    User::update(&user, conn).await.unwrap();
+
+    // unless they are also a blockjoy admin
+    let result = test.send_with(Service::get, req, &org_user.jwt).await;
+    assert!(result.is_ok());
+}
+
+async fn validate_command(tester: &Tester) {
     let mut conn = tester.conn().await;
     let commands_empty: Vec<Command> = schema::commands::table
         .filter(

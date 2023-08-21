@@ -1,38 +1,29 @@
+use anyhow::{anyhow, Context as _, Result};
 use blockvisor_api::config::{Config, Context};
 use blockvisor_api::server;
-use diesel::Connection;
+use diesel::{Connection, PgConnection};
 use diesel_migrations::MigrationHarness;
 use tracing::info;
-use tracing_log::LogTracer;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{fmt, EnvFilter, Registry};
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    init_tracing();
-
+async fn main() -> Result<()> {
     let context = Context::new().await?;
-    migrate(&context.config);
+    run_migrations(&context.config)?;
+
+    context.config.log.start()?;
 
     info!("Starting server...");
     server::start(context).await?;
 
+    opentelemetry::global::shutdown_tracer_provider();
+
     Ok(())
 }
 
-fn init_tracing() {
-    LogTracer::init().unwrap();
-
-    let env = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let fmt = fmt::Layer::default().with_ansi(false);
-    let registry = Registry::default().with(env).with(fmt);
-
-    tracing::subscriber::set_global_default(registry).unwrap();
-}
-
-fn migrate(config: &Config) {
-    diesel::PgConnection::establish(config.database.url.as_str())
-        .expect("Could not migrate database!")
+fn run_migrations(config: &Config) -> Result<()> {
+    PgConnection::establish(config.database.url.as_str())
+        .context("failed to establish db connection")?
         .run_pending_migrations(blockvisor_api::database::MIGRATIONS)
-        .expect("Failed to run migrations");
+        .map(|_versions| ())
+        .map_err(|err| anyhow!("failed to run db migrations: {err}"))
 }

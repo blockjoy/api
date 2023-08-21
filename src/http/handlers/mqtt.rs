@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Json, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{post, Router};
+use axum_extra::extract::WithRejection;
 use displaydoc::Display;
 use serde_json::Value;
 use thiserror::Error;
@@ -21,6 +23,8 @@ pub enum Error {
     Database(#[from] crate::database::Error),
     /// MQTT handler error: {0}
     Handler(#[from] handler::Error),
+    /// Failed to parse JSON: {0}
+    ParseJson(#[from] JsonRejection),
     /// Failed to parse RequestToken: {0}
     ParseRequestToken(crate::auth::token::Error),
 }
@@ -36,6 +40,7 @@ impl IntoResponse for Error {
             }
             Database(_) => response::failed().into_response(),
             Handler(_) => response::bad_params().into_response(),
+            ParseJson(rejection) => (rejection.status(), rejection.body_text()).into_response(),
         }
     }
 }
@@ -50,14 +55,14 @@ where
         .with_state(context)
 }
 
-async fn auth(Json(value): Json<Value>) -> impl IntoResponse {
+async fn auth(WithRejection(value, _): WithRejection<Json<Value>, Error>) -> impl IntoResponse {
     debug!("MQTT auth payload: {value:?}");
     response::ok()
 }
 
 async fn acl(
     State(ctx): State<Arc<Context>>,
-    Json(req): Json<AclRequest>,
+    WithRejection(req, _): WithRejection<Json<AclRequest>, Error>,
 ) -> Result<impl IntoResponse, Error> {
     let mut conn = ctx.pool.conn().await?;
 

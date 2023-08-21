@@ -58,9 +58,10 @@ impl AclRequest {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum OperationType {
+    #[serde(rename = "1")]
     Publish,
+    #[serde(rename = "2")]
     Subscribe,
 }
 

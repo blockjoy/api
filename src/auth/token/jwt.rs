@@ -20,8 +20,9 @@ pub enum Error {
     DecodeExpired(errors::Error),
 }
 
+/// An encoded representation of a JWT for authentication.
 #[derive(AsRef, Deref, Into)]
-pub struct Encoded(String);
+pub struct Jwt(String);
 
 pub struct Cipher {
     header: Header,
@@ -40,9 +41,9 @@ impl Cipher {
         }
     }
 
-    pub fn encode(&self, claims: &Claims) -> Result<Encoded, Error> {
+    pub fn encode(&self, claims: &Claims) -> Result<Jwt, Error> {
         jsonwebtoken::encode(&self.header, claims, &self.encoding_key)
-            .map(Encoded)
+            .map(Jwt)
             .map_err(Error::Encode)
     }
 

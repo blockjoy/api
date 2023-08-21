@@ -15,7 +15,8 @@ expiration = "1h"
 aws_region = "eu-west-2"
 aws_access_key_id = "<your value>"
 aws_secret_access_key = "<your value>"
-bundle_bucket = "bundles-prod"
+bundle_bucket = "bundle-prod"
+kernel_bucket = "kernel-prod"
 
 [database]
 url = "postgres://blockvisor:password@localhost:25432/blockvisor_db"
@@ -33,6 +34,13 @@ request_concurrency_limit = 128
 
 [key_service]
 url = "https://api.dev.blockjoy.com"
+
+[log]
+environment = "dev"
+filter = "info"
+
+[log.opentelemetry]
+endpoint = "http://localhost:4317"
 
 [mail]
 sendgrid_api_key = "123"

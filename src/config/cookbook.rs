@@ -23,6 +23,8 @@ const AWS_SECRET_ACCESS_KEY_VAR: &str = "AWS_SECRET_ACCESS_KEY";
 const AWS_SECRET_ACCESS_KEY_ENTRY: &str = "cookbook.aws_secret_access_key";
 const BUNDLE_BUCKET_VAR: &str = "R2_BUNDLE_BUCKET";
 const BUNDLE_BUCKET_ENTRY: &str = "cookbook.bundle_bucket";
+const KERNEL_BUCKET_VAR: &str = "R2_KERNEL_BUCKET";
+const KERNEL_BUCKET_ENTRY: &str = "cookbook.kernel_bucket";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -57,6 +59,7 @@ pub struct Config {
     pub key_id: Redacted<String>,
     pub key: Redacted<String>,
     pub bundle_bucket: String,
+    pub kernel_bucket: String,
 }
 
 impl TryFrom<&Provider> for Config {
@@ -87,6 +90,9 @@ impl TryFrom<&Provider> for Config {
                 .map_err(Error::ReadKey)?,
             bundle_bucket: provider
                 .read(BUNDLE_BUCKET_VAR, BUNDLE_BUCKET_ENTRY)
+                .map_err(Error::ReadBundleBucket)?,
+            kernel_bucket: provider
+                .read(KERNEL_BUCKET_VAR, KERNEL_BUCKET_ENTRY)
                 .map_err(Error::ReadBundleBucket)?,
         })
     }

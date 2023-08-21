@@ -1,44 +1,33 @@
-# BlockJoy Api Server
+# Blockvisor API
 
-### Install Diesel CLI
-```bash
-cargo install diesel_cli --no-default-features --features postgres
+To see the list of available commands, run `make help` (or just `make` as it is
+the default action).
+
+Before running any other steps, run `make setup` to ensure all prerequisites are
+in place.
+
+## Running integration tests
+
+First run `make start` to start the required docker-compose services.
+
+Then run `make test` to run the full integration testing suite. If you want to
+run a specific test, pass it as an argument (e.g. `make test my_test`).
+
+When you are finished, run `make stop` to tear down all the docker-compose
+services again.
+
+## Updating protos
+
+All protobuf schema updates are made with a Pull Request to the
+[api-protos](https://github.com/blockjoy/api-proto) repo. Once merged there, the
+submodule in this repo can be updated with:
+
+``` sh
+cd proto
+git checkout main
+git pull
 ```
 
-Run Setup:
-```bash
-diesel setup
-```
-
-Run Migrations:
-```bash
-diesel migration run
-```
-
-Revert Migration:
-```bash
-diesel migration revert
-```
-
-## Testing
-To run:
-```bash
-cargo test
-```
-
-### Run specific test
-If you want to use test name pattern matching of `cargo test` but still having the environment set by `Makefile` you could run the following command:
-
-```bash
-make test-with test=my_test_function
-```
-
-
-## Update protos
-!! Important, before updating the protos, make sure that there are no changes in the local repo.
-
-```bash
-git rm -r proto
-git commit -m "update protos"
-git subtree add --prefix proto https://github.com/blockjoy/api-proto HEAD --squash
-```
+For testing changes in this repo against an in-progress `api-proto` branch you
+can run `git checkout [branch]`, but should switch the submodule back to `main`
+before merging changes to this repo.
