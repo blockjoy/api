@@ -10,7 +10,9 @@ CREATE TABLE blockchain_node_types (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     blockchain_id UUID NOT NULL REFERENCES blockchains ON DELETE RESTRICT,
     node_type enum_node_type NOT NULL,
-    description TEXT NULL
+    description TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE blockchain_versions (
@@ -18,7 +20,9 @@ CREATE TABLE blockchain_versions (
     blockchain_id UUID NOT NULL REFERENCES blockchains ON DELETE RESTRICT,
     blockchain_node_type_id UUID NOT NULL REFERENCES blockchain_node_types ON DELETE RESTRICT,
     version TEXT NOT NULL,
-    description TEXT NULL
+    description TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Here we populate the first two tables with the data that is currently still

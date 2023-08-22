@@ -225,7 +225,8 @@ async fn remove_member(
     let user_id = req.user_id.parse()?;
     let is_admin = Org::is_admin(caller_id, org_id, conn).await?;
     let is_self = caller_id == user_id;
-    if !is_admin && !is_self {
+    let caller = User::find_by_id(caller_id, conn).await?;
+    if !is_admin && !is_self && caller.is_blockjoy_admin {
         super::forbidden!("User {caller_id} can't remove user {user_id} from org {org_id}")
     }
     let user_to_remove = User::find_by_id(user_id, conn).await?;

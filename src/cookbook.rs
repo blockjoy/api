@@ -189,7 +189,7 @@ impl Cookbook {
     pub async fn list(
         &self,
         protocol: &str,
-        node_type: &str,
+        node_type: NodeType,
     ) -> crate::Result<Vec<api::ConfigIdentifier>> {
         // We retrieve the config identifiers from the folder structure on S3. Suppose there exist
         // some files:

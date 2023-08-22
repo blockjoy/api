@@ -1,10 +1,10 @@
-use anyhow::Context;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
 use crate::database::Conn;
+use crate::error::QueryError;
+use crate::models;
 use crate::models::schema::blockchain_versions;
-use crate::models::{self, NodeType};
 
 #[derive(Debug, Clone, Insertable, Queryable, Selectable)]
 #[diesel(table_name = blockchain_versions)]
@@ -14,6 +14,8 @@ pub struct BlockchainVersion {
     pub blockchain_node_type_id: uuid::Uuid,
     pub version: String,
     pub description: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl BlockchainVersion {
@@ -24,17 +26,16 @@ impl BlockchainVersion {
         conn: &mut Conn<'_>,
     ) -> crate::Result<Self> {
         use crate::models::schema::blockchain_node_types;
-
-        let err = || format!("Not found: {}/{version}/{node_type}", blockchain.name);
+        let id = format!("{}/{version}/{node_type}", blockchain.name);
         blockchain_versions::table
             .inner_join(blockchain_node_types::table)
             .filter(blockchain_versions::blockchain_id.eq(blockchain.id))
             .filter(blockchain_versions::version.eq(version))
             .filter(blockchain_node_types::node_type.eq(node_type))
             .select(BlockchainVersion::as_select())
-            .get_results(conn)
+            .get_result(conn)
             .await
-            .with_context(err)
+            .for_table_id("blockchain_versions", id)
     }
 
     pub async fn by_blockchains(
@@ -46,6 +47,17 @@ impl BlockchainVersion {
         blockchain_ids.dedup();
         let versions = blockchain_versions::table
             .filter(blockchain_versions::blockchain_id.eq_any(blockchain_ids))
+            .get_results(conn)
+            .await?;
+        Ok(versions)
+    }
+
+    pub async fn by_blockchain(
+        blockchain: &super::Blockchain,
+        conn: &mut Conn<'_>,
+    ) -> crate::Result<Vec<Self>> {
+        let versions = blockchain_versions::table
+            .filter(blockchain_versions::blockchain_id.eq(blockchain.id))
             .get_results(conn)
             .await?;
         Ok(versions)

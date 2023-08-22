@@ -10,12 +10,12 @@ use crate::models::NodeProperty;
 #[diesel(table_name = blockchain_properties)]
 pub struct BlockchainProperty {
     pub id: uuid::Uuid,
+    pub blockchain_id: super::BlockchainId,
     pub name: String,
     pub default: Option<String>,
     pub ui_type: BlockchainPropertyUiType,
     pub disabled: bool,
     pub required: bool,
-    pub blockchain_id: super::BlockchainId,
     pub blockchain_node_type_id: uuid::Uuid,
     pub blockchain_version_id: uuid::Uuid,
     pub display_name: String,

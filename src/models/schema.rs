@@ -88,6 +88,8 @@ diesel::table! {
         blockchain_id -> Uuid,
         node_type -> EnumNodeType,
         description -> Nullable<Text>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -97,12 +99,12 @@ diesel::table! {
 
     blockchain_properties (id) {
         id -> Uuid,
+        blockchain_id -> Uuid,
         name -> Text,
         default -> Nullable<Text>,
         ui_type -> BlockchainPropertyUiType,
         disabled -> Bool,
         required -> Bool,
-        blockchain_id -> Uuid,
         blockchain_node_type_id -> Uuid,
         blockchain_version_id -> Uuid,
         display_name -> Text,
@@ -116,6 +118,8 @@ diesel::table! {
         blockchain_node_type_id -> Uuid,
         version -> Text,
         description -> Nullable<Text>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 

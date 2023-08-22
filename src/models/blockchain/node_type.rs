@@ -1,4 +1,3 @@
-use anyhow::Context;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 
@@ -13,6 +12,8 @@ pub struct BlockchainNodeType {
     pub blockchain_id: super::BlockchainId,
     pub node_type: NodeType,
     pub description: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl BlockchainNodeType {
@@ -31,6 +32,17 @@ impl BlockchainNodeType {
         let blockchain_ids: Vec<_> = blockchains.iter().map(|b| b.id).collect();
         let versions = blockchain_node_types::table
             .filter(blockchain_node_types::blockchain_id.eq_any(blockchain_ids))
+            .get_results(conn)
+            .await?;
+        Ok(versions)
+    }
+
+    pub async fn by_blockchain(
+        blockchain: &super::Blockchain,
+        conn: &mut Conn<'_>,
+    ) -> crate::Result<Vec<Self>> {
+        let versions = blockchain_node_types::table
+            .filter(blockchain_node_types::blockchain_id.eq(blockchain.id))
             .get_results(conn)
             .await?;
         Ok(versions)

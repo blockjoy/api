@@ -10,7 +10,7 @@ use crate::auth::endpoint::Endpoint;
 use crate::auth::resource::{HostId, NodeId, Resource, UserId};
 use crate::cookbook::script::HardwareRequirements;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
-use crate::models::blockchain::{BlockchainProperty, BlockchainPropertyUiType};
+use crate::models::blockchain::{BlockchainProperty, BlockchainPropertyUiType, BlockchainVersion};
 use crate::models::command::NewCommand;
 use crate::models::node::{FilteredIpAddr, NewNode, NodeFilter, UpdateNode};
 use crate::models::{
@@ -155,8 +155,8 @@ async fn create(
     let req = req.into_inner();
     let blockchain = Blockchain::find_by_id(req.blockchain_id.parse()?, conn).await?;
     let node_type = req.node_type().into_model();
-    // assert that a variant exists.
-    BlockchainVariant::find(&blockchain, &req.version, node_type, conn).await?;
+    // assert that a version exists.
+    BlockchainVersion::find(&blockchain, &req.version, node_type, conn).await?;
     let reqs = ctx
         .cookbook
         .rhai_metadata(&blockchain.name, node_type, &req.version)
@@ -182,8 +182,8 @@ async fn create(
     // { property id: property value }. In order to map property names to property ids we can use
     // the id to name map, and then flip the keys and values to create an id to name map. Note that
     // this requires the names to be unique, but we expect this to be the case.
-    let variant = BlockchainVariant::find(&blockchain, &node.version, node.node_type, conn).await?;
-    let name_to_id_map = BlockchainProperty::id_to_name_map(&variant, conn)
+    let version = BlockchainVersion::find(&blockchain, &node.version, node.node_type, conn).await?;
+    let name_to_id_map = BlockchainProperty::id_to_name_map(&version, conn)
         .await?
         .into_iter()
         .map(|(k, v)| (v, k))

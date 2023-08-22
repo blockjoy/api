@@ -13,8 +13,8 @@ use crate::database::Conn;
 use crate::error::QueryError;
 use crate::models::schema::nodes;
 use crate::models::{
-    Blockchain, Host, HostRequirements, HostType, IpAddress, NodeLog, NodeScheduler, NodeType,
-    Paginate, Region, ResourceAffinity, SimilarNodeAffinity,
+    string_to_array, Blockchain, Host, HostRequirements, HostType, IpAddress, NodeLog,
+    NodeScheduler, NodeType, Paginate, Region, ResourceAffinity, SimilarNodeAffinity,
 };
 
 use super::blockchain::BlockchainId;
@@ -129,7 +129,7 @@ pub struct NodeFilter {
     pub limit: u64,
     pub status: Vec<NodeChainStatus>,
     pub node_types: Vec<NodeType>,
-    pub blockchains: Vec<uuid::Uuid>,
+    pub blockchains: Vec<BlockchainId>,
     pub host_id: Option<HostId>,
 }
 
@@ -293,29 +293,22 @@ impl Node {
         Self::filtered_ip_addrs(self.deny_ips.clone())
     }
 
-    // pub async fn find_all_to_upgrade(
-    //     filter: &NodeSelfUpgradeFilter,
-    //     conn: &mut Conn<'_>,
-    // ) -> crate::Result<Vec<Self>> {
-    //     use super::schema::blockchains;
-
-    //     let nodes = nodes::table
-    //         .inner_join(blockchains::table.on(nodes::blockchain_id.eq(blockchains::id)))
-    //         .filter(nodes::self_update)
-    //         .filter(nodes::node_type.eq(filter.node_type))
-    //         .filter(string_to_array(nodes::version, ".").lt(string_to_array(&filter.version, ".")))
-    //         .filter(blockchains::id.eq(filter.blockchain_id))
-    //         .distinct_on(nodes::id)
-    //         .select(nodes::all_columns)
-    //         .get_results(conn)
-    //         .await
-    //         .map_err(|e| {
-    //             tracing::error!("Error finding nodes to upgrade: {e}");
-    //             e
-    //         })?;
-
-    //     Ok(nodes)
-    // }
+    /// Returns all nodes that are ready to be upgraded for this variant of a blockchain.
+    pub async fn outdated(
+        blockchain_id: BlockchainId,
+        version: &str,
+        node_type: NodeType,
+        conn: &mut Conn<'_>,
+    ) -> crate::Result<Vec<Self>> {
+        let nodes = nodes::table
+            .filter(nodes::self_update)
+            .filter(nodes::node_type.eq(node_type))
+            .filter(string_to_array(nodes::version, ".").lt(string_to_array(&version, ".")))
+            .filter(nodes::blockchain_id.eq(blockchain_id))
+            .get_results(conn)
+            .await?;
+        Ok(nodes)
+    }
 
     fn filtered_ip_addrs(value: serde_json::Value) -> crate::Result<Vec<FilteredIpAddr>> {
         let addrs = serde_json::from_value(value)?;

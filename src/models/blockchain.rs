@@ -84,10 +84,6 @@ impl Blockchain {
             .for_table_id("blockchains", blockchain)
     }
 
-    // pub async fn properties(&self, conn: &mut Conn<'_>) -> crate::Result<Vec<BlockchainProperty>> {
-    //     BlockchainProperty::by_blockchain(self, conn).await
-    // }
-
     pub async fn update(&self, c: &mut Conn<'_>) -> crate::Result<Self> {
         let mut self_to_update = self.clone();
         self_to_update.updated_at = chrono::Utc::now();
@@ -96,47 +92,5 @@ impl Blockchain {
             .get_result(c)
             .await
             .map_err(Into::into)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::config::Context;
-    use crate::models::{NodeSelfUpgradeFilter, NodeType};
-
-    #[tokio::test]
-    async fn test_add_version_existing_version() {
-        let (_ctx, db) = Context::with_mocked().await.unwrap();
-        let mut conn = db.conn().await;
-
-        let node_type = NodeType::Validator;
-        let blockchain = db.blockchain().await;
-        let n_properties = blockchain.properties(&mut conn).await.unwrap().len();
-        let filter = NodeSelfUpgradeFilter {
-            blockchain_id: blockchain.id,
-            node_type,
-            version: "3.3.0".to_string(),
-        };
-        blockchain.add_version(&filter, &mut conn).await.unwrap();
-        let n_properties_new_final = blockchain.properties(&mut conn).await.unwrap().len();
-        assert_eq!(n_properties, n_properties_new_final);
-    }
-
-    #[tokio::test]
-    async fn test_add_version_non_existing_version() {
-        let (_ctx, db) = Context::with_mocked().await.unwrap();
-        let mut conn = db.conn().await;
-
-        let node_type = NodeType::Validator;
-        let blockchain = db.blockchain().await;
-        let n_properties = blockchain.properties(&mut conn).await.unwrap().len();
-        let filter = NodeSelfUpgradeFilter {
-            blockchain_id: blockchain.id,
-            node_type,
-            version: "1.0.0".to_string(),
-        };
-        blockchain.add_version(&filter, &mut conn).await.unwrap();
-        let n_properties_new_final = blockchain.properties(&mut conn).await.unwrap().len();
-        assert_eq!(n_properties + 2, n_properties_new_final);
     }
 }

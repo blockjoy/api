@@ -221,7 +221,8 @@ async fn list_babel_versions(
         .await?;
 
     let req = req.into_inner();
-    let identifiers = ctx.cookbook.list(&req.protocol, &req.node_type).await?;
+    let node_type = req.node_type().into_model();
+    let identifiers = ctx.cookbook.list(&req.protocol, node_type).await?;
     let resp = api::CookbookServiceListBabelVersionsResponse { identifiers };
     Ok(tonic::Response::new(resp))
 }
