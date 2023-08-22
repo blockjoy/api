@@ -566,6 +566,7 @@ impl api::Node {
             placement: Some(placement),
             org_name: org.name.clone(),
             host_org_id: host.org_id.to_string(),
+            data_directory_mountpoint: node.data_mountpoint,
         };
         dto.set_node_type(NodeType::from_model(node.node_type));
         dto.set_status(NodeStatus::from_model(node.chain_status));

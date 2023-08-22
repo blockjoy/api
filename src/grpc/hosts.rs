@@ -421,6 +421,7 @@ impl api::Host {
             org_name: lookup.orgs[&host.org_id].name.clone(),
             region: host.region_id.map(|id| lookup.regions[&id].name.clone()),
             billing_amount,
+            data_directory_mountpoint: host.data_mountpoint,
         })
     }
 }

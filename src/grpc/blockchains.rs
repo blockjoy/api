@@ -69,7 +69,7 @@ async fn list(
             network_identifiers.insert((
                 blockchain.id,
                 blockchain.name.clone(),
-                node_properties.node_type.to_string(),
+                node_properties.node_type,
                 node_properties.version.clone(),
             ));
         }
@@ -78,7 +78,7 @@ async fn list(
         network_identifiers
             .into_iter()
             .map(|(b_id, b_name, node_type, node_version)| {
-                try_get_networks(&cookbook, b_id, b_name, node_type, node_version)
+                try_get_networks(&cookbook, b_id, b_name, node_type.to_string(), node_version)
             });
     let networks = join_all(network_futs).await;
 

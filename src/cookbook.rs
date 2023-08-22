@@ -337,6 +337,7 @@ pub mod script {
     pub struct BlockchainMetadata {
         pub requirements: HardwareRequirements,
         pub nets: HashMap<String, NetConfiguration>,
+        pub babel_config: Option<BabelConfig>,
     }
 
     #[derive(Debug, serde::Deserialize)]
@@ -370,6 +371,11 @@ pub mod script {
                 NetType::Dev => api::NetType::Dev,
             }
         }
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    pub struct BabelConfig {
+        pub data_directory_mount_point: Option<String>,
     }
 
     pub const TEST_SCRIPT: &str = r#"
