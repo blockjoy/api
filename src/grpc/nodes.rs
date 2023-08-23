@@ -625,7 +625,7 @@ impl api::NodeServiceCreateRequest {
             sync_status: NodeSyncStatus::Unknown,
             staking_status: NodeStakingStatus::Unknown,
             container_status: ContainerStatus::Unknown,
-            self_update: false,
+            self_update: true,
             vcpu_count: req.vcpu_count.try_into()?,
             mem_size_bytes: (req.mem_size_mb * 1000 * 1000).try_into()?,
             disk_size_bytes: (req.disk_size_gb * 1000 * 1000 * 1000).try_into()?,
