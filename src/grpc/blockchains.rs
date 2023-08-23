@@ -112,7 +112,7 @@ async fn try_get_networks(
     // We prepare an error message because we are moving all the arguments used to construct it.
     let err_msg = format!("Could not get networks for {name} {node_type} version {node_version:?}");
 
-    let networks = match cookbook.rhai_metadata(&name, node_type, node_version).await {
+    let networks = match cookbook.rhai_metadata(name, node_type, node_version).await {
         Ok(meta) => meta
             .nets
             .into_iter()

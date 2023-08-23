@@ -55,19 +55,6 @@ impl BlockchainProperty {
         Ok(props)
     }
 
-    // pub async fn by_blockchain_version(
-    //     blockchain: &super::Blockchain,
-    //     version: NodeType,
-    //     conn: &mut Conn<'_>,
-    // ) -> crate::Result<Vec<Self>> {
-    //     let props = blockchain_properties::table
-    //         .filter(blockchain_properties::blockchain_version_id.eq(blockchain.id))
-    //         .filter(blockchain_properties::version.eq(version))
-    //         .get_results(conn)
-    //         .await?;
-    //     Ok(props)
-    // }
-
     /// Returns a map from blockchain_property_id to the `name` field of that blockchain property.
     pub async fn by_node_props(
         nprops: &[NodeProperty],

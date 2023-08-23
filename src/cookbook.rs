@@ -289,9 +289,10 @@ impl api::ConfigIdentifier {
         let [_, protocol, node_type, node_version, ..] = &parts[..] else {
             return Err(anyhow!("{key} is not splittable in at least 4 `/`-separated parts").into());
         };
+        let node_type: NodeType = node_type.parse()?;
         let id = api::ConfigIdentifier {
             protocol: protocol.to_string(),
-            node_type: node_type.parse()?,
+            node_type: api::NodeType::from_model(node_type).into(),
             node_version: node_version.to_string(),
         };
         Ok(id)

@@ -30,7 +30,7 @@ impl BlockchainVersion {
         blockchain_versions::table
             .inner_join(blockchain_node_types::table)
             .filter(blockchain_versions::blockchain_id.eq(blockchain.id))
-            .filter(blockchain_versions::version.eq(version))
+            .filter(blockchain_versions::version.eq(version.to_lowercase()))
             .filter(blockchain_node_types::node_type.eq(node_type))
             .select(BlockchainVersion::as_select())
             .get_result(conn)

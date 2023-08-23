@@ -19,3 +19,5 @@ ALTER TABLE blockchain_properties DROP COLUMN display_name;
 
 DROP TABLE blockchain_versions;
 DROP TABLE blockchain_node_types;
+
+ALTER TYPE enum_node_type RENAME VALUE 'api' TO 'rpc';
