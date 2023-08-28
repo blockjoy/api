@@ -17,6 +17,8 @@ use crate::models::{
     NodeScheduler, NodeType, Paginate, Region, ResourceAffinity, SimilarNodeAffinity,
 };
 
+use super::blockchain::BlockchainId;
+
 /// ContainerStatus reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
 #[ExistingTypePath = "crate::models::schema::sql_types::EnumContainerStatus"]
@@ -96,7 +98,7 @@ pub struct Node {
     pub node_data: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub blockchain_id: uuid::Uuid,
+    pub blockchain_id: BlockchainId,
     pub sync_status: NodeSyncStatus,
     pub chain_status: NodeChainStatus,
     pub staking_status: Option<NodeStakingStatus>,
@@ -128,16 +130,8 @@ pub struct NodeFilter {
     pub limit: u64,
     pub status: Vec<NodeChainStatus>,
     pub node_types: Vec<NodeType>,
-    pub blockchains: Vec<uuid::Uuid>,
+    pub blockchains: Vec<BlockchainId>,
     pub host_id: Option<HostId>,
-}
-
-#[derive(Clone, Debug)]
-pub struct NodeSelfUpgradeFilter {
-    pub node_type: NodeType,
-    pub blockchain_id: uuid::Uuid,
-    // Semantic versioning.
-    pub version: String,
 }
 
 impl Node {
@@ -235,7 +229,7 @@ impl Node {
         let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let requirements = ctx
             .cookbook
-            .rhai_metadata(&chain.name, &self.node_type.to_string(), &self.version)
+            .rhai_metadata(&chain.name, self.node_type, &self.version)
             .await?
             .requirements;
 
@@ -279,7 +273,9 @@ impl Node {
     }
 
     pub async fn scheduler(&self, conn: &mut Conn<'_>) -> crate::Result<Option<NodeScheduler>> {
-        let Some(resource) = self.scheduler_resource else { return Ok(None); };
+        let Some(resource) = self.scheduler_resource else {
+            return Ok(None);
+        };
         Ok(Some(NodeScheduler {
             region: self.region(conn).await?,
             similarity: self.scheduler_similarity,
@@ -300,27 +296,20 @@ impl Node {
         Self::filtered_ip_addrs(self.deny_ips.clone())
     }
 
-    pub async fn find_all_to_upgrade(
-        filter: &NodeSelfUpgradeFilter,
+    /// Returns all nodes that are ready to be upgraded for this variant of a blockchain.
+    pub async fn outdated(
+        blockchain_id: BlockchainId,
+        version: &str,
+        node_type: NodeType,
         conn: &mut Conn<'_>,
     ) -> crate::Result<Vec<Self>> {
-        use super::schema::blockchains;
-
         let nodes = nodes::table
-            .inner_join(blockchains::table.on(nodes::blockchain_id.eq(blockchains::id)))
             .filter(nodes::self_update)
-            .filter(nodes::node_type.eq(filter.node_type))
-            .filter(string_to_array(nodes::version, ".").lt(string_to_array(&filter.version, ".")))
-            .filter(blockchains::id.eq(filter.blockchain_id))
-            .distinct_on(nodes::id)
-            .select(nodes::all_columns)
+            .filter(nodes::node_type.eq(node_type))
+            .filter(string_to_array(nodes::version, ".").lt(string_to_array(&version, ".")))
+            .filter(nodes::blockchain_id.eq(blockchain_id))
             .get_results(conn)
-            .await
-            .map_err(|e| {
-                tracing::error!("Error finding nodes to upgrade: {e}");
-                e
-            })?;
-
+            .await?;
         Ok(nodes)
     }
 
@@ -343,7 +332,7 @@ pub struct NewNode<'a> {
     pub org_id: OrgId,
     pub name: String,
     pub version: &'a str,
-    pub blockchain_id: uuid::Uuid,
+    pub blockchain_id: BlockchainId,
     pub block_height: Option<i64>,
     pub node_data: Option<serde_json::Value>,
     pub chain_status: NodeChainStatus,
@@ -433,7 +422,7 @@ impl NewNode<'_> {
 
         let requirements = ctx
             .cookbook
-            .rhai_metadata(&chain.name, &self.node_type.to_string(), self.version)
+            .rhai_metadata(&chain.name, self.node_type, self.version)
             .await?
             .requirements;
         let requirements = HostRequirements {
@@ -454,7 +443,9 @@ impl NewNode<'_> {
     }
 
     async fn scheduler(&self, conn: &mut Conn<'_>) -> crate::Result<Option<NodeScheduler>> {
-        let Some(resource) = self.scheduler_resource else { return Ok(None); };
+        let Some(resource) = self.scheduler_resource else {
+            return Ok(None);
+        };
         let region = self.scheduler_region.map(|id| Region::by_id(id, conn));
         let region = OptionFuture::from(region).await.transpose()?;
         Ok(Some(NodeScheduler {

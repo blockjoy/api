@@ -10,7 +10,7 @@ use crate::auth::endpoint::Endpoint;
 use crate::auth::resource::{HostId, NodeId, Resource, UserId};
 use crate::cookbook::script::HardwareRequirements;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
-use crate::models::blockchain::{BlockchainProperty, BlockchainPropertyUiType};
+use crate::models::blockchain::{BlockchainProperty, BlockchainPropertyUiType, BlockchainVersion};
 use crate::models::command::NewCommand;
 use crate::models::node::{FilteredIpAddr, NewNode, NodeFilter, UpdateNode};
 use crate::models::{
@@ -149,13 +149,16 @@ async fn create(
 ) -> super::Result<api::NodeServiceCreateResponse> {
     let WriteConn { conn, ctx, mqtt_tx } = write;
     let claims = ctx.claims(&req, Endpoint::NodeCreate, conn).await?;
-    let Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
+    let Resource::User(user_id) = claims.resource() else {
+        super::forbidden!("Need user_id!")
+    };
 
     let user = User::find_by_id(user_id, conn).await?;
     let req = req.into_inner();
     let blockchain = Blockchain::find_by_id(req.blockchain_id.parse()?, conn).await?;
-    // We want to cast a string like `NODE_TYPE_VALIDATOR` to `validator`.
-    let node_type = &req.node_type().as_str_name()[10..];
+    let node_type = req.node_type().into_model();
+    // assert that a version exists.
+    BlockchainVersion::find(&blockchain, &req.version, node_type, conn).await?;
     let reqs = ctx
         .cookbook
         .rhai_metadata(&blockchain.name, node_type, &req.version)
@@ -181,12 +184,12 @@ async fn create(
     // { property id: property value }. In order to map property names to property ids we can use
     // the id to name map, and then flip the keys and values to create an id to name map. Note that
     // this requires the names to be unique, but we expect this to be the case.
-    let name_to_id_map =
-        BlockchainProperty::id_to_name_map(&blockchain, node.node_type, &node.version, conn)
-            .await?
-            .into_iter()
-            .map(|(k, v)| (v, k))
-            .collect();
+    let version = BlockchainVersion::find(&blockchain, &node.version, node.node_type, conn).await?;
+    let name_to_id_map = BlockchainProperty::id_to_name_map(&version, conn)
+        .await?
+        .into_iter()
+        .map(|(k, v)| (v, k))
+        .collect();
     NodeProperty::bulk_create(req.properties(&node, name_to_id_map)?, conn).await?;
     let create_notif = create_node_command(&node, CommandType::CreateNode, conn).await?;
     let create_cmd = api::Command::from_model(&create_notif, conn).await?;
@@ -280,7 +283,9 @@ async fn delete(
 ) -> super::Result<api::NodeServiceDeleteResponse> {
     let WriteConn { conn, ctx, mqtt_tx } = write;
     let claims = ctx.claims(&req, Endpoint::NodeDelete, conn).await?;
-    let Resource::User(user_id) = claims.resource() else { super::forbidden!("Need user_id!") };
+    let Resource::User(user_id) = claims.resource() else {
+        super::forbidden!("Need user_id!")
+    };
     let req = req.into_inner();
     let node = Node::find_by_id(req.id.parse()?, conn).await?;
 
@@ -626,7 +631,7 @@ impl api::NodeServiceCreateRequest {
             sync_status: NodeSyncStatus::Unknown,
             staking_status: NodeStakingStatus::Unknown,
             container_status: ContainerStatus::Unknown,
-            self_update: false,
+            self_update: true,
             vcpu_count: req.vcpu_count.try_into()?,
             mem_size_bytes: (req.mem_size_mb * 1000 * 1000).try_into()?,
             disk_size_bytes: (req.disk_size_gb * 1000 * 1000 * 1000).try_into()?,
@@ -926,6 +931,7 @@ impl api::NodeProperty {
     fn from_model(model: NodeProperty, bprop: BlockchainProperty) -> Self {
         let mut prop = Self {
             name: bprop.name,
+            display_name: bprop.display_name,
             ui_type: 0,
             disabled: bprop.disabled,
             required: bprop.required,

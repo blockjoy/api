@@ -422,6 +422,7 @@ pub mod tests {
 
     pub mod seed {
         use crate::grpc::common;
+        use crate::models::blockchain::BlockchainId;
         use crate::models::host::{MonthlyCostUsd, NewHost};
         use crate::models::ip_address::NewIpAddressRange;
         use crate::models::org::NewOrgUser;
@@ -437,6 +438,8 @@ pub mod tests {
         pub const NODE_ID: &str = "cdbbc736-f399-42ab-86cf-617ce983011d";
 
         pub const BLOCKCHAIN_ID: &str = "ab5d8cfc-77b1-4265-9fee-ba71ba9de092";
+        pub const BLOCKCHAIN_NODE_TYPE_ID: &str = "fb56b151-443b-491a-a2a5-50fc12343a91";
+        pub const BLOCKCHAIN_VERSION_ID: &str = "a69e7195-8a78-4e3a-a79e-4ac89edf1d68";
         pub const BLOCKCHAIN_PROPERTY_KEYSTORE: &str = "5972a35a-333c-421f-ab64-a77f4ae17533";
         pub const BLOCKCHAIN_PROPERTY_SELF_HOSTED: &str = "a989ad08-b455-4a57-9fe0-696405947e48";
 
@@ -453,15 +456,17 @@ pub mod tests {
         async fn blockchains(conn: &mut Conn<'_>) -> Blockchain {
             let queries = [
                 format!("INSERT INTO blockchains (id, name) VALUES ('{BLOCKCHAIN_ID}','Ethereum');"),
-                format!("INSERT INTO blockchain_properties VALUES ('{BLOCKCHAIN_PROPERTY_KEYSTORE}', '{BLOCKCHAIN_ID}', '3.3.0', 'validator', 'keystore-file', NULL, 'file_upload', FALSE, FALSE);"),
-                format!("INSERT INTO blockchain_properties VALUES ('{BLOCKCHAIN_PROPERTY_SELF_HOSTED}', '{BLOCKCHAIN_ID}', '3.3.0', 'validator', 'self-hosted', NULL, 'switch', FALSE, FALSE);"),
+                format!("INSERT INTO blockchain_node_types (id, blockchain_id, node_type) VALUES ('{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_ID}', 'validator');"),
+                format!("INSERT INTO blockchain_versions (id, blockchain_id, blockchain_node_type_id, version) VALUES ('{BLOCKCHAIN_VERSION_ID}', '{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NODE_TYPE_ID}', '3.3.0');"),
+                format!("INSERT INTO blockchain_properties VALUES ('{BLOCKCHAIN_PROPERTY_KEYSTORE}', '{BLOCKCHAIN_ID}', 'keystore-file', NULL, 'file_upload', FALSE, FALSE, '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION_ID}', 'Keystore file contents');"),
+                format!("INSERT INTO blockchain_properties VALUES ('{BLOCKCHAIN_PROPERTY_SELF_HOSTED}', '{BLOCKCHAIN_ID}', 'self-hosted', NULL, 'switch', FALSE, FALSE, '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION_ID}', 'Is this noderoni self hosted?');"),
             ];
 
             for query in queries {
                 diesel::sql_query(query).execute(conn).await.unwrap();
             }
 
-            let blockchain_id: Uuid = BLOCKCHAIN_ID.parse().unwrap();
+            let blockchain_id: BlockchainId = BLOCKCHAIN_ID.parse().unwrap();
             blockchains::table
                 .filter(blockchains::id.eq(blockchain_id))
                 .get_result(conn)

@@ -356,7 +356,7 @@ async fn regions(
     let node_type = req.node_type().into_model();
     let requirements = ctx
         .cookbook
-        .rhai_metadata(&blockchain.name, &node_type.to_string(), &req.version)
+        .rhai_metadata(&blockchain.name, node_type, &req.version)
         .await?
         .requirements;
     let regions = Host::regions_for(org_id, blockchain, node_type, requirements, host_type, conn)

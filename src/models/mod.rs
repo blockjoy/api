@@ -27,8 +27,7 @@ pub use ip_address::IpAddress;
 
 pub mod node;
 pub use node::{
-    ContainerStatus, Node, NodeChainStatus, NodeProperty, NodeSelfUpgradeFilter, NodeStakingStatus,
-    NodeSyncStatus,
+    ContainerStatus, Node, NodeChainStatus, NodeProperty, NodeStakingStatus, NodeSyncStatus,
 };
 
 pub mod node_key_file;
@@ -60,46 +59,5 @@ pub use subscription::{Subscription, SubscriptionId};
 pub mod user;
 pub use user::User;
 
-use std::cmp;
-
 diesel::sql_function!(fn lower(x: diesel::sql_types::Text) -> diesel::sql_types::Text);
 diesel::sql_function!(fn string_to_array(version: diesel::sql_types::Text, split: diesel::sql_types::Text) -> diesel::sql_types::Array<diesel::sql_types::Text>);
-
-fn semver_cmp(s1: &str, s2: &str) -> Option<cmp::Ordering> {
-    s1.split('.')
-        .zip(s2.split('.'))
-        .find_map(|(s1, s2)| cmp_str(s1, s2))
-}
-
-fn cmp_str(s1: &str, s2: &str) -> Option<cmp::Ordering> {
-    let take_nums = |s: &str| s.chars().take_while(|c| c.is_numeric()).collect::<String>();
-    let parse_nums = |s: String| s.parse().ok();
-    parse_nums(take_nums(s1))
-        .and_then(|n1: i64| parse_nums(take_nums(s2)).map(move |n2| (n1, n2)))
-        .map(|(n1, n2)| n1.cmp(&n2))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cmp::Ordering::*;
-
-    #[test]
-    fn test_semver_cmp() {
-        assert_eq!(semver_cmp("1.2.3", "1.2.3"), Some(Equal));
-        assert_eq!(semver_cmp("3.2.3", "1.2.3"), Some(Greater));
-        assert_eq!(semver_cmp("1.2.3", "3.2.3"), Some(Less));
-        assert_eq!(semver_cmp("1.2.3-beta", "1.2.3"), Some(Equal));
-        assert_eq!(semver_cmp("1.2.3-beta3", "1.2.3.4"), Some(Equal));
-        assert_eq!(semver_cmp("1.2-beta.3", "1.2"), Some(Equal));
-    }
-
-    #[test]
-    fn test_cmp_str() {
-        assert_eq!(cmp_str("1", "1"), Some(Equal));
-        assert_eq!(cmp_str("1", "2"), Some(Less));
-        assert_eq!(cmp_str("3", "2"), Some(Greater));
-        assert_eq!(cmp_str("3-beta", "2"), Some(Greater));
-        assert_eq!(cmp_str("3", "2-beta"), Some(Greater));
-    }
-}

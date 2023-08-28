@@ -79,7 +79,9 @@ impl Command {
     }
 
     pub async fn node(&self, conn: &mut Conn<'_>) -> Result<Option<Node>> {
-        let Some(node_id) = self.node_id else { return Ok(None) };
+        let Some(node_id) = self.node_id else {
+            return Ok(None);
+        };
         Ok(Some(Node::find_by_id(node_id, conn).await?))
     }
 

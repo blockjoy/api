@@ -17,6 +17,7 @@ use crate::models::ip_address::NewIpAddressRange;
 use crate::models::Paginate;
 use crate::Result;
 
+use super::blockchain::BlockchainId;
 use super::schema::hosts;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
@@ -93,7 +94,7 @@ pub struct HostFilter {
 #[derive(Debug)]
 pub struct HostRequirements {
     pub requirements: HardwareRequirements,
-    pub blockchain_id: uuid::Uuid,
+    pub blockchain_id: BlockchainId,
     pub node_type: super::NodeType,
     pub host_type: Option<super::HostType>,
     pub scheduler: super::NodeScheduler,

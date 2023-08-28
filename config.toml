@@ -37,7 +37,7 @@ url = "https://api.dev.blockjoy.com"
 
 [log]
 environment = "dev"
-filter = "info"
+filter = "info,tower_http=warn"
 
 [log.opentelemetry]
 endpoint = "http://localhost:4317"
