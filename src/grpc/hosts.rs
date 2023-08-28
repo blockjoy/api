@@ -421,7 +421,7 @@ impl api::Host {
             org_name: lookup.orgs[&host.org_id].name.clone(),
             region: host.region_id.map(|id| lookup.regions[&id].name.clone()),
             billing_amount,
-            data_directory_mountpoint: host.data_mountpoint,
+            vmm_mountpoint: host.vmm_mountpoint,
         })
     }
 }
@@ -520,6 +520,7 @@ impl api::HostServiceCreateRequest {
                 .as_ref()
                 .map(MonthlyCostUsd::from_proto)
                 .transpose()?,
+            vmm_mountpoint: self.vmm_mountpoint.as_deref(),
         })
     }
 }

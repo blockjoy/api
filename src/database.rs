@@ -538,6 +538,7 @@ pub mod tests {
                 region_id: Some(region.id),
                 host_type: HostType::Cloud,
                 monthly_cost_in_usd: Some(MonthlyCostUsd::from_proto(&billing).unwrap()),
+                vmm_mountpoint: None,
             };
 
             let host1 = host1.create(conn).await.unwrap();
@@ -560,6 +561,7 @@ pub mod tests {
                 region_id: Some(region.id),
                 host_type: HostType::Cloud,
                 monthly_cost_in_usd: None,
+                vmm_mountpoint: None,
             };
 
             host2.create(conn).await.unwrap();

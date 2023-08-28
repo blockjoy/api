@@ -120,7 +120,7 @@ pub struct Node {
     pub scheduler_similarity: Option<SimilarNodeAffinity>,
     pub scheduler_resource: Option<ResourceAffinity>,
     pub scheduler_region: Option<uuid::Uuid>,
-    pub data_mountpoint: Option<String>,
+    pub data_directory_mountpoint: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -382,9 +382,9 @@ impl NewNode<'_> {
         let blockchain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let dns_record_id = ctx.dns.get_node_dns(&self.name, ip_addr.clone()).await?;
 
-        let data_mountpoint = ctx
+        let data_directory_mountpoint = ctx
             .cookbook
-            .rhai_metadata(&blockchain.name, &self.node_type.to_string(), self.version)
+            .rhai_metadata(&blockchain.name, self.node_type, self.version)
             .await?
             .babel_config
             .and_then(|cfg| cfg.data_directory_mount_point);
@@ -397,7 +397,7 @@ impl NewNode<'_> {
                 nodes::ip_addr.eq(ip_addr),
                 nodes::host_name.eq(&host.name),
                 nodes::dns_record_id.eq(dns_record_id),
-                nodes::data_mountpoint.eq(data_mountpoint),
+                nodes::data_directory_mountpoint.eq(data_directory_mountpoint),
             ))
             .get_result(conn)
             .await

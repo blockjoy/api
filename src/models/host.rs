@@ -75,7 +75,7 @@ pub struct Host {
     pub region_id: Option<uuid::Uuid>,
     // The monthly billing amount for this host (only visible to host owners).
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
-    pub data_mountpoint: Option<String>,
+    pub vmm_mountpoint: Option<String>,
 }
 
 impl AsRef<Host> for Host {
@@ -329,6 +329,7 @@ pub struct NewHost<'a> {
     pub region_id: Option<uuid::Uuid>,
     pub host_type: HostType,
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
+    pub vmm_mountpoint: Option<&'a str>,
 }
 
 impl NewHost<'_> {
