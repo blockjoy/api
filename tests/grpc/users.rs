@@ -1,5 +1,6 @@
 use blockvisor_api::grpc::api;
 use blockvisor_api::models::User;
+use diesel_async::RunQueryDsl;
 
 type Service = api::user_service_client::UserServiceClient<super::Channel>;
 
@@ -171,4 +172,51 @@ async fn test_billing() {
     // Test that it indeed is gone
     let resp = tester.send_admin(Service::get_billing, get).await.unwrap();
     assert!(resp.billing_id.is_none());
+}
+
+#[tokio::test]
+async fn test_filter() {
+    let tester = super::Tester::new().await;
+    let mut conn = tester.conn().await;
+    let req = |org_id, email_like| api::UserServiceFilterRequest { org_id, email_like };
+    let q = "UPDATE users SET is_blockjoy_admin = TRUE WHERE email = 'admin@here.com';";
+    let org_id = tester.org().await.id.to_string();
+    let fake_org_id = uuid::Uuid::new_v4().to_string();
+
+    // Test that we can filter our own org.
+    let resp = tester
+        .send_admin(Service::filter, req(Some(org_id), None))
+        .await
+        .unwrap();
+    assert_eq!(resp.users.len(), 1, "{resp:?}");
+
+    // Test that we cannot filter other organizations
+    tester
+        .send_admin(Service::filter, req(Some(fake_org_id.clone()), None))
+        .await
+        .unwrap_err();
+
+    // Make the admin user into a blockjoy admin.
+    diesel::sql_query(q).execute(&mut conn).await.unwrap();
+
+    // Now assert that we _can_ filter for other organizations.
+    let resp = tester
+        .send_admin(Service::filter, req(Some(fake_org_id), None))
+        .await
+        .unwrap();
+    assert_eq!(resp.users.len(), 0, "{resp:?}");
+
+    // Test that we can filter by email
+    let resp = tester
+        .send_admin(Service::filter, req(None, Some("admin%".to_string())))
+        .await
+        .unwrap();
+    assert_eq!(resp.users.len(), 1, "{resp:?}");
+
+    // Test that we don't get matches when there are none
+    let resp = tester
+        .send_admin(Service::filter, req(None, Some("admin".to_string())))
+        .await
+        .unwrap();
+    assert_eq!(resp.users.len(), 0, "{resp:?}");
 }

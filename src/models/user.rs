@@ -7,14 +7,14 @@ use password_hash::PasswordVerifier;
 use rand::rngs::OsRng;
 use validator::Validate;
 
-use crate::auth::resource::UserId;
+use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
 use crate::error::QueryError;
 
 use super::org::NewOrg;
 use super::schema::users;
 
-#[derive(Debug, Clone, Queryable, AsChangeset)]
+#[derive(Debug, Clone, Queryable, AsChangeset, Selectable)]
 #[diesel(treat_none_as_null = false)]
 pub struct User {
     pub id: UserId,
@@ -42,19 +42,6 @@ impl User {
             .for_table_id("users", id)
     }
 
-    pub fn verify_password(&self, password: &str) -> crate::Result<()> {
-        let arg2 = Argon2::default();
-        let hash = argon2::PasswordHash {
-            algorithm: argon2::Algorithm::default().ident(),
-            version: None,
-            params: Default::default(),
-            salt: Some(password_hash::Salt::from_b64(&self.salt)?),
-            hash: Some(self.hashword.parse()?),
-        };
-        arg2.verify_password(password.as_bytes(), &hash)
-            .map_err(|_| crate::Error::invalid_auth("Invalid email or password."))
-    }
-
     pub async fn find_all(conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
         users::table.get_results(conn).await.for_table("users")
     }
@@ -78,6 +65,45 @@ impl User {
             .get_result(conn)
             .await
             .for_table_id("users", email)
+    }
+
+    pub async fn filter(
+        org_id: Option<OrgId>,
+        email_like: Option<&str>,
+        conn: &mut Conn<'_>,
+    ) -> crate::Result<Vec<Self>> {
+        use crate::models::schema::orgs_users;
+
+        let mut query = Self::not_deleted()
+            .left_join(orgs_users::table)
+            .into_boxed();
+
+        if let Some(org_id) = org_id {
+            query = query.filter(orgs_users::org_id.eq(org_id));
+        }
+        if let Some(email_like) = email_like {
+            query = query.filter(super::lower(users::email).like(email_like.trim().to_lowercase()));
+        }
+
+        query
+            .select(User::as_select())
+            .distinct()
+            .get_results(conn)
+            .await
+            .for_table("users")
+    }
+
+    pub fn verify_password(&self, password: &str) -> crate::Result<()> {
+        let arg2 = Argon2::default();
+        let hash = argon2::PasswordHash {
+            algorithm: argon2::Algorithm::default().ident(),
+            version: None,
+            params: Default::default(),
+            salt: Some(password_hash::Salt::from_b64(&self.salt)?),
+            hash: Some(self.hashword.parse()?),
+        };
+        arg2.verify_password(password.as_bytes(), &hash)
+            .map_err(|_| crate::Error::invalid_auth("Invalid email or password."))
     }
 
     pub async fn update(&self, conn: &mut Conn<'_>) -> crate::Result<Self> {
