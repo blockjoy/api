@@ -125,6 +125,15 @@ impl api::NodeMetrics {
             consensus: self.consensus,
             chain_status: Some(self.application_status().into_model()),
             sync_status: Some(self.sync_status().into_model()),
+            data_sync_progress_total: self
+                .data_sync_progress_total
+                .map(i32::try_from)
+                .transpose()?,
+            data_sync_progress_current: self
+                .data_sync_progress_current
+                .map(i32::try_from)
+                .transpose()?,
+            data_sync_progress_message: self.data_sync_progress_message,
         })
     }
 }

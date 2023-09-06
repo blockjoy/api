@@ -121,6 +121,9 @@ pub struct Node {
     pub scheduler_resource: Option<ResourceAffinity>,
     pub scheduler_region: Option<uuid::Uuid>,
     pub data_directory_mountpoint: Option<String>,
+    pub data_sync_progress_total: Option<i32>,
+    pub data_sync_progress_current: Option<i32>,
+    pub data_sync_progress_message: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -496,6 +499,9 @@ pub struct UpdateNodeMetrics {
     pub consensus: Option<bool>,
     pub chain_status: Option<NodeChainStatus>,
     pub sync_status: Option<NodeSyncStatus>,
+    pub data_sync_progress_total: Option<i32>,
+    pub data_sync_progress_current: Option<i32>,
+    pub data_sync_progress_message: Option<String>,
 }
 
 impl UpdateNodeMetrics {

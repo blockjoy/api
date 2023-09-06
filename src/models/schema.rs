@@ -296,6 +296,9 @@ diesel::table! {
         scheduler_resource -> Nullable<EnumNodeResourceAffinity>,
         scheduler_region -> Nullable<Uuid>,
         data_directory_mountpoint -> Nullable<Text>,
+        data_sync_progress_total -> Nullable<Int4>,
+        data_sync_progress_current -> Nullable<Int4>,
+        data_sync_progress_message -> Nullable<Text>,
     }
 }
 
