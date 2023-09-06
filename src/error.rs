@@ -123,6 +123,9 @@ pub enum Error {
 
     #[error("Unsupported BillingAmount Period: {0:?}")]
     BillingAmountPeriod(i32),
+
+    #[error("Error sending email")]
+    SendgridError(#[from] sendgrid::SendgridError),
 }
 
 impl Error {

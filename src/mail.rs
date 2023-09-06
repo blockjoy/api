@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use tracing::warn;
 use url::Url;
 
 use crate::auth::claims::Claims;
@@ -13,16 +12,47 @@ use crate::config::{token, Config};
 use crate::models::{Invitation, User};
 
 pub struct MailClient {
-    client: sendgrid::SGClient,
+    client: Box<dyn MailSender + Send + Sync>,
     token_config: Arc<token::Config>,
     base_url: Url,
     cipher: Arc<Cipher>,
 }
 
+#[tonic::async_trait]
+trait MailSender {
+    async fn send(&self, mail: sendgrid::Mail<'_>) -> crate::Result<()>;
+}
+
+#[tonic::async_trait]
+impl MailSender for sendgrid::SGClient {
+    async fn send(&self, mail: sendgrid::Mail<'_>) -> crate::Result<()> {
+        sendgrid::SGClient::send(self, mail).await?;
+        Ok(())
+    }
+}
+
+pub struct TestMailer {}
+
+#[tonic::async_trait]
+impl MailSender for TestMailer {
+    async fn send(&self, _: sendgrid::Mail<'_>) -> crate::Result<()> {
+        Ok(())
+    }
+}
+
 impl MailClient {
     pub fn new(config: &Config, cipher: Arc<Cipher>) -> Self {
         Self {
-            client: sendgrid::SGClient::new(&*config.mail.sendgrid_api_key),
+            client: Box::new(sendgrid::SGClient::new(&*config.mail.sendgrid_api_key)),
+            token_config: config.token.clone(),
+            base_url: config.mail.ui_base_url.clone(),
+            cipher,
+        }
+    }
+
+    pub fn new_mocked(config: &Config, cipher: Arc<Cipher>) -> Self {
+        Self {
+            client: Box::new(TestMailer {}),
             token_config: config.token.clone(),
             base_url: config.mail.ui_base_url.clone(),
             cipher,
@@ -36,7 +66,7 @@ impl MailClient {
         let templates = toml::from_str(TEMPLATES)
             .map_err(|e| anyhow!("Our email toml template {TEMPLATES} is bad! {e}"))?;
 
-        self.send_mail(
+        self.send(
             &templates,
             Recipient::redact_user(user),
             "[BlockJoy] Password Updated".to_string(),
@@ -64,7 +94,7 @@ impl MailClient {
         let mut context = HashMap::new();
         context.insert("link".to_owned(), link);
 
-        self.send_mail(
+        self.send(
             &templates,
             Recipient::redact_user(user),
             "[BlockJoy] Verify Your Account".to_string(),
@@ -95,7 +125,7 @@ impl MailClient {
         context.insert("decline_link".to_owned(), decline_link);
         context.insert("expiration".to_owned(), expiration.to_string());
 
-        self.send_mail(
+        self.send(
             &templates,
             Recipient::redact_user(invitee),
             "[BlockJoy] Organization Invite".to_string(),
@@ -146,7 +176,7 @@ impl MailClient {
             ("expiration".to_owned(), expiration.to_string()),
         ]);
 
-        self.send_mail(
+        self.send(
             &templates,
             invitee,
             "[BlockJoy] Organization Invite".to_string(),
@@ -171,7 +201,7 @@ impl MailClient {
         let link = format!("{}/password_reset?token={}", self.base_url, *token);
         let context = HashMap::from([("link".to_string(), link)]);
 
-        self.send_mail(
+        self.send(
             &templates,
             Recipient::redact_user(user),
             "[BlockJoy] Reset Password".to_string(),
@@ -180,7 +210,7 @@ impl MailClient {
         .await
     }
 
-    async fn send_mail(
+    async fn send(
         &self,
         templates: &Templates,
         to: Recipient<'_>,
@@ -207,13 +237,7 @@ impl MailClient {
             date: &chrono::Utc::now().to_rfc2822(),
             ..Default::default()
         };
-
-        // TODO: better error handling
-        if let Err(err) = self.client.send(mail).await {
-            warn!("Failed to send email: {err}");
-        }
-
-        Ok(())
+        self.client.send(mail).await
     }
 }
 
@@ -292,6 +316,8 @@ impl Template {
 
 #[cfg(test)]
 mod test {
+    use crate::auth::Auth;
+
     use super::*;
     use std::{fs, io};
 
@@ -306,5 +332,58 @@ mod test {
             }
         }
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_render_emails() {
+        let config = Config::new().unwrap();
+        let auth = Auth::new(&config.token).unwrap();
+        let client = MailClient {
+            client: Box::new(TestMailer {}),
+            token_config: config.token.clone(),
+            base_url: config.mail.ui_base_url.clone(),
+            cipher: auth.cipher,
+        };
+        let user = User {
+            id: uuid::Uuid::new_v4().into(),
+            email: "tmp@tmp.tmp".to_string(),
+            hashword: "something fake".to_string(),
+            salt: "something even faker".to_string(),
+            created_at: Default::default(),
+            first_name: "Luuk".to_string(),
+            last_name: "Tester".to_string(),
+            confirmed_at: Default::default(),
+            deleted_at: Default::default(),
+            billing_id: Default::default(),
+            is_blockjoy_admin: Default::default(),
+        };
+        let user2 = User {
+            email: "testing@receiver.blockjoy".to_string(),
+            first_name: "Shaun".to_string(),
+            last_name: "Testheri".to_string(),
+            ..user.clone()
+        };
+        let recipient = Recipient::redact_user(&user2);
+        let invitation = Invitation {
+            id: uuid::Uuid::new_v4(),
+            created_by: uuid::Uuid::new_v4().into(),
+            org_id: uuid::Uuid::new_v4().into(),
+            invitee_email: "testing@receiver.blockjoy".to_string(),
+            created_at: Default::default(),
+            accepted_at: Default::default(),
+            declined_at: Default::default(),
+        };
+
+        client.update_password(&user).await.unwrap();
+        client.registration_confirmation(&user).await.unwrap();
+        client
+            .invitation_for_registered(&user, &user2, &invitation, "tomorrow")
+            .await
+            .unwrap();
+        client
+            .invitation(&invitation, &user, recipient, "yesterday")
+            .await
+            .unwrap();
+        client.reset_password(&user).await.unwrap();
     }
 }
