@@ -35,6 +35,13 @@ request_concurrency_limit = 128
 [key_service]
 url = "https://api.dev.blockjoy.com"
 
+[log]
+environment = "dev"
+filter = "info,tower_http=warn"
+
+[log.opentelemetry]
+endpoint = "http://localhost:4317"
+
 [mail]
 sendgrid_api_key = "123"
 ui_base_url = "https://app.alpha.blockvisor.dev"

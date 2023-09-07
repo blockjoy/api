@@ -34,7 +34,7 @@ async fn recover_created(
     let mut vec = vec![];
     let Some(node_id) = failed_cmd.node_id else {
         error!("`CreateNode` command has no node id!");
-        return Err(crate::Error::ValidationError (
+        return Err(crate::Error::ValidationError(
             "CreateNode command has no node id".to_string(),
         ));
     };
@@ -49,13 +49,13 @@ async fn recover_created(
     //    blockvisord, or mark the current node as failed and send an MQTT message to the front end.
     let Ok(mut node) = Node::find_by_id(node_id, conn).await else {
         error!("Could not get node for node_id {node_id}");
-        return Err(crate::Error::ValidationError (
+        return Err(crate::Error::ValidationError(
             "Could not get node for node_id".to_string(),
         ));
     };
     let Ok(blockchain) = Blockchain::find_by_id(node.blockchain_id, conn).await else {
         error!("Could not get blockchain for node {node_id}");
-        return Err(crate::Error::ValidationError (
+        return Err(crate::Error::ValidationError(
             "Could not get blockchain for node".to_string(),
         ));
     };

@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
+use crate::error::QueryError;
 use crate::Result;
 
 use super::schema::{orgs, orgs_users};
@@ -25,18 +26,21 @@ type NotDeleted = dsl::Filter<orgs::table, dsl::IsNull<orgs::deleted_at>>;
 
 impl Org {
     pub async fn find_by_id(org_id: OrgId, conn: &mut Conn<'_>) -> crate::Result<Self> {
-        let org = Org::not_deleted().find(org_id).get_result(conn).await?;
-        Ok(org)
+        Org::not_deleted()
+            .find(org_id)
+            .get_result(conn)
+            .await
+            .for_table_id("orgs", org_id)
     }
 
     pub async fn find_by_ids(mut org_ids: Vec<OrgId>, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
         org_ids.sort();
         org_ids.dedup();
-        let orgs = orgs::table
+        orgs::table
             .filter(orgs::id.eq_any(org_ids))
             .get_results(conn)
-            .await?;
-        Ok(orgs)
+            .await
+            .for_table("orgs")
     }
 
     pub async fn filter(member_id: Option<UserId>, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
@@ -48,34 +52,33 @@ impl Org {
             query = query.filter(orgs_users::user_id.eq(member_id));
         }
 
-        let orgs = query
+        query
             .select(Self::as_select())
             .distinct()
             .get_results(conn)
-            .await?;
-        Ok(orgs)
+            .await
+            .for_table("orgs")
     }
 
     pub async fn memberships(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<OrgUser>> {
-        let orgs = orgs_users::table
+        orgs_users::table
             .filter(orgs_users::user_id.eq(user_id))
             .select(OrgUser::as_select())
             .get_results(conn)
-            .await?;
-
-        Ok(orgs)
+            .await
+            .for_table("orgs")
     }
 
     pub async fn find_personal_org(user: &User, conn: &mut Conn<'_>) -> Result<Org> {
-        let org = Self::not_deleted()
+        Self::not_deleted()
             .filter(orgs::is_personal)
             .filter(orgs_users::user_id.eq(user.id))
             .filter(orgs_users::role.eq(OrgRole::Owner))
             .inner_join(orgs_users::table)
             .select(Org::as_select())
             .get_result(conn)
-            .await?;
-        Ok(org)
+            .await
+            .for_table("orgs")
     }
 
     /// Checks if the user is a member.
@@ -83,10 +86,10 @@ impl Org {
         let target_user = orgs_users::table
             .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::org_id.eq(org_id));
-        let is_member = diesel::select(dsl::exists(target_user))
+        diesel::select(dsl::exists(target_user))
             .get_result(conn)
-            .await?;
-        Ok(is_member)
+            .await
+            .for_table("orgs_users")
     }
 
     pub async fn is_member_all(
@@ -102,7 +105,8 @@ impl Org {
             .filter(orgs_users::org_id.eq_any(org_ids))
             .count()
             .get_result(conn)
-            .await?;
+            .await
+            .for_table("orgs_users")?;
         Ok(count == len)
     }
 
@@ -113,10 +117,10 @@ impl Org {
             .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::org_id.eq(org_id))
             .filter(orgs_users::role.eq_any([OrgRole::Admin, OrgRole::Owner]));
-        let is_member = diesel::select(dsl::exists(target_user))
+        diesel::select(dsl::exists(target_user))
             .get_result(conn)
-            .await?;
-        Ok(is_member)
+            .await
+            .for_table("orgs_users")
     }
 
     pub async fn is_admin_all(
@@ -133,7 +137,8 @@ impl Org {
             .filter(orgs_users::role.eq_any([OrgRole::Admin, OrgRole::Owner]))
             .count()
             .get_result(conn)
-            .await?;
+            .await
+            .for_table("orgs_users")?;
         Ok(count == len)
     }
 
@@ -150,7 +155,10 @@ impl Org {
         let org_user = orgs_users::table
             .filter(orgs_users::user_id.eq(user.id))
             .filter(orgs_users::org_id.eq(self.id));
-        diesel::delete(org_user).execute(conn).await?;
+        diesel::delete(org_user)
+            .execute(conn)
+            .await
+            .for_table("orgs_users")?;
         Ok(())
     }
 
@@ -162,7 +170,8 @@ impl Org {
         diesel::update(to_delete)
             .set(orgs::deleted_at.eq(chrono::Utc::now()))
             .execute(conn)
-            .await?;
+            .await
+            .for_table("orgs")?;
         Ok(())
     }
 

@@ -5,6 +5,7 @@ use crate::auth::endpoint::Endpoint;
 use crate::auth::resource::Resource;
 use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::models::user::{NewUser, UpdateUser, User};
+use crate::models::Org;
 use crate::timestamp::NanosUtc;
 
 use super::api::{self, user_service_server};
@@ -23,6 +24,13 @@ impl user_service_server::UserService for super::Grpc {
         req: tonic::Request<api::UserServiceGetRequest>,
     ) -> super::Resp<api::UserServiceGetResponse> {
         self.read(|read| get(req, read).scope_boxed()).await
+    }
+
+    async fn filter(
+        &self,
+        req: tonic::Request<api::UserServiceFilterRequest>,
+    ) -> super::Resp<api::UserServiceFilterResponse> {
+        self.read(|read| filter(req, read).scope_boxed()).await
     }
 
     async fn update(
@@ -103,6 +111,39 @@ async fn get(
     }
     let resp = api::UserServiceGetResponse {
         user: Some(api::User::from_model(user)?),
+    };
+    Ok(tonic::Response::new(resp))
+}
+
+async fn filter(
+    req: tonic::Request<api::UserServiceFilterRequest>,
+    read: ReadConn<'_, '_>,
+) -> super::Result<api::UserServiceFilterResponse> {
+    let ReadConn { conn, ctx } = read;
+    let claims = ctx.claims(&req, Endpoint::UserFilter, conn).await?;
+    let req = req.into_inner();
+    let org_id = req.org_id.map(|id| id.parse()).transpose()?;
+    let is_allowed = match claims.resource() {
+        Resource::User(user_id) => {
+            let user = User::find_by_id(user_id, conn).await?;
+            if user.is_blockjoy_admin {
+                true
+            } else if let Some(org_id) = org_id {
+                Org::is_member(user.id, org_id, conn).await?
+            } else {
+                false
+            }
+        }
+        Resource::Org(org_id_) => Some(org_id_) == org_id,
+        Resource::Host(_) => false,
+        Resource::Node(_) => false,
+    };
+    if !is_allowed {
+        super::forbidden!("Access denied for users get")
+    }
+    let users = User::filter(org_id, req.email_like.as_deref(), conn).await?;
+    let resp = api::UserServiceFilterResponse {
+        users: api::User::from_models(users)?,
     };
     Ok(tonic::Response::new(resp))
 }
@@ -240,6 +281,10 @@ impl api::User {
         };
         user.set_role(api::UserRole::from_model(model.is_blockjoy_admin));
         Ok(user)
+    }
+
+    pub fn from_models(models: Vec<User>) -> crate::Result<Vec<Self>> {
+        models.into_iter().map(Self::from_model).collect()
     }
 }
 

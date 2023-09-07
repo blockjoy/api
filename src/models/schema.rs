@@ -82,18 +82,44 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::EnumNodeType;
+
+    blockchain_node_types (id) {
+        id -> Uuid,
+        blockchain_id -> Uuid,
+        node_type -> EnumNodeType,
+        description -> Nullable<Text>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::BlockchainPropertyUiType;
 
     blockchain_properties (id) {
         id -> Uuid,
         blockchain_id -> Uuid,
-        version -> Text,
-        node_type -> EnumNodeType,
         name -> Text,
         default -> Nullable<Text>,
         ui_type -> BlockchainPropertyUiType,
         disabled -> Bool,
         required -> Bool,
+        blockchain_node_type_id -> Uuid,
+        blockchain_version_id -> Uuid,
+        display_name -> Text,
+    }
+}
+
+diesel::table! {
+    blockchain_versions (id) {
+        id -> Uuid,
+        blockchain_id -> Uuid,
+        blockchain_node_type_id -> Uuid,
+        version -> Text,
+        description -> Nullable<Text>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -162,6 +188,7 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         region_id -> Nullable<Uuid>,
         monthly_cost_in_usd -> Nullable<Int8>,
+        vmm_mountpoint -> Nullable<Text>,
     }
 }
 
@@ -268,6 +295,10 @@ diesel::table! {
         scheduler_similarity -> Nullable<EnumNodeSimilarityAffinity>,
         scheduler_resource -> Nullable<EnumNodeResourceAffinity>,
         scheduler_region -> Nullable<Uuid>,
+        data_directory_mountpoint -> Nullable<Text>,
+        data_sync_progress_total -> Nullable<Int4>,
+        data_sync_progress_current -> Nullable<Int4>,
+        data_sync_progress_message -> Nullable<Text>,
     }
 }
 
@@ -341,7 +372,12 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(blockchain_node_types -> blockchains (blockchain_id));
+diesel::joinable!(blockchain_properties -> blockchain_node_types (blockchain_node_type_id));
+diesel::joinable!(blockchain_properties -> blockchain_versions (blockchain_version_id));
 diesel::joinable!(blockchain_properties -> blockchains (blockchain_id));
+diesel::joinable!(blockchain_versions -> blockchain_node_types (blockchain_node_type_id));
+diesel::joinable!(blockchain_versions -> blockchains (blockchain_id));
 diesel::joinable!(commands -> hosts (host_id));
 diesel::joinable!(commands -> nodes (node_id));
 diesel::joinable!(hosts -> orgs (org_id));
@@ -364,7 +400,9 @@ diesel::joinable!(subscriptions -> orgs (org_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     api_keys,
+    blockchain_node_types,
     blockchain_properties,
+    blockchain_versions,
     blockchains,
     commands,
     hosts,

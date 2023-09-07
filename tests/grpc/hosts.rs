@@ -107,6 +107,7 @@ async fn responds_ok_for_create() {
         org_id: Some(org_id),
         region: Some("europe-2-birmingham".to_string()),
         billing_amount: None,
+        vmm_mountpoint: Some("/a/path/to/the/data/treasure".to_string()),
     };
     tester.send(Service::create, req).await.unwrap();
 }

@@ -108,7 +108,7 @@ impl Context {
         let auth = Auth::new(&config.token).map_err(Error::Auth)?;
         let cookbook = TestCookbook::new().await.get_cookbook_api();
         let dns = MockDns::new().await;
-        let mail = MailClient::new(&config, auth.cipher.clone());
+        let mail = MailClient::new_mocked(&config, auth.cipher.clone());
         let notifier = Notifier::new(config.mqtt.options())
             .await
             .map_err(Error::Notifier)?;

@@ -10,11 +10,14 @@ use diesel_async::RunQueryDsl;
 use crate::auth::resource::{HostId, NodeId, OrgId, UserId};
 use crate::config::Context;
 use crate::database::Conn;
+use crate::error::QueryError;
 use crate::models::schema::nodes;
 use crate::models::{
     string_to_array, Blockchain, Host, HostRequirements, HostType, IpAddress, NodeLog,
     NodeScheduler, NodeType, Paginate, Region, ResourceAffinity, SimilarNodeAffinity,
 };
+
+use super::blockchain::BlockchainId;
 
 /// ContainerStatus reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
@@ -95,7 +98,7 @@ pub struct Node {
     pub node_data: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub blockchain_id: uuid::Uuid,
+    pub blockchain_id: BlockchainId,
     pub sync_status: NodeSyncStatus,
     pub chain_status: NodeChainStatus,
     pub staking_status: Option<NodeStakingStatus>,
@@ -117,6 +120,10 @@ pub struct Node {
     pub scheduler_similarity: Option<SimilarNodeAffinity>,
     pub scheduler_resource: Option<ResourceAffinity>,
     pub scheduler_region: Option<uuid::Uuid>,
+    pub data_directory_mountpoint: Option<String>,
+    pub data_sync_progress_total: Option<i32>,
+    pub data_sync_progress_current: Option<i32>,
+    pub data_sync_progress_message: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -126,22 +133,17 @@ pub struct NodeFilter {
     pub limit: u64,
     pub status: Vec<NodeChainStatus>,
     pub node_types: Vec<NodeType>,
-    pub blockchains: Vec<uuid::Uuid>,
+    pub blockchains: Vec<BlockchainId>,
     pub host_id: Option<HostId>,
-}
-
-#[derive(Clone, Debug)]
-pub struct NodeSelfUpgradeFilter {
-    pub node_type: NodeType,
-    pub blockchain_id: uuid::Uuid,
-    // Semantic versioning.
-    pub version: String,
 }
 
 impl Node {
     pub async fn find_by_id(id: NodeId, conn: &mut Conn<'_>) -> crate::Result<Self> {
-        let node = nodes::table.find(id).get_result(conn).await?;
-        Ok(node)
+        nodes::table
+            .find(id)
+            .get_result(conn)
+            .await
+            .for_table_id("nodes", id)
     }
 
     pub async fn find_by_ids(
@@ -150,11 +152,11 @@ impl Node {
     ) -> crate::Result<Vec<Self>> {
         ids.sort();
         ids.dedup();
-        let node = nodes::table
+        nodes::table
             .filter(nodes::id.eq_any(ids))
             .get_results(conn)
-            .await?;
-        Ok(node)
+            .await
+            .for_table("nodes")
     }
 
     pub async fn properties(&self, conn: &mut Conn<'_>) -> crate::Result<Vec<NodeProperty>> {
@@ -195,9 +197,11 @@ impl Node {
         }
 
         let (total, nodes) = query
+            .order_by(nodes::created_at.desc())
             .paginate(limit.try_into()?, offset.try_into()?)
             .get_results_counted(conn)
-            .await?;
+            .await
+            .for_table("nodes")?;
         Ok((total.try_into()?, nodes))
     }
 
@@ -228,7 +232,7 @@ impl Node {
         let chain = Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let requirements = ctx
             .cookbook
-            .rhai_metadata(&chain.name, &self.node_type.to_string(), &self.version)
+            .rhai_metadata(&chain.name, self.node_type, &self.version)
             .await?
             .requirements;
 
@@ -272,7 +276,9 @@ impl Node {
     }
 
     pub async fn scheduler(&self, conn: &mut Conn<'_>) -> crate::Result<Option<NodeScheduler>> {
-        let Some(resource) = self.scheduler_resource else { return Ok(None); };
+        let Some(resource) = self.scheduler_resource else {
+            return Ok(None);
+        };
         Ok(Some(NodeScheduler {
             region: self.region(conn).await?,
             similarity: self.scheduler_similarity,
@@ -293,27 +299,20 @@ impl Node {
         Self::filtered_ip_addrs(self.deny_ips.clone())
     }
 
-    pub async fn find_all_to_upgrade(
-        filter: &NodeSelfUpgradeFilter,
+    /// Returns all nodes that are ready to be upgraded for this variant of a blockchain.
+    pub async fn outdated(
+        blockchain_id: BlockchainId,
+        version: &str,
+        node_type: NodeType,
         conn: &mut Conn<'_>,
     ) -> crate::Result<Vec<Self>> {
-        use super::schema::blockchains;
-
         let nodes = nodes::table
-            .inner_join(blockchains::table.on(nodes::blockchain_id.eq(blockchains::id)))
             .filter(nodes::self_update)
-            .filter(nodes::node_type.eq(filter.node_type))
-            .filter(string_to_array(nodes::version, ".").lt(string_to_array(&filter.version, ".")))
-            .filter(blockchains::id.eq(filter.blockchain_id))
-            .distinct_on(nodes::id)
-            .select(nodes::all_columns)
+            .filter(nodes::node_type.eq(node_type))
+            .filter(string_to_array(nodes::version, ".").lt(string_to_array(&version, ".")))
+            .filter(nodes::blockchain_id.eq(blockchain_id))
             .get_results(conn)
-            .await
-            .map_err(|e| {
-                tracing::error!("Error finding nodes to upgrade: {e}");
-                e
-            })?;
-
+            .await?;
         Ok(nodes)
     }
 
@@ -336,7 +335,7 @@ pub struct NewNode<'a> {
     pub org_id: OrgId,
     pub name: String,
     pub version: &'a str,
-    pub blockchain_id: uuid::Uuid,
+    pub blockchain_id: BlockchainId,
     pub block_height: Option<i64>,
     pub node_data: Option<serde_json::Value>,
     pub chain_status: NodeChainStatus,
@@ -382,7 +381,16 @@ impl NewNode<'_> {
             .to_string();
 
         let ip_gateway = host.ip_gateway.ip().to_string();
+
+        let blockchain = super::Blockchain::find_by_id(self.blockchain_id, conn).await?;
         let dns_record_id = ctx.dns.get_node_dns(&self.name, ip_addr.clone()).await?;
+
+        let data_directory_mountpoint = ctx
+            .cookbook
+            .rhai_metadata(&blockchain.name, self.node_type, self.version)
+            .await?
+            .babel_config
+            .and_then(|cfg| cfg.data_directory_mount_point);
 
         diesel::insert_into(nodes::table)
             .values((
@@ -392,6 +400,7 @@ impl NewNode<'_> {
                 nodes::ip_addr.eq(ip_addr),
                 nodes::host_name.eq(&host.name),
                 nodes::dns_record_id.eq(dns_record_id),
+                nodes::data_directory_mountpoint.eq(data_directory_mountpoint),
             ))
             .get_result(conn)
             .await
@@ -416,7 +425,7 @@ impl NewNode<'_> {
 
         let requirements = ctx
             .cookbook
-            .rhai_metadata(&chain.name, &self.node_type.to_string(), self.version)
+            .rhai_metadata(&chain.name, self.node_type, self.version)
             .await?
             .requirements;
         let requirements = HostRequirements {
@@ -437,7 +446,9 @@ impl NewNode<'_> {
     }
 
     async fn scheduler(&self, conn: &mut Conn<'_>) -> crate::Result<Option<NodeScheduler>> {
-        let Some(resource) = self.scheduler_resource else { return Ok(None); };
+        let Some(resource) = self.scheduler_resource else {
+            return Ok(None);
+        };
         let region = self.scheduler_region.map(|id| Region::by_id(id, conn));
         let region = OptionFuture::from(region).await.transpose()?;
         Ok(Some(NodeScheduler {
@@ -488,6 +499,9 @@ pub struct UpdateNodeMetrics {
     pub consensus: Option<bool>,
     pub chain_status: Option<NodeChainStatus>,
     pub sync_status: Option<NodeSyncStatus>,
+    pub data_sync_progress_total: Option<i32>,
+    pub data_sync_progress_current: Option<i32>,
+    pub data_sync_progress_message: Option<String>,
 }
 
 impl UpdateNodeMetrics {

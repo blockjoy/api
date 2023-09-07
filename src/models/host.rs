@@ -11,11 +11,13 @@ use crate::auth::resource::Resource;
 use crate::auth::resource::{HostId, OrgId, UserId};
 use crate::cookbook::script::HardwareRequirements;
 use crate::database::Conn;
+use crate::error::QueryError;
 use crate::grpc::common;
 use crate::models::ip_address::NewIpAddressRange;
 use crate::models::Paginate;
 use crate::Result;
 
+use super::blockchain::BlockchainId;
 use super::schema::hosts;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
@@ -73,6 +75,7 @@ pub struct Host {
     pub region_id: Option<uuid::Uuid>,
     // The monthly billing amount for this host (only visible to host owners).
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
+    pub vmm_mountpoint: Option<String>,
 }
 
 impl AsRef<Host> for Host {
@@ -91,7 +94,7 @@ pub struct HostFilter {
 #[derive(Debug)]
 pub struct HostRequirements {
     pub requirements: HardwareRequirements,
-    pub blockchain_id: uuid::Uuid,
+    pub blockchain_id: BlockchainId,
     pub node_type: super::NodeType,
     pub host_type: Option<super::HostType>,
     pub scheduler: super::NodeScheduler,
@@ -100,27 +103,21 @@ pub struct HostRequirements {
 
 impl Host {
     pub async fn find_by_id(id: HostId, conn: &mut Conn<'_>) -> Result<Self> {
-        let host = hosts::table.find(id).get_result(conn).await?;
-        Ok(host)
+        hosts::table
+            .find(id)
+            .get_result(conn)
+            .await
+            .for_table_id("hosts", id)
     }
 
     pub async fn find_by_ids(mut ids: Vec<HostId>, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
         ids.sort();
         ids.dedup();
-        let hosts = hosts::table
+        hosts::table
             .filter(hosts::id.eq_any(ids))
             .get_results(conn)
-            .await?;
-        Ok(hosts)
-    }
-
-    pub async fn by_ids(ids: &[HostId], conn: &mut Conn<'_>) -> Result<Vec<Self>> {
-        let hosts: Vec<Self> = hosts::table
-            .filter(hosts::id.eq_any(ids))
-            .get_results(conn)
-            .await?;
-        let hosts_map: HashMap<_, _> = hosts.into_iter().map(|h| (h.id, h)).collect();
-        Ok(ids.iter().map(|id| hosts_map[id].clone()).collect())
+            .await
+            .for_table("hosts")
     }
 
     /// For each provided argument, filters the hosts by that argument.
@@ -133,6 +130,7 @@ impl Host {
         let query = hosts::table.filter(hosts::org_id.eq(org_id)).into_boxed();
 
         let (total, hosts) = query
+            .order_by(hosts::created_at)
             .paginate(limit.try_into()?, offset.try_into()?)
             .get_results_counted(conn)
             .await?;
@@ -140,11 +138,11 @@ impl Host {
     }
 
     pub async fn find_by_name(name: &str, conn: &mut Conn<'_>) -> Result<Self> {
-        let host = hosts::table
+        hosts::table
             .filter(hosts::name.eq(name))
             .get_result(conn)
-            .await?;
-        Ok(host)
+            .await
+            .for_table_id("hosts", name)
     }
 
     pub async fn delete(id: HostId, conn: &mut Conn<'_>) -> Result<usize> {
@@ -235,9 +233,9 @@ impl Host {
             .bind::<Nullable<crate::models::schema::sql_types::EnumHostType>, _>(host_type)
             .get_results(conn)
             .await?;
-        let host_ids: Vec<_> = hosts.into_iter().map(|h| h.host_id).collect();
+        let host_ids = hosts.into_iter().map(|h| h.host_id).collect();
 
-        Self::by_ids(&host_ids, conn).await
+        Self::find_by_ids(host_ids, conn).await
     }
 
     pub async fn node_counts<H>(
@@ -331,6 +329,7 @@ pub struct NewHost<'a> {
     pub region_id: Option<uuid::Uuid>,
     pub host_type: HostType,
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
+    pub vmm_mountpoint: Option<&'a str>,
 }
 
 impl NewHost<'_> {

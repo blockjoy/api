@@ -7,6 +7,7 @@ use aws_sdk_s3::config::Credentials;
 
 use crate::config;
 use crate::grpc::api;
+use crate::models::NodeType;
 
 pub const RHAI_FILE_NAME: &str = "babel.rhai";
 pub const BABEL_IMAGE_NAME: &str = "blockjoy.gz";
@@ -144,7 +145,7 @@ impl Cookbook {
     pub async fn read_file(
         &self,
         protocol: &str,
-        node_type: &str,
+        node_type: NodeType,
         node_version: &str,
         file: &str,
     ) -> crate::Result<Vec<u8>> {
@@ -158,7 +159,7 @@ impl Cookbook {
     pub async fn download_url(
         &self,
         protocol: &str,
-        node_type: &str,
+        node_type: NodeType,
         node_version: &str,
         file: &str,
     ) -> crate::Result<String> {
@@ -188,7 +189,7 @@ impl Cookbook {
     pub async fn list(
         &self,
         protocol: &str,
-        node_type: &str,
+        node_type: NodeType,
     ) -> crate::Result<Vec<api::ConfigIdentifier>> {
         // We retrieve the config identifiers from the folder structure on S3. Suppose there exist
         // some files:
@@ -200,10 +201,10 @@ impl Cookbook {
         // the version field, so we throw everything into a map from version to the config
         // identifier, and use that map to construct our final result.
         let path = format!("{prefix}/{protocol}/{node_type}", prefix = self.prefix);
-        let mut idents: HashMap<String, _> = HashMap::new();
+        let mut idents: HashMap<_, _> = HashMap::new();
         for ident in self.client.list(&self.bucket, &path).await?.iter() {
             let ident = api::ConfigIdentifier::from_key(ident)?;
-            idents.insert(ident.node_type.clone(), ident);
+            idents.insert(ident.node_type(), ident);
         }
         Ok(idents.into_values().collect())
     }
@@ -231,7 +232,7 @@ impl Cookbook {
     pub async fn rhai_metadata(
         &self,
         protocol: &str,
-        node_type: &str,
+        node_type: NodeType,
         node_version: &str,
     ) -> crate::Result<script::BlockchainMetadata> {
         let path = format!(
@@ -249,7 +250,11 @@ impl Cookbook {
     ) -> crate::Result<api::DownloadManifest> {
         let path = format!(
             "{}/{}/{}/{}/{}/manifest.json",
-            self.prefix, id.protocol, id.node_type, id.node_version, network
+            self.prefix,
+            id.protocol,
+            id.node_type().into_model(),
+            id.node_version,
+            network
         );
         let mut manifest: manifest::DownloadManifest =
             serde_json::from_str(&self.client.read_string(&self.bucket, &path).await?)?;
@@ -286,11 +291,14 @@ impl api::ConfigIdentifier {
         let key = key.as_ref();
         let parts: Vec<&str> = key.split('/').collect();
         let [_, protocol, node_type, node_version, ..] = &parts[..] else {
-            return Err(anyhow!("{key} is not splittable in at least 4 `/`-separated parts").into());
+            return Err(
+                anyhow!("{key} is not splittable in at least 4 `/`-separated parts").into(),
+            );
         };
+        let node_type: NodeType = node_type.parse()?;
         let id = api::ConfigIdentifier {
             protocol: protocol.to_string(),
-            node_type: node_type.to_string(),
+            node_type: api::NodeType::from_model(node_type).into(),
             node_version: node_version.to_string(),
         };
         Ok(id)
@@ -337,6 +345,7 @@ pub mod script {
     pub struct BlockchainMetadata {
         pub requirements: HardwareRequirements,
         pub nets: HashMap<String, NetConfiguration>,
+        pub babel_config: Option<BabelConfig>,
     }
 
     #[derive(Debug, serde::Deserialize)]
@@ -370,6 +379,11 @@ pub mod script {
                 NetType::Dev => api::NetType::Dev,
             }
         }
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    pub struct BabelConfig {
+        pub data_directory_mount_point: Option<String>,
     }
 
     pub const TEST_SCRIPT: &str = r#"

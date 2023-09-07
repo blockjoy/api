@@ -10,6 +10,7 @@ pub mod hosts;
 pub mod invitations;
 pub mod key_files;
 pub mod metrics;
+pub mod middleware;
 pub mod nodes;
 pub mod orgs;
 pub mod subscription;
@@ -41,6 +42,8 @@ use tower_http::trace::TraceLayer;
 use crate::config::Context;
 use crate::database::Pool;
 
+use self::middleware::MetricsLayer;
+
 /// This macro bails out of the current function with a `tonic::Status::permission_denied` error.
 /// The arguments that can be supplied here are the same as the arguments to the format macro.
 macro_rules! forbidden {
@@ -60,7 +63,8 @@ use forbidden;
 type Result<T> = crate::Result<tonic::Response<T>>;
 type Resp<T, E = tonic::Status> = std::result::Result<tonic::Response<T>, E>;
 type TraceServer = Stack<TraceLayer<SharedClassifier<GrpcErrorsAsFailures>>, Identity>;
-type PoolServer = Stack<Extension<Pool>, TraceServer>;
+type MetricsServer = Stack<MetricsLayer, TraceServer>;
+type PoolServer = Stack<Extension<Pool>, MetricsServer>;
 type CorsServer = Stack<Stack<CorsLayer, PoolServer>, Identity>;
 
 /// This struct implements all the gRPC service traits.
@@ -106,6 +110,7 @@ pub async fn server(context: Arc<Context>) -> Router<CorsServer> {
 
     let middleware = tower::ServiceBuilder::new()
         .layer(TraceLayer::new_for_grpc())
+        .layer(MetricsLayer)
         .layer(Extension(context.pool.clone()))
         .layer(cors_rules)
         .into_inner();

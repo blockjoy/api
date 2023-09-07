@@ -1,15 +1,17 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use futures_util::future::join_all;
 
 use crate::cookbook;
 use crate::database::{Conn, ReadConn, Transaction};
-use crate::models::blockchain::{Blockchain, BlockchainProperty};
+use crate::models::blockchain::{
+    Blockchain, BlockchainId, BlockchainNodeType, BlockchainProperty, BlockchainVersion,
+};
 use crate::models::NodeType;
 use crate::timestamp::NanosUtc;
 
-use super::api::{self, blockchain_service_server, SupportedNodeProperty};
+use super::api::{self, blockchain_service_server};
 
 #[tonic::async_trait]
 impl blockchain_service_server::BlockchainService for super::Grpc {
@@ -32,13 +34,28 @@ async fn get(
     req: tonic::Request<api::BlockchainServiceGetRequest>,
     read: ReadConn<'_, '_>,
 ) -> super::Result<api::BlockchainServiceGetResponse> {
-    let ReadConn { conn, .. } = read;
+    let ReadConn { conn, ctx } = read;
 
     let req: api::BlockchainServiceGetRequest = req.into_inner();
+    let cookbook = ctx.cookbook.clone();
     let id = req.id.parse()?;
     let blockchain = Blockchain::find_by_id(id, conn).await?;
+    let node_types = BlockchainNodeType::by_blockchain(&blockchain, conn).await?;
+    let node_type_map: HashMap<_, _> = node_types.into_iter().map(|nt| (nt.id, nt)).collect();
+    let versions = BlockchainVersion::by_blockchain(&blockchain, conn).await?;
+    let network_futs = versions.iter().map(|version| {
+        try_get_networks(
+            &cookbook,
+            version.id,
+            &blockchain.name,
+            node_type_map[&version.blockchain_node_type_id].node_type,
+            &version.version,
+        )
+    });
+    let version_to_network_map = join_all(network_futs).await.into_iter().collect();
+    let blockchain = api::Blockchain::from_model(blockchain, &version_to_network_map, conn).await?;
     let resp = api::BlockchainServiceGetResponse {
-        blockchain: Some(api::Blockchain::from_model(blockchain, conn).await?),
+        blockchain: Some(blockchain),
     };
     Ok(tonic::Response::new(resp))
 }
@@ -48,6 +65,7 @@ async fn list(
     read: ReadConn<'_, '_>,
 ) -> super::Result<api::BlockchainServiceListResponse> {
     let ReadConn { conn, ctx } = read;
+    let cookbook = ctx.cookbook.clone();
 
     // We need to combine info from two seperate sources: the database and cookbook. Since
     // cookbook is slow, the step where we call it is parallelized.
@@ -55,59 +73,28 @@ async fn list(
     // We query the necessary blockchains from the database.
     let blockchains = Blockchain::find_all(conn).await?;
 
-    // This list will contain the dto's that are sent over gRPC after the information from
-    // cookbook has been added to them.
-    let mut grpc_blockchains = api::Blockchain::from_models(blockchains.clone(), conn).await?;
-    let cookbook = ctx.cookbook.clone();
-
     // Now we need to combine this info with the networks that are stored in the cookbook
-    // service. Since we want to do this in parallel, this list will contain a number of futures
-    // that each resolve to a list of networks for that blockchain.
-    let mut network_identifiers = HashSet::new();
-    for blockchain in &blockchains {
-        for node_properties in blockchain.properties(conn).await? {
-            network_identifiers.insert((
-                blockchain.id,
-                blockchain.name.clone(),
-                node_properties.node_type.to_string(),
-                node_properties.version.clone(),
-            ));
-        }
-    }
-    let network_futs =
-        network_identifiers
-            .into_iter()
-            .map(|(b_id, b_name, node_type, node_version)| {
-                try_get_networks(&cookbook, b_id, b_name, node_type, node_version)
-            });
-    let networks = join_all(network_futs).await;
+    // service. Since we want to do this in parallel, `network_futs` will contain a number of
+    // futures that each resolve to a list of networks for that blockchain version.
+    let blockchain_map: HashMap<_, _> = blockchains.iter().map(|b| (b.id, b)).collect();
+    let node_types = BlockchainNodeType::by_blockchains(&blockchains, conn).await?;
+    let node_type_map: HashMap<_, _> = node_types.into_iter().map(|nt| (nt.id, nt)).collect();
+    let versions = BlockchainVersion::by_blockchains(&blockchains, conn).await?;
+    let network_futs = versions.iter().map(|version| {
+        try_get_networks(
+            &cookbook,
+            version.id,
+            &blockchain_map[&version.blockchain_id].name,
+            node_type_map[&version.blockchain_node_type_id].node_type,
+            &version.version,
+        )
+    });
+    let version_to_network_map = join_all(network_futs).await.into_iter().collect();
 
-    // Now that we have fetched our networks, we have to stuff them into the DTO's. To do this
-    // we change the list of tuples into a hashmap, mapping the blockchain_id to the networks
-    // belonging to it.
-    let mut networks_map: HashMap<uuid::Uuid, Vec<_>> = HashMap::new();
-    for (blockchain_id, network) in networks {
-        networks_map
-            .entry(blockchain_id)
-            .or_default()
-            .extend(network.into_iter());
-    }
+    let blockchains =
+        api::Blockchain::from_models(blockchains, &version_to_network_map, conn).await?;
 
-    // Now that we have our map, we can simply index it with each blockchain id to get the
-    // networks belonging to blockchain.
-    for (model, dto) in blockchains.into_iter().zip(grpc_blockchains.iter_mut()) {
-        let mut networks = networks_map.get(&model.id).cloned().unwrap_or_default();
-        // We deduplicate by name. This is hacky, but only because our representation of the
-        // blockchain resource is somewhat false. The list of networks should be represented per
-        // blockchain version, but it is instead represented per blockchain. Luuk: fix this.
-        networks.sort_by(|n1, n2| n1.name.cmp(&n2.name));
-        networks.dedup_by(|n1, n2| n1.name == n2.name);
-        dto.networks = networks;
-    }
-
-    let resp = api::BlockchainServiceListResponse {
-        blockchains: grpc_blockchains,
-    };
+    let resp = api::BlockchainServiceListResponse { blockchains };
     Ok(tonic::Response::new(resp))
 }
 
@@ -117,15 +104,15 @@ async fn list(
 /// cookbook is having a sad day.
 async fn try_get_networks(
     cookbook: &cookbook::Cookbook,
-    blockchain_id: uuid::Uuid,
-    name: String,
-    node_type: String,
-    version: String,
+    version_id: uuid::Uuid,
+    name: &str,
+    node_type: NodeType,
+    node_version: &str,
 ) -> (uuid::Uuid, Vec<api::BlockchainNetwork>) {
     // We prepare an error message because we are moving all the arguments used to construct it.
-    let err_msg = format!("Could not get networks for {name} {node_type} version {version:?}");
+    let err_msg = format!("Could not get networks for {name} {node_type} version {node_version:?}");
 
-    let networks = match cookbook.rhai_metadata(&name, &node_type, &version).await {
+    let networks = match cookbook.rhai_metadata(name, node_type, node_version).await {
         Ok(meta) => meta
             .nets
             .into_iter()
@@ -148,16 +135,35 @@ async fn try_get_networks(
             vec![]
         }
     };
-    (blockchain_id, networks)
+    (version_id, networks)
 }
 
 impl api::Blockchain {
-    async fn from_models(models: Vec<Blockchain>, conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
-        let properties = BlockchainProperty::by_blockchains(&models, conn).await?;
-        let mut properties_map: HashMap<uuid::Uuid, Vec<_>> = HashMap::new();
-        for property in properties {
-            properties_map
-                .entry(property.blockchain_id)
+    async fn from_models(
+        models: Vec<Blockchain>,
+        version_to_network_map: &HashMap<uuid::Uuid, Vec<api::BlockchainNetwork>>,
+        conn: &mut Conn<'_>,
+    ) -> crate::Result<Vec<Self>> {
+        let mut blockchain_to_node_type_map: HashMap<BlockchainId, Vec<_>> = HashMap::new();
+        for node_type in BlockchainNodeType::by_blockchains(&models, conn).await? {
+            blockchain_to_node_type_map
+                .entry(node_type.blockchain_id)
+                .or_default()
+                .push(node_type);
+        }
+
+        let mut node_type_to_version_map: HashMap<uuid::Uuid, Vec<_>> = HashMap::new();
+        for version in BlockchainVersion::by_blockchains(&models, conn).await? {
+            node_type_to_version_map
+                .entry(version.blockchain_node_type_id)
+                .or_default()
+                .push(version);
+        }
+
+        let mut version_to_property_map: HashMap<uuid::Uuid, Vec<_>> = HashMap::new();
+        for property in BlockchainProperty::by_blockchains(&models, conn).await? {
+            version_to_property_map
+                .entry(property.blockchain_version_id)
                 .or_default()
                 .push(property);
         }
@@ -165,65 +171,109 @@ impl api::Blockchain {
         models
             .into_iter()
             .map(|model| {
-                let properties = properties_map.get(&model.id).cloned().unwrap_or_default();
+                let node_types = blockchain_to_node_type_map
+                    .get(&model.id)
+                    .cloned()
+                    .unwrap_or_default();
                 Ok(Self {
                     id: model.id.to_string(),
                     name: model.name,
                     // TODO: make this column mandatory
-                    description: model.description.unwrap_or_default(),
+                    description: model.description,
                     project_url: model.project_url,
                     repo_url: model.repo_url,
-                    version: model.version,
-                    nodes_types: api::SupportedNodeType::from_models(properties)?,
+                    node_types: api::BlockchainNodeType::from_models(
+                        node_types,
+                        &node_type_to_version_map,
+                        &version_to_property_map,
+                        version_to_network_map,
+                    )?,
                     created_at: Some(NanosUtc::from(model.created_at).into()),
                     updated_at: Some(NanosUtc::from(model.updated_at).into()),
-                    networks: vec![],
                 })
             })
             .collect()
     }
 
-    async fn from_model(model: Blockchain, conn: &mut Conn<'_>) -> crate::Result<Self> {
-        Ok(Self::from_models(vec![model], conn).await?[0].clone())
+    async fn from_model(
+        model: Blockchain,
+        version_to_network_map: &HashMap<uuid::Uuid, Vec<api::BlockchainNetwork>>,
+        conn: &mut Conn<'_>,
+    ) -> crate::Result<Self> {
+        Ok(Self::from_models(vec![model], version_to_network_map, conn).await?[0].clone())
     }
 }
 
-impl api::SupportedNodeType {
-    fn from_models(models: Vec<BlockchainProperty>) -> crate::Result<Vec<Self>> {
-        // First we partition the properties by node type and version.
-        let mut properties: HashMap<(NodeType, String), Vec<_>> = HashMap::new();
-        for model in models {
-            properties
-                .entry((model.node_type, model.version.clone()))
-                .or_default()
-                .push(model);
-        }
-
-        properties
+impl api::BlockchainNodeType {
+    fn from_models(
+        node_types: Vec<BlockchainNodeType>,
+        node_type_to_version_map: &HashMap<uuid::Uuid, Vec<BlockchainVersion>>,
+        version_to_property_map: &HashMap<uuid::Uuid, Vec<BlockchainProperty>>,
+        version_to_network_map: &HashMap<uuid::Uuid, Vec<api::BlockchainNetwork>>,
+    ) -> crate::Result<Vec<Self>> {
+        node_types
             .into_iter()
-            .map(|((node_type, version), properties)| {
-                let mut props = api::SupportedNodeType {
+            .map(|node_type| {
+                let versions = node_type_to_version_map
+                    .get(&node_type.id)
+                    .cloned()
+                    .unwrap_or_default();
+                let versions = api::BlockchainVersion::from_models(
+                    versions,
+                    version_to_property_map,
+                    version_to_network_map,
+                );
+                let mut props = Self {
+                    id: node_type.id.to_string(),
                     node_type: 0, // We use the setter to set this field for type-safety
-                    version,
-                    properties: properties
-                        .iter()
-                        .map(api::SupportedNodeProperty::from_model)
-                        .collect(),
+                    versions,
+                    description: node_type.description,
+                    created_at: Some(NanosUtc::from(node_type.created_at).into()),
+                    updated_at: Some(NanosUtc::from(node_type.updated_at).into()),
                 };
-                props.set_node_type(api::NodeType::from_model(node_type));
+                props.set_node_type(api::NodeType::from_model(node_type.node_type));
                 Ok(props)
             })
             .collect()
     }
 }
 
-impl api::SupportedNodeProperty {
+impl api::BlockchainVersion {
+    fn from_models(
+        models: Vec<BlockchainVersion>,
+        version_to_property_map: &HashMap<uuid::Uuid, Vec<BlockchainProperty>>,
+        version_to_network_map: &HashMap<uuid::Uuid, Vec<api::BlockchainNetwork>>,
+    ) -> Vec<Self> {
+        models
+            .into_iter()
+            .map(|model| Self {
+                id: model.id.to_string(),
+                version: model.version,
+                description: model.description,
+                created_at: Some(NanosUtc::from(model.created_at).into()),
+                updated_at: Some(NanosUtc::from(model.updated_at).into()),
+                networks: version_to_network_map
+                    .get(&model.id)
+                    .cloned()
+                    .unwrap_or_default(),
+                properties: version_to_property_map
+                    .get(&model.id)
+                    .iter()
+                    .flat_map(|props| props.iter())
+                    .map(api::BlockchainProperty::from_model)
+                    .collect(),
+            })
+            .collect()
+    }
+}
+
+impl api::BlockchainProperty {
     fn from_model(model: &BlockchainProperty) -> Self {
-        let mut prop = SupportedNodeProperty {
+        let mut prop = Self {
             name: model.name.clone(),
+            display_name: model.display_name.clone(),
             default: model.default.clone(),
             ui_type: 0, // We use the setter to set this field for type-safety
-            disabled: model.disabled,
             required: model.required,
         };
         prop.set_ui_type(api::UiType::from_model(model.ui_type));

@@ -165,7 +165,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         // This is an invalid uuid so the api call should fail.
         org_id: "wowowowowow".to_string(),
         blockchain_id: blockchain.id.to_string(),
-        node_type: api::NodeType::Api.into(),
+        node_type: api::NodeType::Validator.into(),
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
@@ -182,7 +182,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         deny_ips: vec![],
     };
     let status = tester.send_admin(Service::create, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");
     validate_command(&tester).await;
 }
 

@@ -356,7 +356,7 @@ async fn regions(
     let node_type = req.node_type().into_model();
     let requirements = ctx
         .cookbook
-        .rhai_metadata(&blockchain.name, &node_type.to_string(), &req.version)
+        .rhai_metadata(&blockchain.name, node_type, &req.version)
         .await?
         .requirements;
     let regions = Host::regions_for(org_id, blockchain, node_type, requirements, host_type, conn)
@@ -421,6 +421,7 @@ impl api::Host {
             org_name: lookup.orgs[&host.org_id].name.clone(),
             region: host.region_id.map(|id| lookup.regions[&id].name.clone()),
             billing_amount,
+            vmm_mountpoint: host.vmm_mountpoint,
         })
     }
 }
@@ -519,6 +520,7 @@ impl api::HostServiceCreateRequest {
                 .as_ref()
                 .map(MonthlyCostUsd::from_proto)
                 .transpose()?,
+            vmm_mountpoint: self.vmm_mountpoint.as_deref(),
         })
     }
 }

@@ -20,6 +20,9 @@ async fn responds_ok_for_write_node() {
         consensus: Some(false),
         application_status: Some(8),
         sync_status: Some(2),
+        data_sync_progress_total: Some(12),
+        data_sync_progress_current: Some(13),
+        data_sync_progress_message: Some("Whaaaa updated".to_string()),
     };
     metrics.insert(node.id.to_string(), metric);
     let req = api::MetricsServiceNodeRequest { metrics };

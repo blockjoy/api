@@ -32,15 +32,6 @@ impl cookbook_service_server::CookbookService for super::Grpc {
             .await
     }
 
-    // Retrieve kernel file for specific version and state.
-    async fn retrieve_kernel(
-        &self,
-        req: tonic::Request<api::CookbookServiceRetrieveKernelRequest>,
-    ) -> super::Resp<api::CookbookServiceRetrieveKernelResponse> {
-        self.read(|read| retrieve_kernel(req, read).scope_boxed())
-            .await
-    }
-
     // Retrieve hardware requirements for given identifier.
     async fn requirements(
         &self,
@@ -84,7 +75,7 @@ async fn retrieve_plugin(
         .cookbook
         .read_file(
             &id.protocol,
-            &id.node_type,
+            id.node_type().into_model(),
             &id.node_version,
             cookbook::RHAI_FILE_NAME,
         )
@@ -114,40 +105,13 @@ async fn retrieve_image(
         .cookbook
         .download_url(
             &id.protocol,
-            &id.node_type,
+            id.node_type().into_model(),
             &id.node_version,
             cookbook::BABEL_IMAGE_NAME,
         )
         .await?;
     let location = api::ArchiveLocation { url };
     let resp = api::CookbookServiceRetrieveImageResponse {
-        location: Some(location),
-    };
-    Ok(tonic::Response::new(resp))
-}
-
-async fn retrieve_kernel(
-    req: tonic::Request<api::CookbookServiceRetrieveKernelRequest>,
-    read: ReadConn<'_, '_>,
-) -> super::Result<api::CookbookServiceRetrieveKernelResponse> {
-    let ReadConn { conn, ctx } = read;
-    let _claims = ctx
-        .claims(&req, Endpoint::CookbookRetrieveKernel, conn)
-        .await?;
-
-    let req = req.into_inner();
-    let id = req.id.ok_or_else(required("id"))?;
-    let url = ctx
-        .cookbook
-        .download_url(
-            &id.protocol,
-            &id.node_type,
-            &id.node_version,
-            cookbook::KERNEL_NAME,
-        )
-        .await?;
-    let location = api::ArchiveLocation { url };
-    let resp = api::CookbookServiceRetrieveKernelResponse {
         location: Some(location),
     };
     Ok(tonic::Response::new(resp))
@@ -164,9 +128,10 @@ async fn requirements(
 
     let req = req.into_inner();
     let id = req.id.ok_or_else(required("id"))?;
+    let node_type = id.node_type().into_model();
     let requirements = ctx
         .cookbook
-        .rhai_metadata(&id.protocol, &id.node_type, &id.node_version)
+        .rhai_metadata(&id.protocol, node_type, &id.node_version)
         .await?
         .requirements;
     let resp = api::CookbookServiceRequirementsResponse {
@@ -188,9 +153,10 @@ async fn net_configurations(
 
     let req = req.into_inner();
     let id = req.id.ok_or_else(required("id"))?;
+    let node_type = id.node_type().into_model();
     let networks = ctx
         .cookbook
-        .rhai_metadata(&id.protocol, &id.node_type, &id.node_version)
+        .rhai_metadata(&id.protocol, node_type, &id.node_version)
         .await?
         .nets
         .into_iter()
@@ -219,7 +185,8 @@ async fn list_babel_versions(
         .await?;
 
     let req = req.into_inner();
-    let identifiers = ctx.cookbook.list(&req.protocol, &req.node_type).await?;
+    let node_type = req.node_type().into_model();
+    let identifiers = ctx.cookbook.list(&req.protocol, node_type).await?;
     let resp = api::CookbookServiceListBabelVersionsResponse { identifiers };
     Ok(tonic::Response::new(resp))
 }

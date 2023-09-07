@@ -26,6 +26,14 @@ impl Invitation {
         Ok(invitation)
     }
 
+    pub async fn find_by_org(org: &super::Org, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
+        let invitation = invitations::table
+            .filter(invitations::org_id.eq(org.id))
+            .get_results(conn)
+            .await?;
+        Ok(invitation)
+    }
+
     pub async fn received(email: &str, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
         let pending = invitations::table
             .filter(invitations::invitee_email.eq(email))
@@ -111,6 +119,13 @@ impl Invitation {
         let to_delete = invitations::table
             .filter(invitations::invitee_email.eq(user_email))
             .filter(invitations::org_id.eq(org_id));
+        diesel::delete(to_delete).execute(conn).await?;
+        Ok(())
+    }
+
+    pub async fn bulk_delete(invitations: Vec<Self>, conn: &mut Conn<'_>) -> Result<()> {
+        let ids: Vec<_> = invitations.iter().map(|i| i.id).collect();
+        let to_delete = invitations::table.filter(invitations::id.eq_any(ids));
         diesel::delete(to_delete).execute(conn).await?;
         Ok(())
     }

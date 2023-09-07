@@ -1,31 +1,33 @@
 steps:
-- name: 'gcr.io/k8s-skaffold/skaffold'
-  entrypoint: 'sh'
-  args:
-  - -xe
-  - -c
-  - skaffold build --filename='deploy/skaffold.yaml' --file-output=/workspace/artifacts.json
+  - name: "gcr.io/k8s-skaffold/skaffold"
+    entrypoint: "sh"
+    args:
+      - -xe
+      - -c
+      - |
+        git submodule update --init --recursive
+        skaffold build --filename='deploy/skaffold.yaml' --file-output=/workspace/artifacts.json
 
-- name: 'google/cloud-sdk:latest'
-  entrypoint: 'sh'
-  args:
-  - -xe
-  - -c
-  - |
-    gcloud config set deploy/region us-east1
-    gcloud deploy apply --file deploy/prod/clouddeploy.yaml
-    gcloud deploy releases create prod-rel-${SHORT_SHA} \
-                        --delivery-pipeline blockvisor-api-prod \
-                        --description "$(git log -1  --pretty='%s')" \
-                        --build-artifacts /workspace/artifacts.json \
-                        --skaffold-file deploy/skaffold.yaml \
-                        --annotations "commit_ui=https://source.cloud.google.com/blockjoy-deployer/blockvisor-api/+/$COMMIT_SHA"
+  - name: "google/cloud-sdk:latest"
+    entrypoint: "sh"
+    args:
+      - -xe
+      - -c
+      - |
+        gcloud config set deploy/region us-east1
+        gcloud deploy apply --file deploy/prod/clouddeploy.yaml
+        gcloud deploy releases create prod-rel-${SHORT_SHA} \
+          --delivery-pipeline blockvisor-api-prod \
+          --description "$(git log -1  --pretty='%s')" \
+          --build-artifacts /workspace/artifacts.json \
+          --skaffold-file deploy/skaffold.yaml \
+          --annotations "commit_ui=https://source.cloud.google.com/blockjoy-deployer/blockvisor-api/+/$COMMIT_SHA"
 artifacts:
   objects:
-    location: 'gs://blockvisor-api-artifacts/'
+    location: "gs://blockvisor-api-artifacts/"
     paths:
-    - '/workspace/artifacts.json'
+      - "/workspace/artifacts.json"
 options:
   pool:
-    name: 'projects/blockjoy-deployer/locations/us-east1/workerPools/blockjoy'
+    name: "projects/blockjoy-deployer/locations/us-east1/workerPools/blockjoy"
 timeout: 3600s

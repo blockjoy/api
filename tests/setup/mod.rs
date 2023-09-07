@@ -26,9 +26,6 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tonic::Response;
-use tracing::subscriber::DefaultGuard;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{fmt, EnvFilter, Registry};
 
 use self::helper::traits::{GrpcClient, TestableFunction};
 
@@ -49,10 +46,9 @@ pub struct Tester {
 }
 
 impl Tester {
-    /// Creates a new tester with the cloudflare API mocked.
     pub async fn new() -> Self {
-        let _guard = init_tracing();
         let (context, db) = Context::with_mocked().await.unwrap();
+        let _ = context.config.log.try_start();
 
         let socket = NamedTempFile::new().unwrap();
         let socket = Arc::new(socket.into_temp_path());
@@ -287,12 +283,4 @@ impl Tester {
     pub fn rand_email(&mut self) -> String {
         format!("{}@{}.com", self.rand_string(8), self.rand_string(8))
     }
-}
-
-fn init_tracing() -> DefaultGuard {
-    let env = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let fmt = fmt::Layer::default();
-    let registry = Registry::default().with(env).with(fmt);
-
-    tracing::subscriber::set_default(registry)
 }

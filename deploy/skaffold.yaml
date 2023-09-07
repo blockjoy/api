@@ -6,30 +6,28 @@ build:
   tagPolicy:
     gitCommit: {}
   artifacts:
-  - image: us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api
-    context: ./
-  # - image: us-docker.pkg.dev/blockjoy-deployer/blockvisor-api-migrations/blockvisor-api-migrations
-  #   context: ./migrations
-  local: 
+    - image: us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api
+      context: ./
+  local:
     push: true
 profiles:
-- name: dev
-  deploy:
-    kustomize:
-      paths:
-        - ./kubernetes/dev
-- name: staging
-  deploy:
-    kustomize:
-      paths:
-        - ./kubernetes/staging
-- name: testing
-  deploy:
-    kustomize:
-      paths:
-        - ./kubernetes/testing
-- name: prod
-  deploy:
-    kustomize:
-      paths:
-        - ./kubernetes/prod
+  - name: dev
+    deploy:
+      kustomize:
+        paths:
+          - ./kubernetes/dev
+  - name: staging
+    deploy:
+      kustomize:
+        paths:
+          - ./kubernetes/staging
+  - name: testing
+    deploy:
+      kustomize:
+        paths:
+          - ./kubernetes/testing
+  - name: prod
+    deploy:
+      kustomize:
+        paths:
+          - ./kubernetes/prod
