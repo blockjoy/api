@@ -540,6 +540,8 @@ impl api::Node {
             .map(api::FilteredIpAddr::from_model)
             .collect();
 
+        let data_sync_progress = Self::data_sync_progress(&node)?;
+
         let mut dto = Self {
             id: node.id.to_string(),
             org_id: node.org_id.to_string(),
@@ -572,6 +574,7 @@ impl api::Node {
             org_name: org.name.clone(),
             host_org_id: host.org_id.to_string(),
             data_directory_mountpoint: node.data_directory_mountpoint,
+            data_sync_progress,
         };
         dto.set_node_type(NodeType::from_model(node.node_type));
         dto.set_status(NodeStatus::from_model(node.chain_status));
@@ -582,6 +585,21 @@ impl api::Node {
         dto.set_sync_status(SyncStatus::from_model(node.sync_status));
 
         Ok(dto)
+    }
+
+    fn data_sync_progress(node: &Node) -> crate::Result<Option<api::DataSyncProgress>> {
+        node.data_sync_progress_total
+            .map(|total| {
+                Ok(api::DataSyncProgress {
+                    total: Some(total.try_into()?),
+                    current: node
+                        .data_sync_progress_current
+                        .map(u32::try_from)
+                        .transpose()?,
+                    message: node.data_sync_progress_message.clone(),
+                })
+            })
+            .transpose()
     }
 }
 
@@ -598,7 +616,7 @@ impl api::NodeServiceCreateRequest {
             .ok_or_else(helpers::required("placement"))?
             .placement
             .as_ref()
-            .ok_or_else(helpers::required("placement"))?;
+            .ok_or_else(helpers::required("placement.placement"))?;
         let scheduler = match placement {
             api::node_placement::Placement::HostId(_) => None,
             api::node_placement::Placement::Scheduler(s) => Some(s),
