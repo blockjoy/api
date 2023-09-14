@@ -24,7 +24,7 @@ use uuid::Uuid;
 use zeroize::ZeroizeOnDrop;
 
 use crate::auth::claims::{Claims, Expirable};
-use crate::auth::rbac::{Access, ApiKeyRole, Roles};
+use crate::auth::rbac::{Access, ApiKeyRole};
 use crate::auth::resource::{Resource, ResourceEntry, ResourceType};
 use crate::auth::token::ApiToken;
 use crate::database::Conn;
@@ -86,23 +86,10 @@ impl From<&Validated> for Access {
     fn from(api_key: &Validated) -> Self {
         let entry = ResourceEntry::from(&api_key.0);
         match entry.resource_type {
-            ResourceType::User => Roles::Many(hashset![
-                ApiKeyRole::User.into(),
-                ApiKeyRole::Org.into(),
-                ApiKeyRole::Host.into(),
-                ApiKeyRole::Node.into(),
-            ])
-            .into(),
-            ResourceType::Org => Roles::Many(hashset![
-                ApiKeyRole::Org.into(),
-                ApiKeyRole::Host.into(),
-                ApiKeyRole::Node.into(),
-            ])
-            .into(),
-            ResourceType::Host => {
-                Roles::Many(hashset![ApiKeyRole::Host.into(), ApiKeyRole::Node.into()]).into()
-            }
-            ResourceType::Node => Roles::One(ApiKeyRole::Node.into()).into(),
+            ResourceType::User => ApiKeyRole::User.into(),
+            ResourceType::Org => ApiKeyRole::Org.into(),
+            ResourceType::Host => ApiKeyRole::Host.into(),
+            ResourceType::Node => ApiKeyRole::Node.into(),
         }
     }
 }
