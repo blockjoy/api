@@ -20,7 +20,7 @@ use crate::database::Conn;
 use crate::email::Language;
 
 use super::org::NewOrg;
-use super::schema::{orgs_users, users};
+use super::schema::{user_roles, users};
 
 type NotDeleted = dsl::Filter<users::table, dsl::IsNull<users::deleted_at>>;
 
@@ -152,11 +152,11 @@ impl User {
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         let mut query = Self::not_deleted()
-            .left_join(orgs_users::table)
+            .left_join(user_roles::table)
             .into_boxed();
 
         if let Some(org_id) = org_id {
-            query = query.filter(orgs_users::org_id.eq(org_id));
+            query = query.filter(user_roles::org_id.eq(org_id));
         }
         if let Some(email_like) = email_like {
             query = query.filter(super::lower(users::email).like(email_like.trim().to_lowercase()));

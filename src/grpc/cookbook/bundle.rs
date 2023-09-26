@@ -79,7 +79,7 @@ async fn retrieve(
     let _ = read.auth_all(&meta, BundlePerm::Retrieve).await?;
 
     let id = req.id.ok_or(Error::MissingId)?;
-    let url = read.ctx.cookbook.bundle_download_url(&id.version).await?;
+    let url = read.ctx.cookbook.download_bundle(&id.version).await?;
 
     Ok(api::BundleServiceRetrieveResponse {
         location: Some(api::ArchiveLocation { url }),

@@ -6,17 +6,18 @@ use futures_util::future::join_all;
 use thiserror::Error;
 use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::auth::rbac::BlockchainPerm;
 use crate::auth::Authorize;
-use crate::cookbook::{self, Cookbook};
+use crate::cookbook::identifier::Identifier;
+use crate::cookbook::script::NetType;
+use crate::cookbook::Cookbook;
 use crate::database::{Conn, ReadConn, Transaction};
 use crate::models::blockchain::{
     Blockchain, BlockchainNodeType, BlockchainNodeTypeId, BlockchainProperty, BlockchainVersion,
     BlockchainVersionId,
 };
-use crate::models::NodeType;
 use crate::timestamp::NanosUtc;
 
 use super::api::blockchain_service_server::BlockchainService;
@@ -36,6 +37,10 @@ pub enum Error {
     Claims(#[from] crate::auth::claims::Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
+    /// Missing blockchain version id. This should not happen.
+    MissingVersionId,
+    /// Missing blockchain version node type. This should not happen.
+    MissingVersionNodeType,
     /// Failed to parse BlockchainId: {0}
     ParseId(uuid::Error),
     /// Failed to get blockchain property: {0}
@@ -47,7 +52,9 @@ impl From<Error> for Status {
         error!("{err}");
         use Error::*;
         match err {
-            Diesel(_) => Status::internal("Internal error."),
+            Diesel(_) | MissingVersionId | MissingVersionNodeType => {
+                Status::internal("Internal error.")
+            }
             ParseId(_) => Status::invalid_argument("id"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
@@ -92,15 +99,22 @@ async fn get(
     let node_type_map: HashMap<_, _> = node_types.into_iter().map(|nt| (nt.id, nt)).collect();
 
     let versions = BlockchainVersion::by_blockchain_id(blockchain.id, &mut read).await?;
-    let network_futs = versions.iter().map(|version| {
-        try_get_networks(
-            &read.ctx.cookbook,
-            version.id,
-            &blockchain.name,
-            node_type_map[&version.blockchain_node_type_id].node_type,
-            &version.version,
-        )
-    });
+    let ids = versions
+        .iter()
+        .map(|version| {
+            let node_type = node_type_map
+                .get(&version.blockchain_node_type_id)
+                .map(|chain_node_type| chain_node_type.node_type)
+                .ok_or(Error::MissingVersionNodeType)?;
+            let id = Identifier::new(&blockchain.name, node_type, version.version.clone().into());
+
+            Ok((version.id, id))
+        })
+        .collect::<Result<Vec<(BlockchainVersionId, Identifier)>, Error>>()?;
+
+    let network_futs = ids
+        .into_iter()
+        .map(|(version_id, id)| try_get_networks(&read.ctx.cookbook, version_id, id));
     let version_to_network_map = join_all(network_futs).await.into_iter().collect();
 
     let blockchain =
@@ -134,15 +148,28 @@ async fn list(
     let node_type_map: HashMap<_, _> = node_types.into_iter().map(|nt| (nt.id, nt)).collect();
 
     let versions = BlockchainVersion::by_blockchain_ids(blockchain_ids, &mut read).await?;
-    let network_futs = versions.iter().map(|version| {
-        try_get_networks(
-            &read.ctx.cookbook,
-            version.id,
-            &blockchain_map[&version.blockchain_id].name,
-            node_type_map[&version.blockchain_node_type_id].node_type,
-            &version.version,
-        )
-    });
+    let ids = versions
+        .iter()
+        .map(|version| {
+            let protocol = &blockchain_map
+                .get(&version.blockchain_id)
+                .ok_or(Error::MissingVersionId)?
+                .name;
+
+            let node_type = node_type_map
+                .get(&version.blockchain_node_type_id)
+                .map(|chain_node_type| chain_node_type.node_type)
+                .ok_or(Error::MissingVersionNodeType)?;
+
+            let id = Identifier::new(protocol, node_type, version.version.clone().into());
+
+            Ok((version.id, id))
+        })
+        .collect::<Result<Vec<(BlockchainVersionId, Identifier)>, Error>>()?;
+
+    let network_futs = ids
+        .into_iter()
+        .map(|(version_id, id)| try_get_networks(&read.ctx.cookbook, version_id, id));
     let version_to_network_map = join_all(network_futs).await.into_iter().collect();
 
     let blockchains =
@@ -158,36 +185,34 @@ async fn list(
 async fn try_get_networks(
     cookbook: &Cookbook,
     version_id: BlockchainVersionId,
-    name: &str,
-    node_type: NodeType,
-    node_version: &str,
+    id: Identifier,
 ) -> (BlockchainVersionId, Vec<api::BlockchainNetwork>) {
-    // We prepare an error message because we are moving all the arguments used to construct it.
-    let err_msg = format!("Could not get networks for {name} {node_type} version {node_version:?}");
-
-    let networks = match cookbook.rhai_metadata(name, node_type, node_version).await {
-        Ok(meta) => meta
-            .nets
-            .into_iter()
-            .map(|(name, network)| {
-                let mut net = api::BlockchainNetwork {
-                    name,
-                    url: network.url,
-                    net_type: 0, // we use a setter
-                };
-                net.set_net_type(match network.net_type {
-                    cookbook::script::NetType::Dev => api::BlockchainNetworkType::Dev,
-                    cookbook::script::NetType::Test => api::BlockchainNetworkType::Test,
-                    cookbook::script::NetType::Main => api::BlockchainNetworkType::Main,
-                });
-                net
-            })
-            .collect(),
-        Err(e) => {
-            error!("{err_msg}: {e}");
-            vec![]
+    let metadata = match cookbook.rhai_metadata(&id).await {
+        Ok(meta) => meta,
+        Err(err) => {
+            warn!("Could not get networks for {id:?}: {err}");
+            return (version_id, vec![]);
         }
     };
+
+    let networks = metadata
+        .nets
+        .into_iter()
+        .map(|(name, network)| {
+            let mut net = api::BlockchainNetwork {
+                name,
+                url: network.url,
+                net_type: 0, // we use a setter
+            };
+            net.set_net_type(match network.net_type {
+                NetType::Dev => api::BlockchainNetworkType::Dev,
+                NetType::Test => api::BlockchainNetworkType::Test,
+                NetType::Main => api::BlockchainNetworkType::Main,
+            });
+            net
+        })
+        .collect();
+
     (version_id, networks)
 }
 

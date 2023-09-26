@@ -18,7 +18,7 @@ use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
 
 use super::rbac::RbacUser;
-use super::schema::{nodes, orgs, orgs_users};
+use super::schema::{nodes, orgs, orgs_users, user_roles};
 
 const PERSONAL_ORG_NAME: &str = "Personal";
 
@@ -40,8 +40,6 @@ pub enum Error {
     FindByIds(HashSet<OrgId>, diesel::result::Error),
     /// Failed to find org user: {0}
     FindOrgUser(diesel::result::Error),
-    /// Failed to find org users: {0}
-    FindOrgUsers(diesel::result::Error),
     /// Failed to find org user by token: {0}
     FindOrgUserByToken(diesel::result::Error),
     /// Failed to find personal org for user `{0}`: {1}
@@ -120,11 +118,11 @@ impl Org {
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         let mut query = Self::not_deleted()
-            .left_join(orgs_users::table)
+            .left_join(user_roles::table)
             .into_boxed();
 
         if let Some(member_id) = member_id {
-            query = query.filter(orgs_users::user_id.eq(member_id));
+            query = query.filter(user_roles::user_id.eq(member_id));
         }
 
         query
@@ -137,8 +135,8 @@ impl Org {
 
     pub async fn find_personal(user_id: UserId, conn: &mut Conn<'_>) -> Result<Org, Error> {
         Self::not_deleted()
-            .inner_join(orgs_users::table)
-            .filter(orgs_users::user_id.eq(user_id))
+            .inner_join(user_roles::table)
+            .filter(user_roles::user_id.eq(user_id))
             .filter(orgs::is_personal)
             .select(Org::as_select())
             .get_result(conn)
@@ -151,9 +149,9 @@ impl Org {
         user_id: UserId,
         conn: &mut Conn<'_>,
     ) -> Result<bool, Error> {
-        let target_user = orgs_users::table
-            .filter(orgs_users::user_id.eq(user_id))
-            .filter(orgs_users::org_id.eq(org_id));
+        let target_user = user_roles::table
+            .filter(user_roles::user_id.eq(user_id))
+            .filter(user_roles::org_id.eq(org_id));
 
         diesel::select(dsl::exists(target_user))
             .get_result(conn)
@@ -205,7 +203,7 @@ impl Org {
     }
 
     pub async fn node_counts(
-        org_ids: HashSet<OrgId>,
+        org_ids: &HashSet<OrgId>,
         conn: &mut Conn<'_>,
     ) -> Result<HashMap<OrgId, u64>, Error> {
         let counts: Vec<(OrgId, i64)> = nodes::table
@@ -227,6 +225,12 @@ impl Org {
     }
 }
 
+impl AsRef<Org> for Org {
+    fn as_ref(&self) -> &Org {
+        self
+    }
+}
+
 #[derive(Debug, Insertable)]
 #[diesel(table_name = orgs)]
 pub struct NewOrg<'a> {
@@ -242,16 +246,20 @@ impl<'a> NewOrg<'a> {
         }
     }
 
-    /// Creates a new organization with the creator as the owner.
     pub async fn create(self, user_id: UserId, conn: &mut Conn<'_>) -> Result<Org, Error> {
+        let role = if self.is_personal {
+            OrgRole::Personal
+        } else {
+            OrgRole::Owner
+        };
+
         let org: Org = diesel::insert_into(orgs::table)
             .values(self)
             .get_result(conn)
             .await
             .map_err(Error::Create)?;
 
-        let org_user = NewOrgUser::new(org.id, user_id, OrgRole::Owner);
-        org_user.create(conn).await?;
+        NewOrgUser::new(org.id, user_id, role).create(conn).await?;
 
         Ok(org)
     }
@@ -285,24 +293,6 @@ pub struct OrgUser {
 }
 
 impl OrgUser {
-    /// Returns a map from OrgId to all users belonging to that org.
-    pub async fn by_org_ids(
-        org_ids: HashSet<OrgId>,
-        conn: &mut Conn<'_>,
-    ) -> Result<HashMap<OrgId, Vec<Self>>, Error> {
-        let org_users: Vec<Self> = orgs_users::table
-            .filter(orgs_users::org_id.eq_any(org_ids))
-            .get_results(conn)
-            .await
-            .map_err(Error::FindOrgUsers)?;
-
-        let mut res: HashMap<OrgId, Vec<Self>> = HashMap::new();
-        for org_user in org_users {
-            res.entry(org_user.org_id).or_default().push(org_user)
-        }
-        Ok(res)
-    }
-
     pub async fn by_user_org(
         user_id: UserId,
         org_id: OrgId,
@@ -376,16 +366,13 @@ impl NewOrgUser {
             .await
             .map_err(Error::CreateOrgUser)?;
 
-        if let OrgRole::Owner = self.role {
-            RbacUser::link_role(self.user_id, self.org_id, OrgRole::Owner, conn).await?;
-        }
-        if let OrgRole::Owner | OrgRole::Admin = self.role {
-            RbacUser::link_role(self.user_id, self.org_id, OrgRole::Admin, conn).await?;
-        }
-        #[allow(irrefutable_let_patterns)]
-        if let OrgRole::Owner | OrgRole::Admin | OrgRole::Member = self.role {
-            RbacUser::link_role(self.user_id, self.org_id, OrgRole::Member, conn).await?;
-        }
+        let roles = match self.role {
+            OrgRole::Owner => [OrgRole::Owner, OrgRole::Admin, OrgRole::Member].iter(),
+            OrgRole::Admin => [OrgRole::Admin, OrgRole::Member].iter(),
+            OrgRole::Member => [OrgRole::Member].iter(),
+            OrgRole::Personal => [OrgRole::Personal].iter(),
+        };
+        RbacUser::link_roles(self.user_id, self.org_id, roles.copied(), conn).await?;
 
         Ok(org_user)
     }

@@ -281,20 +281,23 @@ async fn decline(
 
     // First validate claims for all resources, then apply additional constraints.
     let authz = write.auth_all(&meta, InvitationPerm::Decline).await?;
-    let user = match authz.resource() {
-        Resource::User(user_id) => Ok(User::find_by_id(user_id, &mut write).await?),
+    let email = match authz.resource() {
+        Resource::User(user_id) => User::find_by_id(user_id, &mut write)
+            .await
+            .map(|user| user.email)
+            .map_err(Into::into),
 
         Resource::Org(org_id) if org_id != invitation.org_id => Err(Error::WrongOrg),
-        Resource::Org(_) => {
-            let email = authz.get_data("email").ok_or(Error::MissingEmail)?;
-            Ok(User::find_by_email(email, &mut write).await?)
-        }
+        Resource::Org(_) => authz
+            .get_data("email")
+            .map(|email| email.to_string())
+            .ok_or(Error::MissingEmail),
 
         Resource::Host(_) => Err(Error::HostClaims),
         Resource::Node(_) => Err(Error::NodeClaims),
     }?;
 
-    if user.email != invitation.invitee_email {
+    if email != invitation.invitee_email {
         return Err(Error::WrongEmail);
     } else if invitation.accepted_at.is_some() {
         return Err(Error::AlreadyAccepted);
@@ -372,9 +375,10 @@ impl api::Invitation {
         models
             .into_iter()
             .filter_map(|i| orgs.get(&i.org_id).map(|o| (i, o)))
-            .map(|(i, org)| {
-                let creator = &creators[&i.created_by];
-                Self::new(i, creator, org)
+            .filter_map(|(i, org)| {
+                creators
+                    .get(&i.created_by)
+                    .map(|creator| Self::new(i, creator, org))
             })
             .collect()
     }

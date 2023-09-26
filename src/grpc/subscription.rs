@@ -6,6 +6,7 @@ use tonic::{Request, Response, Status};
 use tracing::error;
 
 use crate::auth::rbac::SubscriptionPerm;
+use crate::auth::resource::OrgId;
 use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::models::org::Org;
@@ -24,6 +25,8 @@ pub enum Error {
     ClaimsNotUser,
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
+    /// Missing `org_id`.
+    MissingOrgId,
     /// Missing `user_id`.
     MissingUserId,
     /// Subscription model error: {0}
@@ -52,7 +55,7 @@ impl From<Error> for Status {
             }
             Diesel(_) => Status::internal("Internal error."),
             MissingUserId | ParseUserId(_) => Status::invalid_argument("user_id"),
-            ParseOrgId(_) => Status::invalid_argument("org_id"),
+            MissingOrgId | ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseId(_) => Status::invalid_argument("id"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
@@ -87,6 +90,15 @@ impl SubscriptionService for Grpc {
     ) -> Result<Response<api::SubscriptionServiceListResponse>, Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta, read).scope_boxed()).await
+    }
+
+    async fn update(
+        &self,
+        req: Request<api::SubscriptionServiceUpdateRequest>,
+    ) -> Result<Response<api::SubscriptionServiceUpdateResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|read| update(req, meta, read).scope_boxed())
+            .await
     }
 
     async fn delete(
@@ -143,11 +155,8 @@ async fn list(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceListResponse, Error> {
-    let user_id = req
-        .user_id
-        .ok_or(Error::MissingUserId)?
-        .parse()
-        .map_err(Error::ParseUserId)?;
+    let user_id = req.user_id.ok_or(Error::MissingUserId)?;
+    let user_id = user_id.parse().map_err(Error::ParseUserId)?;
     let _ = read.auth(&meta, SubscriptionPerm::List, user_id).await?;
 
     let subscriptions = Subscription::find_by_user(user_id, &mut read)
@@ -157,6 +166,19 @@ async fn list(
         .collect();
 
     Ok(api::SubscriptionServiceListResponse { subscriptions })
+}
+
+// Note that for now this just checks if a permission is available.
+async fn update(
+    req: api::SubscriptionServiceUpdateRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::SubscriptionServiceUpdateResponse, Error> {
+    let org_id = req.org_id.ok_or(Error::MissingOrgId)?;
+    let org_id: OrgId = org_id.parse().map_err(Error::ParseOrgId)?;
+    let _ = write.auth(&meta, SubscriptionPerm::Update, org_id).await?;
+
+    Ok(api::SubscriptionServiceUpdateResponse {})
 }
 
 async fn delete(

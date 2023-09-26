@@ -12,8 +12,8 @@ use tonic::Status;
 use uuid::Uuid;
 
 use crate::database::Conn;
+use crate::models::node::{NodeType, NodeVersion};
 use crate::models::schema::{blockchain_node_types, blockchain_versions};
-use crate::models::NodeType;
 
 use super::{Blockchain, BlockchainId, BlockchainNodeTypeId};
 
@@ -57,11 +57,11 @@ pub struct BlockchainVersion {
 impl BlockchainVersion {
     pub async fn find(
         blockchain: &Blockchain,
-        version: &str,
+        version: &NodeVersion,
         node_type: NodeType,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
-        let version = version.to_lowercase();
+        let version = version.as_ref().to_lowercase();
         let id = format!("{}/{version}/{node_type}", blockchain.name);
 
         blockchain_versions::table

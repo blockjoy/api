@@ -5,17 +5,9 @@
 
 use std::path::PathBuf;
 
-use displaydoc::Display;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::grpc::api;
-
-#[derive(Debug, Display, Error)]
-pub enum Error {
-    /// Invalid compression type.
-    CompressionType,
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct FileLocation {
@@ -41,9 +33,10 @@ pub struct Chunk {
     pub destinations: Vec<FileLocation>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum Compression {}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub enum Compression {
+    ZSTD(i32),
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DownloadManifest {
@@ -52,25 +45,22 @@ pub struct DownloadManifest {
     pub chunks: Vec<Chunk>,
 }
 
-impl TryInto<api::Compression> for Compression {
-    type Error = Error;
-
-    fn try_into(self) -> Result<api::Compression, Self::Error> {
-        Err(Error::CompressionType)
+impl From<Compression> for api::compression::Compression {
+    fn from(value: Compression) -> Self {
+        match value {
+            Compression::ZSTD(level) => api::compression::Compression::Zstd(level),
+        }
     }
 }
 
-impl TryInto<api::DownloadManifest> for DownloadManifest {
-    type Error = Error;
+impl From<DownloadManifest> for api::DownloadManifest {
+    fn from(value: DownloadManifest) -> Self {
+        let compression: Option<api::Compression> =
+            value.compression.map(|compression| api::Compression {
+                compression: Some(compression.into()),
+            });
 
-    fn try_into(self) -> Result<api::DownloadManifest, Self::Error> {
-        let compression: Option<api::Compression> = if let Some(compression) = self.compression {
-            Some(compression.try_into()?)
-        } else {
-            None
-        };
-
-        let chunks = self
+        let chunks = value
             .chunks
             .into_iter()
             .map(|value| {
@@ -101,10 +91,10 @@ impl TryInto<api::DownloadManifest> for DownloadManifest {
             })
             .collect();
 
-        Ok(api::DownloadManifest {
-            total_size: self.total_size,
-            compression: compression.map(|value| value.into()),
+        Self {
+            total_size: value.total_size,
+            compression,
             chunks,
-        })
+        }
     }
 }

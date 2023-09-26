@@ -187,7 +187,7 @@ mod test {
         };
 
         email.update_password(&user).await.unwrap();
-        email.registration_confirmation(&user).await.unwrap();
+        email.registration_confirmation(&user, None).await.unwrap();
         email
             .invitation_for_registered(&invitation, &user, &user2, "tomorrow")
             .await

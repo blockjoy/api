@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
@@ -5,8 +7,9 @@ use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::{error, warn};
 
-use crate::auth::claims::{Claims, Expirable};
-use crate::auth::rbac::{AuthPerm, GrpcRole};
+use crate::auth::claims::{Claims, Expirable, Granted};
+use crate::auth::endpoint::Endpoints;
+use crate::auth::rbac::{Access, AuthAdminPerm, AuthPerm, GrpcRole, Perms};
 use crate::auth::resource::{Resource, ResourceId};
 use crate::auth::token::refresh::Refresh;
 use crate::auth::token::RequestToken;
@@ -43,8 +46,12 @@ pub enum Error {
     Org(#[from] crate::models::org::Error),
     /// Failed to parse RequestToken: {0}
     ParseToken(crate::auth::token::Error),
+    /// Failed to parse OrgId: {0}
+    ParseOrgId(uuid::Error),
     /// Failed to parse UserId: {0}
     ParseUserId(uuid::Error),
+    /// User RBAC error: {0}
+    Rbac(#[from] crate::models::rbac::Error),
     /// Refresh token failure: {0}
     Refresh(#[from] crate::auth::token::refresh::Error),
     /// Refresh token doesn't match JWT Resource.
@@ -64,12 +71,14 @@ impl From<Error> for Status {
             Diesel(_) | Email(_) => Status::internal("Internal error."),
             NotBearer => Status::unauthenticated("Not bearer."),
             NoRefresh => Status::invalid_argument("No refresh token."),
+            ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseUserId(_) => Status::invalid_argument("user_id"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Host(err) => err.into(),
             Node(err) => err.into(),
             Org(err) => err.into(),
+            Rbac(err) => err.into(),
             Refresh(err) => err.into(),
             User(err) => err.into(),
         }
@@ -129,6 +138,15 @@ impl AuthService for Grpc {
     ) -> Result<Response<api::AuthServiceUpdateUiPasswordResponse>, Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update_ui_password(req, meta, write).scope_boxed())
+            .await
+    }
+
+    async fn list_permissions(
+        &self,
+        req: Request<api::AuthServiceListPermissionsRequest>,
+    ) -> Result<Response<api::AuthServiceListPermissionsResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| list_permissions(req, meta, write).scope_boxed())
             .await
     }
 }
@@ -208,11 +226,30 @@ async fn refresh(
         return Err(Error::RefreshResource);
     }
 
+    // HACK: temporary fix to force Endpoint migration
+    let access = match claims.access {
+        Access::Roles(_) | Access::Perms(_) => claims.access,
+
+        Access::Endpoints(Endpoints::Single(endpoint)) => Perms::from(endpoint).into(),
+        Access::Endpoints(Endpoints::Multiple(endpoints)) => {
+            let mut permissions = HashSet::new();
+            for endpoint in endpoints {
+                match endpoint.into() {
+                    Perms::One(perm) => {
+                        permissions.insert(perm);
+                    }
+                    Perms::Many(perms) => permissions.extend(perms),
+                }
+            }
+            Perms::Many(permissions).into()
+        }
+    };
+
     let expirable = Expirable::from_now(write.ctx.config.token.expire.token);
     let new_claims = if let Some(data) = claims.data {
-        Claims::new(resource, expirable, claims.access).with_data(data)
+        Claims::new(resource, expirable, access).with_data(data)
     } else {
-        Claims::new(resource, expirable, claims.access)
+        Claims::new(resource, expirable, access)
     };
     let token = write.ctx.auth.cipher.jwt.encode(&new_claims)?;
 
@@ -285,4 +322,31 @@ async fn update_ui_password(
     write.ctx.email.update_password(&user).await?;
 
     Ok(api::AuthServiceUpdateUiPasswordResponse {})
+}
+
+async fn list_permissions(
+    req: api::AuthServiceListPermissionsRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::AuthServiceListPermissionsResponse, Error> {
+    let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
+    let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
+
+    let (admin_perm, perm) = (AuthAdminPerm::ListPermissions, AuthPerm::ListPermissions);
+    let authz = write.auth_or_all(&meta, admin_perm, perm, user_id).await?;
+
+    let granted = Granted::for_org(user_id, org_id, &mut write).await?;
+    let granted = if req.include_token.unwrap_or_default() {
+        Granted::from_access(&authz.claims.access, Some(granted), &mut write).await?
+    } else {
+        granted
+    };
+
+    let mut permissions = granted
+        .iter()
+        .map(|perm| perm.to_string())
+        .collect::<Vec<_>>();
+    permissions.sort();
+
+    Ok(api::AuthServiceListPermissionsResponse { permissions })
 }

@@ -97,6 +97,21 @@ impl Claims {
         self
     }
 
+    pub fn insert_data<K, V>(&mut self, key: K, value: V)
+    where
+        K: ToString,
+        V: ToString,
+    {
+        match self.data {
+            Some(ref mut data) => {
+                data.insert(key.to_string(), value.to_string());
+            }
+            None => {
+                self.data = Some(hashmap! { key.to_string() => value.to_string() });
+            }
+        }
+    }
+
     pub fn resource(&self) -> Resource {
         self.resource_entry.into()
     }
@@ -269,6 +284,17 @@ impl Granted {
     /// Returns permissions granted based on blockjoy admin role membership.
     pub async fn from_admin(user_id: UserId, conn: &mut Conn<'_>) -> Result<Option<Self>, Error> {
         Ok(RbacUser::admin_perms(user_id, conn).await?.map(Self))
+    }
+
+    pub async fn for_org(
+        user_id: UserId,
+        org_id: OrgId,
+        conn: &mut Conn<'_>,
+    ) -> Result<Self, Error> {
+        RbacPerm::for_org(user_id, org_id, conn)
+            .await
+            .map(Self)
+            .map_err(Into::into)
     }
 
     fn push<P>(&mut self, perm: P)

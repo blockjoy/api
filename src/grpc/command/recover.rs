@@ -92,7 +92,7 @@ async fn recover_created(
         event: NodeLogEvent::Failed,
         blockchain_name: &blockchain.name,
         node_type: node.node_type,
-        version: &node.version,
+        version: node.version.clone(),
         created_at: chrono::Utc::now(),
     };
     if let Err(err) = new_log.create(write).await {
@@ -110,7 +110,7 @@ async fn recover_created(
             event: NodeLogEvent::Canceled,
             blockchain_name: &blockchain.name,
             node_type: node.node_type,
-            version: &node.version,
+            version: node.version,
             created_at: chrono::Utc::now(),
         };
         match new_log.create(write).await {

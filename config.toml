@@ -8,16 +8,18 @@ base = "n0des.xyz"
 ttl = 300
 
 [cookbook]
-data_prefix = "chains_data"
 prefix = "chains"
-r2_bucket = "backet"
 url = "https://r2.dev"
 expiration = "1h"
 aws_region = "eu-west-2"
 aws_access_key_id = "<your value>"
 aws_secret_access_key = "<your value>"
-bundle_bucket = "bundle-prod"
-kernel_bucket = "kernel-prod"
+
+[cookbook.bucket]
+cookbook = "cookbook"
+bundle = "bundle"
+kernel = "kernel"
+archive = "archive"
 
 [database]
 url = "postgres://blockvisor:password@localhost:25432/blockvisor_db"

@@ -14,7 +14,7 @@ use crate::database::Conn;
 use crate::models::schema::{node_logs, sql_types};
 use crate::models::Host;
 
-use super::{Node, NodeType};
+use super::{Node, NodeType, NodeVersion};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -127,7 +127,7 @@ pub struct NewNodeLog<'a> {
     pub event: NodeLogEvent,
     pub blockchain_name: &'a str,
     pub node_type: NodeType,
-    pub version: &'a str,
+    pub version: NodeVersion,
     pub created_at: DateTime<Utc>,
 }
 

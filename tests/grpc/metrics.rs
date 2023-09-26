@@ -120,7 +120,7 @@ async fn single_failure_doesnt_abort_all_updates() {
     metrics.insert(node_id.to_string(), metric.clone());
     metrics.insert(uuid::Uuid::from_u128(0).to_string(), metric);
     let req = api::MetricsServiceNodeRequest { metrics };
-    test.send_with(Service::node, req, &jwt).await.unwrap_err();
+    dbg!(test.send_with(Service::node, req, &jwt).await.unwrap_err());
 
     let mut conn = test.conn().await;
     let node = Node::find_by_id(node_id, &mut conn).await.unwrap();

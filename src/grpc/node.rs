@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use diesel::result::Error::NotFound;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures_util::future::OptionFuture;
@@ -12,6 +13,7 @@ use uuid::Uuid;
 use crate::auth::rbac::{NodeAdminPerm, NodePerm};
 use crate::auth::resource::{HostId, NodeId, UserId};
 use crate::auth::Authorize;
+use crate::cookbook::identifier::Identifier;
 use crate::cookbook::script::HardwareRequirements;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::blockchain::{
@@ -66,12 +68,14 @@ pub enum Error {
     MemSize(std::num::TryFromIntError),
     /// Node MQTT message error: {0}
     Message(#[from] Box<crate::mqtt::message::Error>),
+    /// Missing placement.
+    MissingPlacement,
+    /// Missing blockchain property id: {0}.
+    MissingPropertyId(BlockchainPropertyId),
     /// Node model error: {0}
     Model(#[from] crate::models::node::Error),
     /// Node model property error: {0}
     ModelProperty(#[from] crate::models::node::property::Error),
-    /// Missing placement.
-    MissingPlacement,
     /// No ResourceAffinity.
     NoResourceAffinity,
     /// No UiType.
@@ -108,8 +112,8 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             ClaimsNotUser => Status::permission_denied("Access denied."),
-            ModelProperty(_) | Cookbook(_) | Diesel(_) | Message(_) | ParseIpAddr(_)
-            | PropertyNotFound(_) => Status::internal("Internal error."),
+            Cookbook(_) | Diesel(_) | Message(_) | MissingPropertyId(_) | ModelProperty(_)
+            | ParseIpAddr(_) | PropertyNotFound(_) => Status::internal("Internal error."),
             AllowIps(_) => Status::invalid_argument("allow_ips"),
             BlockHeight(_) => Status::invalid_argument("block_height"),
             DenyIps(_) => Status::invalid_argument("deny_ips"),
@@ -232,7 +236,9 @@ async fn get(
     let node_id = req.id.parse().map_err(Error::ParseId)?;
     let node = Node::find_by_id(node_id, &mut read).await?;
 
-    let _ = read.auth(&meta, NodePerm::Get, node_id).await?;
+    let _ = read
+        .auth_or_all(&meta, NodeAdminPerm::Get, NodePerm::Get, node_id)
+        .await?;
 
     Ok(api::NodeServiceGetResponse {
         node: Some(api::Node::from_model(node, &mut read).await?),
@@ -246,7 +252,7 @@ async fn list(
 ) -> Result<api::NodeServiceListResponse, Error> {
     let filter = req.as_filter()?;
     let _ = read
-        .auth_or_all(&meta, NodeAdminPerm::ListAll, NodePerm::List, filter.org_id)
+        .auth_or_all(&meta, NodeAdminPerm::List, NodePerm::List, filter.org_id)
         .await?;
 
     let (node_count, nodes) = Node::filter(filter, &mut read).await?;
@@ -264,7 +270,7 @@ async fn create(
     let (host, authz) = if let Some(host_id) = req.host_id()? {
         let host = Host::find_by_id(host_id, &mut write).await?;
         let authz = write
-            .auth_or_all(&meta, NodeAdminPerm::CreateAll, NodePerm::Create, host_id)
+            .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, host_id)
             .await?;
         (Some(host), authz)
     } else {
@@ -282,15 +288,12 @@ async fn create(
     let blockchain = Blockchain::find_by_id(blockchain_id, &mut write).await?;
 
     let node_type = req.node_type().into_model();
-    let _ = BlockchainVersion::find(&blockchain, &req.version, node_type, &mut write).await?;
+    let id = Identifier::new(&blockchain.name, node_type, req.version.clone().into());
+    let version = id.node_version();
 
-    let requirements = write
-        .ctx
-        .cookbook
-        .rhai_metadata(&blockchain.name, node_type, &req.version)
-        .await?
-        .requirements;
+    let _ = BlockchainVersion::find(&blockchain, &version, node_type, &mut write).await?;
 
+    let requirements = write.ctx.cookbook.rhai_metadata(&id).await?.requirements;
     let new_node = req.as_new(user.id, requirements, &mut write).await?;
     let node = new_node.create(host, &mut write).await?;
 
@@ -335,7 +338,7 @@ async fn update_config(
     let authz = write
         .auth_or_all(
             &meta,
-            NodeAdminPerm::UpdateConfigAll,
+            NodeAdminPerm::UpdateConfig,
             NodePerm::UpdateConfig,
             node_id,
         )
@@ -371,7 +374,7 @@ async fn update_status(
     let authz = write
         .auth_or_all(
             &meta,
-            NodeAdminPerm::UpdateStatusAll,
+            NodeAdminPerm::UpdateStatus,
             NodePerm::UpdateStatus,
             node_id,
         )
@@ -402,7 +405,7 @@ async fn delete(
     let node = Node::find_by_id(node_id, &mut write).await?;
 
     let authz = write
-        .auth_or_all(&meta, NodeAdminPerm::DeleteAll, NodePerm::Delete, node_id)
+        .auth_or_all(&meta, NodeAdminPerm::Delete, NodePerm::Delete, node_id)
         .await?;
     let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
     let user = User::find_by_id(user_id, &mut write).await?;
@@ -451,7 +454,7 @@ async fn start(
     let node = Node::find_by_id(node_id, &mut write).await?;
 
     let _ = write
-        .auth_or_all(&meta, NodeAdminPerm::StartAll, NodePerm::Start, node_id)
+        .auth_or_all(&meta, NodeAdminPerm::Start, NodePerm::Start, node_id)
         .await?;
 
     let cmd = create_node_command(&node, CommandType::RestartNode, &mut write).await?;
@@ -471,7 +474,7 @@ async fn stop(
     let node = Node::find_by_id(node_id, &mut write).await?;
 
     let _ = write
-        .auth_or_all(&meta, NodeAdminPerm::StopAll, NodePerm::Stop, node_id)
+        .auth_or_all(&meta, NodeAdminPerm::Stop, NodePerm::Stop, node_id)
         .await?;
 
     let cmd = create_node_command(&node, CommandType::KillNode, &mut write).await?;
@@ -491,7 +494,7 @@ async fn restart(
     let node = Node::find_by_id(node_id, &mut write).await?;
 
     let _ = write
-        .auth_or_all(&meta, NodeAdminPerm::RestartAll, NodePerm::Restart, node_id)
+        .auth_or_all(&meta, NodeAdminPerm::Restart, NodePerm::Restart, node_id)
         .await?;
 
     let cmd = create_node_command(&node, CommandType::RestartNode, &mut write).await?;
@@ -522,8 +525,14 @@ impl api::Node {
     /// perform a seperate query to the blockchains table.
     pub async fn from_model(node: Node, conn: &mut Conn<'_>) -> Result<Self, Error> {
         let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
-        let user_fut = node.created_by.map(|u_id| User::find_by_id(u_id, conn));
-        let user = OptionFuture::from(user_fut).await.transpose()?;
+        let user = match node.created_by {
+            Some(id) => match User::find_by_id(id, conn).await {
+                Ok(user) => Some(user),
+                Err(crate::models::user::Error::FindById(_, NotFound)) => None,
+                Err(err) => return Err(err.into()),
+            },
+            None => None,
+        };
 
         // We need to get both the node properties and the blockchain properties to construct the
         // final dto. First we query both, and then we zip them together.
@@ -540,10 +549,11 @@ impl api::Node {
         let props = node_props
             .into_iter()
             .map(|node_prop| {
-                let block_prop = block_props[&node_prop.blockchain_property_id].clone();
-                (node_prop, block_prop)
+                let id = node_prop.blockchain_property_id;
+                let block_prop = block_props.get(&id).ok_or(Error::MissingPropertyId(id))?;
+                Ok::<_, Error>((node_prop, block_prop.clone()))
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let host = Host::find_by_id(node.host_id, conn).await?;
         let org = Org::find_by_id(node.org_id, conn).await?;
@@ -645,8 +655,6 @@ impl api::Node {
         host: &Host,
         region: Option<&Region>,
     ) -> Result<Self, Error> {
-        use api::{ContainerStatus, NodeStatus, NodeType, StakingStatus, SyncStatus};
-
         let properties = properties
             .into_iter()
             .map(|(nprop, bprop)| api::NodeProperty::from_model(nprop, bprop))
@@ -684,7 +692,7 @@ impl api::Node {
 
         let data_sync_progress = Self::data_sync_progress(&node)?;
 
-        let mut dto = api::Node {
+        let mut out = api::Node {
             id: node.id.to_string(),
             org_id: node.org_id.to_string(),
             host_id: node.host_id.to_string(),
@@ -692,7 +700,7 @@ impl api::Node {
             blockchain_id: node.blockchain_id.to_string(),
             name: node.name,
             address: node.address,
-            version: node.version,
+            version: node.version.into(),
             ip: node.ip_addr,
             ip_gateway: node.ip_gateway,
             node_type: 0, // We use the setter to set this field for type-safety
@@ -722,15 +730,15 @@ impl api::Node {
             data_directory_mountpoint: node.data_directory_mountpoint,
             data_sync_progress,
         };
-        dto.set_node_type(NodeType::from_model(node.node_type));
-        dto.set_status(NodeStatus::from_model(node.chain_status));
+        out.set_node_type(api::NodeType::from_model(node.node_type));
+        out.set_status(api::NodeStatus::from_model(node.chain_status));
         if let Some(ss) = node.staking_status {
-            dto.set_staking_status(StakingStatus::from_model(ss));
+            out.set_staking_status(api::StakingStatus::from_model(ss));
         }
-        dto.set_container_status(ContainerStatus::from_model(node.container_status));
-        dto.set_sync_status(SyncStatus::from_model(node.sync_status));
+        out.set_container_status(api::ContainerStatus::from_model(node.container_status));
+        out.set_sync_status(api::SyncStatus::from_model(node.sync_status));
 
-        Ok(dto)
+        Ok(out)
     }
 
     fn data_sync_progress(node: &Node) -> Result<Option<api::DataSyncProgress>, Error> {
@@ -756,7 +764,7 @@ impl api::NodeServiceCreateRequest {
         user_id: UserId,
         req: HardwareRequirements,
         conn: &mut Conn<'_>,
-    ) -> Result<NewNode<'_>, Error> {
+    ) -> Result<NewNode, Error> {
         let inner = self.placement.as_ref().ok_or(Error::MissingPlacement)?;
         let placement = inner.placement.as_ref().ok_or(Error::MissingPlacement)?;
         let scheduler = match placement {
@@ -783,7 +791,7 @@ impl api::NodeServiceCreateRequest {
             id: Uuid::new_v4().into(),
             org_id: self.org_id.parse().map_err(Error::ParseOrgId)?,
             name: petname::Petnames::large().generate_one(3, "_"),
-            version: &self.version,
+            version: self.version.clone().into(),
             blockchain_id: self
                 .blockchain_id
                 .parse()
@@ -802,7 +810,7 @@ impl api::NodeServiceCreateRequest {
             disk_size_bytes: (req.disk_size_gb * 1000 * 1000 * 1000)
                 .try_into()
                 .map_err(Error::DiskSize)?,
-            network: &self.network,
+            network: self.network.clone().into(),
             node_type: self.node_type().into_model(),
             allow_ips: serde_json::to_value(allow_ips).map_err(Error::AllowIps)?,
             deny_ips: serde_json::to_value(deny_ips).map_err(Error::DenyIps)?,
@@ -933,7 +941,7 @@ impl api::NodeProperty {
     fn from_model(model: NodeProperty, bprop: BlockchainProperty) -> Self {
         let mut prop = api::NodeProperty {
             name: bprop.name,
-            display_name: "".into(), // FIXME: actual value
+            display_name: bprop.display_name,
             ui_type: 0,
             disabled: bprop.disabled,
             required: bprop.required,

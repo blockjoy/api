@@ -6,7 +6,7 @@ use tonic::transport::Channel;
 use crate::setup::helper::traits::SocketRpc;
 use crate::setup::TestServer;
 
-type SubService = api::subscription_service_client::SubscriptionServiceClient<Channel>;
+type Service = api::subscription_service_client::SubscriptionServiceClient<Channel>;
 
 #[tokio::test]
 async fn subscription_service_api_requests() {
@@ -30,6 +30,8 @@ async fn subscription_service_api_requests() {
     assert_eq!(subs.len(), 1);
     assert_eq!(subs[0].id, sub.id);
 
+    assert!(update(&test, org.id).await.is_ok());
+
     let _ = delete(&test, sub.id.parse().unwrap()).await.unwrap();
     let subs = list(&test, user_id).await.unwrap().subscriptions;
     assert_eq!(subs.len(), 0);
@@ -47,7 +49,7 @@ async fn create(
         external_id: external_id.to_string(),
     };
 
-    test.send_admin(SubService::create, req).await
+    test.send_admin(Service::create, req).await
 }
 
 async fn get(
@@ -57,7 +59,7 @@ async fn get(
     let req = api::SubscriptionServiceGetRequest {
         org_id: org_id.to_string(),
     };
-    test.send_admin(SubService::get, req).await
+    test.send_admin(Service::get, req).await
 }
 
 async fn list(
@@ -67,7 +69,17 @@ async fn list(
     let req = api::SubscriptionServiceListRequest {
         user_id: Some(user_id.to_string()),
     };
-    test.send_admin(SubService::list, req).await
+    test.send_admin(Service::list, req).await
+}
+
+async fn update(
+    test: &TestServer,
+    org_id: OrgId,
+) -> Result<api::SubscriptionServiceUpdateResponse, tonic::Status> {
+    let req = api::SubscriptionServiceUpdateRequest {
+        org_id: Some(org_id.to_string()),
+    };
+    test.send_admin(Service::update, req).await
 }
 
 async fn delete(
@@ -76,5 +88,5 @@ async fn delete(
 ) -> Result<api::SubscriptionServiceDeleteResponse, tonic::Status> {
     let req = api::SubscriptionServiceDeleteRequest { id: id.to_string() };
 
-    test.send_admin(SubService::delete, req).await
+    test.send_admin(Service::delete, req).await
 }

@@ -14,7 +14,7 @@ pub mod status;
 pub use status::{ContainerStatus, NodeChainStatus, NodeStakingStatus, NodeSyncStatus};
 
 pub mod node_type;
-pub use node_type::NodeType;
+pub use node_type::{NodeNetwork, NodeType, NodeVersion};
 
 use std::collections::HashSet;
 
@@ -31,6 +31,7 @@ use tonic::Status;
 use tracing::warn;
 
 use crate::auth::resource::{HostId, NodeId, OrgId, UserId};
+use crate::cookbook::identifier::Identifier;
 use crate::database::{Conn, WriteConn};
 
 use super::blockchain::{Blockchain, BlockchainId};
@@ -115,7 +116,7 @@ pub struct Node {
     pub org_id: OrgId,
     pub host_id: HostId,
     pub name: String,
-    pub version: String,
+    pub version: NodeVersion,
     pub ip_addr: String,
     pub address: Option<String>,
     pub wallet_address: Option<String>,
@@ -160,14 +161,6 @@ pub struct NodeFilter {
     pub node_types: Vec<NodeType>,
     pub blockchains: Vec<BlockchainId>,
     pub host_id: Option<HostId>,
-}
-
-#[derive(Clone, Debug)]
-pub struct NodeSelfUpgradeFilter {
-    pub node_type: NodeType,
-    pub blockchain_id: BlockchainId,
-    // Semantic versioning.
-    pub version: String,
 }
 
 impl Node {
@@ -273,17 +266,14 @@ impl Node {
     /// Finds the next possible host for this node to be tried on.
     pub async fn find_host(&self, write: &mut WriteConn<'_, '_>) -> Result<Host, Error> {
         let chain = Blockchain::find_by_id(self.blockchain_id, write).await?;
-        let requirements = write
-            .ctx
-            .cookbook
-            .rhai_metadata(&chain.name, self.node_type, &self.version)
-            .await?
-            .requirements;
+
+        let id = Identifier::new(chain.name, self.node_type, self.version.clone());
+        let meta = write.ctx.cookbook.rhai_metadata(&id).await?;
 
         let candidates = match self.scheduler(write).await? {
             Some(scheduler) => {
                 let reqs = HostRequirements {
-                    requirements,
+                    requirements: meta.requirements,
                     blockchain_id: self.blockchain_id,
                     node_type: self.node_type,
                     host_type: Some(HostType::Cloud),
@@ -376,11 +366,11 @@ pub struct FilteredIpAddr {
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = nodes)]
-pub struct NewNode<'a> {
+pub struct NewNode {
     pub id: NodeId,
     pub org_id: OrgId,
     pub name: String,
-    pub version: &'a str,
+    pub version: NodeVersion,
     pub blockchain_id: BlockchainId,
     pub block_height: Option<i64>,
     pub node_data: Option<serde_json::Value>,
@@ -392,7 +382,7 @@ pub struct NewNode<'a> {
     pub vcpu_count: i64,
     pub mem_size_bytes: i64,
     pub disk_size_bytes: i64,
-    pub network: &'a str,
+    pub network: NodeNetwork,
     pub allow_ips: serde_json::Value,
     pub deny_ips: serde_json::Value,
     pub node_type: NodeType,
@@ -405,7 +395,7 @@ pub struct NewNode<'a> {
     pub scheduler_region: Option<RegionId>,
 }
 
-impl NewNode<'_> {
+impl NewNode {
     pub async fn create(
         self,
         host: Option<Host>,
@@ -437,11 +427,9 @@ impl NewNode<'_> {
             .get_node_dns(&self.name, ip_addr.clone())
             .await?;
 
-        let data_directory_mountpoint = write
-            .ctx
-            .cookbook
-            .rhai_metadata(&blockchain.name, self.node_type, self.version)
-            .await?
+        let id = Identifier::new(blockchain.name, self.node_type, self.version.clone());
+        let meta = write.ctx.cookbook.rhai_metadata(&id).await?;
+        let data_directory_mountpoint = meta
             .babel_config
             .and_then(|cfg| cfg.data_directory_mount_point);
 
@@ -460,9 +448,11 @@ impl NewNode<'_> {
             .map_err(Error::Create)
     }
 
-    /// Finds the most suitable host to initially place the node on. Since this is a freshly created
-    /// node, we do not need to worry about logic regarding where the retry placing the node. We
-    /// simply ask for an ordered list of the most suitable hosts, and pick the first one.
+    /// Finds the most suitable host to initially place the node on.
+    ///
+    /// Since this is a freshly created node, we do not need to worry about
+    /// logic regarding where to retry placing the node. We simply ask for an
+    /// ordered list of the most suitable hosts, and pick the first one.
     pub async fn find_host(
         &self,
         scheduler: NodeScheduler,
@@ -470,22 +460,19 @@ impl NewNode<'_> {
     ) -> Result<Host, Error> {
         let chain = Blockchain::find_by_id(self.blockchain_id, write).await?;
 
-        let requirements = write
-            .ctx
-            .cookbook
-            .rhai_metadata(&chain.name, self.node_type, self.version)
-            .await?
-            .requirements;
+        let id = Identifier::new(chain.name, self.node_type, self.version.clone());
+        let metadata = write.ctx.cookbook.rhai_metadata(&id).await?;
+
         let requirements = HostRequirements {
-            requirements,
+            requirements: metadata.requirements,
             blockchain_id: self.blockchain_id,
             node_type: self.node_type,
             host_type: Some(HostType::Cloud),
             scheduler,
             org_id: None,
         };
+
         let candidates = Host::host_candidates(requirements, Some(1), write).await?;
-        // Just take the first one if there is one.
         candidates.into_iter().next().ok_or(Error::NoMatchingHost)
     }
 
@@ -536,7 +523,7 @@ impl UpdateNode<'_> {
     }
 }
 
-/// This struct is used for updating the metrics of a node.
+/// Update node columns related to metrics.
 #[derive(Debug, Insertable, AsChangeset)]
 #[diesel(table_name = nodes)]
 pub struct UpdateNodeMetrics {
@@ -553,7 +540,6 @@ pub struct UpdateNodeMetrics {
 }
 
 impl UpdateNodeMetrics {
-    /// Performs a selective update of only the columns related to metrics of the provided nodes.
     pub async fn update_metrics(
         mut updates: Vec<Self>,
         conn: &mut Conn<'_>,
@@ -564,10 +550,12 @@ impl UpdateNodeMetrics {
         let mut nodes = Vec::with_capacity(updates.len());
         let mut errors = Vec::new();
         for update in updates {
-            let updated = diesel::update(nodes::table.find(update.id))
-                .set(&update)
-                .get_result(conn)
-                .await;
+            let updated = dbg!(
+                diesel::update(nodes::table.find(update.id))
+                    .set(&update)
+                    .get_result(conn)
+                    .await
+            );
             match updated {
                 Ok(updated) => nodes.push(updated),
                 Err(err) => errors.push(Error::UpdateMetrics(err, update.id)),
@@ -606,13 +594,13 @@ mod tests {
             block_height: None,
             node_data: None,
             name,
-            version: "3.3.0",
+            version: "3.3.0".to_string().into(),
             staking_status: NodeStakingStatus::Staked,
             self_update: false,
             vcpu_count: 0,
             mem_size_bytes: 0,
             disk_size_bytes: 0,
-            network: "some network",
+            network: "some network".to_string().into(),
             node_type: NodeType::Validator,
             created_by: user_id,
             scheduler_similarity: None,

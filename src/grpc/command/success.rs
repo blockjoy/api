@@ -38,7 +38,7 @@ async fn create_node_success(succeeded_cmd: &Command, conn: &mut Conn<'_>) {
         event: NodeLogEvent::Succeeded,
         blockchain_name: &blockchain.name,
         node_type: node.node_type,
-        version: &node.version,
+        version: node.version,
         created_at: chrono::Utc::now(),
     };
     let _ = new_log.create(conn).await;

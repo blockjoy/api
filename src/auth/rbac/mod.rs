@@ -38,6 +38,7 @@ define_roles! {
         Admin,
         Member,
         Owner,
+        Personal,
     }
 }
 
@@ -52,10 +53,15 @@ define_perms! {
 
     Auth => {
         Confirm,
+        ListPermissions,
         Refresh,
         ResetPassword,
         UpdatePassword,
         UpdateUiPassword,
+    }
+
+    AuthAdmin => {
+        ListPermissions,
     }
 
     Babel => {
@@ -143,25 +149,26 @@ define_perms! {
 
     Node => {
         Create,
+        Delete,
         Get,
         List,
-        UpdateConfig,
-        Delete,
-        UpdateStatus,
+        Restart,
         Start,
         Stop,
-        Restart,
+        UpdateConfig,
+        UpdateStatus,
     }
 
     NodeAdmin => {
-        CreateAll,
-        DeleteAll,
-        ListAll,
-        RestartAll,
-        StartAll,
-        StopAll,
-        UpdateConfigAll,
-        UpdateStatusAll,
+        Create,
+        Delete,
+        Get,
+        List,
+        Restart,
+        Start,
+        Stop,
+        UpdateConfig,
+        UpdateStatus,
     }
 
     Org => {
@@ -171,10 +178,11 @@ define_perms! {
         Update,
         Delete,
         RemoveMember,
+        RemoveSelf,
     }
 
     OrgAdmin => {
-        ListAll,
+        List,
     }
 
     OrgProvision => {
@@ -186,6 +194,7 @@ define_perms! {
         Create,
         Get,
         List,
+        Update,
         Delete,
     }
 
@@ -198,8 +207,8 @@ define_perms! {
     }
 
     UserAdmin => {
-        FilterAll,
-        UpdateAll,
+        Filter,
+        Update,
     }
 
     UserBilling => {

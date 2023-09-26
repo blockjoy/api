@@ -58,11 +58,11 @@ async fn retrieve_download_manifest(
 ) -> Result<api::ManifestServiceRetrieveDownloadManifestResponse, Error> {
     let _ = read.auth_all(&meta, ManifestPerm::RetrieveDownload).await?;
 
-    let id = req.id.ok_or(Error::MissingId)?;
+    let id = req.id.ok_or(Error::MissingId)?.into();
     let manifest = read
         .ctx
         .cookbook
-        .get_download_manifest(id, req.network)
+        .get_download_manifest(&id, &req.network)
         .await?;
 
     Ok(api::ManifestServiceRetrieveDownloadManifestResponse {

@@ -12,6 +12,7 @@ use crate::auth::rbac::{GrpcRole, HostPerm};
 use crate::auth::resource::{HostId, OrgId};
 use crate::auth::token::refresh::Refresh;
 use crate::auth::{AuthZ, Authorize};
+use crate::cookbook::identifier::Identifier;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::command::NewCommand;
 use crate::models::host::{
@@ -47,6 +48,8 @@ pub enum Error {
     Host(#[from] crate::models::host::Error),
     /// Host JWT failure: {0}
     Jwt(#[from] crate::auth::token::jwt::Error),
+    /// Looking is missing org id: {0}
+    LookupMissingOrg(OrgId),
     /// Failed to parse mem size: {0}
     MemSize(std::num::TryFromIntError),
     /// Failed to parse BlockchainId: {0}
@@ -76,7 +79,9 @@ impl From<Error> for Status {
         error!("{err}");
         use Error::*;
         match err {
-            Cookbook(_) | Diesel(_) | Jwt(_) | Refresh(_) => Status::internal("Internal error."),
+            Cookbook(_) | Diesel(_) | Jwt(_) | LookupMissingOrg(_) | Refresh(_) => {
+                Status::internal("Internal error.")
+            }
             CpuCount(_) | DiskSize(_) | MemSize(_) => Status::out_of_range("Host resource."),
             ParseBlockchainId(_) => Status::invalid_argument("blockchain_id"),
             ParseId(_) => Status::invalid_argument("id"),
@@ -347,14 +352,11 @@ async fn regions(
     let blockchain = Blockchain::find_by_id(blockchain_id, &mut read).await?;
 
     let node_type = req.node_type().into_model();
-    let requirements = read
-        .ctx
-        .cookbook
-        .rhai_metadata(&blockchain.name, node_type, &req.version)
-        .await?
-        .requirements;
-
     let host_type = req.host_type().into_model();
+
+    let id = Identifier::new(&blockchain.name, node_type, req.version.into());
+    let requirements = read.ctx.cookbook.rhai_metadata(&id).await?.requirements;
+
     let regions = Host::regions_for(
         org_id,
         blockchain,
@@ -417,8 +419,14 @@ impl api::Host {
             ip_gateway: host.ip_gateway.ip().to_string(),
             org_id: host.org_id.to_string(),
             node_count: lookup.nodes.get(&host.id).copied().unwrap_or(0),
-            org_name: lookup.orgs[&host.org_id].name.clone(),
-            region: host.region_id.map(|id| lookup.regions[&id].name.clone()),
+            org_name: lookup
+                .orgs
+                .get(&host.org_id)
+                .map(|org| org.name.clone())
+                .ok_or(Error::LookupMissingOrg(host.org_id))?,
+            region: host
+                .region_id
+                .and_then(|id| lookup.regions.get(&id).map(|region| region.name.clone())),
             billing_amount,
             vmm_mountpoint: host.vmm_mountpoint,
         })

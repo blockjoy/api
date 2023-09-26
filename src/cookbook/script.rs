@@ -1,7 +1,23 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+use displaydoc::Display;
+use rhai::Engine;
+use thiserror::Error;
+
 use crate::grpc::api;
+
+use super::identifier::Identifier;
+
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Failed to compile script from identifier `{0:?}`: {1}
+    CompileScript(Identifier, rhai::ParseError),
+    /// Invalid rhai script: {0}
+    InvalidScript(Box<rhai::EvalAltResult>),
+    /// No metadata in rhai script.
+    NoMetadata,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct BabelConfig {
@@ -13,6 +29,19 @@ pub struct BlockchainMetadata {
     pub requirements: HardwareRequirements,
     pub nets: HashMap<String, NetConfiguration>,
     pub babel_config: Option<BabelConfig>,
+}
+
+impl BlockchainMetadata {
+    pub fn from_script(engine: &Engine, script: &str, id: &Identifier) -> Result<Self, Error> {
+        let (_, _, dynamic) = engine
+            .compile(script)
+            .map_err(|err| Error::CompileScript(id.clone(), err))?
+            .iter_literal_variables(true, false)
+            .find(|&(name, _, _)| name == "METADATA")
+            .ok_or(Error::NoMetadata)?;
+
+        rhai::serde::from_dynamic(&dynamic).map_err(Error::InvalidScript)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,7 +80,10 @@ impl From<NetType> for api::NetType {
 #[cfg(any(test, feature = "integration-test"))]
 #[allow(unused_imports)]
 pub mod tests {
+    use crate::cookbook::identifier::Identifier;
+    use crate::cookbook::tests::dummy_config;
     use crate::cookbook::Cookbook;
+    use crate::models::NodeType;
 
     use super::*;
 
@@ -136,16 +168,17 @@ pub mod tests {
 
     #[test]
     fn can_deserialize_rhai() {
-        let engine = rhai::Engine::new();
-        let config = Cookbook::script_to_metadata(&engine, TEST_SCRIPT).unwrap();
+        let engine = Engine::new();
+        let id = Identifier::new("test", NodeType::Node, "1.2.3".to_string().into());
+        let meta = BlockchainMetadata::from_script(&engine, TEST_SCRIPT, &id).unwrap();
 
-        assert_eq!(config.requirements.vcpu_count, 1);
-        assert_eq!(config.requirements.mem_size_mb, 8192);
-        assert_eq!(config.requirements.disk_size_gb, 10);
+        assert_eq!(meta.requirements.vcpu_count, 1);
+        assert_eq!(meta.requirements.mem_size_mb, 8192);
+        assert_eq!(meta.requirements.disk_size_gb, 10);
 
-        let mainnet = config.nets.get("mainnet").unwrap();
-        let sepolia = config.nets.get("sepolia").unwrap();
-        let goerli = config.nets.get("goerli").unwrap();
+        let mainnet = meta.nets.get("mainnet").unwrap();
+        let sepolia = meta.nets.get("sepolia").unwrap();
+        let goerli = meta.nets.get("goerli").unwrap();
 
         assert_eq!(mainnet.net_type, NetType::Main);
         assert_eq!(sepolia.net_type, NetType::Test);

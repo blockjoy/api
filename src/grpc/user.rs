@@ -27,6 +27,8 @@ pub enum Error {
     Email(#[from] crate::email::Error),
     /// Failed to parse UserId: {0}
     ParseId(uuid::Error),
+    /// Failed to parse invitation id: {0}
+    ParseInvitationId(uuid::Error),
     /// Failed to parse OrgId: {0}
     ParseOrgId(uuid::Error),
     /// Failed to parse UserId: {0}
@@ -40,7 +42,7 @@ impl From<Error> for Status {
         error!("{err}");
         use Error::*;
         match err {
-            Diesel(_) | Email(_) => Status::internal("Internal error."),
+            Diesel(_) | Email(_) | ParseInvitationId(_) => Status::internal("Internal error."),
             ParseId(_) => Status::invalid_argument("id"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseUserId(_) => Status::invalid_argument("user_id"),
@@ -130,10 +132,18 @@ async fn create(
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceCreateResponse, Error> {
-    let _ = write.auth_all(&meta, UserPerm::Create).await?;
+    let authz = write.auth_all(&meta, UserPerm::Create).await?;
+    let invitation_id = match authz.get_data("invitation_id") {
+        Some(id) => Some(id.parse().map_err(Error::ParseInvitationId)?),
+        None => None,
+    };
 
     let new_user = req.as_new()?.create(&mut write).await?;
-    write.ctx.email.registration_confirmation(&new_user).await?;
+    write
+        .ctx
+        .email
+        .registration_confirmation(&new_user, invitation_id)
+        .await?;
 
     Ok(api::UserServiceCreateResponse {
         user: Some(api::User::from_model(new_user)),
@@ -166,10 +176,10 @@ async fn filter(
         .transpose()?;
 
     let _ = if let Some(org_id) = org_id {
-        read.auth_or_all(&meta, UserAdminPerm::FilterAll, UserPerm::Filter, org_id)
+        read.auth_or_all(&meta, UserAdminPerm::Filter, UserPerm::Filter, org_id)
             .await?
     } else {
-        read.auth_all(&meta, UserAdminPerm::FilterAll).await?
+        read.auth_all(&meta, UserAdminPerm::Filter).await?
     };
 
     let users = User::filter(org_id, req.email_like.as_deref(), &mut read)
@@ -186,7 +196,7 @@ async fn update(
 ) -> Result<api::UserServiceUpdateResponse, Error> {
     let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
     let _ = write
-        .auth_or_all(&meta, UserAdminPerm::UpdateAll, UserPerm::Update, user_id)
+        .auth_or_all(&meta, UserAdminPerm::Update, UserPerm::Update, user_id)
         .await?;
 
     let user = req.as_update(user_id).update(&mut write).await?;

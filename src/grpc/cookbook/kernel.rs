@@ -67,7 +67,7 @@ async fn retrieve_kernel_(
     let _ = read.auth_all(&meta, CookbookPerm::RetrieveKernel).await?;
 
     let id = req.id.ok_or(Error::MissingId)?;
-    let url = read.ctx.cookbook.download_url_kernel(&id.version).await?;
+    let url = read.ctx.cookbook.download_kernel(&id.version).await?;
 
     Ok(api::KernelServiceRetrieveResponse {
         location: Some(api::ArchiveLocation { url }),

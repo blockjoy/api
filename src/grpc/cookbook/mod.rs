@@ -103,19 +103,11 @@ async fn retrieve_plugin(
 ) -> Result<api::CookbookServiceRetrievePluginResponse, Error> {
     let _ = read.auth_all(&meta, CookbookPerm::RetrievePlugin).await?;
 
-    let id = req.id.ok_or(Error::MissingId)?;
-    let rhai_content = read
-        .ctx
-        .cookbook
-        .read_file(
-            &id.protocol,
-            id.node_type().into_model(),
-            &id.node_version,
-            cookbook::RHAI_FILE_NAME,
-        )
-        .await?;
+    let id = req.id.ok_or(Error::MissingId)?.into();
+    let rhai_content = read.ctx.cookbook.read_rhai_file(&id).await?;
+
     let plugin = api::Plugin {
-        identifier: Some(id),
+        identifier: Some(id.into()),
         rhai_content,
     };
 
@@ -131,16 +123,11 @@ async fn retrieve_image(
 ) -> Result<api::CookbookServiceRetrieveImageResponse, Error> {
     let _ = read.auth_all(&meta, CookbookPerm::RetrieveImage).await?;
 
-    let id = req.id.ok_or(Error::MissingId)?;
+    let id = req.id.ok_or(Error::MissingId)?.into();
     let url = read
         .ctx
         .cookbook
-        .download_url(
-            &id.protocol,
-            id.node_type().into_model(),
-            &id.node_version,
-            cookbook::BABEL_IMAGE_NAME,
-        )
+        .download_url(&id, cookbook::BABEL_IMAGE_NAME)
         .await?;
     let location = api::ArchiveLocation { url };
 
@@ -156,14 +143,8 @@ async fn requirements(
 ) -> Result<api::CookbookServiceRequirementsResponse, Error> {
     let _ = read.auth_all(&meta, CookbookPerm::Requirements).await?;
 
-    let id = req.id.ok_or(Error::MissingId)?;
-    let node_type = id.node_type().into_model();
-    let requirements = read
-        .ctx
-        .cookbook
-        .rhai_metadata(&id.protocol, node_type, &id.node_version)
-        .await?
-        .requirements;
+    let id = req.id.ok_or(Error::MissingId)?.into();
+    let requirements = read.ctx.cookbook.rhai_metadata(&id).await?.requirements;
 
     Ok(api::CookbookServiceRequirementsResponse {
         cpu_count: requirements.vcpu_count,
@@ -181,13 +162,10 @@ async fn net_configurations(
         .auth_all(&meta, CookbookPerm::NetConfigurations)
         .await?;
 
-    let id = req.id.ok_or(Error::MissingId)?;
-    let node_type = id.node_type().into_model();
-    let networks = read
-        .ctx
-        .cookbook
-        .rhai_metadata(&id.protocol, node_type, &id.node_version)
-        .await?
+    let id = req.id.ok_or(Error::MissingId)?.into();
+    let meta = read.ctx.cookbook.rhai_metadata(&id).await?;
+
+    let networks = meta
         .nets
         .into_iter()
         .map(|(name, network)| {

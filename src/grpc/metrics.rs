@@ -3,6 +3,8 @@
 //! does not store a history of metrics. Rather, it overwrites the metrics that are know for each
 //! time new ones are provided. This makes sure that the database doesn't grow overly large.
 
+use std::collections::HashSet;
+
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
@@ -13,8 +15,8 @@ use tracing::error;
 use crate::auth::rbac::MetricsPerm;
 use crate::auth::Authorize;
 use crate::database::{Transaction, WriteConn};
-use crate::models::host::{Host, UpdateHostMetrics};
-use crate::models::node::{Node, UpdateNodeMetrics};
+use crate::models::host::UpdateHostMetrics;
+use crate::models::node::UpdateNodeMetrics;
 
 use super::api::metrics_service_server::MetricsService;
 use super::{api, Grpc};
@@ -135,9 +137,8 @@ async fn node(
         .map(|(key, val)| val.as_metrics_update(&key))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let node_ids = updates.iter().map(|update| update.id).collect();
+    let node_ids: HashSet<_> = updates.iter().map(|update| update.id).collect();
     let _ = write.auth(&meta, MetricsPerm::Node, &node_ids).await?;
-    let _ = Node::find_by_ids(node_ids, &mut write).await?;
 
     let (nodes, errors) = UpdateNodeMetrics::update_metrics(updates, &mut write).await;
 
@@ -166,9 +167,8 @@ async fn host(
         .map(|(key, val)| val.as_metrics_update(&key))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let host_ids = updates.iter().map(|update| update.id).collect();
+    let host_ids: HashSet<_> = updates.iter().map(|update| update.id).collect();
     let _ = write.auth(&meta, MetricsPerm::Host, &host_ids).await?;
-    let _ = Host::find_by_ids(host_ids, &mut write).await?;
 
     let (hosts, errors) = UpdateHostMetrics::update_metrics(updates, &mut write).await;
 

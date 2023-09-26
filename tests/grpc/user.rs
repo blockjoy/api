@@ -190,7 +190,7 @@ async fn test_filter() {
         .send_member(Service::filter, req(Some(org_id), None))
         .await
         .unwrap();
-    assert_eq!(resp.users.len(), 2, "{resp:?}");
+    assert_eq!(resp.users.len(), 3, "{resp:?}");
 
     // Test that an org member cannot filter other organizations
     test.send_member(Service::filter, req(Some(fake_org_id.clone()), None))

@@ -9,6 +9,7 @@ use displaydoc::Display;
 use sendgrid::{Destination, Mail, SGClient};
 use thiserror::Error;
 use url::Url;
+use uuid::Uuid;
 
 use crate::auth::claims::Claims;
 use crate::auth::rbac::EmailRole;
@@ -81,9 +82,17 @@ impl Email {
         self.send(Kind::UpdatePassword, user, None).await
     }
 
-    pub async fn registration_confirmation(&self, user: &User) -> Result<(), Error> {
+    pub async fn registration_confirmation(
+        &self,
+        user: &User,
+        invitation_id: Option<Uuid>,
+    ) -> Result<(), Error> {
         let expires = self.expires.registration_confirmation;
-        let claims = Claims::from_now(expires, user.id, EmailRole::RegistrationConfirmation);
+        let mut claims = Claims::from_now(expires, user.id, EmailRole::RegistrationConfirmation);
+        if let Some(id) = invitation_id {
+            claims.insert_data("invitation_id", id)
+        }
+
         let token = self.cipher.jwt.encode(&claims).map_err(Error::EncodeJwt)?;
 
         let base = &self.base_url;
@@ -123,7 +132,10 @@ impl Email {
     ) -> Result<(), Error> {
         let resource = Resource::Org(invitation.org_id);
         let expires = self.expires.invitation;
-        let data = hashmap! { "email".to_string() => invitee.email.to_owned() };
+        let data = hashmap! {
+            "email".to_string() => invitee.email.to_owned(),
+            "invitation_id".to_string() => invitation.id.to_string(),
+        };
         let claims = Claims::from_now(expires, resource, EmailRole::Invitation).with_data(data);
         let token = self.cipher.jwt.encode(&claims).map_err(Error::EncodeJwt)?;
 
