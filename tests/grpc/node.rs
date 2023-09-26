@@ -1,0 +1,317 @@
+use std::ops::DerefMut;
+
+use blockvisor_api::grpc::api;
+use blockvisor_api::models::command::{Command, CommandType};
+use blockvisor_api::models::node::Node;
+use blockvisor_api::models::schema;
+use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
+use tonic::transport::Channel;
+use uuid::Uuid;
+
+use crate::setup::helper::traits::SocketRpc;
+use crate::setup::TestServer;
+
+type Service = api::node_service_client::NodeServiceClient<Channel>;
+
+#[tokio::test]
+async fn can_create_node_with_dns() {
+    let test = TestServer::new().await;
+    let mut conn = test.conn().await;
+
+    let req = api::NodeServiceCreateRequest {
+        org_id: test.seed().org.id.to_string(),
+        blockchain_id: test.seed().blockchain.id.to_string(),
+        node_type: api::NodeType::Validator.into(),
+        properties: vec![],
+        version: "3.3.0".to_string(),
+        network: "some network".to_string(),
+        placement: Some(api::NodePlacement {
+            placement: Some(api::node_placement::Placement::HostId(
+                test.seed().host.id.to_string(),
+            )),
+        }),
+        allow_ips: vec![],
+        deny_ips: vec![],
+    };
+    let resp = test.send_admin(Service::create, req).await.unwrap();
+
+    let node_id = resp.node.unwrap().id.parse().unwrap();
+    let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
+    assert!(!node.dns_record_id.is_empty());
+}
+
+#[tokio::test]
+async fn responds_ok_for_update_config() {
+    let test = TestServer::new().await;
+
+    let jwt = test.host_jwt();
+    let node_id = test.seed().node.id;
+    let req = api::NodeServiceUpdateConfigRequest {
+        id: node_id.to_string(),
+        self_update: Some(true),
+        allow_ips: vec![api::FilteredIpAddr {
+            ip: "127.0.0.1".to_string(),
+            description: Some("wow so allowed".to_string()),
+        }],
+        deny_ips: vec![api::FilteredIpAddr {
+            ip: "127.0.0.2".to_string(),
+            description: Some("wow so denied".to_string()),
+        }],
+    };
+
+    test.send_with(Service::update_config, req, &jwt)
+        .await
+        .unwrap();
+
+    let mut conn = test.conn().await;
+    let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
+
+    // Some assertions that the update actually worked
+    assert!(node.self_update);
+
+    let allowed = node.allow_ips().unwrap()[0].clone();
+    assert_eq!(allowed.ip, "127.0.0.1");
+    assert_eq!(allowed.description.unwrap(), "wow so allowed");
+
+    let denied = node.deny_ips().unwrap()[0].clone();
+    assert_eq!(denied.ip, "127.0.0.2");
+    assert_eq!(denied.description.unwrap(), "wow so denied");
+    validate_command(&test).await;
+}
+
+#[tokio::test]
+async fn responds_not_found_without_any_for_get() {
+    let test = TestServer::new().await;
+    let req = api::NodeServiceGetRequest {
+        id: Uuid::new_v4().to_string(),
+    };
+    let status = test.send_admin(Service::get, req).await.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::NotFound);
+    validate_command(&test).await;
+}
+
+#[tokio::test]
+async fn responds_ok_with_id_for_get() {
+    let test = TestServer::new().await;
+    let node = &test.seed().node;
+    let req = api::NodeServiceGetRequest {
+        id: node.id.to_string(),
+    };
+    test.send_admin(Service::get, req).await.unwrap();
+    validate_command(&test).await;
+}
+
+#[tokio::test]
+async fn responds_ok_with_valid_data_for_create() {
+    let test = TestServer::new().await;
+    let req = api::NodeServiceCreateRequest {
+        org_id: test.seed().org.id.to_string(),
+        blockchain_id: test.seed().blockchain.id.to_string(),
+        node_type: api::NodeType::Validator.into(),
+        properties: vec![],
+        version: "3.3.0".to_string(),
+        network: "some network".to_string(),
+        placement: Some(api::NodePlacement {
+            // This was changed it because otherwise it would make a real call to Cookbook which is
+            // not desirable and it would fail because it's not running.
+            placement: Some(api::node_placement::Placement::HostId(
+                test.seed().host.id.to_string(),
+            )),
+        }),
+        allow_ips: vec![api::FilteredIpAddr {
+            ip: "127.0.0.1".to_string(),
+            description: Some("wow so allowed".to_string()),
+        }],
+        deny_ips: vec![api::FilteredIpAddr {
+            ip: "127.0.0.2".to_string(),
+            description: Some("wow so denied".to_string()),
+        }],
+    };
+    let node = test.send_admin(Service::create, req).await.unwrap();
+
+    // assert that it really exists
+    let req = api::NodeServiceGetRequest {
+        id: node.node.unwrap().id,
+    };
+    let resp = test.send_admin(Service::get, req).await.unwrap();
+    let node = resp.node.unwrap();
+
+    let allowed = node.allow_ips[0].clone();
+    assert_eq!(allowed.ip, "127.0.0.1");
+    assert_eq!(allowed.description.unwrap(), "wow so allowed");
+
+    let denied = node.deny_ips[0].clone();
+    assert_eq!(denied.ip, "127.0.0.2");
+    assert_eq!(denied.description.unwrap(), "wow so denied");
+    validate_command(&test).await;
+}
+
+#[tokio::test]
+async fn responds_ok_with_valid_data_for_create_schedule() {
+    let test = TestServer::new().await;
+    let req = api::NodeServiceCreateRequest {
+        org_id: test.seed().org.id.to_string(),
+        blockchain_id: test.seed().blockchain.id.to_string(),
+        node_type: api::NodeType::Validator.into(),
+        properties: vec![],
+        version: "3.3.0".to_string(),
+        network: "some network".to_string(),
+        placement: Some(api::NodePlacement {
+            placement: Some(api::node_placement::Placement::Scheduler(
+                api::NodeScheduler {
+                    similarity: None,
+                    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+                    region: "moneyland".to_string(),
+                },
+            )),
+        }),
+        allow_ips: vec![],
+        deny_ips: vec![],
+    };
+    test.send_admin(Service::create, req).await.unwrap();
+}
+
+#[tokio::test]
+async fn responds_invalid_argument_with_invalid_data_for_create() {
+    let test = TestServer::new().await;
+    let req = api::NodeServiceCreateRequest {
+        // This is an invalid uuid so the api call should fail.
+        org_id: "wowowowowow".to_string(),
+        blockchain_id: test.seed().blockchain.id.to_string(),
+        node_type: api::NodeType::Validator.into(),
+        properties: vec![],
+        version: "3.3.0".to_string(),
+        network: "some network".to_string(),
+        placement: Some(api::NodePlacement {
+            placement: Some(api::node_placement::Placement::Scheduler(
+                api::NodeScheduler {
+                    similarity: None,
+                    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
+                    region: "moneyland".to_string(),
+                },
+            )),
+        }),
+        allow_ips: vec![],
+        deny_ips: vec![],
+    };
+    let status = test.send_admin(Service::create, req).await.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");
+    validate_command(&test).await;
+}
+
+#[tokio::test]
+async fn responds_ok_with_valid_data_for_update_config() {
+    let test = TestServer::new().await;
+    let req = api::NodeServiceUpdateConfigRequest {
+        id: test.seed().node.id.to_string(),
+        self_update: Some(false),
+        allow_ips: vec![],
+        deny_ips: vec![],
+    };
+    test.send_admin(Service::update_config, req).await.unwrap();
+    validate_command(&test).await;
+}
+
+#[tokio::test]
+async fn responds_ok_for_start_stop_restart() {
+    let test = TestServer::new().await;
+    let node_id = test.seed().node.id;
+
+    let req = api::NodeServiceStartRequest {
+        id: node_id.to_string(),
+    };
+    test.send_admin(Service::start, req).await.unwrap();
+    validate_command(&test).await;
+
+    let req = api::NodeServiceStopRequest {
+        id: node_id.to_string(),
+    };
+    test.send_admin(Service::stop, req).await.unwrap();
+    validate_command(&test).await;
+
+    let req = api::NodeServiceRestartRequest {
+        id: node_id.to_string(),
+    };
+    test.send_admin(Service::restart, req).await.unwrap();
+    validate_command(&test).await;
+}
+
+#[tokio::test]
+async fn responds_permission_denied_with_member_token_for_update_status() {
+    let test = TestServer::new().await;
+
+    let jwt = test.member_jwt().await;
+    let req = api::NodeServiceUpdateStatusRequest {
+        id: test.seed().node.id.to_string(),
+        version: Some("v2".to_string()),
+        container_status: None,
+        address: Some("address".to_string()),
+    };
+    let status = test
+        .send_with(Service::update_status, req, &jwt)
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), tonic::Code::PermissionDenied);
+}
+
+#[tokio::test]
+async fn responds_internal_with_invalid_data_for_update_config() {
+    let test = TestServer::new().await;
+    let req = api::NodeServiceUpdateConfigRequest {
+        // This is an invalid uuid so the api call should fail.
+        id: "wowowow".to_string(),
+        ..Default::default()
+    };
+    let status = test
+        .send_admin(Service::update_config, req)
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    validate_command(&test).await;
+}
+
+#[tokio::test]
+async fn responds_not_found_with_invalid_id_for_update_config() {
+    let test = TestServer::new().await;
+    let req = api::NodeServiceUpdateConfigRequest {
+        // This uuid will not exist, so the api call should fail.
+        id: Uuid::new_v4().to_string(),
+        ..Default::default()
+    };
+    let status = test
+        .send_admin(Service::update_config, req)
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), tonic::Code::NotFound, "{status:?}");
+    validate_command(&test).await;
+}
+
+#[tokio::test]
+async fn responds_ok_with_valid_data_for_delete() {
+    let test = TestServer::new().await;
+    let req = api::NodeServiceDeleteRequest {
+        id: test.seed().node.id.to_string(),
+    };
+    test.send_admin(Service::delete, req).await.unwrap();
+    validate_command(&test).await;
+}
+
+async fn validate_command(test: &TestServer) {
+    let mut conn = test.conn().await;
+    let commands_empty: Vec<Command> = schema::commands::table
+        .filter(
+            schema::commands::node_id
+                .is_null()
+                .and(schema::commands::cmd.ne(CommandType::DeleteNode))
+                .or(schema::commands::cmd
+                    .eq(CommandType::DeleteNode)
+                    .and(schema::commands::sub_cmd.is_null())
+                    .and(schema::commands::node_id.is_null())),
+        )
+        .load::<Command>(conn.deref_mut())
+        .await
+        .unwrap();
+
+    assert_eq!(commands_empty.len(), 0);
+}

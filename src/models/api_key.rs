@@ -1,18 +1,19 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel::result::DatabaseErrorKind::UniqueViolation;
+use diesel::result::Error::{DatabaseError, NotFound};
 use diesel_async::RunQueryDsl;
 use diesel_derive_enum::DbEnum;
 use displaydoc::Display;
 use thiserror::Error;
+use tonic::Status;
 
 use crate::auth::resource::{Resource, ResourceEntry, ResourceId, ResourceType, UserId};
 use crate::auth::token::api_key::{BearerSecret, KeyHash, KeyId, Salt, Secret};
-use crate::config::Context;
-use crate::database::Conn;
+use crate::database::{Conn, WriteConn};
 
-use super::schema::api_keys;
+use super::schema::{api_keys, sql_types};
 
-/// Internal errors. Note that these are not safe for external display.
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// Failed to create a new api key: {0}
@@ -35,6 +36,21 @@ pub enum Error {
     UnknownApiResource(i32),
     /// Failed to update api key label: {0}
     UpdateLabel(diesel::result::Error),
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        use Error::*;
+        match err {
+            CreateNew(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Already exists.")
+            }
+            DeleteKey(NotFound) | FindById(NotFound) | FindByUser(NotFound) | NoKeysDeleted => {
+                Status::not_found("Not found.")
+            }
+            _ => Status::internal("Internal error."),
+        }
+    }
 }
 
 #[derive(Debug, Queryable)]
@@ -84,16 +100,15 @@ impl ApiKey {
     }
 
     pub async fn delete(key_id: KeyId, conn: &mut Conn<'_>) -> Result<(), Error> {
-        let deleted = diesel::delete(api_keys::table.find(key_id))
+        diesel::delete(api_keys::table.find(key_id))
             .execute(conn)
             .await
-            .map_err(Error::DeleteKey)?;
-
-        match deleted {
-            0 => Err(Error::NoKeysDeleted),
-            1 => Ok(()),
-            n => Err(Error::MultipleKeysDeleted(n)),
-        }
+            .map_err(Error::DeleteKey)
+            .and_then(|deleted| match deleted {
+                0 => Err(Error::NoKeysDeleted),
+                1 => Ok(()),
+                n => Err(Error::MultipleKeysDeleted(n)),
+            })
     }
 }
 
@@ -125,11 +140,10 @@ impl NewApiKey {
         user_id: UserId,
         label: String,
         entry: ResourceEntry,
-        conn: &mut Conn<'_>,
-        ctx: &Context,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<Created, Error> {
         let (salt, secret) = {
-            let mut rng = ctx.rng.lock().await;
+            let mut rng = conn.ctx.rng.lock().await;
             let salt = Salt::generate(&mut *rng);
             let secret = Secret::generate(&mut *rng);
             (salt, secret)
@@ -156,14 +170,10 @@ impl NewApiKey {
         Ok(Created { api_key, secret })
     }
 
-    pub async fn regenerate(
-        key_id: KeyId,
-        conn: &mut Conn<'_>,
-        ctx: &Context,
-    ) -> Result<Created, Error> {
+    pub async fn regenerate(key_id: KeyId, conn: &mut WriteConn<'_, '_>) -> Result<Created, Error> {
         let existing = ApiKey::find_by_id(key_id, conn).await?;
         let new_secret = {
-            let mut rng = ctx.rng.lock().await;
+            let mut rng = conn.ctx.rng.lock().await;
             Secret::generate(&mut *rng)
         };
 
@@ -236,7 +246,7 @@ impl UpdateScope {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "crate::models::schema::sql_types::EnumApiResource"]
+#[ExistingTypePath = "sql_types::EnumApiResource"]
 #[repr(i32)]
 pub enum ApiResource {
     User = 1,

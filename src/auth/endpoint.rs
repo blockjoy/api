@@ -1,4 +1,8 @@
+//! TODO: Delete this module when there are no outstanding JWT Endpoint tokens.
+
 use serde::{Deserialize, Serialize};
+
+use super::rbac::*;
 
 const SPACE_PER_SERVICE: u64 = 100;
 
@@ -153,11 +157,224 @@ impl From<&Endpoint> for Endpoint {
     }
 }
 
+impl From<Endpoint> for Perms {
+    fn from(endpoint: Endpoint) -> Self {
+        match endpoint {
+            Endpoint::AuthAll => Perms::Many(hashset! {
+                AuthPerm::Confirm.into(),
+                AuthPerm::Refresh.into(),
+                AuthPerm::ResetPassword.into(),
+                AuthPerm::UpdatePassword.into(),
+                AuthPerm::UpdateUiPassword.into()
+            }),
+            Endpoint::AuthConfirm => AuthPerm::Confirm.into(),
+            Endpoint::AuthRefresh => AuthPerm::Refresh.into(),
+            Endpoint::AuthResetPassword => AuthPerm::ResetPassword.into(),
+            Endpoint::AuthUpdatePassword => AuthPerm::UpdatePassword.into(),
+            Endpoint::AuthUpdateUiPassword => AuthPerm::UpdateUiPassword.into(),
+
+            Endpoint::BlockchainAll => Perms::Many(hashset! {
+                BlockchainPerm::List.into(),
+                BlockchainPerm::Get.into()
+            }),
+            Endpoint::BlockchainList => BlockchainPerm::List.into(),
+            Endpoint::BlockchainGet => BlockchainPerm::Get.into(),
+
+            Endpoint::CommandAll => Perms::Many(hashset! {
+                CommandPerm::Create.into(),
+                CommandPerm::Get.into(),
+                CommandPerm::Update.into(),
+                CommandPerm::Pending.into(),
+                CommandPerm::Ack.into()
+            }),
+            Endpoint::CommandCreate => CommandPerm::Create.into(),
+            Endpoint::CommandGet => CommandPerm::Get.into(),
+            Endpoint::CommandUpdate => CommandPerm::Update.into(),
+            Endpoint::CommandPending => CommandPerm::Pending.into(),
+            Endpoint::CommandAck => CommandPerm::Ack.into(),
+
+            Endpoint::DiscoveryAll => Perms::Many(hashset! {
+                DiscoveryPerm::Services.into()
+            }),
+            Endpoint::DiscoveryServices => DiscoveryPerm::Services.into(),
+
+            Endpoint::HostAll => Perms::Many(hashset! {
+                HostPerm::Create.into(),
+                HostPerm::Get.into(),
+                HostPerm::List.into(),
+                HostPerm::Update.into(),
+                HostPerm::Delete.into(),
+                HostPerm::Start.into(),
+                HostPerm::Stop.into(),
+                HostPerm::Restart.into(),
+                HostPerm::Regions.into()
+            }),
+            Endpoint::HostCreate => HostPerm::Create.into(),
+            Endpoint::HostGet => HostPerm::Get.into(),
+            Endpoint::HostList => HostPerm::List.into(),
+            Endpoint::HostUpdate => HostPerm::Update.into(),
+            Endpoint::HostDelete => HostPerm::Delete.into(),
+            Endpoint::HostStart => HostPerm::Start.into(),
+            Endpoint::HostStop => HostPerm::Stop.into(),
+            Endpoint::HostRestart => HostPerm::Restart.into(),
+            Endpoint::HostRegions => HostPerm::Regions.into(),
+
+            Endpoint::HostProvisionAll => Perms::Many(hashset! {
+                HostProvisionPerm::Get.into(),
+                HostProvisionPerm::Create.into()
+            }),
+            Endpoint::HostProvisionGet => HostProvisionPerm::Get.into(),
+            Endpoint::HostProvisionCreate => HostProvisionPerm::Create.into(),
+
+            Endpoint::InvitationAll => Perms::Many(hashset! {
+                InvitationPerm::Create.into(),
+                InvitationPerm::List.into(),
+                InvitationPerm::Accept.into(),
+                InvitationPerm::Decline.into(),
+                InvitationPerm::Revoke.into()
+            }),
+            Endpoint::InvitationCreate => InvitationPerm::Create.into(),
+            Endpoint::InvitationList => InvitationPerm::List.into(),
+            Endpoint::InvitationAccept => InvitationPerm::Accept.into(),
+            Endpoint::InvitationDecline => InvitationPerm::Decline.into(),
+            Endpoint::InvitationRevoke => InvitationPerm::Revoke.into(),
+
+            Endpoint::KeyFileAll => Perms::Many(hashset! {
+                KeyFilePerm::Create.into(),
+                KeyFilePerm::List.into()
+            }),
+            Endpoint::KeyFileCreate => KeyFilePerm::Create.into(),
+            Endpoint::KeyFileList => KeyFilePerm::List.into(),
+
+            Endpoint::MetricsAll => Perms::Many(hashset! {
+                MetricsPerm::Node.into(),
+                MetricsPerm::Host.into()
+            }),
+            Endpoint::MetricsNode => MetricsPerm::Node.into(),
+            Endpoint::MetricsHost => MetricsPerm::Host.into(),
+
+            Endpoint::NodeAll => Perms::Many(hashset! {
+                NodePerm::Create.into(),
+                NodePerm::Get.into(),
+                NodePerm::List.into(),
+                NodePerm::UpdateConfig.into(),
+                NodePerm::Delete.into(),
+                NodePerm::UpdateStatus.into(),
+                NodePerm::Start.into(),
+                NodePerm::Stop.into(),
+                NodePerm::Restart.into()
+            }),
+            Endpoint::NodeCreate => NodePerm::Create.into(),
+            Endpoint::NodeGet => NodePerm::Get.into(),
+            Endpoint::NodeList => NodePerm::List.into(),
+            Endpoint::NodeUpdateConfig => NodePerm::UpdateConfig.into(),
+            Endpoint::NodeDelete => NodePerm::Delete.into(),
+            Endpoint::NodeUpdateStatus => NodePerm::UpdateStatus.into(),
+            Endpoint::NodeStart => NodePerm::Start.into(),
+            Endpoint::NodeStop => NodePerm::Stop.into(),
+            Endpoint::NodeRestart => NodePerm::Restart.into(),
+
+            Endpoint::OrgAll => Perms::Many(hashset! {
+                OrgPerm::Create.into(),
+                OrgPerm::Get.into(),
+                OrgPerm::List.into(),
+                OrgPerm::Update.into(),
+                OrgPerm::Delete.into(),
+                OrgPerm::RemoveMember.into(),
+                OrgProvisionPerm::GetToken.into(),
+                OrgProvisionPerm::ResetToken.into()
+            }),
+            Endpoint::OrgCreate => OrgPerm::Create.into(),
+            Endpoint::OrgGet => OrgPerm::Get.into(),
+            Endpoint::OrgList => OrgPerm::List.into(),
+            Endpoint::OrgUpdate => OrgPerm::Update.into(),
+            Endpoint::OrgDelete => OrgPerm::Delete.into(),
+            Endpoint::OrgRemoveMember => OrgPerm::RemoveMember.into(),
+            Endpoint::OrgGetProvisionToken => OrgProvisionPerm::GetToken.into(),
+            Endpoint::OrgResetProvisionToken => OrgProvisionPerm::ResetToken.into(),
+
+            Endpoint::UserAll => Perms::Many(hashset! {
+                UserPerm::Create.into(),
+                UserPerm::Get.into(),
+                UserPerm::Update.into(),
+                UserPerm::Delete.into(),
+                UserBillingPerm::Get.into(),
+                UserBillingPerm::Update.into(),
+                UserBillingPerm::Delete.into()
+            }),
+            Endpoint::UserCreate => UserPerm::Create.into(),
+            Endpoint::UserGet => UserPerm::Get.into(),
+            Endpoint::UserUpdate => UserPerm::Update.into(),
+            Endpoint::UserDelete => UserPerm::Delete.into(),
+            Endpoint::UserGetBilling => UserBillingPerm::Get.into(),
+            Endpoint::UserUpdateBilling => UserBillingPerm::Update.into(),
+            Endpoint::UserDeleteBilling => UserBillingPerm::Delete.into(),
+            Endpoint::UserFilter => UserPerm::Filter.into(),
+
+            Endpoint::BabelAll => Perms::Many(hashset! {
+                BabelPerm::Notify.into()
+            }),
+            Endpoint::BabelNotify => BabelPerm::Notify.into(),
+
+            Endpoint::CookbookAll => Perms::Many(hashset! {
+                CookbookPerm::RetrievePlugin.into(),
+                CookbookPerm::RetrieveImage.into(),
+                CookbookPerm::RetrieveKernel.into(),
+                CookbookPerm::Requirements.into(),
+                CookbookPerm::NetConfigurations.into(),
+                CookbookPerm::ListBabelVersions.into()
+            }),
+            Endpoint::CookbookRetrievePlugin => CookbookPerm::RetrievePlugin.into(),
+            Endpoint::CookbookRetrieveImage => CookbookPerm::RetrieveImage.into(),
+            Endpoint::CookbookRetrieveKernel => CookbookPerm::RetrieveKernel.into(),
+            Endpoint::CookbookRequirements => CookbookPerm::Requirements.into(),
+            Endpoint::CookbookNetConfigurations => CookbookPerm::NetConfigurations.into(),
+            Endpoint::CookbookListBabelVersions => CookbookPerm::ListBabelVersions.into(),
+
+            Endpoint::BundleAll => Perms::Many(hashset! {
+                BundlePerm::Retrieve.into(),
+                BundlePerm::ListBundleVersions.into(),
+                BundlePerm::Delete.into()
+            }),
+            Endpoint::BundleRetrieve => BundlePerm::Retrieve.into(),
+            Endpoint::BundleListBundleVersions => BundlePerm::ListBundleVersions.into(),
+            Endpoint::BundleDelete => BundlePerm::Delete.into(),
+
+            Endpoint::ManifestAll => Perms::Many(hashset! {
+                ManifestPerm::RetrieveDownload.into()
+            }),
+            Endpoint::ManifestRetrieveDownload => ManifestPerm::RetrieveDownload.into(),
+
+            Endpoint::ApiKeyAll => Perms::Many(hashset! {
+                ApiKeyPerm::Create.into(),
+                ApiKeyPerm::List.into(),
+                ApiKeyPerm::Update.into(),
+                ApiKeyPerm::Regenerate.into(),
+                ApiKeyPerm::Delete.into()
+            }),
+            Endpoint::ApiKeyCreate => ApiKeyPerm::Create.into(),
+            Endpoint::ApiKeyList => ApiKeyPerm::List.into(),
+            Endpoint::ApiKeyUpdate => ApiKeyPerm::Update.into(),
+            Endpoint::ApiKeyRegenerate => ApiKeyPerm::Regenerate.into(),
+            Endpoint::ApiKeyDelete => ApiKeyPerm::Delete.into(),
+
+            Endpoint::SubscriptionAll => Perms::Many(hashset! {
+                SubscriptionPerm::Create.into(),
+                SubscriptionPerm::Get.into(),
+                SubscriptionPerm::List.into(),
+                SubscriptionPerm::Delete.into()
+            }),
+            Endpoint::SubscriptionCreate => SubscriptionPerm::Create.into(),
+            Endpoint::SubscriptionGet => SubscriptionPerm::Get.into(),
+            Endpoint::SubscriptionList => SubscriptionPerm::List.into(),
+            Endpoint::SubscriptionDelete => SubscriptionPerm::Delete.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Endpoints {
-    #[serde(rename = "*")]
-    Wildcard,
     Single(Endpoint),
     Multiple(Vec<Endpoint>),
 }
@@ -165,7 +382,6 @@ pub enum Endpoints {
 impl Endpoints {
     pub fn includes(&self, endpoint: Endpoint) -> bool {
         match self {
-            Self::Wildcard => true,
             Self::Single(this) => this.matches(endpoint),
             Self::Multiple(these) => these.iter().any(|this| this.matches(endpoint)),
         }
@@ -191,13 +407,11 @@ impl FromIterator<Endpoint> for Endpoints {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
+#[cfg(any(test, feature = "integration-test"))]
+pub mod tests {
     #[test]
     fn endpoint_matches() {
-        use Endpoint::*;
+        use super::Endpoint::*;
         let selfs = [HostAll, CommandAll, KeyFileCreate, OrgDelete];
         let others = [HostCreate, CommandAll, CommandUpdate, NodeDelete, OrgAll];
         let expected = [

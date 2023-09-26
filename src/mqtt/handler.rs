@@ -4,9 +4,7 @@ use displaydoc::Display;
 use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 
-use crate::auth::claims::Claims;
 use crate::auth::resource::{HostId, NodeId, OrgId};
-use crate::database::Conn;
 
 const UUID_LEN: usize = 36;
 
@@ -31,30 +29,6 @@ pub struct AclRequest {
     pub operation: OperationType,
     pub username: String,
     pub topic: Topic,
-}
-
-impl AclRequest {
-    pub async fn allow(&self, claims: Claims, conn: &mut Conn<'_>) -> Result<(), Error> {
-        match self.topic {
-            Topic::Orgs { org_id, .. } => claims
-                .ensure_org(org_id, false, conn)
-                .await
-                .map(|_claims| ())
-                .map_err(Into::into),
-
-            Topic::Hosts { host_id, .. } => claims
-                .ensure_host(host_id, false, conn)
-                .await
-                .map(|_claims| ())
-                .map_err(Into::into),
-
-            Topic::Nodes { node_id, .. } => claims
-                .ensure_node(node_id, false, conn)
-                .await
-                .map(|_claims| ())
-                .map_err(Into::into),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]

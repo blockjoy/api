@@ -1,34 +1,104 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use diesel::dsl;
 use diesel::prelude::*;
+use diesel::result::DatabaseErrorKind::UniqueViolation;
+use diesel::result::Error::{DatabaseError, NotFound};
 use diesel_async::RunQueryDsl;
+use diesel_derive_enum::DbEnum;
 use diesel_derive_newtype::DieselNewType;
+use displaydoc::Display;
+use ipnetwork::IpNetwork;
+use thiserror::Error;
+use tonic::Status;
 
-use crate::auth::claims::HostClaims;
-use crate::auth::resource::Resource;
+use crate::auth::rbac::HostBillingPerm;
 use crate::auth::resource::{HostId, OrgId, UserId};
+use crate::auth::AuthZ;
 use crate::cookbook::script::HardwareRequirements;
 use crate::database::Conn;
-use crate::error::QueryError;
 use crate::grpc::common;
-use crate::models::ip_address::NewIpAddressRange;
-use crate::models::Paginate;
-use crate::Result;
 
-use super::blockchain::BlockchainId;
-use super::schema::hosts;
+use super::blockchain::{Blockchain, BlockchainId};
+use super::ip_address::NewIpAddressRange;
+use super::node::{NodeScheduler, NodeType, ResourceAffinity};
+use super::schema::{hosts, nodes, sql_types};
+use super::{Paginate, Region, RegionId};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
-#[ExistingTypePath = "crate::models::schema::sql_types::EnumConnStatus"]
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Protobuf BillingAmount is missing an Amount.
+    BillingAmountMissingAmount,
+    /// Unsupported BillingAmount Currency: {0:?}
+    BillingAmountCurrency(i32),
+    /// Unsupported BillingAmount Period: {0:?}
+    BillingAmountPeriod(i32),
+    /// Failed to create host: {0}
+    Create(diesel::result::Error),
+    /// Failed to delete host id `{0}`: {1}
+    Delete(HostId, diesel::result::Error),
+    /// Failed to filter hosts: {0}
+    Filter(diesel::result::Error),
+    /// Failed to find host id `{0}`: {1}
+    FindById(HostId, diesel::result::Error),
+    /// Failed to find host ids `{0:?}`: {1}
+    FindByIds(HashSet<HostId>, diesel::result::Error),
+    /// Failed to find host by name `{0}`: {1}
+    FindByName(String, diesel::result::Error),
+    /// Failed to get host candidates: {0}
+    HostCandidates(diesel::result::Error),
+    /// Host ip address error: {0}
+    IpAddress(#[from] crate::models::ip_address::Error),
+    /// Failed to parse host limit as i64: {0}
+    Limit(std::num::TryFromIntError),
+    /// Failed to parse node count for host as i64: {0}
+    NodeCount(std::num::TryFromIntError),
+    /// Failed to get node counts for host: {0}
+    NodeCounts(diesel::result::Error),
+    /// Failed to parse host offset as i64: {0}
+    Offset(std::num::TryFromIntError),
+    /// Failed to parse host ip address: {0}
+    ParseIp(std::net::AddrParseError),
+    /// Host region error: {0}
+    Region(super::region::Error),
+    /// Failed to parse host total as i64: {0}
+    Total(std::num::TryFromIntError),
+    /// Failed to update host: {0}
+    Update(diesel::result::Error),
+    /// Failed to update host {1}'s metrics: {0}
+    UpdateMetrics(diesel::result::Error, HostId),
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        use Error::*;
+        match err {
+            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            Delete(_, NotFound)
+            | FindById(_, NotFound)
+            | FindByIds(_, NotFound)
+            | FindByName(_, NotFound) => Status::not_found("Not found."),
+            BillingAmountMissingAmount | BillingAmountCurrency(_) | BillingAmountPeriod(_) => {
+                Status::invalid_argument("billing_amount")
+            }
+            ParseIp(_) => Status::invalid_argument("ip_addr"),
+            IpAddress(err) => err.into(),
+            Region(err) => err.into(),
+            _ => Status::internal("Internal error."),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
+#[ExistingTypePath = "sql_types::EnumConnStatus"]
 pub enum ConnectionStatus {
     Online,
     Offline,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
-#[ExistingTypePath = "crate::models::schema::sql_types::EnumHostType"]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
+#[ExistingTypePath = "sql_types::EnumHostType"]
 pub enum HostType {
     /// Anyone can run nodes on these servers.
     Cloud,
@@ -53,9 +123,9 @@ pub struct Host {
     pub disk_size_bytes: i64,
     pub os: String,
     pub os_version: String,
-    pub ip_range_from: ipnetwork::IpNetwork,
-    pub ip_range_to: ipnetwork::IpNetwork,
-    pub ip_gateway: ipnetwork::IpNetwork,
+    pub ip_range_from: IpNetwork,
+    pub ip_range_to: IpNetwork,
+    pub ip_gateway: IpNetwork,
     pub used_cpu: Option<i32>,
     pub used_memory: Option<i64>,
     pub used_disk_space: Option<i64>,
@@ -72,7 +142,7 @@ pub struct Host {
     /// set.
     pub created_by: Option<UserId>,
     // The id of the region where this host is located.
-    pub region_id: Option<uuid::Uuid>,
+    pub region_id: Option<RegionId>,
     // The monthly billing amount for this host (only visible to host owners).
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
     pub vmm_mountpoint: Option<String>,
@@ -95,33 +165,37 @@ pub struct HostFilter {
 pub struct HostRequirements {
     pub requirements: HardwareRequirements,
     pub blockchain_id: BlockchainId,
-    pub node_type: super::NodeType,
-    pub host_type: Option<super::HostType>,
-    pub scheduler: super::NodeScheduler,
+    pub node_type: NodeType,
+    pub host_type: Option<HostType>,
+    pub scheduler: NodeScheduler,
     pub org_id: Option<OrgId>,
 }
 
 impl Host {
-    pub async fn find_by_id(id: HostId, conn: &mut Conn<'_>) -> Result<Self> {
+    pub async fn find_by_id(id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         hosts::table
             .find(id)
             .get_result(conn)
             .await
-            .for_table_id("hosts", id)
+            .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn find_by_ids(mut ids: Vec<HostId>, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
-        ids.sort();
-        ids.dedup();
+    pub async fn find_by_ids(
+        ids: HashSet<HostId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<Vec<Self>, Error> {
         hosts::table
-            .filter(hosts::id.eq_any(ids))
+            .filter(hosts::id.eq_any(ids.iter()))
             .get_results(conn)
             .await
-            .for_table("hosts")
+            .map_err(|err| Error::FindByIds(ids, err))
     }
 
     /// For each provided argument, filters the hosts by that argument.
-    pub async fn filter(filter: HostFilter, conn: &mut Conn<'_>) -> Result<(u64, Vec<Self>)> {
+    pub async fn filter(
+        filter: HostFilter,
+        conn: &mut Conn<'_>,
+    ) -> Result<(u64, Vec<Self>), Error> {
         let HostFilter {
             org_id,
             offset,
@@ -129,25 +203,34 @@ impl Host {
         } = filter;
         let query = hosts::table.filter(hosts::org_id.eq(org_id)).into_boxed();
 
+        let limit = i64::try_from(limit).map_err(Error::Limit)?;
+        let offset = i64::try_from(offset).map_err(Error::Offset)?;
+
         let (total, hosts) = query
             .order_by(hosts::created_at)
-            .paginate(limit.try_into()?, offset.try_into()?)
+            .paginate(limit, offset)
             .get_results_counted(conn)
-            .await?;
-        Ok((total.try_into()?, hosts))
+            .await
+            .map_err(Error::Filter)?;
+
+        let total = u64::try_from(total).map_err(Error::Total)?;
+
+        Ok((total, hosts))
     }
 
-    pub async fn find_by_name(name: &str, conn: &mut Conn<'_>) -> Result<Self> {
+    pub async fn find_by_name(name: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
         hosts::table
             .filter(hosts::name.eq(name))
             .get_result(conn)
             .await
-            .for_table_id("hosts", name)
+            .map_err(|err| Error::FindByName(name.into(), err))
     }
 
-    pub async fn delete(id: HostId, conn: &mut Conn<'_>) -> Result<usize> {
-        let n_rows = diesel::delete(hosts::table.find(id)).execute(conn).await?;
-        Ok(n_rows)
+    pub async fn delete(id: HostId, conn: &mut Conn<'_>) -> Result<usize, Error> {
+        diesel::delete(hosts::table.find(id))
+            .execute(conn)
+            .await
+            .map_err(|err| Error::Delete(id, err))
     }
 
     /// This function returns a list of up to 2 possible hosts that the node may be scheduled on.
@@ -158,9 +241,9 @@ impl Host {
         reqs: HostRequirements,
         limit: Option<i64>,
         conn: &mut Conn<'_>,
-    ) -> crate::Result<Vec<Host>> {
-        use super::schema::sql_types::EnumNodeType;
+    ) -> Result<Vec<Host>, Error> {
         use diesel::sql_types::{BigInt, Nullable, Uuid};
+        use sql_types::EnumNodeType;
 
         #[derive(Debug, QueryableByName)]
         struct HostCandidate {
@@ -230,53 +313,45 @@ impl Host {
             .bind::<Nullable<BigInt>, _>(limit)
             .bind::<Nullable<Uuid>, _>(scheduler.region.map(|r| r.id))
             .bind::<Nullable<Uuid>, _>(org_id)
-            .bind::<Nullable<crate::models::schema::sql_types::EnumHostType>, _>(host_type)
+            .bind::<Nullable<sql_types::EnumHostType>, _>(host_type)
             .get_results(conn)
-            .await?;
+            .await
+            .map_err(Error::HostCandidates)?;
         let host_ids = hosts.into_iter().map(|h| h.host_id).collect();
 
         Self::find_by_ids(host_ids, conn).await
     }
 
-    pub async fn node_counts<H>(
-        hosts: &[H],
+    pub async fn node_counts(
+        host_ids: HashSet<HostId>,
         conn: &mut Conn<'_>,
-    ) -> crate::Result<HashMap<HostId, u64>>
-    where
-        H: AsRef<Host>,
-    {
-        use super::schema::nodes;
-
-        let mut host_ids: Vec<_> = hosts.iter().map(|h| h.as_ref().id).collect();
-        host_ids.sort();
-        host_ids.dedup();
-
+    ) -> Result<HashMap<HostId, u64>, Error> {
         let counts: Vec<(HostId, i64)> = nodes::table
             .filter(nodes::host_id.eq_any(host_ids))
             .group_by(nodes::host_id)
             .select((nodes::host_id, dsl::count(nodes::id)))
             .get_results(conn)
-            .await?;
+            .await
+            .map_err(Error::NodeCounts)?;
 
         counts
             .into_iter()
-            .map(|(host, count)| Ok((host, count.try_into()?)))
+            .map(|(host, count)| Ok((host, u64::try_from(count).map_err(Error::NodeCount)?)))
             .collect()
     }
 
-    /// Returns the possible list of regions for the
     pub async fn regions_for(
         org_id: OrgId,
-        blockchain: super::Blockchain,
-        node_type: super::NodeType,
+        blockchain: Blockchain,
+        node_type: NodeType,
         requirements: HardwareRequirements,
         host_type: Option<HostType>,
         conn: &mut Conn<'_>,
-    ) -> crate::Result<Vec<super::Region>> {
-        let scheduler = super::NodeScheduler {
+    ) -> Result<Vec<Region>, Error> {
+        let scheduler = NodeScheduler {
             region: None,
             similarity: None,
-            resource: super::ResourceAffinity::LeastResources,
+            resource: ResourceAffinity::LeastResources,
         };
         let org_id = (host_type == Some(HostType::Private)).then_some(org_id);
         let requirements = HostRequirements {
@@ -292,15 +367,17 @@ impl Host {
             .into_iter()
             .flat_map(|host| host.region_id)
             .collect();
-        super::Region::by_ids(regions, conn).await
+
+        Region::by_ids(regions, conn).await.map_err(Error::Region)
     }
 
-    /// Host cost is only extractable with a valid `HostClaims` and resource type.
-    pub fn monthly_cost_in_usd(&self, claims: &HostClaims<'_>) -> Option<i64> {
-        self.monthly_cost_in_usd
-            .filter(|_| claims.host_id() == self.id)
-            .filter(|_| matches!(claims.resource(), Resource::User(_) | Resource::Org(_)))
-            .map(|cost| cost.0)
+    /// Extract the monthly cost for external display.
+    pub fn monthly_cost_in_usd(&self, authz: &AuthZ) -> Option<i64> {
+        if let Some(MonthlyCostUsd(cost)) = self.monthly_cost_in_usd {
+            authz.has_perm(HostBillingPerm::Get).then_some(cost)
+        } else {
+            None
+        }
     }
 }
 
@@ -318,15 +395,15 @@ pub struct NewHost<'a> {
     pub os_version: &'a str,
     pub ip_addr: &'a str,
     pub status: ConnectionStatus,
-    pub ip_range_from: ipnetwork::IpNetwork,
-    pub ip_range_to: ipnetwork::IpNetwork,
-    pub ip_gateway: ipnetwork::IpNetwork,
+    pub ip_range_from: IpNetwork,
+    pub ip_range_to: IpNetwork,
+    pub ip_gateway: IpNetwork,
     /// The id of the org that owns and operates this host.
     pub org_id: OrgId,
     /// This is the id of the user that created this host.
     pub created_by: UserId,
     // The id of the region where this host is located.
-    pub region_id: Option<uuid::Uuid>,
+    pub region_id: Option<RegionId>,
     pub host_type: HostType,
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
     pub vmm_mountpoint: Option<&'a str>,
@@ -334,8 +411,8 @@ pub struct NewHost<'a> {
 
 impl NewHost<'_> {
     /// Creates a new `Host` in the db, including the necessary related rows.
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Host> {
-        let ip_addr = self.ip_addr.parse()?;
+    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Host, Error> {
+        let ip_addr = self.ip_addr.parse().map_err(Error::ParseIp)?;
         let ip_gateway = self.ip_gateway.ip();
         let ip_range_from = self.ip_range_from.ip();
         let ip_range_to = self.ip_range_to.ip();
@@ -343,11 +420,12 @@ impl NewHost<'_> {
         let host: Host = diesel::insert_into(hosts::table)
             .values(self)
             .get_result(conn)
-            .await?;
+            .await
+            .map_err(Error::Create)?;
 
-        // Create IP range for new host
-        let create_range = NewIpAddressRange::try_new(ip_range_from, ip_range_to, host.id)?;
-        create_range.create(&[ip_addr, ip_gateway], conn).await?;
+        NewIpAddressRange::try_new(ip_range_from, ip_range_to, host.id)?
+            .create(&[ip_addr, ip_gateway], conn)
+            .await?;
 
         Ok(host)
     }
@@ -366,19 +444,19 @@ pub struct UpdateHost<'a> {
     pub os_version: Option<&'a str>,
     pub ip_addr: Option<&'a str>,
     pub status: Option<ConnectionStatus>,
-    pub ip_range_from: Option<ipnetwork::IpNetwork>,
-    pub ip_range_to: Option<ipnetwork::IpNetwork>,
-    pub ip_gateway: Option<ipnetwork::IpNetwork>,
-    pub region_id: Option<uuid::Uuid>,
+    pub ip_range_from: Option<IpNetwork>,
+    pub ip_range_to: Option<IpNetwork>,
+    pub ip_gateway: Option<IpNetwork>,
+    pub region_id: Option<RegionId>,
 }
 
 impl UpdateHost<'_> {
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Host> {
-        let host = diesel::update(hosts::table.find(self.id))
+    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Host, Error> {
+        diesel::update(hosts::table.find(self.id))
             .set(self)
             .get_result(conn)
-            .await?;
-        Ok(host)
+            .await
+            .map_err(Error::Update)
     }
 }
 
@@ -402,9 +480,7 @@ impl UpdateHostMetrics {
     pub async fn update_metrics(
         mut updates: Vec<Self>,
         conn: &mut Conn<'_>,
-    ) -> (Vec<Host>, Vec<crate::Error>) {
-        use anyhow::Context;
-
+    ) -> (Vec<Host>, Vec<Error>) {
         // We do this for determinism in our tests.
         updates.sort_by_key(|u| u.id);
 
@@ -414,11 +490,10 @@ impl UpdateHostMetrics {
             let updated = diesel::update(hosts::table.find(update.id))
                 .set(&update)
                 .get_result(conn)
-                .await
-                .with_context(|| format!("Failed to update host {}", update.id));
+                .await;
             match updated {
                 Ok(updated) => hosts.push(updated),
-                Err(err) => errors.push(err.into()),
+                Err(err) => errors.push(Error::UpdateMetrics(err, update.id)),
             }
         }
         (hosts, errors)
@@ -439,20 +514,20 @@ pub struct HostStatusRequest {
 pub struct MonthlyCostUsd(i64);
 
 impl MonthlyCostUsd {
-    pub fn from_proto(billing: &common::BillingAmount) -> crate::Result<Self> {
+    pub fn from_proto(billing: &common::BillingAmount) -> Result<Self, Error> {
         let amount = match billing.amount {
             Some(ref amount) => Ok(amount),
-            None => Err(crate::Error::BillingAmountMissingAmount),
+            None => Err(Error::BillingAmountMissingAmount),
         }?;
 
         match common::Currency::from_i32(amount.currency) {
             Some(common::Currency::Usd) => Ok(()),
-            _ => Err(crate::Error::BillingAmountCurrency(amount.currency)),
+            _ => Err(Error::BillingAmountCurrency(amount.currency)),
         }?;
 
         match common::Period::from_i32(billing.period) {
             Some(common::Period::Monthly) => Ok(()),
-            _ => Err(crate::Error::BillingAmountPeriod(billing.period)),
+            _ => Err(Error::BillingAmountPeriod(billing.period)),
         }?;
 
         Ok(MonthlyCostUsd(amount.value))

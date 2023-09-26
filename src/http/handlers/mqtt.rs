@@ -10,10 +10,12 @@ use serde_json::Value;
 use thiserror::Error;
 use tracing::{debug, error};
 
+use crate::auth::rbac::MqttPerm;
+use crate::auth::resource::Resource;
 use crate::config::Context;
 use crate::database::Database;
 use crate::http::response;
-use crate::mqtt::handler::{self, AclRequest};
+use crate::mqtt::handler::{self, AclRequest, Topic};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -31,8 +33,7 @@ pub enum Error {
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
-        error!("{}: {self}", std::any::type_name::<Error>());
-
+        error!("{self}");
         use Error::*;
         match self {
             Auth(_) | Handler(handler::Error::Claims(_)) | ParseRequestToken(_) => {
@@ -64,12 +65,23 @@ async fn acl(
     State(ctx): State<Arc<Context>>,
     WithRejection(req, _): WithRejection<Json<AclRequest>, Error>,
 ) -> Result<impl IntoResponse, Error> {
-    let mut conn = ctx.pool.conn().await?;
-
     let token = req.username.parse().map_err(Error::ParseRequestToken)?;
-    let claims = ctx.auth.claims_from_token(&token, &mut conn).await?;
+    let resource: Resource = match req.topic {
+        Topic::Orgs { org_id, .. } => org_id.into(),
+        Topic::Hosts { host_id, .. } => host_id.into(),
+        Topic::Nodes { node_id, .. } => node_id.into(),
+    };
 
-    req.allow(claims, &mut conn).await?;
+    let mut conn = ctx.pool.conn().await?;
+    let _ = ctx
+        .auth
+        .authorize_token(
+            &token,
+            MqttPerm::Acl.into(),
+            Some(resource.into()),
+            &mut conn,
+        )
+        .await?;
 
     Ok(response::ok())
 }

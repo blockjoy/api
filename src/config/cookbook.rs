@@ -7,6 +7,8 @@ use url::Url;
 use super::provider::{self, Provider};
 use super::{HumanTime, Redacted};
 
+const DIR_CHAINS_DATA_PREFIX_VAR: &str = "DIR_CHAINS_DATA_PREFIX";
+const DIR_CHAINS_DATA_PREFIX_ENTRY: &str = "cookbook.data_prefix";
 const DIR_CHAINS_PREFIX_VAR: &str = "DIR_CHAINS_PREFIX";
 const DIR_CHAINS_PREFIX_ENTRY: &str = "cookbook.prefix";
 const R2_BUCKET_VAR: &str = "R2_BUCKET";
@@ -30,6 +32,8 @@ const KERNEL_BUCKET_ENTRY: &str = "cookbook.kernel_bucket";
 pub enum Error {
     /// Failed to create authorization header: {0}
     AuthHeader(errors::InvalidMetadataValue),
+    /// Failed to read {DIR_CHAINS_DATA_PREFIX_VAR:?}: {0}
+    ReadDataPrefix(provider::Error),
     /// Failed to read {DIR_CHAINS_PREFIX_VAR:?}: {0}
     ReadPrefix(provider::Error),
     /// Failed to read {R2_BUCKET_VAR:?}: {0}
@@ -51,6 +55,7 @@ pub enum Error {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    pub dir_chains_data_prefix: String,
     pub dir_chains_prefix: String,
     pub r2_bucket: String,
     pub r2_url: Url,
@@ -67,6 +72,9 @@ impl TryFrom<&Provider> for Config {
 
     fn try_from(provider: &Provider) -> Result<Self, Self::Error> {
         Ok(Config {
+            dir_chains_data_prefix: provider
+                .read(DIR_CHAINS_DATA_PREFIX_VAR, DIR_CHAINS_DATA_PREFIX_ENTRY)
+                .map_err(Error::ReadDataPrefix)?,
             dir_chains_prefix: provider
                 .read(DIR_CHAINS_PREFIX_VAR, DIR_CHAINS_PREFIX_ENTRY)
                 .map_err(Error::ReadPrefix)?,

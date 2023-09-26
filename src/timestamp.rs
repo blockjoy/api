@@ -1,6 +1,6 @@
 use std::ops::{Add, Sub};
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use derive_more::{Deref, From, Into};
 use displaydoc::Display;
 use prost_types::Timestamp;
@@ -25,13 +25,13 @@ impl SecondsUtc {
     fn new(seconds: i64) -> Result<Self, Error> {
         NaiveDateTime::from_timestamp_opt(seconds, 0)
             .ok_or(Error::ParseSeconds(seconds))
-            .map(|dt| SecondsUtc(DateTime::<Utc>::from_utc(dt, Utc)))
+            .map(|dt| SecondsUtc(Utc.from_utc_datetime(&dt)))
     }
 
     pub fn now() -> Self {
         let now = Utc::now().timestamp();
         let naive = NaiveDateTime::from_timestamp_opt(now, 0).expect("valid timestamp");
-        SecondsUtc(DateTime::from_utc(naive, Utc))
+        SecondsUtc(Utc.from_utc_datetime(&naive))
     }
 }
 
@@ -95,7 +95,7 @@ impl NanosUtc {
     pub fn new(seconds: i64, nanos: u32) -> Result<Self, Error> {
         NaiveDateTime::from_timestamp_opt(seconds, nanos)
             .ok_or(Error::ParseNanos(seconds, nanos))
-            .map(|dt| NanosUtc(DateTime::<Utc>::from_utc(dt, Utc)))
+            .map(|dt| NanosUtc(Utc.from_utc_datetime(&dt)))
     }
 
     pub fn now() -> Self {

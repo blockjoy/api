@@ -8,6 +8,7 @@ base = "n0des.xyz"
 ttl = 300
 
 [cookbook]
+data_prefix = "chains_data"
 prefix = "chains"
 r2_bucket = "backet"
 url = "https://r2.dev"
@@ -37,7 +38,7 @@ url = "https://api.dev.blockjoy.com"
 
 [log]
 environment = "dev"
-filter = "info,tower_http=warn"
+filter = "info,grpc_tests=debug,tower_http=off"
 
 [log.opentelemetry]
 endpoint = "http://localhost:4317"

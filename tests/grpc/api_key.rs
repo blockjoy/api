@@ -1,25 +1,26 @@
 use blockvisor_api::auth::resource::ResourceEntry;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models::api_key::{ApiKey, ApiResource};
-use blockvisor_api::models::org::{Org, OrgRole};
+use blockvisor_api::models::org::Org;
 use blockvisor_api::timestamp::NanosUtc;
 use tonic::transport::Channel;
 use uuid::Uuid;
 
 use crate::setup::helper::rpc;
-use crate::setup::Tester;
+use crate::setup::helper::traits::SocketRpc;
+use crate::setup::TestServer;
 
 type ApiKeyService = api::api_key_service_client::ApiKeyServiceClient<Channel>;
 type OrgService = api::org_service_client::OrgServiceClient<Channel>;
 
 #[tokio::test]
 async fn user_can_create_and_list_api_keys() {
-    let mut test = Tester::new().await;
+    let mut test = TestServer::new().await;
     let user1 = rpc::new_seed_user(&mut test).await;
     let user2 = rpc::new_seed_user(&mut test).await;
 
     // user1.jwt can create keys for user1.user_id
-    let label1 = &test.rand_string(8);
+    let label1 = &test.rand_string(8).await;
     let created1 = rpc::create_api_key(&test, &user1.jwt, label1, ApiResource::User, user1.user_id)
         .await
         .unwrap();
@@ -31,7 +32,7 @@ async fn user_can_create_and_list_api_keys() {
     assert!(result.is_err());
 
     // user2.jwt can create keys for user2
-    let label2 = &test.rand_string(8);
+    let label2 = &test.rand_string(8).await;
     let created2 = rpc::create_api_key(&test, &user2.jwt, label2, ApiResource::User, user2.user_id)
         .await
         .unwrap();
@@ -56,7 +57,7 @@ async fn user_can_create_and_list_api_keys() {
 
 #[tokio::test]
 async fn user_can_update_label() {
-    let mut test = Tester::new().await;
+    let mut test = TestServer::new().await;
     let key1 = rpc::new_seed_api_key(&mut test).await;
     let key2 = rpc::new_seed_api_key(&mut test).await;
 
@@ -81,7 +82,7 @@ async fn user_can_update_label() {
 
 #[tokio::test]
 async fn user_can_update_scope() {
-    let mut test = Tester::new().await;
+    let mut test = TestServer::new().await;
     let key1 = rpc::new_seed_api_key(&mut test).await;
     let key2 = rpc::new_seed_api_key(&mut test).await;
 
@@ -118,7 +119,7 @@ async fn user_can_update_scope() {
 
 #[tokio::test]
 async fn user_can_regenerate_their_api_key() {
-    let mut test = Tester::new().await;
+    let mut test = TestServer::new().await;
     let key1 = rpc::new_seed_api_key(&mut test).await;
     let key2 = rpc::new_seed_api_key(&mut test).await;
 
@@ -143,7 +144,7 @@ async fn user_can_regenerate_their_api_key() {
 
 #[tokio::test]
 async fn user_can_delete_their_api_key() {
-    let mut test = Tester::new().await;
+    let mut test = TestServer::new().await;
     let key1 = rpc::new_seed_api_key(&mut test).await;
     let key2 = rpc::new_seed_api_key(&mut test).await;
 
@@ -162,11 +163,11 @@ async fn user_can_delete_their_api_key() {
 
 #[tokio::test]
 async fn user_can_manage_org_with_api_key() {
-    let mut test = Tester::new().await;
+    let mut test = TestServer::new().await;
     let key1 = rpc::new_seed_api_key(&mut test).await;
     let key2 = rpc::new_seed_api_key(&mut test).await;
 
-    let name = test.rand_string(8);
+    let name = test.rand_string(8).await;
     let req = api::OrgServiceCreateRequest { name: name.clone() };
     let created = test
         .send_with(OrgService::create, req, &key1.token)
@@ -191,9 +192,7 @@ async fn user_can_manage_org_with_api_key() {
     let org = Org::find_by_id(org_id.parse().unwrap(), conn)
         .await
         .unwrap();
-    org.add_member(key2.user_id, OrgRole::Member, conn)
-        .await
-        .unwrap();
+    org.add_member(key2.user_id, conn).await.unwrap();
 
     // key2.token can now get org_id
     let req = api::OrgServiceGetRequest { id: org_id.clone() };
@@ -212,7 +211,7 @@ async fn user_can_manage_org_with_api_key() {
 }
 
 async fn list_api_keys(
-    test: &Tester,
+    test: &TestServer,
     token: &str,
 ) -> Result<api::ApiKeyServiceListResponse, tonic::Status> {
     let req = api::ApiKeyServiceListRequest {};
@@ -220,7 +219,7 @@ async fn list_api_keys(
 }
 
 async fn update(
-    test: &Tester,
+    test: &TestServer,
     token: &str,
     key_id: &str,
     new_label: Option<&str>,
@@ -236,7 +235,7 @@ async fn update(
 }
 
 async fn regenerate(
-    test: &Tester,
+    test: &TestServer,
     token: &str,
     key_id: &str,
 ) -> Result<api::ApiKeyServiceRegenerateResponse, tonic::Status> {
@@ -245,7 +244,7 @@ async fn regenerate(
 }
 
 async fn delete(
-    test: &Tester,
+    test: &TestServer,
     token: &str,
     key_id: &str,
 ) -> Result<api::ApiKeyServiceDeleteResponse, tonic::Status> {

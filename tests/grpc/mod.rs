@@ -1,16 +1,13 @@
-use super::setup::*;
-use tonic::transport::Channel;
-
 mod api_key;
 mod auth;
-mod blockchains;
-mod commands;
+mod blockchain;
+mod command;
 mod discovery;
-mod hosts;
-mod invitations;
+mod host;
+mod invitation;
 mod key_files;
 mod metrics;
-mod nodes;
-mod organizations;
+mod node;
+mod org;
 mod subscription;
-mod users;
+mod user;

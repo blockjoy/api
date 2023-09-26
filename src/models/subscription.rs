@@ -1,9 +1,12 @@
-use derive_more::{Deref, From, FromStr};
+use derive_more::{Deref, Display, From, FromStr};
 use diesel::prelude::*;
+use diesel::result::DatabaseErrorKind::UniqueViolation;
+use diesel::result::Error::{DatabaseError, NotFound};
 use diesel_async::RunQueryDsl;
 use diesel_derive_newtype::DieselNewType;
-use displaydoc::Display;
+use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
+use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::resource::{OrgId, UserId};
@@ -11,7 +14,7 @@ use crate::database::Conn;
 
 use super::schema::subscriptions;
 
-#[derive(Debug, Display, Error)]
+#[derive(Debug, DisplayDoc, Error)]
 pub enum Error {
     /// Failed to create new subscription: {0}
     CreateNew(diesel::result::Error),
@@ -31,7 +34,25 @@ pub enum Error {
     NoneDeleted,
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, DieselNewType, Deref, From, FromStr)]
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        use Error::*;
+        match err {
+            CreateNew(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Already exists.")
+            }
+            Delete(NotFound)
+            | FindById(NotFound)
+            | FindByOrg(NotFound)
+            | FindByOrgAndUser(NotFound)
+            | FindByUser(NotFound)
+            | NoneDeleted => Status::not_found("Not found."),
+            _ => Status::internal("Internal error."),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Display, Hash, PartialEq, Eq, DieselNewType, Deref, From, FromStr)]
 pub struct SubscriptionId(Uuid);
 
 #[derive(Clone, Debug, Queryable)]

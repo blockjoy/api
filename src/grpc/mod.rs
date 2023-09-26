@@ -1,20 +1,19 @@
 pub mod api_key;
 pub mod auth;
 pub mod babel;
-pub mod blockchains;
-pub mod commands;
+pub mod blockchain;
+pub mod command;
 pub mod cookbook;
 pub mod discovery;
-pub mod helpers;
-pub mod hosts;
-pub mod invitations;
-pub mod key_files;
+pub mod host;
+pub mod invitation;
+pub mod key_file;
 pub mod metrics;
 pub mod middleware;
-pub mod nodes;
-pub mod orgs;
+pub mod node;
+pub mod org;
 pub mod subscription;
-pub mod users;
+pub mod user;
 
 pub mod api {
     tonic::include_proto!("blockjoy.v1");
@@ -36,32 +35,32 @@ use tonic::transport::server::Router;
 use tonic::transport::Server;
 use tower::layer::util::{Identity, Stack};
 use tower_http::classify::{GrpcErrorsAsFailures, SharedClassifier};
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{self, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::config::Context;
 use crate::database::Pool;
 
+use self::api::api_key_service_server::ApiKeyServiceServer;
+use self::api::auth_service_server::AuthServiceServer;
+use self::api::babel_service_server::BabelServiceServer;
+use self::api::blockchain_service_server::BlockchainServiceServer;
+use self::api::bundle_service_server::BundleServiceServer;
+use self::api::command_service_server::CommandServiceServer;
+use self::api::cookbook_service_server::CookbookServiceServer;
+use self::api::discovery_service_server::DiscoveryServiceServer;
+use self::api::host_service_server::HostServiceServer;
+use self::api::invitation_service_server::InvitationServiceServer;
+use self::api::kernel_service_server::KernelServiceServer;
+use self::api::key_file_service_server::KeyFileServiceServer;
+use self::api::manifest_service_server::ManifestServiceServer;
+use self::api::metrics_service_server::MetricsServiceServer;
+use self::api::node_service_server::NodeServiceServer;
+use self::api::org_service_server::OrgServiceServer;
+use self::api::subscription_service_server::SubscriptionServiceServer;
+use self::api::user_service_server::UserServiceServer;
 use self::middleware::MetricsLayer;
 
-/// This macro bails out of the current function with a `tonic::Status::permission_denied` error.
-/// The arguments that can be supplied here are the same as the arguments to the format macro.
-macro_rules! forbidden {
-    ($msg:literal $(,)?) => {
-        return Err(tonic::Status::permission_denied(format!($msg)).into())
-    };
-    ($err:expr $(,)?) => {
-        return Err(tonic::Status::permission_denied(format!($err)).into())
-    };
-    ($fmt:expr, $($arg:tt)*) => {
-        return Err(tonic::Status::permission_denied(format!($fmt, $($arg)*)).into())
-    };
-}
-
-use forbidden;
-
-type Result<T> = crate::Result<tonic::Response<T>>;
-type Resp<T, E = tonic::Status> = std::result::Result<tonic::Response<T>, E>;
 type TraceServer = Stack<TraceLayer<SharedClassifier<GrpcErrorsAsFailures>>, Identity>;
 type MetricsServer = Stack<MetricsLayer, TraceServer>;
 type PoolServer = Stack<Extension<Pool>, MetricsServer>;
@@ -83,30 +82,10 @@ impl Grpc {
 pub async fn server(context: Arc<Context>) -> Router<CorsServer> {
     let grpc = Grpc::new(context.clone());
 
-    let api_key = api::api_key_service_server::ApiKeyServiceServer::new(grpc.clone());
-    let authentication = api::auth_service_server::AuthServiceServer::new(grpc.clone());
-    let babel = api::babel_service_server::BabelServiceServer::new(grpc.clone());
-    let blockchain = api::blockchain_service_server::BlockchainServiceServer::new(grpc.clone());
-    let bundle = api::bundle_service_server::BundleServiceServer::new(grpc.clone());
-    let cookbook = api::cookbook_service_server::CookbookServiceServer::new(grpc.clone());
-    let command = api::command_service_server::CommandServiceServer::new(grpc.clone());
-    let discovery = api::discovery_service_server::DiscoveryServiceServer::new(grpc.clone());
-    let host = api::host_service_server::HostServiceServer::new(grpc.clone());
-    let invitation = api::invitation_service_server::InvitationServiceServer::new(grpc.clone());
-    let kernel = api::kernel_service_server::KernelServiceServer::new(grpc.clone());
-    let key_file = api::key_file_service_server::KeyFileServiceServer::new(grpc.clone());
-    let manifest = api::manifest_service_server::ManifestServiceServer::new(grpc.clone());
-    let metrics = api::metrics_service_server::MetricsServiceServer::new(grpc.clone());
-    let node = api::node_service_server::NodeServiceServer::new(grpc.clone());
-    let organization = api::org_service_server::OrgServiceServer::new(grpc.clone());
-    let subscription =
-        api::subscription_service_server::SubscriptionServiceServer::new(grpc.clone());
-    let user = api::user_service_server::UserServiceServer::new(grpc);
-
     let cors_rules = CorsLayer::new()
-        .allow_headers(tower_http::cors::Any)
-        .allow_methods(tower_http::cors::Any)
-        .allow_origin(tower_http::cors::Any);
+        .allow_headers(cors::Any)
+        .allow_methods(cors::Any)
+        .allow_origin(cors::Any);
 
     let middleware = tower::ServiceBuilder::new()
         .layer(TraceLayer::new_for_grpc())
@@ -118,22 +97,22 @@ pub async fn server(context: Arc<Context>) -> Router<CorsServer> {
     Server::builder()
         .layer(middleware)
         .concurrency_limit_per_connection(context.config.grpc.request_concurrency_limit)
-        .add_service(api_key)
-        .add_service(authentication)
-        .add_service(babel)
-        .add_service(blockchain)
-        .add_service(bundle)
-        .add_service(cookbook)
-        .add_service(command)
-        .add_service(discovery)
-        .add_service(host)
-        .add_service(invitation)
-        .add_service(kernel)
-        .add_service(key_file)
-        .add_service(manifest)
-        .add_service(metrics)
-        .add_service(node)
-        .add_service(organization)
-        .add_service(subscription)
-        .add_service(user)
+        .add_service(ApiKeyServiceServer::new(grpc.clone()))
+        .add_service(AuthServiceServer::new(grpc.clone()))
+        .add_service(BabelServiceServer::new(grpc.clone()))
+        .add_service(BlockchainServiceServer::new(grpc.clone()))
+        .add_service(BundleServiceServer::new(grpc.clone()))
+        .add_service(CookbookServiceServer::new(grpc.clone()))
+        .add_service(CommandServiceServer::new(grpc.clone()))
+        .add_service(DiscoveryServiceServer::new(grpc.clone()))
+        .add_service(HostServiceServer::new(grpc.clone()))
+        .add_service(InvitationServiceServer::new(grpc.clone()))
+        .add_service(KernelServiceServer::new(grpc.clone()))
+        .add_service(KeyFileServiceServer::new(grpc.clone()))
+        .add_service(ManifestServiceServer::new(grpc.clone()))
+        .add_service(MetricsServiceServer::new(grpc.clone()))
+        .add_service(NodeServiceServer::new(grpc.clone()))
+        .add_service(OrgServiceServer::new(grpc.clone()))
+        .add_service(SubscriptionServiceServer::new(grpc.clone()))
+        .add_service(UserServiceServer::new(grpc))
 }

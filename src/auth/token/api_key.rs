@@ -24,7 +24,7 @@ use uuid::Uuid;
 use zeroize::ZeroizeOnDrop;
 
 use crate::auth::claims::{Claims, Expirable};
-use crate::auth::endpoint::{Endpoint, Endpoints};
+use crate::auth::rbac::{Access, ApiKeyRole, Roles};
 use crate::auth::resource::{Resource, ResourceEntry, ResourceType};
 use crate::auth::token::ApiToken;
 use crate::database::Conn;
@@ -37,20 +37,6 @@ pub(super) const TOKEN_PREFIX: &str = "blockjoy_";
 const TOKEN_ID_LEN: usize = 22;
 const TOKEN_SECRET_LEN: usize = 27;
 const TOKEN_LEN: usize = TOKEN_PREFIX.len() + TOKEN_ID_LEN + 1 + TOKEN_SECRET_LEN;
-
-const USER_PERMISSIONS: &[Endpoint] = &[Endpoint::UserAll, Endpoint::OrgAll, Endpoint::HostAll];
-const ORG_PERMISSIONS: &[Endpoint] = &[Endpoint::OrgAll, Endpoint::HostAll];
-const HOST_PERMISSIONS: &[Endpoint] = &[Endpoint::HostAll];
-const DEFAULT_PERMISSIONS: &[Endpoint] = &[
-    Endpoint::ApiKeyAll,
-    Endpoint::BlockchainGet,
-    Endpoint::BlockchainList,
-    Endpoint::CommandAll,
-    Endpoint::DiscoveryAll,
-    Endpoint::KeyFileAll,
-    Endpoint::MetricsAll,
-    Endpoint::NodeAll,
-];
 
 /// Internal errors. Note that these are not safe for external display.
 #[derive(Debug, Display, Error)]
@@ -91,24 +77,33 @@ impl Validated {
 
     pub fn claims(&self, expires: chrono::Duration) -> Claims {
         let resource = Resource::from(&self.0);
-        let endpoints = Endpoints::from(self);
         let expirable = Expirable::from_now(expires);
-
-        Claims::new(resource, expirable, endpoints)
+        Claims::new(resource, expirable, self.into())
     }
 }
 
-impl From<&Validated> for Endpoints {
+impl From<&Validated> for Access {
     fn from(api_key: &Validated) -> Self {
         let entry = ResourceEntry::from(&api_key.0);
-        let endpoints = match entry.resource_type {
-            ResourceType::User => [DEFAULT_PERMISSIONS, USER_PERMISSIONS].concat(),
-            ResourceType::Org => [DEFAULT_PERMISSIONS, ORG_PERMISSIONS].concat(),
-            ResourceType::Host => [DEFAULT_PERMISSIONS, HOST_PERMISSIONS].concat(),
-            ResourceType::Node => DEFAULT_PERMISSIONS.to_vec(),
-        };
-
-        Endpoints::Multiple(endpoints)
+        match entry.resource_type {
+            ResourceType::User => Roles::Many(hashset![
+                ApiKeyRole::User.into(),
+                ApiKeyRole::Org.into(),
+                ApiKeyRole::Host.into(),
+                ApiKeyRole::Node.into(),
+            ])
+            .into(),
+            ResourceType::Org => Roles::Many(hashset![
+                ApiKeyRole::Org.into(),
+                ApiKeyRole::Host.into(),
+                ApiKeyRole::Node.into(),
+            ])
+            .into(),
+            ResourceType::Host => {
+                Roles::Many(hashset![ApiKeyRole::Host.into(), ApiKeyRole::Node.into()]).into()
+            }
+            ResourceType::Node => Roles::One(ApiKeyRole::Node.into()).into(),
+        }
     }
 }
 

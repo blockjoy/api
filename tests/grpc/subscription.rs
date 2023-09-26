@@ -3,42 +3,40 @@ use blockvisor_api::grpc::api;
 use blockvisor_api::models::{Org, SubscriptionId};
 use tonic::transport::Channel;
 
-use super::Tester;
+use crate::setup::helper::traits::SocketRpc;
+use crate::setup::TestServer;
 
 type SubService = api::subscription_service_client::SubscriptionServiceClient<Channel>;
 
 #[tokio::test]
 async fn subscription_service_api_requests() {
-    let mut test = Tester::new().await;
-    let user = test.user().await;
-    let user_id = user.id;
-    let external_id = test.rand_string(8);
+    let mut test = TestServer::new().await;
+    let user_id = test.seed().user.id;
+    let external_id = test.rand_string(8).await;
 
     let mut conn = test.conn().await;
-    let org = Org::find_personal_org(&user, &mut conn).await.unwrap();
-    let org_id = org.id;
+    let org = Org::find_personal(user_id, &mut conn).await.unwrap();
 
-    let created = create(&test, org_id, user_id, &external_id).await.unwrap();
+    let created = create(&test, org.id, user_id, &external_id).await.unwrap();
     let sub = created.subscription.unwrap();
-    let sub_id = sub.id.clone();
-    assert_eq!(sub.org_id, org_id.to_string());
+    assert_eq!(sub.org_id, org.id.to_string());
     assert_eq!(sub.user_id, user_id.to_string());
     assert_eq!(sub.external_id, external_id);
 
-    let get_sub = get(&test, org_id).await.unwrap().subscription.unwrap();
+    let get_sub = get(&test, org.id).await.unwrap().subscription.unwrap();
     assert_eq!(get_sub, sub);
 
     let subs = list(&test, user_id).await.unwrap().subscriptions;
     assert_eq!(subs.len(), 1);
-    assert_eq!(subs[0].id, sub_id);
+    assert_eq!(subs[0].id, sub.id);
 
-    let _ = delete(&test, sub_id.parse().unwrap()).await.unwrap();
+    let _ = delete(&test, sub.id.parse().unwrap()).await.unwrap();
     let subs = list(&test, user_id).await.unwrap().subscriptions;
     assert_eq!(subs.len(), 0);
 }
 
 async fn create(
-    test: &Tester,
+    test: &TestServer,
     org_id: OrgId,
     user_id: UserId,
     external_id: &str,
@@ -53,7 +51,7 @@ async fn create(
 }
 
 async fn get(
-    test: &Tester,
+    test: &TestServer,
     org_id: OrgId,
 ) -> Result<api::SubscriptionServiceGetResponse, tonic::Status> {
     let req = api::SubscriptionServiceGetRequest {
@@ -63,7 +61,7 @@ async fn get(
 }
 
 async fn list(
-    test: &Tester,
+    test: &TestServer,
     user_id: UserId,
 ) -> Result<api::SubscriptionServiceListResponse, tonic::Status> {
     let req = api::SubscriptionServiceListRequest {
@@ -73,7 +71,7 @@ async fn list(
 }
 
 async fn delete(
-    test: &Tester,
+    test: &TestServer,
     id: SubscriptionId,
 ) -> Result<api::SubscriptionServiceDeleteResponse, tonic::Status> {
     let req = api::SubscriptionServiceDeleteRequest { id: id.to_string() };

@@ -1,31 +1,60 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
+use displaydoc::Display;
+use thiserror::Error;
+use tonic::metadata::MetadataMap;
+use tonic::{Request, Response, Status};
+use tracing::error;
 
-use crate::auth::endpoint::Endpoint;
+use crate::auth::rbac::DiscoveryPerm;
+use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction};
 
-use super::api::{self, discovery_service_server};
+use super::api::discovery_service_server::DiscoveryService;
+use super::{api, Grpc};
+
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Auth check failed: {0}
+    Auth(#[from] crate::auth::Error),
+    /// Claims check failed: {0}
+    Claims(#[from] crate::auth::claims::Error),
+    /// Diesel failure: {0}
+    Diesel(#[from] diesel::result::Error),
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        error!("{err}");
+        use Error::*;
+        match err {
+            Diesel(_) => Status::internal("Internal error."),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+        }
+    }
+}
 
 #[tonic::async_trait]
-impl discovery_service_server::DiscoveryService for super::Grpc {
+impl DiscoveryService for Grpc {
     async fn services(
         &self,
-        req: tonic::Request<api::DiscoveryServiceServicesRequest>,
-    ) -> super::Resp<api::DiscoveryServiceServicesResponse> {
-        self.read(|read| services(req, read).scope_boxed()).await
+        req: Request<api::DiscoveryServiceServicesRequest>,
+    ) -> Result<Response<api::DiscoveryServiceServicesResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| services(req, meta, read).scope_boxed())
+            .await
     }
 }
 
 async fn services(
-    req: tonic::Request<api::DiscoveryServiceServicesRequest>,
-    read: ReadConn<'_, '_>,
-) -> super::Result<api::DiscoveryServiceServicesResponse> {
-    let ReadConn { conn, ctx } = read;
-    let _claims = ctx.claims(&req, Endpoint::DiscoveryServices, conn).await?;
+    _req: api::DiscoveryServiceServicesRequest,
+    meta: MetadataMap,
+    mut read: ReadConn<'_, '_>,
+) -> Result<api::DiscoveryServiceServicesResponse, Error> {
+    let _ = read.auth_all(&meta, DiscoveryPerm::Services).await?;
 
-    let response = api::DiscoveryServiceServicesResponse {
-        key_service_url: ctx.config.key_service.url.to_string(),
-        notification_url: ctx.config.mqtt.notification_url(),
-    };
-
-    Ok(tonic::Response::new(response))
+    Ok(api::DiscoveryServiceServicesResponse {
+        key_service_url: read.ctx.config.key_service.url.to_string(),
+        notification_url: read.ctx.config.mqtt.notification_url(),
+    })
 }

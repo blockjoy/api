@@ -1,11 +1,34 @@
 use diesel::dsl;
 use diesel::prelude::*;
+use diesel::result::DatabaseErrorKind::UniqueViolation;
+use diesel::result::Error::DatabaseError;
 use diesel_async::RunQueryDsl;
+use diesel_derive_enum::DbEnum;
+use displaydoc::Display;
+use thiserror::Error;
+use tonic::Status;
 
 use crate::database::Conn;
-use crate::Result;
 
-use super::schema::token_blacklist;
+use super::schema::{sql_types, token_blacklist};
+
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Failed to create new token blacklist: {0}
+    Create(diesel::result::Error),
+    /// Failed to check if token is blacklisted: {0}
+    IsListed(diesel::result::Error),
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        use Error::*;
+        match err {
+            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            _ => Status::internal("Internal error."),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Insertable, Queryable)]
 #[diesel(table_name = token_blacklist)]
@@ -15,25 +38,26 @@ pub struct BlacklistToken {
 }
 
 impl BlacklistToken {
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Self> {
-        let tkn = diesel::insert_into(token_blacklist::table)
+    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        diesel::insert_into(token_blacklist::table)
             .values(self)
             .get_result(conn)
-            .await?;
-        Ok(tkn)
+            .await
+            .map_err(Error::Create)
     }
 
     /// Returns true if token is on the blacklist
-    pub async fn is_listed(token: String, conn: &mut Conn<'_>) -> Result<bool> {
-        let token = token_blacklist::table.filter(token_blacklist::token.eq(token));
-        let is_listed = diesel::select(dsl::exists(token)).get_result(conn).await?;
-
-        Ok(is_listed)
+    pub async fn is_listed(token: &str, conn: &mut Conn<'_>) -> Result<bool, Error> {
+        let filter = token_blacklist::table.filter(token_blacklist::token.eq(token));
+        diesel::select(dsl::exists(filter))
+            .get_result(conn)
+            .await
+            .map_err(Error::IsListed)
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
-#[ExistingTypePath = "crate::models::schema::sql_types::TokenType"]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
+#[ExistingTypePath = "sql_types::TokenType"]
 pub enum TokenType {
     UserAuth,
     HostAuth,

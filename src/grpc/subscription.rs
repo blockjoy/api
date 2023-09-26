@@ -1,17 +1,18 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
+use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 
-use crate::auth::endpoint::Endpoint;
-use crate::auth::resource::Resource;
+use crate::auth::rbac::SubscriptionPerm;
+use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::models::org::Org;
 use crate::models::subscription::{NewSubscription, Subscription};
 
-use super::api::{self, subscription_service_server};
-use super::Grpc;
+use super::api::subscription_service_server::SubscriptionService;
+use super::{api, Grpc};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -19,177 +20,160 @@ pub enum Error {
     Auth(#[from] crate::auth::Error),
     /// Claims check failed: {0}
     Claims(#[from] crate::auth::claims::Error),
-    /// Failed to create new subscription: {0}
-    CreateSub(crate::models::subscription::Error),
-    /// Failed to delete subscription: {0}
-    DeleteSub(crate::models::subscription::Error),
-    /// Access denied.
-    Denied,
+    /// Claims Resource is not a user.
+    ClaimsNotUser,
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
-    /// Failed to find subscription: {0}
-    FindById(crate::models::subscription::Error),
-    /// Failed to find org subscription: {0}
-    FindByOrg(crate::models::subscription::Error),
     /// Missing `user_id`.
     MissingUserId,
-    /// Failed to check if user is a member of an Org: {0}
-    OrgMember(crate::Error),
+    /// Subscription model error: {0}
+    Model(#[from] crate::models::subscription::Error),
+    /// Subscription org error: {0}
+    Org(#[from] crate::models::org::Error),
+    /// Failed to parse SubscriptionId: {0}
+    ParseId(uuid::Error),
     /// Failed to parse OrgId: {0}
     ParseOrgId(uuid::Error),
-    /// Failed to parse SubscriptionId: {0}
-    ParseSubId(uuid::Error),
     /// Failed to parse UserId: {0}
     ParseUserId(uuid::Error),
+    /// Requested user does not match token user.
+    UserMismatch,
+    /// User is not in the requested org.
+    UserNotInOrg,
 }
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{}: {err}", std::any::type_name::<Error>());
-
+        error!("{err}");
         use Error::*;
         match err {
-            Auth(_) | Claims(_) | Denied => Status::permission_denied("Access denied."),
-            CreateSub(_) | DeleteSub(_) | Diesel(_) | FindById(_) | FindByOrg(_) | OrgMember(_) => {
-                Status::internal("Internal error.")
+            ClaimsNotUser | UserMismatch | UserNotInOrg => {
+                Status::permission_denied("Access denied.")
             }
-            ParseOrgId(_) => Status::invalid_argument("org_id"),
+            Diesel(_) => Status::internal("Internal error."),
             MissingUserId | ParseUserId(_) => Status::invalid_argument("user_id"),
-            ParseSubId(_) => Status::invalid_argument("id"),
+            ParseOrgId(_) => Status::invalid_argument("org_id"),
+            ParseId(_) => Status::invalid_argument("id"),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Model(err) => err.into(),
+            Org(err) => err.into(),
         }
     }
 }
 
 #[tonic::async_trait]
-impl subscription_service_server::SubscriptionService for Grpc {
+impl SubscriptionService for Grpc {
     async fn create(
         &self,
         req: Request<api::SubscriptionServiceCreateRequest>,
-    ) -> super::Resp<api::SubscriptionServiceCreateResponse> {
-        self.write(|write| create(req, write).scope_boxed()).await
+    ) -> Result<Response<api::SubscriptionServiceCreateResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| create(req, meta, write).scope_boxed())
+            .await
     }
 
     async fn get(
         &self,
         req: Request<api::SubscriptionServiceGetRequest>,
-    ) -> super::Resp<api::SubscriptionServiceGetResponse> {
-        self.read(|read| get(req, read).scope_boxed()).await
+    ) -> Result<Response<api::SubscriptionServiceGetResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| get(req, meta, read).scope_boxed()).await
     }
 
     async fn list(
         &self,
         req: Request<api::SubscriptionServiceListRequest>,
-    ) -> super::Resp<api::SubscriptionServiceListResponse> {
-        self.read(|read| list(req, read).scope_boxed()).await
+    ) -> Result<Response<api::SubscriptionServiceListResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| list(req, meta, read).scope_boxed()).await
     }
 
     async fn delete(
         &self,
         req: Request<api::SubscriptionServiceDeleteRequest>,
-    ) -> super::Resp<api::SubscriptionServiceDeleteResponse> {
-        self.write(|write| delete(req, write).scope_boxed()).await
+    ) -> Result<Response<api::SubscriptionServiceDeleteResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| delete(req, meta, write).scope_boxed())
+            .await
     }
 }
 
 async fn create(
-    req: Request<api::SubscriptionServiceCreateRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Resp<api::SubscriptionServiceCreateResponse, Error> {
-    let WriteConn { conn, ctx, .. } = write;
-    let claims = ctx.claims(&req, Endpoint::SubscriptionCreate, conn).await?;
-
-    let req = req.into_inner();
+    req: api::SubscriptionServiceCreateRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::SubscriptionServiceCreateResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
+    let authz = write.auth(&meta, SubscriptionPerm::Create, org_id).await?;
 
-    match claims.resource() {
-        Resource::User(id) if id == user_id => Org::is_member(id, org_id, conn)
-            .await
-            .map_err(Error::OrgMember)?
-            .then_some(())
-            .ok_or(Error::Denied),
-        _ => Err(Error::Denied),
-    }?;
+    let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
+    let auth_user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
+    if user_id != auth_user_id {
+        return Err(Error::UserMismatch);
+    } else if !Org::has_user(org_id, user_id, &mut write).await? {
+        return Err(Error::UserNotInOrg);
+    }
 
     let sub = NewSubscription::new(org_id, user_id, req.external_id);
-    let created = sub.create(conn).await.map_err(Error::CreateSub)?;
+    let created = sub.create(&mut write).await?;
 
-    let resp = api::SubscriptionServiceCreateResponse {
+    Ok(api::SubscriptionServiceCreateResponse {
         subscription: Some(api::Subscription::from_model(created)),
-    };
-    Ok(Response::new(resp))
+    })
 }
 
 async fn get(
-    req: Request<api::SubscriptionServiceGetRequest>,
-    read: ReadConn<'_, '_>,
-) -> super::Resp<api::SubscriptionServiceGetResponse, Error> {
-    let ReadConn { conn, ctx } = read;
-    let claims = ctx.claims(&req, Endpoint::SubscriptionGet, conn).await?;
-
-    let req = req.into_inner();
+    req: api::SubscriptionServiceGetRequest,
+    meta: MetadataMap,
+    mut read: ReadConn<'_, '_>,
+) -> Result<api::SubscriptionServiceGetResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let _ = claims.ensure_org(org_id, false, conn).await?;
+    let _ = read.auth(&meta, SubscriptionPerm::Get, org_id).await?;
 
-    let sub = Subscription::find_by_org(org_id, conn)
-        .await
-        .map_err(Error::FindByOrg)?;
+    let sub = Subscription::find_by_org(org_id, &mut read).await?;
 
-    let resp = api::SubscriptionServiceGetResponse {
+    Ok(api::SubscriptionServiceGetResponse {
         subscription: sub.map(api::Subscription::from_model),
-    };
-    Ok(Response::new(resp))
+    })
 }
 
 async fn list(
-    req: Request<api::SubscriptionServiceListRequest>,
-    read: ReadConn<'_, '_>,
-) -> super::Resp<api::SubscriptionServiceListResponse, Error> {
-    let ReadConn { conn, ctx } = read;
-    let claims = ctx.claims(&req, Endpoint::SubscriptionList, conn).await?;
+    req: api::SubscriptionServiceListRequest,
+    meta: MetadataMap,
+    mut read: ReadConn<'_, '_>,
+) -> Result<api::SubscriptionServiceListResponse, Error> {
+    let user_id = req
+        .user_id
+        .ok_or(Error::MissingUserId)?
+        .parse()
+        .map_err(Error::ParseUserId)?;
+    let _ = read.auth(&meta, SubscriptionPerm::List, user_id).await?;
 
-    let req = req.into_inner();
-    let user_id = req.user_id.ok_or(Error::MissingUserId)?;
-    let user_id = user_id.parse().map_err(Error::ParseUserId)?;
-    let _ = claims.ensure_user(user_id)?;
-
-    let subscriptions = Subscription::find_by_user(user_id, conn)
-        .await
-        .map_err(Error::FindByOrg)?
+    let subscriptions = Subscription::find_by_user(user_id, &mut read)
+        .await?
         .into_iter()
         .map(api::Subscription::from_model)
         .collect();
 
-    let resp = api::SubscriptionServiceListResponse { subscriptions };
-    Ok(Response::new(resp))
+    Ok(api::SubscriptionServiceListResponse { subscriptions })
 }
 
 async fn delete(
-    req: Request<api::SubscriptionServiceDeleteRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Resp<api::SubscriptionServiceDeleteResponse, Error> {
-    let WriteConn { conn, ctx, .. } = write;
-    let claims = ctx.claims(&req, Endpoint::SubscriptionDelete, conn).await?;
+    req: api::SubscriptionServiceDeleteRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::SubscriptionServiceDeleteResponse, Error> {
+    let sub_id = req.id.parse().map_err(Error::ParseId)?;
+    let sub = Subscription::find_by_id(sub_id, &mut write).await?;
 
-    let req = req.into_inner();
-    let sub_id = req.id.parse().map_err(Error::ParseSubId)?;
+    let _ = write
+        .auth(&meta, SubscriptionPerm::Delete, sub.org_id)
+        .await?;
 
-    let existing = Subscription::find_by_id(sub_id, conn)
-        .await
-        .map_err(Error::FindById)?;
+    Subscription::delete(sub_id, &mut write).await?;
 
-    match claims.resource() {
-        Resource::User(id) if id == existing.user_id => Ok(()),
-        Resource::Org(id) if id == existing.org_id => Ok(()),
-        _ => Err(Error::Denied),
-    }?;
-
-    Subscription::delete(sub_id, conn)
-        .await
-        .map_err(Error::DeleteSub)?;
-
-    let resp = api::SubscriptionServiceDeleteResponse {};
-    Ok(Response::new(resp))
+    Ok(api::SubscriptionServiceDeleteResponse {})
 }
 
 impl api::Subscription {

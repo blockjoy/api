@@ -34,6 +34,8 @@ pub mod tests {
 
     use super::*;
     use crate::config::cloudflare::{ApiConfig, Config, DnsConfig};
+    #[allow(unused_imports)]
+    use crate::config::Context;
 
     pub struct MockDns {
         pub server: ServerGuard,
@@ -98,5 +100,18 @@ pub mod tests {
         async fn remove_node_dns(&self, id: &str) -> Result<(), Error> {
             self.cloudflare.remove_node_dns(id).await
         }
+    }
+
+    #[tokio::test]
+    async fn can_create_node_dns() {
+        let (ctx, _db) = Context::with_mocked().await.unwrap();
+
+        let name = format!("test_{}", petname::petname(3, "_"));
+        let id = ctx
+            .dns
+            .get_node_dns(&name, "127.0.0.1".to_string())
+            .await
+            .unwrap();
+        assert!(!id.is_empty());
     }
 }

@@ -1,16 +1,89 @@
-use chrono::{DateTime, Utc};
-use diesel::{dsl, prelude::*};
-use diesel_async::RunQueryDsl;
-use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use std::collections::{HashMap, HashSet};
 
+use chrono::{DateTime, Utc};
+use diesel::dsl;
+use diesel::prelude::*;
+use diesel::result::DatabaseErrorKind::UniqueViolation;
+use diesel::result::Error::{DatabaseError, NotFound};
+use diesel_async::RunQueryDsl;
+use displaydoc::Display;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
+use thiserror::Error;
+use tonic::Status;
+
+use crate::auth::rbac::OrgRole;
+use crate::auth::rbac::Role;
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
-use crate::error::QueryError;
-use crate::Result;
 
-use super::schema::{orgs, orgs_users};
-use super::user::User;
+use super::rbac::RbacUser;
+use super::schema::{nodes, orgs, orgs_users};
+
+const PERSONAL_ORG_NAME: &str = "Personal";
+
+type NotDeleted = dsl::Filter<orgs::table, dsl::IsNull<orgs::deleted_at>>;
+
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Failed to create org: {0}
+    Create(diesel::result::Error),
+    /// Failed to create org user: {0}
+    CreateOrgUser(diesel::result::Error),
+    /// Failed to delete org `{0}`: {1}
+    Delete(OrgId, diesel::result::Error),
+    /// Failed to filter orgs: {0}
+    Filter(diesel::result::Error),
+    /// Failed to find org by id `{0}`: {1}
+    FindById(OrgId, diesel::result::Error),
+    /// Failed to find org by ids `{0:?}`: {1}
+    FindByIds(HashSet<OrgId>, diesel::result::Error),
+    /// Failed to find org user: {0}
+    FindOrgUser(diesel::result::Error),
+    /// Failed to find org users: {0}
+    FindOrgUsers(diesel::result::Error),
+    /// Failed to find org user by token: {0}
+    FindOrgUserByToken(diesel::result::Error),
+    /// Failed to find personal org for user `{0}`: {1}
+    FindPersonal(UserId, diesel::result::Error),
+    /// Failed to check if org `{0}` has user `{1}`: {2}
+    HasUser(OrgId, UserId, diesel::result::Error),
+    /// Failed to find org memberships for user `{0}`: {1}
+    Memberships(UserId, diesel::result::Error),
+    /// Failed to parse node count for org: {0}
+    NodeCount(std::num::TryFromIntError),
+    /// Failed to get node counts for org: {0}
+    NodeCounts(diesel::result::Error),
+    /// Org model RBAC error: {0}
+    Rbac(#[from] crate::models::rbac::Error),
+    /// Failed to remove org user: {0}
+    RemoveUser(diesel::result::Error),
+    /// Failed to reset token: {0}
+    ResetToken(diesel::result::Error),
+    /// Failed to update org: {0}
+    Update(diesel::result::Error),
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        use Error::*;
+        match err {
+            Create(DatabaseError(UniqueViolation, _))
+            | CreateOrgUser(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Already exists.")
+            }
+            Delete(_, NotFound)
+            | FindById(_, NotFound)
+            | FindByIds(_, NotFound)
+            | FindOrgUser(NotFound)
+            | FindPersonal(_, NotFound)
+            | RemoveUser(NotFound) => Status::not_found("Not found."),
+            FindOrgUserByToken(_) => Status::permission_denied("Invalid token."),
+            Rbac(err) => err.into(),
+            _ => Status::internal("Internal error."),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Queryable, Selectable)]
 pub struct Org {
@@ -22,28 +95,30 @@ pub struct Org {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
-type NotDeleted = dsl::Filter<orgs::table, dsl::IsNull<orgs::deleted_at>>;
-
 impl Org {
-    pub async fn find_by_id(org_id: OrgId, conn: &mut Conn<'_>) -> crate::Result<Self> {
+    pub async fn find_by_id(id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         Org::not_deleted()
-            .find(org_id)
+            .find(id)
             .get_result(conn)
             .await
-            .for_table_id("orgs", org_id)
+            .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn find_by_ids(mut org_ids: Vec<OrgId>, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
-        org_ids.sort();
-        org_ids.dedup();
+    pub async fn find_by_ids(
+        org_ids: HashSet<OrgId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<Vec<Self>, Error> {
         orgs::table
-            .filter(orgs::id.eq_any(org_ids))
+            .filter(orgs::id.eq_any(org_ids.iter()))
             .get_results(conn)
             .await
-            .for_table("orgs")
+            .map_err(|err| Error::FindByIds(org_ids, err))
     }
 
-    pub async fn filter(member_id: Option<UserId>, conn: &mut Conn<'_>) -> Result<Vec<Self>> {
+    pub async fn filter(
+        member_id: Option<UserId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<Vec<Self>, Error> {
         let mut query = Self::not_deleted()
             .left_join(orgs_users::table)
             .into_boxed();
@@ -57,137 +132,93 @@ impl Org {
             .distinct()
             .get_results(conn)
             .await
-            .for_table("orgs")
+            .map_err(Error::Filter)
     }
 
-    pub async fn memberships(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<OrgUser>> {
-        orgs_users::table
-            .filter(orgs_users::user_id.eq(user_id))
-            .select(OrgUser::as_select())
-            .get_results(conn)
-            .await
-            .for_table("orgs")
-    }
-
-    pub async fn find_personal_org(user: &User, conn: &mut Conn<'_>) -> Result<Org> {
+    pub async fn find_personal(user_id: UserId, conn: &mut Conn<'_>) -> Result<Org, Error> {
         Self::not_deleted()
-            .filter(orgs::is_personal)
-            .filter(orgs_users::user_id.eq(user.id))
-            .filter(orgs_users::role.eq(OrgRole::Owner))
             .inner_join(orgs_users::table)
+            .filter(orgs_users::user_id.eq(user_id))
+            .filter(orgs::is_personal)
             .select(Org::as_select())
             .get_result(conn)
             .await
-            .for_table("orgs")
+            .map_err(|err| Error::FindPersonal(user_id, err))
     }
 
-    /// Checks if the user is a member.
-    pub async fn is_member(user_id: UserId, org_id: OrgId, conn: &mut Conn<'_>) -> Result<bool> {
+    pub async fn has_user(
+        org_id: OrgId,
+        user_id: UserId,
+        conn: &mut Conn<'_>,
+    ) -> Result<bool, Error> {
         let target_user = orgs_users::table
             .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::org_id.eq(org_id));
+
         diesel::select(dsl::exists(target_user))
             .get_result(conn)
             .await
-            .for_table("orgs_users")
+            .map_err(|err| Error::HasUser(org_id, user_id, err))
     }
 
-    pub async fn is_member_all(
-        user_id: UserId,
-        mut org_ids: Vec<OrgId>,
-        conn: &mut Conn<'_>,
-    ) -> Result<bool> {
-        org_ids.sort();
-        org_ids.dedup();
-        let len = org_ids.len() as i64;
-        let count: i64 = orgs_users::table
-            .filter(orgs_users::user_id.eq(user_id))
-            .filter(orgs_users::org_id.eq_any(org_ids))
-            .count()
-            .get_result(conn)
+    pub async fn add_admin(&self, user_id: UserId, conn: &mut Conn<'_>) -> Result<OrgUser, Error> {
+        NewOrgUser::new(self.id, user_id, OrgRole::Admin)
+            .create(conn)
             .await
-            .for_table("orgs_users")?;
-        Ok(count == len)
     }
 
-    /// Checks if the user is a member with the role `Admin` or above (the other option being
-    /// `Owner`).
-    pub async fn is_admin(user_id: UserId, org_id: OrgId, conn: &mut Conn<'_>) -> Result<bool> {
-        let target_user = orgs_users::table
-            .filter(orgs_users::user_id.eq(user_id))
-            .filter(orgs_users::org_id.eq(org_id))
-            .filter(orgs_users::role.eq_any([OrgRole::Admin, OrgRole::Owner]));
-        diesel::select(dsl::exists(target_user))
-            .get_result(conn)
+    pub async fn add_member(&self, user_id: UserId, conn: &mut Conn<'_>) -> Result<OrgUser, Error> {
+        NewOrgUser::new(self.id, user_id, OrgRole::Member)
+            .create(conn)
             .await
-            .for_table("orgs_users")
     }
 
-    pub async fn is_admin_all(
-        user_id: UserId,
-        mut org_ids: Vec<OrgId>,
-        conn: &mut Conn<'_>,
-    ) -> Result<bool> {
-        org_ids.sort();
-        org_ids.dedup();
-        let len = org_ids.len() as i64;
-        let count: i64 = orgs_users::table
-            .filter(orgs_users::user_id.eq(user_id))
-            .filter(orgs_users::org_id.eq_any(org_ids))
-            .filter(orgs_users::role.eq_any([OrgRole::Admin, OrgRole::Owner]))
-            .count()
-            .get_result(conn)
-            .await
-            .for_table("orgs_users")?;
-        Ok(count == len)
-    }
-
-    pub async fn add_member(
-        &self,
-        user_id: UserId,
-        role: OrgRole,
-        conn: &mut Conn<'_>,
-    ) -> Result<OrgUser> {
-        NewOrgUser::new(self.id, user_id, role).create(conn).await
-    }
-
-    pub async fn remove_member(&self, user: &User, conn: &mut Conn<'_>) -> Result<()> {
+    pub async fn remove_user(&self, user_id: UserId, conn: &mut Conn<'_>) -> Result<(), Error> {
         let org_user = orgs_users::table
-            .filter(orgs_users::user_id.eq(user.id))
+            .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::org_id.eq(self.id));
+
         diesel::delete(org_user)
             .execute(conn)
             .await
-            .for_table("orgs_users")?;
-        Ok(())
+            .map(|_| ())
+            .map_err(Error::RemoveUser)?;
+
+        RbacUser::unlink_role(user_id, self.id, None::<Role>, conn)
+            .await
+            .map_err(Into::into)
     }
 
     /// Marks the the given organization as deleted
-    pub async fn delete(&self, conn: &mut Conn<'_>) -> Result<()> {
+    pub async fn delete(&self, conn: &mut Conn<'_>) -> Result<(), Error> {
+        let org_id = self.id;
         let to_delete = orgs::table
-            .filter(orgs::id.eq(self.id))
+            .filter(orgs::id.eq(org_id))
             .filter(orgs::is_personal.eq(false));
+
         diesel::update(to_delete)
-            .set(orgs::deleted_at.eq(chrono::Utc::now()))
+            .set(orgs::deleted_at.eq(Utc::now()))
             .execute(conn)
             .await
-            .for_table("orgs")?;
-        Ok(())
+            .map(|_| ())
+            .map_err(|err| Error::Delete(org_id, err))
     }
 
-    pub async fn node_counts(orgs: &[Self], conn: &mut Conn<'_>) -> Result<HashMap<OrgId, u64>> {
-        use super::schema::nodes;
-
-        let org_ids: Vec<_> = orgs.iter().map(|o| o.id).collect();
+    pub async fn node_counts(
+        org_ids: HashSet<OrgId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<HashMap<OrgId, u64>, Error> {
         let counts: Vec<(OrgId, i64)> = nodes::table
             .filter(nodes::org_id.eq_any(org_ids))
             .group_by(nodes::org_id)
             .select((nodes::org_id, dsl::count(nodes::id)))
             .get_results(conn)
-            .await?;
+            .await
+            .map_err(Error::NodeCounts)?;
+
         counts
             .into_iter()
-            .map(|(id, count)| Ok((id, count.try_into()?)))
+            .map(|(id, count)| Ok((id, count.try_into().map_err(Error::NodeCount)?)))
             .collect()
     }
 
@@ -204,15 +235,23 @@ pub struct NewOrg<'a> {
 }
 
 impl<'a> NewOrg<'a> {
-    /// Creates a new organization
-    pub async fn create(self, user_id: UserId, conn: &mut Conn<'_>) -> Result<Org> {
+    pub fn personal() -> Self {
+        NewOrg {
+            name: PERSONAL_ORG_NAME,
+            is_personal: true,
+        }
+    }
+
+    /// Creates a new organization with the creator as the owner.
+    pub async fn create(self, user_id: UserId, conn: &mut Conn<'_>) -> Result<Org, Error> {
         let org: Org = diesel::insert_into(orgs::table)
             .values(self)
             .get_result(conn)
-            .await?;
-        NewOrgUser::new(org.id, user_id, OrgRole::Owner)
-            .create(conn)
-            .await?;
+            .await
+            .map_err(Error::Create)?;
+
+        let org_user = NewOrgUser::new(org.id, user_id, OrgRole::Owner);
+        org_user.create(conn).await?;
 
         Ok(org)
     }
@@ -226,14 +265,12 @@ pub struct UpdateOrg<'a> {
 }
 
 impl<'a> UpdateOrg<'a> {
-    /// Updates an organization
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Org> {
-        let org = diesel::update(orgs::table.find(self.id))
-            .set((self, orgs::updated_at.eq(chrono::Utc::now())))
+    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Org, Error> {
+        diesel::update(orgs::table.find(self.id))
+            .set((self, orgs::updated_at.eq(Utc::now())))
             .get_result(conn)
-            .await?;
-
-        Ok(org)
+            .await
+            .map_err(Error::Update)
     }
 }
 
@@ -242,21 +279,23 @@ impl<'a> UpdateOrg<'a> {
 pub struct OrgUser {
     pub org_id: OrgId,
     pub user_id: UserId,
-    pub role: OrgRole,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub host_provision_token: String,
 }
 
 impl OrgUser {
-    /// For a given list of orgs, returns a map from org id to all the orgs_users entries belonging
-    /// to that org.
-    pub async fn by_orgs(orgs: &[Org], conn: &mut Conn<'_>) -> Result<HashMap<OrgId, Vec<Self>>> {
-        let org_ids: Vec<OrgId> = orgs.iter().map(|o| o.id).collect();
+    /// Returns a map from OrgId to all users belonging to that org.
+    pub async fn by_org_ids(
+        org_ids: HashSet<OrgId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<HashMap<OrgId, Vec<Self>>, Error> {
         let org_users: Vec<Self> = orgs_users::table
             .filter(orgs_users::org_id.eq_any(org_ids))
             .get_results(conn)
-            .await?;
+            .await
+            .map_err(Error::FindOrgUsers)?;
+
         let mut res: HashMap<OrgId, Vec<Self>> = HashMap::new();
         for org_user in org_users {
             res.entry(org_user.org_id).or_default().push(org_user)
@@ -264,47 +303,50 @@ impl OrgUser {
         Ok(res)
     }
 
-    pub async fn by_user_org(user_id: UserId, org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self> {
-        let org_user = orgs_users::table
+    pub async fn by_user_org(
+        user_id: UserId,
+        org_id: OrgId,
+        conn: &mut Conn<'_>,
+    ) -> Result<Self, Error> {
+        orgs_users::table
             .filter(orgs_users::user_id.eq(user_id))
             .filter(orgs_users::org_id.eq(org_id))
             .get_result(conn)
-            .await?;
-        Ok(org_user)
+            .await
+            .map_err(Error::FindOrgUser)
     }
 
-    pub async fn by_token(token: &str, conn: &mut Conn<'_>) -> Result<Self> {
-        let org_user = orgs_users::table
+    pub async fn by_token(token: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        orgs_users::table
             .filter(orgs_users::host_provision_token.eq(token))
             .get_result(conn)
-            .await?;
-        Ok(org_user)
+            .await
+            .map_err(Error::FindOrgUserByToken)
     }
 
-    pub async fn reset_token(&self, conn: &mut Conn<'_>) -> Result<String> {
+    pub async fn reset_token(&self, conn: &mut Conn<'_>) -> Result<String, Error> {
         let token = Self::token();
         let to_update = orgs_users::table
             .filter(orgs_users::user_id.eq(self.user_id))
             .filter(orgs_users::org_id.eq(self.org_id));
+
         diesel::update(to_update)
             .set(orgs_users::host_provision_token.eq(&token))
             .execute(conn)
-            .await?;
-        Ok(token)
+            .await
+            .map(|_| token)
+            .map_err(Error::ResetToken)
     }
 
     fn token() -> String {
-        use rand::Rng;
         rand::thread_rng()
-            .sample_iter(&rand::distributions::Alphanumeric)
+            .sample_iter(&Alphanumeric)
             .take(12)
             .map(char::from)
             .collect()
     }
 }
 
-#[derive(Debug, Insertable)]
-#[diesel(table_name = orgs_users)]
 pub struct NewOrgUser {
     org_id: OrgId,
     user_id: UserId,
@@ -320,29 +362,31 @@ impl NewOrgUser {
         }
     }
 
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<OrgUser> {
+    /// Create a new org user.
+    ///
+    /// Also links the user to roles within the org based on the `OrgRole`.
+    pub async fn create(self, conn: &mut Conn<'_>) -> Result<OrgUser, Error> {
         let org_user = diesel::insert_into(orgs_users::table)
-            .values((self, orgs_users::host_provision_token.eq(OrgUser::token())))
+            .values((
+                orgs_users::org_id.eq(self.org_id),
+                orgs_users::user_id.eq(self.user_id),
+                orgs_users::host_provision_token.eq(OrgUser::token()),
+            ))
             .get_result(conn)
-            .await?;
-        Ok(org_user)
-    }
-}
+            .await
+            .map_err(Error::CreateOrgUser)?;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
-#[ExistingTypePath = "crate::models::schema::sql_types::EnumOrgRole"]
-pub enum OrgRole {
-    Admin,
-    Owner,
-    Member,
-}
-
-impl Display for OrgRole {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            OrgRole::Admin => write!(f, "admin"),
-            OrgRole::Owner => write!(f, "owner"),
-            OrgRole::Member => write!(f, "member"),
+        if let OrgRole::Owner = self.role {
+            RbacUser::link_role(self.user_id, self.org_id, OrgRole::Owner, conn).await?;
         }
+        if let OrgRole::Owner | OrgRole::Admin = self.role {
+            RbacUser::link_role(self.user_id, self.org_id, OrgRole::Admin, conn).await?;
+        }
+        #[allow(irrefutable_let_patterns)]
+        if let OrgRole::Owner | OrgRole::Admin | OrgRole::Member = self.role {
+            RbacUser::link_role(self.user_id, self.org_id, OrgRole::Member, conn).await?;
+        }
+
+        Ok(org_user)
     }
 }

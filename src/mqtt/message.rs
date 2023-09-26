@@ -3,7 +3,6 @@ use displaydoc::Display;
 use prost::Message as _;
 use thiserror::Error;
 
-use crate::auth::claims::Claims;
 use crate::auth::resource::{HostId, NodeId, OrgId};
 use crate::database::Conn;
 use crate::grpc::api;
@@ -12,9 +11,9 @@ use crate::models::{Host, Invitation, Node, Org, User};
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// Failed to parse Host: {0}
-    Host(Box<crate::Error>),
+    Host(#[from] crate::grpc::host::Error),
     /// Failed to parse Invitation from model: {0}
-    Invitation(Box<crate::Error>),
+    Invitation(#[from] crate::grpc::invitation::Error),
     /// Missing `host_id`. This should not happen.
     MissingHostId,
     /// Missing `node_id`. This should not happen.
@@ -22,9 +21,9 @@ pub enum Error {
     /// Missing `org_id`. This should not happen.
     MissingOrgId,
     /// Failed to parse Node: {0}
-    Node(Box<crate::Error>),
+    Node(#[from] crate::grpc::node::Error),
     /// Failed to parse User: {0}
-    User(Box<crate::Error>),
+    User(#[from] crate::grpc::user::Error),
 }
 
 #[derive(From)]
@@ -142,13 +141,11 @@ impl api::OrgMessage {
     }
 
     pub async fn invitation_created(
-        org: Org,
         invitation: Invitation,
+        org: Org,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
-        let invitation = api::Invitation::from_model(invitation, conn)
-            .await
-            .map_err(|err| Error::Invitation(Box::new(err)))?;
+        let invitation = api::Invitation::from_model(invitation, conn).await?;
 
         Ok(Self {
             message: Some(api::org_message::Message::InvitationCreated(
@@ -161,41 +158,32 @@ impl api::OrgMessage {
     }
 
     pub async fn invitation_accepted(
-        org: Org,
         invitation: Invitation,
+        org: Org,
         user: User,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
-        let invitation = api::Invitation::from_model(invitation, conn)
-            .await
-            .map_err(|err| Error::Invitation(Box::new(err)))?;
-        let user = api::User::from_model(user).map_err(|err| Error::User(Box::new(err)))?;
-
         Ok(Self {
             message: Some(api::org_message::Message::InvitationAccepted(
                 api::InvitationAccepted {
                     org_id: org.id.to_string(),
-                    invitation: Some(invitation),
-                    user: Some(user),
+                    invitation: Some(api::Invitation::from_model(invitation, conn).await?),
+                    user: Some(api::User::from_model(user)),
                 },
             )),
         })
     }
 
     pub async fn invitation_declined(
-        org: Org,
         invitation: Invitation,
+        org: Org,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
-        let invitation = api::Invitation::from_model(invitation, conn)
-            .await
-            .map_err(|err| Error::Invitation(Box::new(err)))?;
-
         Ok(Self {
             message: Some(api::org_message::Message::InvitationDeclined(
                 api::InvitationDeclined {
                     org_id: org.id.to_string(),
-                    invitation: Some(invitation),
+                    invitation: Some(api::Invitation::from_model(invitation, conn).await?),
                 },
             )),
         })
@@ -218,15 +206,8 @@ impl api::HostMessage {
         }
     }
 
-    pub async fn created(
-        host: Host,
-        user: User,
-        claims: &Claims,
-        conn: &mut Conn<'_>,
-    ) -> Result<Self, Error> {
-        let host = api::Host::from_host(host, claims, conn)
-            .await
-            .map_err(|err| Error::Host(Box::new(err)))?;
+    pub async fn created(host: Host, user: User, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        let host = api::Host::from_host(host, None, conn).await?;
 
         Ok(Self {
             message: Some(api::host_message::Message::Created(api::HostCreated {
@@ -238,15 +219,8 @@ impl api::HostMessage {
         })
     }
 
-    pub async fn updated(
-        host: Host,
-        user: User,
-        claims: &Claims,
-        conn: &mut Conn<'_>,
-    ) -> Result<Self, Error> {
-        let host = api::Host::from_host(host, claims, conn)
-            .await
-            .map_err(|err| Error::Host(Box::new(err)))?;
+    pub async fn updated(host: Host, user: User, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        let host = api::Host::from_host(host, None, conn).await?;
 
         Ok(Self {
             message: Some(api::host_message::Message::Updated(api::HostUpdated {
@@ -258,14 +232,9 @@ impl api::HostMessage {
         })
     }
 
-    pub async fn updated_many(
-        hosts: Vec<Host>,
-        claims: &Claims,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
-        api::Host::from_hosts(hosts, claims, conn)
-            .await
-            .map_err(|err| Error::Host(Box::new(err)))?
+    pub async fn updated_many(hosts: Vec<Host>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+        api::Host::from_hosts(hosts, None, conn)
+            .await?
             .into_iter()
             .map(|host| {
                 Ok(Self {
@@ -348,9 +317,7 @@ impl api::NodeMessage {
         user: Option<User>,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
-        let node = api::Node::from_model(node, conn)
-            .await
-            .map_err(|err| Error::Node(Box::new(err)))?;
+        let node = api::Node::from_model(node, conn).await?;
 
         Ok(Self {
             message: Some(api::node_message::Message::Updated(api::NodeUpdated {
@@ -364,8 +331,7 @@ impl api::NodeMessage {
 
     pub async fn updated_many(models: Vec<Node>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         api::Node::from_models(models, conn)
-            .await
-            .map_err(|err| Error::Node(Box::new(err)))?
+            .await?
             .into_iter()
             .map(|node| {
                 Ok(Self {
@@ -398,7 +364,6 @@ impl api::NodeMessage {
 mod tests {
     use uuid::Uuid;
 
-    use crate::auth::claims::tests::{claims_all, claims_none};
     use crate::config::Context;
     use crate::models::{Command, CommandType};
 
@@ -408,17 +373,16 @@ mod tests {
     async fn test_send_command() {
         let (ctx, db) = Context::with_mocked().await.unwrap();
 
-        let node = db.node().await;
         let command = Command {
-            id: Uuid::new_v4(),
-            host_id: db.host().await.id,
+            id: Uuid::new_v4().into(),
+            host_id: db.seed.host.id,
             cmd: CommandType::CreateNode,
             sub_cmd: None,
             response: None,
             exit_status: None,
             created_at: chrono::Utc::now(),
             completed_at: None,
-            node_id: Some(node.id),
+            node_id: Some(db.seed.node.id),
             acked_at: None,
         };
         let mut conn = db.conn().await;
@@ -432,17 +396,15 @@ mod tests {
         let (ctx, db) = Context::with_mocked().await.unwrap();
         let mut conn = db.conn().await;
 
-        let host = db.host().await;
-        let user = db.user().await;
+        let host = db.seed.host.clone();
+        let user = db.seed.user.clone();
 
-        let claims = claims_none(user.id);
-        let msg = api::HostMessage::created(host.clone(), user.clone(), &claims, &mut conn)
+        let msg = api::HostMessage::created(host.clone(), user.clone(), &mut conn)
             .await
             .unwrap();
         ctx.notifier.send(msg).await.unwrap();
 
-        let claims = claims_all(user.id);
-        let msg = api::HostMessage::updated(host.clone(), user.clone(), &claims, &mut conn)
+        let msg = api::HostMessage::updated(host.clone(), user.clone(), &mut conn)
             .await
             .unwrap();
         ctx.notifier.send(msg).await.unwrap();
@@ -456,8 +418,8 @@ mod tests {
         let (ctx, db) = Context::with_mocked().await.unwrap();
         let mut conn = db.conn().await;
 
-        let node = db.node().await;
-        let user = db.user().await;
+        let node = db.seed.node.clone();
+        let user = db.seed.user.clone();
 
         let node_model = api::Node::from_model(node.clone(), &mut conn)
             .await

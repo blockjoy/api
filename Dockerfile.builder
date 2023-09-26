@@ -13,7 +13,7 @@ RUN cargo init
 COPY build.rs /src
 COPY Cargo.lock /src
 COPY Cargo.toml /src
-COPY proto /src
+COPY proto /src/proto
 COPY rust-toolchain.toml /src
 
 RUN cargo build --release

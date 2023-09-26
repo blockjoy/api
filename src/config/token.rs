@@ -3,6 +3,7 @@ use std::time::Duration;
 use derive_more::{Deref, FromStr};
 use displaydoc::Display;
 use serde::Deserialize;
+use serde_with::{serde_as, DurationSeconds};
 use thiserror::Error;
 
 use super::provider::{self, Provider};
@@ -45,6 +46,8 @@ const INVITATION_EXPIRE_DEFAULT: &str = "168m";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
+    /// Failed to convert to chrono::Duration: {0}
+    Chrono(chrono::OutOfRangeError),
     /// Failed to parse SecretConfig: {0}
     Secret(#[from] SecretError),
     /// Failed to parse ExpireConfig: {0}
@@ -52,19 +55,23 @@ pub enum Error {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Config {
     pub secret: SecretConfig,
-    pub expire: ExpireConfig,
+    pub expire_config: ExpireConfig,
+    pub expire: ExpireChrono,
 }
 
 impl TryFrom<&Provider> for Config {
     type Error = Error;
 
     fn try_from(provider: &Provider) -> Result<Self, Self::Error> {
+        let expire_config = provider.try_into()?;
+        let expire = ExpireChrono::try_from(expire_config)?;
+
         Ok(Config {
             secret: provider.try_into()?,
-            expire: provider.try_into()?,
+            expire_config,
+            expire,
         })
     }
 }
@@ -125,7 +132,7 @@ pub enum ExpireError {
     Invitation(provider::Error),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExpireConfig {
     pub token: HumanTime,
@@ -243,6 +250,47 @@ impl TryFrom<&Provider> for ExpireConfig {
             password_reset,
             registration_confirmation,
             invitation,
+        })
+    }
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct ExpireChrono {
+    #[serde_as(as = "DurationSeconds<i64>")]
+    pub token: chrono::Duration,
+    #[serde_as(as = "DurationSeconds<i64>")]
+    pub refresh: chrono::Duration,
+    #[serde_as(as = "DurationSeconds<i64>")]
+    pub refresh_host: chrono::Duration,
+    #[serde_as(as = "DurationSeconds<i64>")]
+    pub refresh_user: chrono::Duration,
+    #[serde_as(as = "DurationSeconds<i64>")]
+    pub password_reset: chrono::Duration,
+    #[serde_as(as = "DurationSeconds<i64>")]
+    pub registration_confirmation: chrono::Duration,
+    #[serde_as(as = "DurationSeconds<i64>")]
+    pub invitation: chrono::Duration,
+}
+
+impl TryFrom<ExpireConfig> for ExpireChrono {
+    type Error = Error;
+
+    fn try_from(config: ExpireConfig) -> Result<Self, Self::Error> {
+        Ok(ExpireChrono {
+            token: chrono::Duration::from_std(*config.token).map_err(Error::Chrono)?,
+            refresh: chrono::Duration::from_std(*config.refresh).map_err(Error::Chrono)?,
+            refresh_host: chrono::Duration::from_std(*config.refresh_host)
+                .map_err(Error::Chrono)?,
+            refresh_user: chrono::Duration::from_std(*config.refresh_user)
+                .map_err(Error::Chrono)?,
+            password_reset: chrono::Duration::from_std(*config.password_reset)
+                .map_err(Error::Chrono)?,
+            registration_confirmation: chrono::Duration::from_std(
+                *config.registration_confirmation,
+            )
+            .map_err(Error::Chrono)?,
+            invitation: chrono::Duration::from_std(*config.invitation).map_err(Error::Chrono)?,
         })
     }
 }

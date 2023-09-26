@@ -1,18 +1,23 @@
-use blockvisor_api::grpc::api;
-use blockvisor_api::models::node::{NodeChainStatus, NodeStakingStatus, NodeSyncStatus};
+use std::collections::HashMap;
 
-type Service = api::metrics_service_client::MetricsServiceClient<super::Channel>;
+use blockvisor_api::grpc::api;
+use blockvisor_api::models::node::{Node, NodeChainStatus, NodeStakingStatus, NodeSyncStatus};
+use blockvisor_api::models::Host;
+use tonic::transport::Channel;
+
+use crate::setup::helper::traits::SocketRpc;
+use crate::setup::TestServer;
+
+type Service = api::metrics_service_client::MetricsServiceClient<Channel>;
 
 #[tokio::test]
 async fn responds_ok_for_write_node() {
-    let tester = super::Tester::new().await;
+    let test = TestServer::new().await;
 
-    let host = tester.host().await;
-    let claims = tester.host_token(&host);
-    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
+    let jwt = test.host_jwt();
+    let node_id = test.seed().node.id;
 
-    let node = tester.node().await;
-    let mut metrics = std::collections::HashMap::new();
+    let mut metrics = HashMap::new();
     let metric = api::NodeMetrics {
         height: Some(10),
         block_age: Some(5),
@@ -24,11 +29,12 @@ async fn responds_ok_for_write_node() {
         data_sync_progress_current: Some(13),
         data_sync_progress_message: Some("Whaaaa updated".to_string()),
     };
-    metrics.insert(node.id.to_string(), metric);
+    metrics.insert(node_id.to_string(), metric);
     let req = api::MetricsServiceNodeRequest { metrics };
-    tester.send_with(Service::node, req, &jwt).await.unwrap();
+    test.send_with(Service::node, req, &jwt).await.unwrap();
 
-    let node = tester.node().await;
+    let mut conn = test.conn().await;
+    let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
     assert_eq!(node.block_height, Some(10));
     assert_eq!(node.block_age, Some(5));
     assert_eq!(node.staking_status, Some(NodeStakingStatus::Validating));
@@ -39,26 +45,22 @@ async fn responds_ok_for_write_node() {
 
 #[tokio::test]
 async fn responds_ok_for_write_node_empty() {
-    let tester = super::Tester::new().await;
+    let test = TestServer::new().await;
 
-    let host = tester.host().await;
-    let claims = tester.host_token(&host);
-    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
-
-    let metrics = std::collections::HashMap::new();
+    let jwt = test.host_jwt();
+    let metrics = HashMap::new();
     let req = api::MetricsServiceNodeRequest { metrics };
-    tester.send_with(Service::node, req, &jwt).await.unwrap();
+    test.send_with(Service::node, req, &jwt).await.unwrap();
 }
 
 #[tokio::test]
 async fn responds_ok_for_write_host() {
-    let tester = super::Tester::new().await;
+    let test = TestServer::new().await;
 
-    let host = tester.host().await;
-    let claims = tester.host_token(&host);
-    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
+    let jwt = test.host_jwt();
+    let host_id = test.seed().host.id;
 
-    let mut metrics = std::collections::HashMap::new();
+    let mut metrics = HashMap::new();
     let metric = api::HostMetrics {
         used_cpu: Some(201),
         used_memory: Some(1123123123123),
@@ -70,11 +72,12 @@ async fn responds_ok_for_write_host() {
         network_sent: Some(567567567),
         uptime: Some(687678678),
     };
-    metrics.insert(host.id.to_string(), metric);
+    metrics.insert(host_id.to_string(), metric);
     let req = api::MetricsServiceHostRequest { metrics };
-    tester.send_with(Service::host, req, &jwt).await.unwrap();
+    test.send_with(Service::host, req, &jwt).await.unwrap();
 
-    let host = tester.host().await;
+    let mut conn = test.conn().await;
+    let host = Host::find_by_id(host_id, &mut conn).await.unwrap();
     assert_eq!(host.used_cpu, Some(201));
     assert_eq!(host.used_memory, Some(1123123123123));
     assert_eq!(host.used_disk_space, Some(3123213123));
@@ -88,26 +91,19 @@ async fn responds_ok_for_write_host() {
 
 #[tokio::test]
 async fn responds_ok_for_write_host_empty() {
-    let tester = super::Tester::new().await;
+    let test = TestServer::new().await;
 
-    let host = tester.host().await;
-    let claims = tester.host_token(&host);
-    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
-
-    let metrics = std::collections::HashMap::new();
+    let jwt = test.host_jwt();
+    let metrics = HashMap::new();
     let req = api::MetricsServiceHostRequest { metrics };
-    tester.send_with(Service::host, req, &jwt).await.unwrap();
+    test.send_with(Service::host, req, &jwt).await.unwrap();
 }
 
 #[tokio::test]
 async fn single_failure_doesnt_abort_all_updates() {
-    let tester = super::Tester::new().await;
+    let test = TestServer::new().await;
+    let jwt = test.host_jwt();
 
-    let host = tester.host().await;
-    let claims = tester.host_token(&host);
-    let jwt = tester.cipher().jwt.encode(&claims).unwrap();
-
-    let node = tester.node().await;
     let mut metrics = std::collections::HashMap::new();
     let metric = api::NodeMetrics {
         height: Some(10),
@@ -116,16 +112,18 @@ async fn single_failure_doesnt_abort_all_updates() {
         consensus: Some(false),
         application_status: Some(8),
         sync_status: Some(2),
+        data_sync_progress_total: Some(2),
+        data_sync_progress_current: Some(3),
+        data_sync_progress_message: Some("wowie".to_string()),
     };
-    metrics.insert(node.id.to_string(), metric.clone());
+    let node_id = test.seed().node.id;
+    metrics.insert(node_id.to_string(), metric.clone());
     metrics.insert(uuid::Uuid::from_u128(0).to_string(), metric);
     let req = api::MetricsServiceNodeRequest { metrics };
-    tester
-        .send_with(Service::node, req, &jwt)
-        .await
-        .unwrap_err();
+    test.send_with(Service::node, req, &jwt).await.unwrap_err();
 
-    let node = tester.node().await;
+    let mut conn = test.conn().await;
+    let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
     assert_eq!(node.block_height, Some(10));
     assert_eq!(node.block_age, Some(5));
     assert_eq!(node.staking_status, Some(NodeStakingStatus::Validating));

@@ -1,105 +1,140 @@
+use derive_more::{Deref, Display, From, FromStr};
 use diesel::prelude::*;
+use diesel::result::Error::NotFound;
 use diesel_async::RunQueryDsl;
-use std::collections::HashMap;
+use diesel_derive_enum::DbEnum;
+use diesel_derive_newtype::DieselNewType;
+use displaydoc::Display as DisplayDoc;
+use std::collections::{HashMap, HashSet};
+use thiserror::Error;
+use tonic::Status;
+use uuid::Uuid;
 
 use crate::database::Conn;
-use crate::models::schema::blockchain_properties;
-use crate::models::NodeProperty;
+use crate::models::schema::{blockchain_properties, sql_types};
+
+use super::{BlockchainId, BlockchainNodeTypeId, BlockchainVersion, BlockchainVersionId};
+
+#[derive(Debug, DisplayDoc, Error)]
+pub enum Error {
+    /// Failed to bulk create blockchain properties: {0}
+    BulkCreate(diesel::result::Error),
+    /// Failed to find blockchain property by blockchain ids `{0:?}`: {1}
+    ByBlockchainIds(HashSet<BlockchainId>, diesel::result::Error),
+    /// Failed to find blockchain property by property ids `{0:?}`: {1}
+    ByPropertyIds(HashSet<BlockchainPropertyId>, diesel::result::Error),
+    /// Failed to find blockchain property for version id `{0}`: {1}
+    ByVersionId(BlockchainVersionId, diesel::result::Error),
+    /// Failed to find blockchain property by version ids `{0:?}`: {1}
+    ByVersionIds(HashSet<BlockchainVersionId>, diesel::result::Error),
+    /// Failed to create map from blockchain property id to name: {0}
+    IdToName(diesel::result::Error),
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        use Error::*;
+        match err {
+            ByBlockchainIds(_, NotFound)
+            | ByPropertyIds(_, NotFound)
+            | ByVersionId(_, NotFound)
+            | ByVersionIds(_, NotFound) => Status::not_found("Not found."),
+            _ => Status::internal("Internal error."),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Display, Hash, PartialEq, Eq, DieselNewType, Deref, From, FromStr)]
+pub struct BlockchainPropertyId(Uuid);
 
 #[derive(Debug, Clone, Insertable, Queryable)]
 #[diesel(table_name = blockchain_properties)]
 pub struct BlockchainProperty {
-    pub id: uuid::Uuid,
-    pub blockchain_id: super::BlockchainId,
+    pub id: BlockchainPropertyId,
+    pub blockchain_id: BlockchainId,
     pub name: String,
     pub default: Option<String>,
     pub ui_type: BlockchainPropertyUiType,
     pub disabled: bool,
     pub required: bool,
-    pub blockchain_node_type_id: uuid::Uuid,
-    pub blockchain_version_id: uuid::Uuid,
+    pub blockchain_node_type_id: BlockchainNodeTypeId,
+    pub blockchain_version_id: BlockchainVersionId,
     pub display_name: String,
 }
 
 impl BlockchainProperty {
-    pub async fn bulk_create(props: Vec<Self>, conn: &mut Conn<'_>) -> crate::Result<Vec<Self>> {
-        let props = diesel::insert_into(blockchain_properties::table)
-            .values(props)
-            .get_results(conn)
-            .await?;
-        Ok(props)
-    }
-
-    pub async fn by_blockchain_version(
-        version: &super::BlockchainVersion,
+    pub async fn bulk_create(
+        properties: Vec<Self>,
         conn: &mut Conn<'_>,
-    ) -> crate::Result<Vec<Self>> {
-        let props = blockchain_properties::table
-            .filter(blockchain_properties::blockchain_version_id.eq(version.id))
+    ) -> Result<Vec<Self>, Error> {
+        diesel::insert_into(blockchain_properties::table)
+            .values(properties)
             .get_results(conn)
-            .await?;
-        Ok(props)
+            .await
+            .map_err(Error::BulkCreate)
     }
 
-    pub async fn by_blockchain_versions(
-        versions: &[super::BlockchainVersion],
+    pub async fn by_blockchain_ids(
+        blockchain_ids: HashSet<BlockchainId>,
         conn: &mut Conn<'_>,
-    ) -> crate::Result<Vec<Self>> {
-        let mut ids: Vec<_> = versions.iter().map(|b| b.id).collect();
-        ids.sort();
-        ids.dedup();
-        let props = blockchain_properties::table
-            .filter(blockchain_properties::blockchain_version_id.eq_any(ids))
+    ) -> Result<Vec<Self>, Error> {
+        blockchain_properties::table
+            .filter(blockchain_properties::blockchain_id.eq_any(blockchain_ids.iter()))
             .get_results(conn)
-            .await?;
-        Ok(props)
+            .await
+            .map_err(|err| Error::ByBlockchainIds(blockchain_ids, err))
     }
 
-    /// Returns a map from blockchain_property_id to the `name` field of that blockchain property.
-    pub async fn by_node_props(
-        nprops: &[NodeProperty],
+    pub async fn by_property_ids(
+        property_ids: HashSet<BlockchainPropertyId>,
         conn: &mut Conn<'_>,
-    ) -> crate::Result<Vec<Self>> {
-        let ids: Vec<_> = nprops
-            .iter()
-            .map(|nprop| nprop.blockchain_property_id)
-            .collect();
-        let props = blockchain_properties::table
-            .filter(blockchain_properties::id.eq_any(ids))
+    ) -> Result<Vec<Self>, Error> {
+        blockchain_properties::table
+            .filter(blockchain_properties::id.eq_any(property_ids.iter()))
             .get_results(conn)
-            .await?;
-        Ok(props)
+            .await
+            .map_err(|err| Error::ByPropertyIds(property_ids, err))
     }
 
-    /// Returns a map from blockchain_property_id to the `name` field of that blockchain property.
+    pub async fn by_version_id(
+        version_id: BlockchainVersionId,
+        conn: &mut Conn<'_>,
+    ) -> Result<Vec<Self>, Error> {
+        blockchain_properties::table
+            .filter(blockchain_properties::blockchain_version_id.eq(version_id))
+            .get_results(conn)
+            .await
+            .map_err(|err| Error::ByVersionId(version_id, err))
+    }
+
+    pub async fn by_version_ids(
+        version_ids: HashSet<BlockchainVersionId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<Vec<Self>, Error> {
+        blockchain_properties::table
+            .filter(blockchain_properties::blockchain_version_id.eq_any(version_ids.iter()))
+            .get_results(conn)
+            .await
+            .map_err(|err| Error::ByVersionIds(version_ids, err))
+    }
+
+    /// Returns a map from `BlockchainPropertyId` to the `name` field of that blockchain property.
     pub async fn id_to_name_map(
-        version: &super::BlockchainVersion,
+        version: &BlockchainVersion,
         conn: &mut Conn<'_>,
-    ) -> crate::Result<HashMap<uuid::Uuid, String>> {
+    ) -> Result<HashMap<BlockchainPropertyId, String>, Error> {
         let props: Vec<Self> = blockchain_properties::table
             .filter(blockchain_properties::blockchain_version_id.eq(version.id))
             .get_results(conn)
-            .await?;
-        props.into_iter().map(|b| Ok((b.id, b.name))).collect()
-    }
+            .await
+            .map_err(Error::IdToName)?;
 
-    pub async fn by_blockchains(
-        blockchains: &[super::Blockchain],
-        conn: &mut Conn<'_>,
-    ) -> crate::Result<Vec<Self>> {
-        let mut blockchain_ids: Vec<_> = blockchains.iter().map(|b| b.id).collect();
-        blockchain_ids.sort();
-        blockchain_ids.dedup();
-        let versions = blockchain_properties::table
-            .filter(blockchain_properties::blockchain_id.eq_any(blockchain_ids))
-            .get_results(conn)
-            .await?;
-        Ok(versions)
+        Ok(props.into_iter().map(|b| (b.id, b.name)).collect())
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum)]
-#[ExistingTypePath = "crate::models::schema::sql_types::BlockchainPropertyUiType"]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
+#[ExistingTypePath = "sql_types::BlockchainPropertyUiType"]
 pub enum BlockchainPropertyUiType {
     Switch,
     Password,

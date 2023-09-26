@@ -1,20 +1,24 @@
 use blockvisor_api::grpc::api;
+use tonic::transport::Channel;
 
-type Service = api::discovery_service_client::DiscoveryServiceClient<super::Channel>;
+use crate::setup::helper::traits::SocketRpc;
+use crate::setup::TestServer;
+
+type Service = api::discovery_service_client::DiscoveryServiceClient<Channel>;
 
 #[tokio::test]
 async fn responds_correct_urls_forss() {
-    let tester = super::Tester::new().await;
+    let test = TestServer::new().await;
     let req = api::DiscoveryServiceServicesRequest {};
 
-    let response = tester.send_admin(Service::services, req).await.unwrap();
+    let response = test.send_admin(Service::services, req).await.unwrap();
 
     assert_eq!(
         response.key_service_url,
-        tester.context().config.key_service.url.to_string()
+        test.context().config.key_service.url.to_string()
     );
     assert_eq!(
         response.notification_url,
-        tester.context().config.mqtt.notification_url()
+        test.context().config.mqtt.notification_url()
     );
 }

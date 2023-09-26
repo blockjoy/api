@@ -1,315 +1,288 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
+use displaydoc::Display;
+use thiserror::Error;
+use tonic::metadata::MetadataMap;
+use tonic::{Request, Response, Status};
+use tracing::{error, warn};
 
 use crate::auth::claims::{Claims, Expirable};
-use crate::auth::endpoint::{Endpoint, Endpoints};
-use crate::auth::resource::Resource;
+use crate::auth::rbac::{AuthPerm, GrpcRole};
+use crate::auth::resource::{Resource, ResourceId};
 use crate::auth::token::refresh::Refresh;
 use crate::auth::token::RequestToken;
+use crate::auth::Authorize;
 use crate::database::{Transaction, WriteConn};
 use crate::models::{Host, Node, Org, User};
 
-use super::api::{self, auth_service_server};
+use super::api::auth_service_server::AuthService;
+use super::{api, Grpc};
 
-/// This is a list of all the endpoints that a user is allowed to access with the jwt that they
-/// generate on login. It does not contain endpoints like confirm, because those are accessed by a
-/// token.
-const USER_ENDPOINTS: &[Endpoint] = &[
-    Endpoint::ApiKeyAll,
-    Endpoint::AuthRefresh,
-    Endpoint::AuthUpdateUiPassword,
-    Endpoint::BabelAll,
-    Endpoint::BlockchainAll,
-    Endpoint::CommandAll,
-    Endpoint::DiscoveryAll,
-    Endpoint::HostAll,
-    Endpoint::HostProvisionAll,
-    Endpoint::InvitationAll,
-    Endpoint::KeyFileAll,
-    Endpoint::MetricsAll,
-    Endpoint::NodeAll,
-    Endpoint::OrgAll,
-    Endpoint::SubscriptionAll,
-    Endpoint::UserAll,
-];
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Auth check failed: {0}
+    Auth(#[from] crate::auth::Error),
+    /// Claims check failed: {0}
+    Claims(#[from] crate::auth::claims::Error),
+    /// Claims Resource is not a user.
+    ClaimsNotUser,
+    /// Diesel failure: {0}
+    Diesel(#[from] diesel::result::Error),
+    /// Failed to send email: {0}
+    Email(#[from] crate::email::Error),
+    /// Host auth error: {0}
+    Host(#[from] crate::models::host::Error),
+    /// JWT token failure: {0}
+    Jwt(#[from] crate::auth::token::jwt::Error),
+    /// Node auth error: {0}
+    Node(#[from] crate::models::node::Error),
+    /// Not Bearer Token.
+    NotBearer,
+    /// No Refresh token in cookie or request body.
+    NoRefresh,
+    /// Org auth error: {0}
+    Org(#[from] crate::models::org::Error),
+    /// Failed to parse RequestToken: {0}
+    ParseToken(crate::auth::token::Error),
+    /// Failed to parse UserId: {0}
+    ParseUserId(uuid::Error),
+    /// Refresh token failure: {0}
+    Refresh(#[from] crate::auth::token::refresh::Error),
+    /// Refresh token doesn't match JWT Resource.
+    RefreshResource,
+    /// User auth error: {0}
+    User(#[from] crate::models::user::Error),
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        error!("{err}");
+        use Error::*;
+        match err {
+            ClaimsNotUser | Jwt(_) | ParseToken(_) | RefreshResource => {
+                Status::permission_denied("Access denied.")
+            }
+            Diesel(_) | Email(_) => Status::internal("Internal error."),
+            NotBearer => Status::unauthenticated("Not bearer."),
+            NoRefresh => Status::invalid_argument("No refresh token."),
+            ParseUserId(_) => Status::invalid_argument("user_id"),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Host(err) => err.into(),
+            Node(err) => err.into(),
+            Org(err) => err.into(),
+            Refresh(err) => err.into(),
+            User(err) => err.into(),
+        }
+    }
+}
 
 #[tonic::async_trait]
-impl auth_service_server::AuthService for super::Grpc {
+impl AuthService for Grpc {
     async fn login(
         &self,
-        req: tonic::Request<api::AuthServiceLoginRequest>,
-    ) -> super::Resp<api::AuthServiceLoginResponse> {
-        self.write(|write| login(req, write).scope_boxed()).await
+        req: Request<api::AuthServiceLoginRequest>,
+    ) -> Result<Response<api::AuthServiceLoginResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| login(req, meta, write).scope_boxed())
+            .await
     }
 
     async fn confirm(
         &self,
-        req: tonic::Request<api::AuthServiceConfirmRequest>,
-    ) -> super::Resp<api::AuthServiceConfirmResponse> {
-        self.write(|write| confirm(req, write).scope_boxed()).await
+        req: Request<api::AuthServiceConfirmRequest>,
+    ) -> Result<Response<api::AuthServiceConfirmResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| confirm(req, meta, write).scope_boxed())
+            .await
     }
 
     async fn refresh(
         &self,
-        req: tonic::Request<api::AuthServiceRefreshRequest>,
-    ) -> super::Resp<api::AuthServiceRefreshResponse> {
-        self.write(|write| refresh(req, write).scope_boxed()).await
+        req: Request<api::AuthServiceRefreshRequest>,
+    ) -> Result<Response<api::AuthServiceRefreshResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| refresh(req, meta, write).scope_boxed())
+            .await
     }
 
-    /// This endpoint triggers the sending of the reset-password email. The actual resetting is
-    /// then done through the `update` function.
     async fn reset_password(
         &self,
-        req: tonic::Request<api::AuthServiceResetPasswordRequest>,
-    ) -> super::Resp<api::AuthServiceResetPasswordResponse> {
-        self.write(|write| reset_password(req, write).scope_boxed())
+        req: Request<api::AuthServiceResetPasswordRequest>,
+    ) -> Result<Response<api::AuthServiceResetPasswordResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| reset_password(req, meta, write).scope_boxed())
             .await
     }
 
     async fn update_password(
         &self,
-        req: tonic::Request<api::AuthServiceUpdatePasswordRequest>,
-    ) -> super::Resp<api::AuthServiceUpdatePasswordResponse> {
-        self.write(|write| update_password(req, write).scope_boxed())
+        req: Request<api::AuthServiceUpdatePasswordRequest>,
+    ) -> Result<Response<api::AuthServiceUpdatePasswordResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| update_password(req, meta, write).scope_boxed())
             .await
     }
 
     async fn update_ui_password(
         &self,
-        req: tonic::Request<api::AuthServiceUpdateUiPasswordRequest>,
-    ) -> super::Resp<api::AuthServiceUpdateUiPasswordResponse> {
-        self.write(|write| update_ui_password(req, write).scope_boxed())
+        req: Request<api::AuthServiceUpdateUiPasswordRequest>,
+    ) -> Result<Response<api::AuthServiceUpdateUiPasswordResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| update_ui_password(req, meta, write).scope_boxed())
             .await
     }
 }
 
 async fn login(
-    req: tonic::Request<api::AuthServiceLoginRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Result<api::AuthServiceLoginResponse> {
-    let WriteConn { conn, ctx, .. } = write;
+    req: api::AuthServiceLoginRequest,
+    _meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::AuthServiceLoginResponse, Error> {
+    // No auth claims are required as the password is checked instead.
+    let user = User::login(&req.email, &req.password, &mut write).await?;
 
-    // This endpoint requires no auth, it is where you get your token from.
-    let inner = req.into_inner();
-    let user = User::login(&inner.email, &inner.password, conn).await?;
+    let expires = write.ctx.config.token.expire.token;
+    let claims = Claims::from_now(expires, user.id, GrpcRole::Login);
 
-    let expires = ctx.config.token.expire.token.try_into()?;
-    let claims = Claims::user_from_now(expires, user.id, USER_ENDPOINTS);
-
-    let expires = ctx.config.token.expire.refresh_user.try_into()?;
+    let expires = write.ctx.config.token.expire.refresh_user;
     let refresh = Refresh::from_now(expires, user.id);
+    let cookie = write.ctx.auth.cipher.refresh.cookie(&refresh)?;
+    write.meta("set-cookie", cookie.header()?);
 
-    let resp = api::AuthServiceLoginResponse {
-        token: ctx.auth.cipher.jwt.encode(&claims)?.into(),
-        refresh: ctx.auth.cipher.refresh.encode(&refresh)?.into(),
-    };
-
-    let mut resp = tonic::Response::new(resp);
-    let cookie = ctx.auth.cipher.refresh.cookie(&refresh)?;
-    resp.metadata_mut().insert("set-cookie", cookie.header()?);
-
-    Ok(resp)
+    Ok(api::AuthServiceLoginResponse {
+        token: write.ctx.auth.cipher.jwt.encode(&claims)?.into(),
+        refresh: write.ctx.auth.cipher.refresh.encode(&refresh)?.into(),
+    })
 }
 
 async fn confirm(
-    req: tonic::Request<api::AuthServiceConfirmRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Result<api::AuthServiceConfirmResponse> {
-    let WriteConn { conn, ctx, .. } = write;
-    let claims = ctx.claims(&req, Endpoint::AuthConfirm, conn).await?;
-    let user_id = match claims.resource().user() {
-        Some(id) => id,
-        None => super::forbidden!("Must be user"),
-    };
+    _req: api::AuthServiceConfirmRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::AuthServiceConfirmResponse, Error> {
+    let authz = write.auth_all(&meta, AuthPerm::Confirm).await?;
+    let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
-    let expires = ctx.config.token.expire.token.try_into()?;
-    let claims = Claims::user_from_now(expires, user_id, USER_ENDPOINTS);
+    let expire = &write.ctx.config.token.expire;
+    let claims = Claims::from_now(expire.token, user_id, GrpcRole::Login);
 
-    let expires = ctx.config.token.expire.refresh_user.try_into()?;
-    let refresh = Refresh::from_now(expires, user_id);
+    User::confirm(user_id, &mut write).await?;
 
-    User::confirm(user_id, conn).await?;
+    let refresh = Refresh::from_now(expire.refresh_user, user_id);
+    let cookie = write.ctx.auth.cipher.refresh.cookie(&refresh)?;
+    write.meta("set-cookie", cookie.header()?);
 
-    let resp = api::AuthServiceConfirmResponse {
-        token: ctx.auth.cipher.jwt.encode(&claims)?.into(),
-        refresh: ctx.auth.cipher.refresh.encode(&refresh)?.into(),
-    };
-
-    let mut resp = tonic::Response::new(resp);
-    let cookie = ctx.auth.cipher.refresh.cookie(&refresh)?;
-    resp.metadata_mut().insert("set-cookie", cookie.header()?);
-
-    Ok(resp)
+    Ok(api::AuthServiceConfirmResponse {
+        token: write.ctx.auth.cipher.jwt.encode(&claims)?.into(),
+        refresh: write.ctx.auth.cipher.refresh.encode(&refresh)?.into(),
+    })
 }
 
 async fn refresh(
-    req: tonic::Request<api::AuthServiceRefreshRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Result<api::AuthServiceRefreshResponse> {
-    let WriteConn { conn, ctx, .. } = write;
-    let fallback = ctx.auth.maybe_refresh(&req)?;
+    req: api::AuthServiceRefreshRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::AuthServiceRefreshResponse, Error> {
+    let claims = match req.token.parse().map_err(Error::ParseToken)? {
+        RequestToken::Bearer(token) => write.ctx.auth.cipher.jwt.decode_expired(&token)?,
+        _ => Err(Error::NotBearer)?,
+    };
 
-    let req = req.into_inner();
-    let mut decoded = if let RequestToken::Bearer(token) = req.token.parse()? {
-        ctx.auth.cipher.jwt.decode_expired(&token)?
+    let refresh = if let Some(refresh) = req.refresh {
+        write.ctx.auth.cipher.refresh.decode(&refresh.into())?
     } else {
-        return Err(crate::Error::invalid_auth("Not bearer."));
+        let fallback = write.ctx.auth.maybe_refresh(&meta)?;
+        fallback.ok_or(Error::NoRefresh)?
     };
 
-    let refresh = match (req.refresh, fallback) {
-        (Some(refresh), _) => ctx.auth.cipher.refresh.decode(&refresh.into())?,
-        (None, Some(fallback)) => fallback,
-        (None, None) => {
-            return Err(crate::Error::validation(
-                "Need refresh token from cookies or request body",
-            ))
-        }
+    // Verify that the resource still exists.
+    let resource = claims.resource();
+    let resource_id: ResourceId = match resource {
+        Resource::User(id) => User::find_by_id(id, &mut write).await.map(|_| id.into())?,
+        Resource::Org(id) => Org::find_by_id(id, &mut write).await.map(|_| id.into())?,
+        Resource::Host(id) => Host::find_by_id(id, &mut write).await.map(|_| id.into())?,
+        Resource::Node(id) => Node::find_by_id(id, &mut write).await.map(|_| id.into())?,
     };
 
-    // For each type of resource, we perform some queries down below to verify that the resource
-    // still exists.
-    let resource = decoded.resource();
-    let resource_id = match resource {
-        Resource::User(user_id) => User::find_by_id(user_id, conn)
-            .await
-            .map(|_| user_id.into()),
-        Resource::Org(org_id) => Org::find_by_id(org_id, conn).await.map(|_| org_id.into()),
-        Resource::Host(host_id) => Host::find_by_id(host_id, conn)
-            .await
-            .map(|_| host_id.into()),
-        Resource::Node(node_id) => Node::find_by_id(node_id, conn)
-            .await
-            .map(|_| node_id.into()),
-    }?;
-    if refresh.resource_id() != resource_id {
-        super::forbidden!("Jwt and refresh grantee don't match");
+    if resource_id != refresh.resource_id() {
+        return Err(Error::RefreshResource);
     }
 
-    let wrong_endpoints = vec![
-        Endpoint::AuthRefresh,
-        Endpoint::BabelAll,
-        Endpoint::BlockchainAll,
-        Endpoint::BundleAll,
-        Endpoint::CommandAll,
-        Endpoint::CookbookAll,
-        Endpoint::DiscoveryAll,
-        Endpoint::HostGet,
-        Endpoint::HostList,
-        Endpoint::HostUpdate,
-        Endpoint::KeyFileAll,
-        Endpoint::MetricsAll,
-        Endpoint::NodeAll,
-    ];
-
-    decoded.endpoints = match decoded.endpoints {
-        Endpoints::Multiple(endpoints) if endpoints == wrong_endpoints => {
-            Endpoints::Multiple(vec![
-                Endpoint::AuthRefresh,
-                Endpoint::BabelAll,
-                Endpoint::BlockchainAll,
-                Endpoint::BundleAll,
-                Endpoint::CommandAll,
-                Endpoint::CookbookAll,
-                Endpoint::DiscoveryAll,
-                Endpoint::HostGet,
-                Endpoint::HostList,
-                Endpoint::HostUpdate,
-                Endpoint::KeyFileAll,
-                Endpoint::ManifestAll,
-                Endpoint::MetricsAll,
-                Endpoint::NodeAll,
-            ])
-        }
-        other => other,
+    let expirable = Expirable::from_now(write.ctx.config.token.expire.token);
+    let new_claims = if let Some(data) = claims.data {
+        Claims::new(resource, expirable, claims.access).with_data(data)
+    } else {
+        Claims::new(resource, expirable, claims.access)
     };
-
-    let expires = ctx.config.token.expire.token.try_into()?;
-    let expirable = Expirable::from_now(expires);
-    let claims = Claims::new(resource, expirable, decoded.endpoints).with_data(decoded.data);
-    let token = ctx.auth.cipher.jwt.encode(&claims)?;
+    let token = write.ctx.auth.cipher.jwt.encode(&new_claims)?;
 
     let expires = refresh.expirable().duration();
     let refresh = Refresh::from_now(expires, resource_id);
-    let encoded = ctx.auth.cipher.refresh.encode(&refresh)?;
-    let cookie = ctx.auth.cipher.refresh.cookie(&refresh)?;
 
-    let resp = api::AuthServiceRefreshResponse {
+    let encoded = write.ctx.auth.cipher.refresh.encode(&refresh)?;
+    let cookie = write.ctx.auth.cipher.refresh.cookie(&refresh)?;
+    write.meta("set-cookie", cookie.header()?);
+
+    Ok(api::AuthServiceRefreshResponse {
         token: token.into(),
         refresh: encoded.into(),
-    };
-
-    let mut resp = tonic::Response::new(resp);
-    resp.metadata_mut().insert("set-cookie", cookie.header()?);
-
-    Ok(resp)
+    })
 }
 
 /// This endpoint triggers the sending of the reset-password email. The actual resetting is
 /// then done through the `update` function.
 async fn reset_password(
-    req: tonic::Request<api::AuthServiceResetPasswordRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Result<api::AuthServiceResetPasswordResponse> {
-    let WriteConn { conn, ctx, .. } = write;
-    let req = req.into_inner();
+    req: api::AuthServiceResetPasswordRequest,
+    _meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::AuthServiceResetPasswordResponse, Error> {
     // We are going to query the user and send them an email, but when something goes wrong we
     // are not going to return an error. This hides whether or not a user is registered with
     // us to the caller of the api, because this info may be sensitive and this endpoint is not
     // protected by any authentication.
-    let user = User::find_by_email(&req.email, conn).await;
-    if let Ok(user) = user {
-        let _ = ctx.mail.reset_password(&user).await;
+    match User::find_by_email(&req.email, &mut write).await {
+        Ok(user) => {
+            if let Err(err) = write.ctx.email.reset_password(&user).await {
+                warn!("Failed to reset password: {err}")
+            }
+        }
+        Err(err) => warn!("Failed to find user to reset password: {err}"),
     }
 
-    let resp = api::AuthServiceResetPasswordResponse {};
-    Ok(tonic::Response::new(resp))
+    Ok(api::AuthServiceResetPasswordResponse {})
 }
 
 async fn update_password(
-    req: tonic::Request<api::AuthServiceUpdatePasswordRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Result<api::AuthServiceUpdatePasswordResponse> {
-    let WriteConn { conn, ctx, .. } = write;
-    let claims = ctx.claims(&req, Endpoint::AuthUpdatePassword, conn).await?;
-    let req = req.into_inner();
+    req: api::AuthServiceUpdatePasswordRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::AuthServiceUpdatePasswordResponse, Error> {
+    let authz = write.auth_all(&meta, AuthPerm::UpdatePassword).await?;
+    let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
-    // Only users have passwords; orgs, hosts and nodes do not.
-    let user_id = match claims.resource().user() {
-        Some(id) => id,
-        None => super::forbidden!("Need user_id"),
-    };
+    let user = User::find_by_id(user_id, &mut write).await?;
+    user.update_password(&req.password, &mut write).await?;
 
-    let cur_user = User::find_by_id(user_id, conn)
-        .await?
-        .update_password(&req.password, conn)
-        .await?;
-    let resp = api::AuthServiceUpdatePasswordResponse {};
+    write.ctx.email.update_password(&user).await?;
 
-    // Send notification mail
-    ctx.mail.update_password(&cur_user).await?;
-
-    Ok(tonic::Response::new(resp))
+    Ok(api::AuthServiceUpdatePasswordResponse {})
 }
 
 async fn update_ui_password(
-    req: tonic::Request<api::AuthServiceUpdateUiPasswordRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Result<api::AuthServiceUpdateUiPasswordResponse> {
-    let WriteConn { conn, ctx, .. } = write;
-    let claims = ctx
-        .claims(&req, Endpoint::AuthUpdateUiPassword, conn)
+    req: api::AuthServiceUpdateUiPasswordRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::AuthServiceUpdateUiPasswordResponse, Error> {
+    let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
+    let _ = write
+        .auth(&meta, AuthPerm::UpdateUiPassword, user_id)
         .await?;
-    let req = req.into_inner();
-    let user_id = req.user_id.parse()?;
-    let claims = claims.ensure_user(user_id)?;
 
-    let user = User::find_by_id(claims.user_id(), conn).await?;
+    let user = User::find_by_id(user_id, &mut write).await?;
     user.verify_password(&req.old_password)?;
-    user.update_password(&req.new_password, conn).await?;
+    user.update_password(&req.new_password, &mut write).await?;
 
-    let resp = api::AuthServiceUpdateUiPasswordResponse {};
+    write.ctx.email.update_password(&user).await?;
 
-    // Send notification mail
-    ctx.mail.update_password(&user).await?;
-
-    Ok(tonic::Response::new(resp))
+    Ok(api::AuthServiceUpdateUiPasswordResponse {})
 }

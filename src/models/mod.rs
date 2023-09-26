@@ -11,45 +11,33 @@ pub mod blacklist_token;
 pub use blacklist_token::BlacklistToken;
 
 pub mod blockchain;
-pub use blockchain::Blockchain;
+pub use blockchain::{Blockchain, BlockchainId};
 
 pub mod command;
-pub use command::{Command, CommandType};
+pub use command::{Command, CommandId, CommandType};
 
 pub mod host;
-pub use host::{ConnectionStatus, Host, HostRequirements, HostType};
+pub use host::{Host, HostType};
 
 pub mod invitation;
-pub use invitation::Invitation;
+pub use invitation::{Invitation, InvitationId};
 
 pub mod ip_address;
 pub use ip_address::IpAddress;
 
 pub mod node;
-pub use node::{
-    ContainerStatus, Node, NodeChainStatus, NodeProperty, NodeStakingStatus, NodeSyncStatus,
-};
-
-pub mod node_key_file;
-pub use node_key_file::NodeKeyFile;
-
-pub mod node_log;
-pub use node_log::{NodeLog, NodeLogEvent};
-
-pub mod node_scheduler;
-pub use node_scheduler::{NodeScheduler, ResourceAffinity, SimilarNodeAffinity};
-
-pub mod node_type;
-pub use node_type::NodeType;
+pub use node::{Node, NodeType};
 
 pub mod org;
-pub use org::{Org, OrgRole, OrgUser};
+pub use org::{Org, OrgUser};
 
 pub mod paginate;
 pub use paginate::Paginate;
 
+pub mod rbac;
+
 pub mod region;
-pub use region::Region;
+pub use region::{Region, RegionId};
 
 pub mod schema;
 

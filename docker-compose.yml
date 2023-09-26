@@ -10,6 +10,11 @@ services:
       POSTGRES_PASSWORD: password
     ports:
       - 25432:5432
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'pg_isready -U blockvisor_db -d blockvisor'"]
+      interval: 3s
+      timeout: 1s
+      retries: 3
 
   emqx:
     image: emqx/emqx-enterprise:5.1.0

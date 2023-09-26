@@ -191,12 +191,6 @@ impl<T: Default> Default for Redacted<T> {
 #[derive(Clone, Copy, Debug, Deref, Deserialize, From)]
 pub struct HumanTime(#[serde(with = "humantime_serde")] Duration);
 
-impl HumanTime {
-    pub fn to_std(self) -> Duration {
-        self.0
-    }
-}
-
 impl FromStr for HumanTime {
     type Err = Error;
 

@@ -54,10 +54,6 @@ pub mod sql_types {
     pub struct EnumNodeType;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "enum_org_role"))]
-    pub struct EnumOrgRole;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "token_type"))]
     pub struct TokenType;
 }
@@ -314,13 +310,9 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::EnumOrgRole;
-
     orgs_users (org_id, user_id) {
         org_id -> Uuid,
         user_id -> Uuid,
-        role -> EnumOrgRole,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         #[max_length = 32]
@@ -329,9 +321,31 @@ diesel::table! {
 }
 
 diesel::table! {
+    permissions (name) {
+        name -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     regions (id) {
         id -> Uuid,
         name -> Text,
+    }
+}
+
+diesel::table! {
+    role_permissions (role, permission) {
+        role -> Text,
+        permission -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    roles (name) {
+        name -> Text,
+        created_at -> Timestamptz,
     }
 }
 
@@ -355,6 +369,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_roles (user_id, org_id, role) {
+        user_id -> Uuid,
+        org_id -> Uuid,
+        role -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     users (id) {
         id -> Uuid,
         email -> Text,
@@ -368,10 +391,10 @@ diesel::table! {
         confirmed_at -> Nullable<Timestamptz>,
         deleted_at -> Nullable<Timestamptz>,
         billing_id -> Nullable<Text>,
-        is_blockjoy_admin -> Bool,
     }
 }
 
+diesel::joinable!(api_keys -> users (user_id));
 diesel::joinable!(blockchain_node_types -> blockchains (blockchain_id));
 diesel::joinable!(blockchain_properties -> blockchain_node_types (blockchain_node_type_id));
 diesel::joinable!(blockchain_properties -> blockchain_versions (blockchain_version_id));
@@ -396,7 +419,13 @@ diesel::joinable!(nodes -> regions (scheduler_region));
 diesel::joinable!(nodes -> users (created_by));
 diesel::joinable!(orgs_users -> orgs (org_id));
 diesel::joinable!(orgs_users -> users (user_id));
+diesel::joinable!(role_permissions -> permissions (permission));
+diesel::joinable!(role_permissions -> roles (role));
 diesel::joinable!(subscriptions -> orgs (org_id));
+diesel::joinable!(subscriptions -> users (user_id));
+diesel::joinable!(user_roles -> orgs (org_id));
+diesel::joinable!(user_roles -> roles (role));
+diesel::joinable!(user_roles -> users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     api_keys,
@@ -414,8 +443,12 @@ diesel::allow_tables_to_appear_in_same_query!(
     nodes,
     orgs,
     orgs_users,
+    permissions,
     regions,
+    role_permissions,
+    roles,
     subscriptions,
     token_blacklist,
+    user_roles,
     users,
 );

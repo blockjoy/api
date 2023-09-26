@@ -5,13 +5,11 @@ use rand::rngs::OsRng;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-use crate::auth::claims::Claims;
-use crate::auth::endpoint::Endpoint;
-use crate::auth::{self, Auth};
+use crate::auth::Auth;
 use crate::cookbook::Cookbook;
-use crate::database::{Conn, Pool};
+use crate::database::Pool;
 use crate::dns::{Cloudflare, Dns};
-use crate::mail::MailClient;
+use crate::email::Email;
 use crate::mqtt::Notifier;
 use crate::server::Alert;
 
@@ -19,10 +17,10 @@ use super::Config;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to create Auth: {0}
-    Auth(crate::auth::Error),
     /// Failed to build Config: {0}
     Config(super::Error),
+    /// Failed to create Email: {0}
+    Email(crate::email::Error),
     /// Builder is missing Alert.
     MissingAlert,
     /// Builder is missing Auth.
@@ -33,8 +31,8 @@ pub enum Error {
     MissingConfig,
     /// Builder is missing Cloudflare DNS.
     MissingDns,
-    /// Builder is missing Mail.
-    MissingMail,
+    /// Builder is missing Email.
+    MissingEmail,
     /// Builder is missing Notifier.
     MissingNotifier,
     /// Builder is missing Pool.
@@ -56,7 +54,7 @@ pub struct Context {
     pub cookbook: Arc<Cookbook>,
     pub config: Arc<Config>,
     pub dns: Arc<Box<dyn Dns + Send + Sync + 'static>>,
-    pub mail: Arc<MailClient>,
+    pub email: Arc<Email>,
     pub notifier: Arc<Notifier>,
     pub pool: Pool,
     pub rng: Arc<Mutex<OsRng>>,
@@ -75,10 +73,10 @@ impl Context {
 
     pub async fn builder_from(config: Config) -> Result<Builder, Error> {
         let alert = Alert::default();
-        let auth = Auth::new(&config.token).map_err(Error::Auth)?;
+        let auth = Auth::new(&config.token);
         let cookbook = Cookbook::new_s3(&config.cookbook);
         let dns = Cloudflare::new(config.cloudflare.clone());
-        let mail = MailClient::new(&config, auth.cipher.clone());
+        let email = Email::new(&config, auth.cipher.clone()).map_err(Error::Email)?;
         let pool = Pool::new(&config.database).await.map_err(Error::Pool)?;
         let notifier = Notifier::new(config.mqtt.options())
             .await
@@ -89,7 +87,7 @@ impl Context {
             .auth(auth)
             .cookbook(cookbook)
             .dns(dns)
-            .mail(mail)
+            .email(email)
             .notifier(notifier)
             .pool(pool)
             .config(config))
@@ -97,18 +95,19 @@ impl Context {
 
     #[cfg(any(test, feature = "integration-test"))]
     pub async fn with_mocked() -> Result<(Arc<Self>, crate::database::tests::TestDb), Error> {
+        use crate::cookbook::tests::TestCookbook;
         use crate::database::tests::TestDb;
         use crate::dns::tests::MockDns;
-        use crate::tests::TestCookbook;
 
         let config = Config::from_default_toml().map_err(Error::Config)?;
-        let db = TestDb::new(&config.database).await;
+        let mut rng = OsRng;
+        let db = TestDb::new(&config.database, &mut rng).await;
 
         let alert = Alert::default();
-        let auth = Auth::new(&config.token).map_err(Error::Auth)?;
+        let auth = Auth::new(&config.token);
         let cookbook = TestCookbook::new().await.get_cookbook_api();
         let dns = MockDns::new().await;
-        let mail = MailClient::new_mocked(&config, auth.cipher.clone());
+        let email = Email::new_mocked(&config, auth.cipher.clone()).map_err(Error::Email)?;
         let notifier = Notifier::new(config.mqtt.options())
             .await
             .map_err(Error::Notifier)?;
@@ -119,21 +118,13 @@ impl Context {
             .auth(auth)
             .cookbook(cookbook)
             .dns(dns)
-            .mail(mail)
+            .email(email)
             .notifier(notifier)
             .pool(pool)
+            .rng(rng)
             .config(config)
             .build()
             .map(|ctx| (ctx, db))
-    }
-
-    pub async fn claims<T>(
-        &self,
-        req: &tonic::Request<T>,
-        endpoint: Endpoint,
-        conn: &mut Conn<'_>,
-    ) -> Result<Claims, auth::Error> {
-        self.auth.claims(req, endpoint, conn).await
     }
 }
 
@@ -145,7 +136,7 @@ pub struct Builder {
     cookbook: Option<Cookbook>,
     config: Option<Config>,
     dns: Option<Box<dyn Dns + Send + Sync + 'static>>,
-    mail: Option<MailClient>,
+    email: Option<Email>,
     notifier: Option<Notifier>,
     pool: Option<Pool>,
     rng: Option<OsRng>,
@@ -159,7 +150,7 @@ impl Builder {
             cookbook: self.cookbook.ok_or(Error::MissingCookbook).map(Arc::new)?,
             config: self.config.ok_or(Error::MissingConfig).map(Arc::new)?,
             dns: self.dns.ok_or(Error::MissingDns).map(Arc::new)?,
-            mail: self.mail.ok_or(Error::MissingMail).map(Arc::new)?,
+            email: self.email.ok_or(Error::MissingEmail).map(Arc::new)?,
             notifier: self.notifier.ok_or(Error::MissingNotifier).map(Arc::new)?,
             pool: self.pool.ok_or(Error::MissingPool)?,
             rng: Arc::new(Mutex::new(self.rng.unwrap_or_default())),
@@ -194,8 +185,8 @@ impl Builder {
         self
     }
 
-    pub fn mail(mut self, mail: MailClient) -> Self {
-        self.mail = Some(mail);
+    pub fn email(mut self, email: Email) -> Self {
+        self.email = Some(email);
         self
     }
 

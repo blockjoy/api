@@ -7,6 +7,7 @@ use jsonwebtoken::{errors, Algorithm, DecodingKey, EncodingKey, Header, Validati
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tonic::metadata::{AsciiMetadataValue, MetadataMap};
+use tonic::Status;
 use tracing::warn;
 
 use crate::auth::claims::Expirable;
@@ -20,10 +21,10 @@ const COOKIE_EXPIRES: &str = "expires=";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to encode refresh token: {0}
-    Encode(errors::Error),
     /// Failed to decode refresh token: {0}
     Decode(errors::Error),
+    /// Failed to encode refresh token: {0}
+    Encode(errors::Error),
     /// Empty `{COOKIE_REFRESH:?}` value in `{COOKIE_HEADER:?}`.
     EmptyCookieRefresh,
     /// Refresh token `exp` is before `iat`. This should not happen.
@@ -38,6 +39,17 @@ pub enum Error {
     ParseCookieHeader(tonic::metadata::errors::ToStrError),
     /// Failed to create refresh cookie: {0}
     RefreshCookie(tonic::metadata::errors::InvalidMetadataValue),
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        use Error::*;
+        match err {
+            EmptyCookieRefresh | MissingCookieHeader | MissingCookieExpires
+            | MissingCookieRefresh => Status::unauthenticated("Refresh cookie."),
+            _ => Status::internal("Internal error."),
+        }
+    }
 }
 
 pub struct Cipher {
@@ -231,15 +243,13 @@ mod tests {
     async fn test_empty_refresh() {
         let ctx = Context::from_default_toml().await.unwrap();
 
-        let mut req = tonic::Request::new(());
-        req.metadata_mut()
-            .insert(COOKIE_HEADER, ";refresh=".parse().unwrap());
-        assert!(ctx.auth.refresh(&req).is_err());
+        let mut meta = MetadataMap::new();
+        meta.insert(COOKIE_HEADER, ";refresh=".parse().unwrap());
+        assert!(ctx.auth.refresh(&meta).is_err());
 
-        let mut req = tonic::Request::new(());
-        req.metadata_mut()
-            .insert(COOKIE_HEADER, "refresh=;".parse().unwrap());
-        assert!(ctx.auth.refresh(&req).is_err());
+        let mut meta = MetadataMap::new();
+        meta.insert(COOKIE_HEADER, "refresh=;".parse().unwrap());
+        assert!(ctx.auth.refresh(&meta).is_err());
     }
 
     #[tokio::test]
@@ -247,31 +257,30 @@ mod tests {
         let ctx = Context::from_default_toml().await.unwrap();
         let refresh = Refresh::from_now(seconds(60), Uuid::new_v4());
 
-        let mut req = tonic::Request::new(());
+        let mut meta = MetadataMap::new();
         let cookie = ctx.auth.cipher.refresh.cookie(&refresh).unwrap();
-        req.metadata_mut()
-            .insert(COOKIE_HEADER, cookie.header().unwrap());
+        meta.insert(COOKIE_HEADER, cookie.header().unwrap());
 
-        let res = ctx.auth.refresh(&req).unwrap();
-        assert_eq!(res.resource_id, refresh.resource_id);
+        let result = ctx.auth.refresh(&meta).unwrap();
+        assert_eq!(result.resource_id, refresh.resource_id);
     }
 
     #[tokio::test]
     async fn test_extra_cookies() {
         let (ctx, db) = Context::with_mocked().await.unwrap();
 
-        let resource_id = db.user().await.id;
-        let refresh = Refresh::from_now(seconds(60), resource_id);
+        let user_id = db.seed.user.id;
+        let refresh = Refresh::from_now(seconds(60), user_id);
         let encoded = ctx.auth.cipher.refresh.encode(&refresh).unwrap();
 
-        let mut req = tonic::Request::new(());
-        req.metadata_mut().insert(
+        let mut meta = MetadataMap::new();
+        meta.insert(
             COOKIE_HEADER,
             format!("other_meta=v1; refresh={}; another=v2; ", *encoded)
                 .parse()
                 .unwrap(),
         );
-        ctx.auth.refresh(&req).unwrap();
+        ctx.auth.refresh(&meta).unwrap();
     }
 
     #[tokio::test]

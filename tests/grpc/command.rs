@@ -1,307 +1,86 @@
+use blockvisor_api::auth::resource::NodeId;
 use blockvisor_api::grpc::api;
+use blockvisor_api::models::command::{Command, CommandType, NewCommand};
+use blockvisor_api::models::host::Host;
+use blockvisor_api::models::node::UpdateNode;
+use tonic::transport::Channel;
 
-type Service = api::commands_client::CommandServiceClient<transport::Channel>;
+use crate::setup::helper::traits::SocketRpc;
+use crate::setup::TestServer;
 
-/// Returns a semtantically invalid command. This can be used to assert for status codes to your
-/// liking.
-async fn valid_command() -> (super::Tester, api::CommandRequest) {
-    let tester = super::Tester::new().await;
-    let req = api::CommandRequest {
-         
-        id: tester.host().await.id.to_string(),
-        params: vec![],
+type Service = api::command_service_client::CommandServiceClient<Channel>;
+
+async fn create_command(test: &TestServer, node_id: NodeId, cmd_type: CommandType) -> Command {
+    let mut conn = test.conn().await;
+    let new_cmd = NewCommand {
+        host_id: test.seed().host.id,
+        cmd: cmd_type,
+        sub_cmd: None,
+        node_id: Some(node_id),
     };
-    (tester, req)
+
+    new_cmd.create(&mut conn).await.unwrap()
 }
 
-/// Returns a semtantically invalid command. This can be used to assert for InvalidArgument
-/// responses.
-async fn invalid_command() -> (super::Tester, api::CommandRequest) {
-    let tester = super::Tester::new().await;
-    let req = api::CommandRequest {
-         
-        id: "".to_string(),
-        params: vec![],
+#[tokio::test]
+async fn responds_ok_for_update() {
+    let test = TestServer::new().await;
+    let mut conn = test.conn().await;
+
+    let node_id = test.seed().node.id;
+    let cmd = create_command(&test, node_id, CommandType::CreateNode).await;
+    let host = Host::find_by_id(cmd.host_id, &mut conn).await.unwrap();
+
+    let claims = test.host_claims_for(host.id);
+    let jwt = test.cipher().jwt.encode(&claims).unwrap();
+
+    let req = api::CommandServiceUpdateRequest {
+        id: cmd.id.to_string(),
+        response: Some("hugo boss".to_string()),
+        exit_code: Some(98),
     };
-    (tester, req)
-}
 
-/// TODO
-#[tokio::test]
-#[ignore]
-async fn responds_ok_for_create_node() {
-    let (tester, req) = valid_command().await;
-    tester.send_admin(Service::create_node, req).await.unwrap();
-}
+    test.send_with(Service::update, req, &jwt).await.unwrap();
 
-#[tokio::test]
-async fn responds_internal_for_create_node() {
-    let (tester, req) = valid_command().await;
-    let status = tester
-        .send_admin(Service::create_node, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Internal);
+    let cmd = Command::find_by_id(cmd.id, &mut conn).await.unwrap();
+
+    assert_eq!(cmd.response.unwrap(), "hugo boss");
+    assert_eq!(cmd.exit_status.unwrap(), 98);
 }
 
 #[tokio::test]
-async fn responds_invalid_argument_for_create_node() {
-    let (tester, req) = invalid_command().await;
-    let status = tester
-        .send_admin(Service::create_node, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}
+async fn responds_ok_for_pending() {
+    let test = TestServer::new().await;
+    let mut conn = test.conn().await;
 
-/// TODO
-#[tokio::test]
-#[ignore]
-async fn responds_ok_for_delete_node() {
-    let (tester, req) = valid_command().await;
-    tester.send_admin(Service::delete_node, req).await.unwrap();
-}
+    let node_id = test.seed().node.id;
+    let update = UpdateNode {
+        id: node_id,
+        name: None,
+        version: None,
+        ip_addr: Some("123.123.123.123"),
+        block_height: None,
+        node_data: None,
+        chain_status: None,
+        sync_status: None,
+        staking_status: None,
+        container_status: None,
+        self_update: None,
+        address: None,
+        allow_ips: None,
+        deny_ips: None,
+    };
+    update.update(&mut conn).await.unwrap();
 
-#[tokio::test]
-async fn responds_internal_for_delete_node() {
-    let (tester, req) = valid_command().await;
-    let status = tester
-        .send_admin(Service::delete_node, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Internal);
-}
+    let cmd = create_command(&test, node_id, CommandType::CreateNode).await;
+    let host = Host::find_by_id(cmd.host_id, &mut conn).await.unwrap();
 
-#[tokio::test]
-async fn responds_invalid_argument_for_delete_node() {
-    let (tester, req) = invalid_command().await;
-    let status = tester
-        .send_admin(Service::delete_node, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}
+    let claims = test.host_claims_for(host.id);
+    let jwt = test.cipher().jwt.encode(&claims).unwrap();
 
-/// TODO
-#[tokio::test]
-#[ignore]
-async fn responds_ok_for_start_node() {
-    let (tester, req) = valid_command().await;
-    tester.send_admin(Service::start_node, req).await.unwrap();
-}
-
-#[tokio::test]
-async fn responds_internal_for_start_node() {
-    let (tester, req) = valid_command().await;
-    let status = tester
-        .send_admin(Service::start_node, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Internal);
-}
-
-#[tokio::test]
-async fn responds_invalid_argument_for_start_node() {
-    let (tester, req) = invalid_command().await;
-    let status = tester
-        .send_admin(Service::start_node, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}
-
-/// TODO
-#[tokio::test]
-#[ignore]
-async fn responds_ok_for_stop_node() {
-    let (tester, req) = valid_command().await;
-    tester.send_admin(Service::stop_node, req).await.unwrap();
-}
-
-#[tokio::test]
-async fn responds_internal_for_stop_node() {
-    let (tester, req) = valid_command().await;
-    let status = tester
-        .send_admin(Service::stop_node, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Internal);
-}
-
-#[tokio::test]
-async fn responds_invalid_argument_for_stop_node() {
-    let (tester, req) = invalid_command().await;
-    let status = tester
-        .send_admin(Service::stop_node, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}
-
-/// TODO
-#[tokio::test]
-#[ignore]
-async fn responds_ok_for_restart_node() {
-    let (tester, req) = valid_command().await;
-    tester.send_admin(Service::restart_node, req).await.unwrap();
-}
-
-#[tokio::test]
-async fn responds_internal_for_restart_node() {
-    let (tester, req) = valid_command().await;
-    let status = tester
-        .send_admin(Service::restart_node, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Internal);
-}
-
-#[tokio::test]
-async fn responds_invalid_argument_for_restart_node() {
-    let (tester, req) = invalid_command().await;
-    let status = tester
-        .send_admin(Service::restart_node, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}
-
-/// TODO
-#[tokio::test]
-#[ignore]
-async fn responds_ok_for_create_host() {
-    let (tester, req) = valid_command().await;
-    tester.send_admin(Service::create_host, req).await.unwrap();
-}
-
-#[tokio::test]
-async fn responds_internal_for_create_host() {
-    let (tester, req) = valid_command().await;
-    let status = tester
-        .send_admin(Service::create_host, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Internal);
-}
-
-#[tokio::test]
-async fn responds_invalid_argument_for_create_host() {
-    let (tester, req) = invalid_command().await;
-    let status = tester
-        .send_admin(Service::create_host, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}
-
-/// TODO
-#[tokio::test]
-#[ignore]
-async fn responds_ok_for_delete_host() {
-    let (tester, req) = valid_command().await;
-    tester.send_admin(Service::delete_host, req).await.unwrap();
-}
-
-#[tokio::test]
-async fn responds_internal_for_delete_host() {
-    let (tester, req) = valid_command().await;
-    let status = tester
-        .send_admin(Service::delete_host, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Internal);
-}
-
-#[tokio::test]
-async fn responds_invalid_argument_for_delete_host() {
-    let (tester, req) = invalid_command().await;
-    let status = tester
-        .send_admin(Service::delete_host, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}
-
-/// TODO
-#[tokio::test]
-#[ignore]
-async fn responds_ok_for_start_host() {
-    let (tester, req) = valid_command().await;
-    tester.send_admin(Service::start_host, req).await.unwrap();
-}
-
-#[tokio::test]
-async fn responds_internal_for_start_host() {
-    let (tester, req) = valid_command().await;
-    let status = tester
-        .send_admin(Service::start_host, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Internal);
-}
-
-#[tokio::test]
-async fn responds_invalid_argument_for_start_host() {
-    let (tester, req) = invalid_command().await;
-    let status = tester
-        .send_admin(Service::start_host, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}
-
-/// TODO
-#[tokio::test]
-#[ignore]
-async fn responds_ok_for_stop_host() {
-    let (tester, req) = valid_command().await;
-    tester.send_admin(Service::stop_host, req).await.unwrap();
-}
-
-#[tokio::test]
-async fn responds_internal_for_stop_host() {
-    let (tester, req) = valid_command().await;
-    let status = tester
-        .send_admin(Service::stop_host, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Internal);
-}
-
-#[tokio::test]
-async fn responds_invalid_argument_for_stop_host() {
-    let (tester, req) = invalid_command().await;
-    let status = tester
-        .send_admin(Service::stop_host, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-}
-
-/// TODO
-#[tokio::test]
-#[ignore]
-async fn responds_ok_for_restart_host() {
-    let (tester, req) = valid_command().await;
-    tester.send_admin(Service::restart_host, req).await.unwrap();
-}
-
-#[tokio::test]
-async fn responds_internal_for_restart_host() {
-    let (tester, req) = valid_command().await;
-    let status = tester
-        .send_admin(Service::restart_host, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Internal);
-}
-
-#[tokio::test]
-async fn responds_invalid_argument_for_restart_host() {
-    let (tester, req) = invalid_command().await;
-    let status = tester
-        .send_admin(Service::restart_host, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    let req = api::CommandServicePendingRequest {
+        host_id: host.id.to_string(),
+        filter_type: None,
+    };
+    test.send_with(Service::pending, req, &jwt).await.unwrap();
 }

@@ -1,4 +1,5 @@
 DATABASE_URL ?= postgres://blockvisor:password@localhost:25432/blockvisor_db
+TEST_SERVICES ?= postgres emqx
 
 .PHONY: help setup start stop test test-nc
 .DEFAULT_GOAL := help
@@ -17,13 +18,20 @@ setup: ## Install the prerequistes for running tests.
 	@git submodule update --init --recursive --remote
 	@cargo install diesel_cli --no-default-features --features postgres
 
-start: ## Start all docker services for integration tests.
+start: ## Start required docker services for integration tests.
+	@docker-compose up --detach --wait ${TEST_SERVICES}
+	@DATABASE_URL=${DATABASE_URL} diesel migration run
+
+start-all: ## Start all docker services for integration tests and metrics.
 	@docker-compose up --detach --wait
 	@DATABASE_URL=${DATABASE_URL} diesel migration run
 
 stop: ## Stop all running docker services.
 	@docker-compose down --volumes
 	@rm -rf ./docker/{clickhouse,signoz}/data
+
+reset: stop start ## Reset the required docker services.
+reset-all: stop start-all ## Reset all docker services.
 
 test: res := $(call fetch_arg)
 test: ## Run cargo test (usage: `make test <name>`).

@@ -1,4 +1,6 @@
-use derive_more::{Deref, Display, From, FromStr, Into};
+use std::collections::HashSet;
+
+use derive_more::{Deref, Display, From, FromStr};
 use diesel_derive_newtype::DieselNewType;
 use serde::{Deserialize, Serialize};
 use strum::{EnumString, IntoStaticStr};
@@ -12,12 +14,11 @@ use uuid::Uuid;
     Hash,
     PartialEq,
     Eq,
-    PartialOrd,
-    Ord,
     Deref,
     From,
     FromStr,
-    Into,
+    PartialOrd,
+    Ord,
     DieselNewType,
 )]
 pub struct UserId(Uuid);
@@ -30,12 +31,11 @@ pub struct UserId(Uuid);
     Hash,
     PartialEq,
     Eq,
-    PartialOrd,
-    Ord,
     Deref,
     From,
     FromStr,
-    Into,
+    PartialOrd,
+    Ord,
     DieselNewType,
 )]
 pub struct OrgId(Uuid);
@@ -48,12 +48,11 @@ pub struct OrgId(Uuid);
     Hash,
     PartialEq,
     Eq,
-    PartialOrd,
-    Ord,
     Deref,
     From,
     FromStr,
-    Into,
+    PartialOrd,
+    Ord,
     DieselNewType,
 )]
 pub struct HostId(Uuid);
@@ -66,12 +65,11 @@ pub struct HostId(Uuid);
     Hash,
     PartialEq,
     Eq,
-    PartialOrd,
-    Ord,
     Deref,
     From,
     FromStr,
-    Into,
+    PartialOrd,
+    Ord,
     DieselNewType,
 )]
 pub struct NodeId(Uuid);
@@ -85,36 +83,93 @@ pub enum Resource {
 }
 
 impl Resource {
-    pub fn user(&self) -> Option<UserId> {
+    pub fn id(self) -> ResourceId {
+        match self {
+            Resource::User(UserId(id)) => ResourceId(id),
+            Resource::Org(OrgId(id)) => ResourceId(id),
+            Resource::Host(HostId(id)) => ResourceId(id),
+            Resource::Node(NodeId(id)) => ResourceId(id),
+        }
+    }
+
+    pub fn user(self) -> Option<UserId> {
         if let Resource::User(id) = self {
-            Some(*id)
+            Some(id)
         } else {
             None
         }
     }
 
-    pub fn org(&self) -> Option<OrgId> {
+    pub fn org(self) -> Option<OrgId> {
         if let Resource::Org(id) = self {
-            Some(*id)
+            Some(id)
         } else {
             None
         }
     }
 
-    pub fn host(&self) -> Option<HostId> {
+    pub fn host(self) -> Option<HostId> {
         if let Resource::Host(id) = self {
-            Some(*id)
+            Some(id)
         } else {
             None
         }
     }
 
-    pub fn node(&self) -> Option<NodeId> {
+    pub fn node(self) -> Option<NodeId> {
         if let Resource::Node(id) = self {
-            Some(*id)
+            Some(id)
         } else {
             None
         }
+    }
+}
+
+impl From<UserId> for Resource {
+    fn from(id: UserId) -> Self {
+        Resource::User(id)
+    }
+}
+
+impl From<OrgId> for Resource {
+    fn from(id: OrgId) -> Self {
+        Resource::Org(id)
+    }
+}
+
+impl From<NodeId> for Resource {
+    fn from(id: NodeId) -> Self {
+        Resource::Node(id)
+    }
+}
+
+impl From<HostId> for Resource {
+    fn from(id: HostId) -> Self {
+        Resource::Host(id)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum Resources {
+    One(Resource),
+    Many(Vec<Resource>),
+}
+
+impl<T> From<T> for Resources
+where
+    T: Into<Resource>,
+{
+    fn from(item: T) -> Self {
+        Resources::One(item.into())
+    }
+}
+
+impl<T> From<&HashSet<T>> for Resources
+where
+    T: Into<Resource> + Copy,
+{
+    fn from(items: &HashSet<T>) -> Self {
+        Resources::Many(items.iter().map(|i| (*i).into()).collect())
     }
 }
 
@@ -136,6 +191,8 @@ pub enum ResourceType {
     Clone,
     Copy,
     Debug,
+    Display,
+    Hash,
     PartialEq,
     Eq,
     Serialize,
@@ -144,7 +201,6 @@ pub enum ResourceType {
     Deref,
     From,
     FromStr,
-    Into,
 )]
 pub struct ResourceId(Uuid);
 

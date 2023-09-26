@@ -1,17 +1,19 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
+use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 
-use crate::auth::endpoint::Endpoint;
+use crate::auth::rbac::ApiKeyPerm;
 use crate::auth::resource::ResourceEntry;
+use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::models::api_key::{ApiKey, ApiResource, NewApiKey, UpdateLabel, UpdateScope};
 use crate::timestamp::NanosUtc;
 
-use super::api::{self, api_key_service_server::ApiKeyService};
-use super::Grpc;
+use super::api::api_key_service_server::ApiKeyService;
+use super::{api, Grpc};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -43,17 +45,19 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{}: {err}", std::any::type_name::<Error>());
-
+        error!("{err}");
         use Error::*;
         match err {
-            Auth(_) | Claims(_) | ClaimsNotUser => Status::permission_denied("Access denied."),
-            Model(_) | Diesel(_) | MissingUpdatedAt => Status::internal("Internal error."),
+            ClaimsNotUser => Status::permission_denied("Access denied."),
+            Diesel(_) | MissingUpdatedAt => Status::internal("Internal error."),
             ParseKeyId(_) => Status::invalid_argument("id"),
             MissingCreateScope => Status::invalid_argument("scope"),
             ParseApiResource(_) => Status::invalid_argument("resource"),
             MissingScopeResourceId | ParseResourceId(_) => Status::invalid_argument("resource_id"),
             NothingToUpdate => Status::failed_precondition("Nothing to update."),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Model(err) => err.into(),
         }
     }
 }
@@ -63,105 +67,104 @@ impl ApiKeyService for Grpc {
     async fn create(
         &self,
         req: Request<api::ApiKeyServiceCreateRequest>,
-    ) -> super::Resp<api::ApiKeyServiceCreateResponse> {
-        self.write(|write| create(req, write).scope_boxed()).await
+    ) -> Result<Response<api::ApiKeyServiceCreateResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| create(req, meta, write).scope_boxed())
+            .await
     }
 
     async fn list(
         &self,
         req: Request<api::ApiKeyServiceListRequest>,
-    ) -> super::Resp<api::ApiKeyServiceListResponse> {
-        self.read(|read| list(req, read).scope_boxed()).await
+    ) -> Result<Response<api::ApiKeyServiceListResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| list(req, meta, read).scope_boxed()).await
     }
 
     async fn update(
         &self,
         req: Request<api::ApiKeyServiceUpdateRequest>,
-    ) -> super::Resp<api::ApiKeyServiceUpdateResponse> {
-        self.write(|write| update(req, write).scope_boxed()).await
+    ) -> Result<Response<api::ApiKeyServiceUpdateResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| update(req, meta, write).scope_boxed())
+            .await
     }
 
     async fn regenerate(
         &self,
         req: Request<api::ApiKeyServiceRegenerateRequest>,
-    ) -> super::Resp<api::ApiKeyServiceRegenerateResponse> {
-        self.write(|write| regenerate(req, write).scope_boxed())
+    ) -> Result<Response<api::ApiKeyServiceRegenerateResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| regenerate(req, meta, write).scope_boxed())
             .await
     }
 
     async fn delete(
         &self,
         req: Request<api::ApiKeyServiceDeleteRequest>,
-    ) -> super::Resp<api::ApiKeyServiceDeleteResponse> {
-        self.write(|write| delete(req, write).scope_boxed()).await
+    ) -> Result<Response<api::ApiKeyServiceDeleteResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| delete(req, meta, write).scope_boxed())
+            .await
     }
 }
 
 async fn create(
-    req: Request<api::ApiKeyServiceCreateRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Resp<api::ApiKeyServiceCreateResponse, Error> {
-    let WriteConn { conn, ctx, .. } = write;
-    let claims = ctx.claims(&req, Endpoint::ApiKeyCreate, conn).await?;
-
-    let req = req.into_inner();
+    req: api::ApiKeyServiceCreateRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::ApiKeyServiceCreateResponse, Error> {
     let scope = req.scope.ok_or(Error::MissingCreateScope)?;
-
     let entry = ResourceEntry::try_from(scope)?;
-    let ensure = claims.ensure_admin(entry.into(), conn).await?;
-    let user_id = ensure.user().ok_or(Error::ClaimsNotUser)?.user_id();
 
-    let created = NewApiKey::create(user_id, req.label, entry, conn, ctx).await?;
+    let authz = write.auth(&meta, ApiKeyPerm::Create, entry).await?;
+    let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
-    let resp = api::ApiKeyServiceCreateResponse {
+    let created = NewApiKey::create(user_id, req.label, entry, &mut write).await?;
+
+    Ok(api::ApiKeyServiceCreateResponse {
         api_key: Some(created.secret.into()),
         created_at: Some(NanosUtc::from(created.api_key.created_at).into()),
-    };
-    Ok(Response::new(resp))
+    })
 }
 
 async fn list(
-    req: Request<api::ApiKeyServiceListRequest>,
-    read: ReadConn<'_, '_>,
-) -> super::Resp<api::ApiKeyServiceListResponse, Error> {
-    let ReadConn { conn, ctx } = read;
-    let claims = ctx.claims(&req, Endpoint::ApiKeyList, conn).await?;
-    let user_id = claims.resource().user().ok_or(Error::ClaimsNotUser)?;
+    _req: api::ApiKeyServiceListRequest,
+    meta: MetadataMap,
+    mut read: ReadConn<'_, '_>,
+) -> Result<api::ApiKeyServiceListResponse, Error> {
+    let authz = read.auth_all(&meta, ApiKeyPerm::List).await?;
+    let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
-    let keys = ApiKey::find_by_user(user_id, conn).await?;
+    let keys = ApiKey::find_by_user(user_id, &mut read).await?;
     let api_keys = keys.into_iter().map(api::ListApiKey::from_model).collect();
 
-    let resp = api::ApiKeyServiceListResponse { api_keys };
-    Ok(Response::new(resp))
+    Ok(api::ApiKeyServiceListResponse { api_keys })
 }
 
 async fn update(
-    req: Request<api::ApiKeyServiceUpdateRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Resp<api::ApiKeyServiceUpdateResponse, Error> {
-    let WriteConn { conn, ctx, .. } = write;
-    let claims = ctx.claims(&req, Endpoint::ApiKeyUpdate, conn).await?;
-
-    let req = req.into_inner();
+    req: api::ApiKeyServiceUpdateRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::ApiKeyServiceUpdateResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
+    let existing = ApiKey::find_by_id(key_id, &mut write).await?;
 
-    let existing = ApiKey::find_by_id(key_id, conn).await?;
     let entry = ResourceEntry::from(&existing);
-    let _ = claims.ensure_admin(entry.into(), conn).await?;
+    let _ = write.auth(&meta, ApiKeyPerm::Update, entry).await?;
 
     let mut updated_at = None;
 
     if let Some(label) = req.label {
         updated_at = UpdateLabel::new(key_id, label)
-            .update(conn)
+            .update(&mut write)
             .await
             .map(Some)?;
     }
 
     if let Some(scope) = req.scope {
-        let entry = ResourceEntry::try_from(scope)?;
-        updated_at = UpdateScope::new(key_id, entry)
-            .update(conn)
+        updated_at = UpdateScope::new(key_id, scope.try_into()?)
+            .update(&mut write)
             .await
             .map(Some)?;
     }
@@ -171,54 +174,45 @@ async fn update(
         .map(NanosUtc::from)
         .map(Into::into)?;
 
-    let resp = api::ApiKeyServiceUpdateResponse {
+    Ok(api::ApiKeyServiceUpdateResponse {
         updated_at: Some(updated_at),
-    };
-    Ok(Response::new(resp))
+    })
 }
 
 async fn regenerate(
-    req: Request<api::ApiKeyServiceRegenerateRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Resp<api::ApiKeyServiceRegenerateResponse, Error> {
-    let WriteConn { conn, ctx, .. } = write;
-    let claims = ctx.claims(&req, Endpoint::ApiKeyRegenerate, conn).await?;
-
-    let req = req.into_inner();
+    req: api::ApiKeyServiceRegenerateRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::ApiKeyServiceRegenerateResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
-
-    let existing = ApiKey::find_by_id(key_id, conn).await?;
+    let existing = ApiKey::find_by_id(key_id, &mut write).await?;
     let entry = ResourceEntry::from(&existing);
-    let _ = claims.ensure_admin(entry.into(), conn).await?;
 
-    let new_key = NewApiKey::regenerate(key_id, conn, ctx).await?;
+    let _ = write.auth(&meta, ApiKeyPerm::Regenerate, entry).await?;
+
+    let new_key = NewApiKey::regenerate(key_id, &mut write).await?;
     let updated_at = new_key.api_key.updated_at.ok_or(Error::MissingUpdatedAt)?;
 
-    let resp = api::ApiKeyServiceRegenerateResponse {
+    Ok(api::ApiKeyServiceRegenerateResponse {
         api_key: Some(new_key.secret.into()),
         updated_at: Some(NanosUtc::from(updated_at).into()),
-    };
-    Ok(Response::new(resp))
+    })
 }
 
 async fn delete(
-    req: Request<api::ApiKeyServiceDeleteRequest>,
-    write: WriteConn<'_, '_>,
-) -> super::Resp<api::ApiKeyServiceDeleteResponse, Error> {
-    let WriteConn { conn, ctx, .. } = write;
-    let claims = ctx.claims(&req, Endpoint::ApiKeyDelete, conn).await?;
-
-    let req = req.into_inner();
+    req: api::ApiKeyServiceDeleteRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::ApiKeyServiceDeleteResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
-
-    let existing = ApiKey::find_by_id(key_id, conn).await?;
+    let existing = ApiKey::find_by_id(key_id, &mut write).await?;
     let entry = ResourceEntry::from(&existing);
-    let _ = claims.ensure_admin(entry.into(), conn).await?;
 
-    ApiKey::delete(key_id, conn).await?;
+    let _ = write.auth(&meta, ApiKeyPerm::Delete, entry).await?;
 
-    let resp = api::ApiKeyServiceDeleteResponse {};
-    Ok(Response::new(resp))
+    ApiKey::delete(key_id, &mut write).await?;
+
+    Ok(api::ApiKeyServiceDeleteResponse {})
 }
 
 impl api::ListApiKey {

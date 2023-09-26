@@ -8,7 +8,6 @@ use derive_more::{Deref, From};
 use displaydoc::Display;
 use thiserror::Error;
 use tonic::{metadata::MetadataMap, Status};
-use tracing::error;
 
 use crate::config::token::SecretConfig;
 
@@ -33,8 +32,6 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{}: {err}", std::any::type_name::<Error>());
-
         use Error::*;
         match err {
             AuthHeaderPrefix | ParseAuthHeader(_) | ParseKeyId(_) | ParseSecret(_) => {
