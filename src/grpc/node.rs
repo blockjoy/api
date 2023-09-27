@@ -4,6 +4,7 @@ use diesel::result::Error::NotFound;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures_util::future::OptionFuture;
+use petname::{Generator, Petnames};
 use thiserror::Error;
 use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
@@ -60,6 +61,8 @@ pub enum Error {
     Diesel(#[from] diesel::result::Error),
     /// Failed to parse disk size bytes: {0}
     DiskSize(std::num::TryFromIntError),
+    /// Failed to generate petnames. This should not happen.
+    GeneratePetnames,
     /// Node host error: {0}
     Host(#[from] crate::models::host::Error),
     /// Node ip address error: {0}
@@ -112,8 +115,10 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             ClaimsNotUser => Status::permission_denied("Access denied."),
-            Cookbook(_) | Diesel(_) | Message(_) | MissingPropertyId(_) | ModelProperty(_)
-            | ParseIpAddr(_) | PropertyNotFound(_) => Status::internal("Internal error."),
+            Cookbook(_) | Diesel(_) | GeneratePetnames | Message(_) | MissingPropertyId(_)
+            | ModelProperty(_) | ParseIpAddr(_) | PropertyNotFound(_) => {
+                Status::internal("Internal error.")
+            }
             AllowIps(_) => Status::invalid_argument("allow_ips"),
             BlockHeight(_) => Status::invalid_argument("block_height"),
             DenyIps(_) => Status::invalid_argument("deny_ips"),
@@ -790,7 +795,9 @@ impl api::NodeServiceCreateRequest {
         Ok(NewNode {
             id: Uuid::new_v4().into(),
             org_id: self.org_id.parse().map_err(Error::ParseOrgId)?,
-            name: petname::Petnames::large().generate_one(3, "_"),
+            name: Petnames::large()
+                .generate_one(3, "_")
+                .ok_or(Error::GeneratePetnames)?,
             version: self.version.clone().into(),
             blockchain_id: self
                 .blockchain_id

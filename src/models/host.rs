@@ -533,13 +533,13 @@ impl MonthlyCostUsd {
             None => Err(Error::BillingAmountMissingAmount),
         }?;
 
-        match common::Currency::from_i32(amount.currency) {
-            Some(common::Currency::Usd) => Ok(()),
+        match common::Currency::try_from(amount.currency) {
+            Ok(common::Currency::Usd) => Ok(()),
             _ => Err(Error::BillingAmountCurrency(amount.currency)),
         }?;
 
-        match common::Period::from_i32(billing.period) {
-            Some(common::Period::Monthly) => Ok(()),
+        match common::Period::try_from(billing.period) {
+            Ok(common::Period::Monthly) => Ok(()),
             _ => Err(Error::BillingAmountPeriod(billing.period)),
         }?;
 

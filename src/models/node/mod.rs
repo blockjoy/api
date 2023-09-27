@@ -578,7 +578,6 @@ impl UpdateNodeMetrics {
 
 #[cfg(test)]
 mod tests {
-    use petname::petname;
     use tokio::sync::mpsc;
     use uuid::Uuid;
 
@@ -589,7 +588,7 @@ mod tests {
     #[tokio::test]
     async fn can_filter_nodes() {
         let (ctx, db) = Context::with_mocked().await.unwrap();
-        let name = format!("test_{}", petname(3, "_"));
+        let name = format!("test_{}", petname::petname(3, "_").unwrap());
 
         let blockchain_id = db.seed.blockchain.id;
         let user_id = db.seed.user.id;

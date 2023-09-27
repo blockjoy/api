@@ -2,6 +2,7 @@
 pub mod seed;
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use derive_more::{Deref, DerefMut};
 use diesel::{ConnectionError, ConnectionResult};
@@ -310,11 +311,9 @@ impl ServerCertVerifier for DontVerifyHostName {
         server_name: &ServerName,
         signed_cert_timestamps: &mut dyn Iterator<Item = &[u8]>,
         ocsp_response: &[u8],
-        now: std::time::SystemTime,
+        now: SystemTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        // We do the standard authentication process, check for the expected error, and mark it as
-        // a success.
-        let outcome = self.pki.verify_server_cert(
+        let verified = self.pki.verify_server_cert(
             end_entity,
             intermediates,
             server_name,
@@ -324,14 +323,10 @@ impl ServerCertVerifier for DontVerifyHostName {
         );
 
         // TODO: fix error handling
-        match outcome {
-            Ok(o) => Ok(o),
-            // Err(rustls::Error::UnsupportedNameType) => {
-            //     Ok(rustls::client::ServerCertVerified::assertion())
-            // }
-            // Err(e) => Err(e),
-            Err(_) => Ok(ServerCertVerified::assertion()),
-        }
+        verified.or_else(|err| {
+            warn!("Failed to verify database server certificate: {err}");
+            Ok(ServerCertVerified::assertion())
+        })
     }
 }
 
