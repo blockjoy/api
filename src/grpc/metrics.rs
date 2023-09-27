@@ -7,6 +7,7 @@ use std::collections::HashSet;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
+use itertools::Itertools;
 use thiserror::Error;
 use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
@@ -17,6 +18,7 @@ use crate::auth::Authorize;
 use crate::database::{Transaction, WriteConn};
 use crate::models::host::UpdateHostMetrics;
 use crate::models::node::UpdateNodeMetrics;
+use crate::models::{Host, Node};
 
 use super::api::metrics_service_server::MetricsService;
 use super::{api, Grpc};
@@ -59,6 +61,10 @@ pub enum Error {
     UsedDisk(std::num::TryFromIntError),
     /// Failed to parse used memory: {0}
     UsedMemory(std::num::TryFromIntError),
+    /// Attempt to update the metrics for node(s) `{msg}`, which don't exist
+    MetricsForMissingNode { msg: String },
+    /// Attempt to update the metrics for host(s) `{msg}`, which don't exist
+    MetricsForMissingHost { msg: String },
 }
 
 impl From<Error> for Status {
@@ -83,6 +89,8 @@ impl From<Error> for Status {
             Claims(err) => err.into(),
             Host(err) => err.into(),
             Node(err) => err.into(),
+            MetricsForMissingNode { .. } => Status::not_found("Not found."),
+            MetricsForMissingHost { .. } => Status::not_found("Not found."),
         }
     }
 }
@@ -101,8 +109,8 @@ impl MetricsService for Grpc {
             .write(|write| node(req, meta, write).scope_boxed())
             .await?;
         match outcome.into_inner() {
-            RespOrErrors::Resp(resp) => Ok(tonic::Response::new(resp)),
-            RespOrErrors::Errors(errors) => Err(summarize(errors.into_iter())),
+            RespOrError::Resp(resp) => Ok(tonic::Response::new(resp)),
+            RespOrError::Error(error) => Err(error.into()),
         }
     }
 
@@ -115,22 +123,22 @@ impl MetricsService for Grpc {
             .write(|write| host(req, meta, write).scope_boxed())
             .await?;
         match outcome.into_inner() {
-            RespOrErrors::Resp(resp) => Ok(tonic::Response::new(resp)),
-            RespOrErrors::Errors(errors) => Err(summarize(errors.into_iter())),
+            RespOrError::Resp(resp) => Ok(tonic::Response::new(resp)),
+            RespOrError::Error(error) => Err(error.into()),
         }
     }
 }
 
-enum RespOrErrors<T> {
+enum RespOrError<T> {
     Resp(T),
-    Errors(Vec<Error>),
+    Error(Error),
 }
 
 async fn node(
     req: api::MetricsServiceNodeRequest,
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
-) -> Result<RespOrErrors<api::MetricsServiceNodeResponse>, Error> {
+) -> Result<RespOrError<api::MetricsServiceNodeResponse>, Error> {
     let updates = req
         .metrics
         .into_iter()
@@ -138,9 +146,11 @@ async fn node(
         .collect::<Result<Vec<_>, _>>()?;
 
     let node_ids: HashSet<_> = updates.iter().map(|update| update.id).collect();
+    let node_ids = Node::existing_ids(node_ids, &mut write).await?;
     let _ = write.auth(&meta, MetricsPerm::Node, &node_ids).await?;
 
-    let (nodes, errors) = UpdateNodeMetrics::update_metrics(updates, &mut write).await;
+    let (updates, missing) = updates.into_iter().partition(|u| node_ids.contains(&u.id));
+    let nodes = UpdateNodeMetrics::update_metrics(updates, &mut write).await?;
 
     api::NodeMessage::updated_many(nodes, &mut write)
         .await
@@ -148,11 +158,12 @@ async fn node(
         .into_iter()
         .for_each(|msg| write.mqtt(msg));
 
-    match errors.len() {
-        0 => Ok(RespOrErrors::Resp(api::MetricsServiceNodeResponse {})),
-        _ => Ok(RespOrErrors::Errors(
-            errors.into_iter().map(Error::Node).collect(),
-        )),
+    match missing.len() {
+        0 => Ok(RespOrError::Resp(api::MetricsServiceNodeResponse {})),
+        _ => {
+            let msg = missing.iter().map(|m| m.id).join(", ");
+            Ok(RespOrError::Error(Error::MetricsForMissingNode { msg }))
+        }
     }
 }
 
@@ -160,7 +171,7 @@ async fn host(
     req: api::MetricsServiceHostRequest,
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
-) -> Result<RespOrErrors<api::MetricsServiceHostResponse>, Error> {
+) -> Result<RespOrError<api::MetricsServiceHostResponse>, Error> {
     let updates = req
         .metrics
         .into_iter()
@@ -168,9 +179,11 @@ async fn host(
         .collect::<Result<Vec<_>, _>>()?;
 
     let host_ids: HashSet<_> = updates.iter().map(|update| update.id).collect();
+    let host_ids = Host::existing_ids(host_ids, &mut write).await?;
     let _ = write.auth(&meta, MetricsPerm::Host, &host_ids).await?;
 
-    let (hosts, errors) = UpdateHostMetrics::update_metrics(updates, &mut write).await;
+    let (updates, missing) = updates.into_iter().partition(|u| host_ids.contains(&u.id));
+    let hosts = UpdateHostMetrics::update_metrics(updates, &mut write).await?;
 
     api::HostMessage::updated_many(hosts, &mut write)
         .await
@@ -178,11 +191,12 @@ async fn host(
         .into_iter()
         .for_each(|msg| write.mqtt(msg));
 
-    match errors.len() {
-        0 => Ok(RespOrErrors::Resp(api::MetricsServiceHostResponse {})),
-        _ => Ok(RespOrErrors::Errors(
-            errors.into_iter().map(Error::Host).collect(),
-        )),
+    match missing.len() {
+        0 => Ok(RespOrError::Resp(api::MetricsServiceHostResponse {})),
+        _ => {
+            let msg = missing.iter().map(|m| m.id).join(", ");
+            Ok(RespOrError::Error(Error::MetricsForMissingHost { msg }))
+        }
     }
 }
 
@@ -258,10 +272,4 @@ impl api::HostMetrics {
                 .map_err(Error::Uptime)?,
         })
     }
-}
-
-fn summarize(errors: impl Iterator<Item = Error>) -> tonic::Status {
-    let combine = |s1, s2| s1 + format!("{s2:?}").as_str() + ",";
-    let msg = errors.fold(String::new(), combine);
-    tonic::Status::internal(msg)
 }
