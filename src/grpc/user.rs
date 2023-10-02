@@ -7,7 +7,7 @@ use tracing::error;
 
 use crate::auth::rbac::{UserAdminPerm, UserBillingPerm, UserPerm};
 use crate::auth::resource::UserId;
-use crate::auth::Authorize;
+use crate::auth::{self, token, Authorize};
 use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::models::user::{NewUser, UpdateUser, User};
 use crate::timestamp::NanosUtc;
@@ -132,10 +132,21 @@ async fn create(
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceCreateResponse, Error> {
-    let authz = write.auth_all(&meta, UserPerm::Create).await?;
-    let invitation_id = match authz.get_data("invitation_id") {
-        Some(id) => Some(id.parse().map_err(Error::ParseInvitationId)?),
-        None => None,
+    // This endpoint does not necessarily require authentication, since this is where users first
+    // register.
+    let invitation_id = match write.auth_all(&meta, UserPerm::Create).await {
+        // If there is a successful authorization, then we get the invitation id from it if there is
+        // one.
+        Ok(authz) => authz
+            .get_data("invitation_id")
+            .map(|tkn| tkn.parse().map_err(Error::ParseInvitationId))
+            .transpose()?,
+        // If we cannot construct authorization because no token is present, then we cannot produce
+        // an invitation id, but we still allow the user create process to continue.
+        Err(auth::Error::ParseRequestToken(token::Error::MissingAuthHeader)) => None,
+        // If the constructing the authorization failed for another reason, we report this error
+        // back.
+        Err(e) => return Err(e.into()),
     };
 
     let new_user = req.as_new()?.create(&mut write).await?;
