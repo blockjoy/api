@@ -24,7 +24,7 @@ pub enum Error {
     /// Claims check failed: {0}
     Claims(#[from] crate::auth::claims::Error),
     /// Key file content is not valid UTF8: {0}
-    Content(std::str::Utf8Error),
+    Content(str::Utf8Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
     /// Key file model error: {0}

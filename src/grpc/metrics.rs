@@ -3,7 +3,7 @@
 //! does not store a history of metrics. Rather, it overwrites the metrics that are know for each
 //! time new ones are provided. This makes sure that the database doesn't grow overly large.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
@@ -14,10 +14,11 @@ use tonic::{Request, Response, Status};
 use tracing::error;
 
 use crate::auth::rbac::MetricsPerm;
+use crate::auth::resource::NodeId;
 use crate::auth::Authorize;
 use crate::database::{Transaction, WriteConn};
 use crate::models::host::UpdateHostMetrics;
-use crate::models::node::UpdateNodeMetrics;
+use crate::models::node::{NodeJob, UpdateNodeMetrics};
 use crate::models::{Host, Node};
 
 use super::api::metrics_service_server::MetricsService;
@@ -65,6 +66,8 @@ pub enum Error {
     MetricsForMissingNode { msg: String },
     /// Attempt to update the metrics for host(s) `{msg}`, which don't exist
     MetricsForMissingHost { msg: String },
+    /// Could not serialize jobs: {0}
+    UnserializableJobs(serde_json::Error),
 }
 
 impl From<Error> for Status {
@@ -72,13 +75,13 @@ impl From<Error> for Status {
         error!("{err}");
         use Error::*;
         match err {
-            Diesel(_) | Message(_) => Status::internal("Internal error."),
+            Diesel(_) | Message(_) | UnserializableJobs(_) => Status::internal("Internal error."),
             BlockAge(_) => Status::invalid_argument("block_age"),
             BlockHeight(_) => Status::invalid_argument("height"),
             NetworkReceived(_) => Status::invalid_argument("network_received"),
             NetworkSent(_) => Status::invalid_argument("network_sent"),
-            ParseHostId(_) => Status::invalid_argument("metrics.id"),
             ParseNodeId(_) => Status::invalid_argument("metrics.id"),
+            ParseHostId(_) => Status::invalid_argument("metrics.id"),
             SyncCurrent(_) => Status::invalid_argument("data_sync_progress_current"),
             SyncTotal(_) => Status::invalid_argument("data_sync_progress_total"),
             Uptime(_) => Status::invalid_argument("uptime"),
@@ -139,29 +142,48 @@ async fn node(
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
 ) -> Result<RespOrError<api::MetricsServiceNodeResponse>, Error> {
-    let updates = req
-        .metrics
+    // First we split our map of `node_id`: `update info` into two vectors, so we can parse and
+    // validate all node ids. We use vectors so we can preserve ordering and later use `zip` to
+    // match them together again.
+    let (all_node_ids, updates): (Vec<_>, Vec<_>) = req.metrics.into_iter().unzip();
+    // Parse all node_ids and error out if there are any issues.
+    let all_node_ids: Vec<_> = all_node_ids
         .into_iter()
-        .map(|(key, val)| val.as_metrics_update(&key))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let node_ids: HashSet<_> = updates.iter().map(|update| update.id).collect();
-    let node_ids = Node::existing_ids(node_ids, &mut write).await?;
+        .map(|id| id.parse().map_err(Error::ParseNodeId))
+        .collect::<Result<_, Error>>()?;
+    // Now we find the list of nodes that actually exist in the database. If there are any missing
+    // node ids, we continue on with our update, since this is a common error case that needs to be
+    // handled by performing the update for all nodes that do exist, and then reporting any issues.
+    let node_ids = Node::existing_ids(all_node_ids.iter().copied().collect(), &mut write).await?;
+    // Check that the user has metrics-access to all nodes that do exist.
     let _ = write.auth(&meta, MetricsPerm::Node, &node_ids).await?;
-
-    let (updates, missing) = updates.into_iter().partition(|u| node_ids.contains(&u.id));
+    // Query all the nodes from the database. We need the info from the `node.jobs` field to perform
+    // a patch-sort-of-update on that field.
+    let nodes = Node::find_by_ids(node_ids.clone(), &mut write).await?;
+    // Now we can create the UpdateNodeMetrics models using our existing, queried nodes.
+    let nodes_map: HashMap<NodeId, &Node> = nodes.iter().map(|n| (n.id, n)).collect();
+    let updates = updates
+        .into_iter()
+        .zip(all_node_ids.iter())
+        .flat_map(|(update, id)| nodes_map.get(id).map(|&node| (node, update)))
+        .map(|(node, update)| update.as_metrics_update(node))
+        .collect::<Result<_, _>>()?;
     let nodes = UpdateNodeMetrics::update_metrics(updates, &mut write).await?;
-
     api::NodeMessage::updated_many(nodes, &mut write)
         .await
         .map_err(|err| Error::Message(Box::new(err)))?
         .into_iter()
         .for_each(|msg| write.mqtt(msg));
-
+    // We find the difference between the user-provided node ids and the ones that actually exist.
+    // If there is such a difference, we use it to provide a nice error message to the user.
+    let missing: Vec<NodeId> = all_node_ids
+        .into_iter()
+        .filter(|id| !node_ids.contains(id))
+        .collect();
     match missing.len() {
         0 => Ok(RespOrError::Resp(api::MetricsServiceNodeResponse {})),
         _ => {
-            let msg = missing.iter().map(|m| m.id).join(", ");
+            let msg = missing.iter().join(", ");
             Ok(RespOrError::Error(Error::MetricsForMissingNode { msg }))
         }
     }
@@ -178,7 +200,7 @@ async fn host(
         .map(|(key, val)| val.as_metrics_update(&key))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let host_ids: HashSet<_> = updates.iter().map(|update| update.id).collect();
+    let host_ids = updates.iter().map(|update| update.id).collect();
     let host_ids = Host::existing_ids(host_ids, &mut write).await?;
     let _ = write.auth(&meta, MetricsPerm::Host, &host_ids).await?;
 
@@ -201,9 +223,10 @@ async fn host(
 }
 
 impl api::NodeMetrics {
-    pub fn as_metrics_update(self, node_id: &str) -> Result<UpdateNodeMetrics, Error> {
+    pub fn as_metrics_update(self, node: &Node) -> Result<UpdateNodeMetrics, Error> {
+        let jobs = self.merge_jobs(node)?;
         Ok(UpdateNodeMetrics {
-            id: node_id.parse().map_err(Error::ParseNodeId)?,
+            id: node.id,
             block_height: self
                 .height
                 .map(i64::try_from)
@@ -218,18 +241,27 @@ impl api::NodeMetrics {
             consensus: self.consensus,
             chain_status: Some(self.application_status().into_model()),
             sync_status: Some(self.sync_status().into_model()),
-            data_sync_progress_total: self
-                .data_sync_progress_total
-                .map(i32::try_from)
+            jobs: jobs
+                .map(serde_json::to_value)
                 .transpose()
-                .map_err(Error::SyncTotal)?,
-            data_sync_progress_current: self
-                .data_sync_progress_current
-                .map(i32::try_from)
-                .transpose()
-                .map_err(Error::SyncCurrent)?,
-            data_sync_progress_message: self.data_sync_progress_message,
+                .map_err(Error::UnserializableJobs)?,
         })
+    }
+
+    /// Merge the jobs in `self.jobs` with `node.jobs`, overwriting jobs in `node.jobs` with any
+    /// jobs from `self.jobs` if they have the same name. We only need to perform an update if
+    /// `self.jobs` contains data, so this method returns Ok(None) in that case.
+    fn merge_jobs(&self, node: &Node) -> Result<Option<Vec<NodeJob>>, Error> {
+        if self.jobs.is_empty() {
+            return Ok(None);
+        }
+        let jobs: HashMap<String, NodeJob> = node
+            .jobs()?
+            .into_iter()
+            .chain(self.jobs.iter().cloned().map(api::NodeJob::into_model))
+            .map(|n| (n.name.clone(), n))
+            .collect();
+        Ok(Some(jobs.into_values().collect()))
     }
 }
 

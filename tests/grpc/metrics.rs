@@ -25,9 +25,20 @@ async fn responds_ok_for_write_node() {
         consensus: Some(false),
         application_status: Some(8),
         sync_status: Some(2),
-        data_sync_progress_total: Some(12),
-        data_sync_progress_current: Some(13),
-        data_sync_progress_message: Some("Whaaaa updated".to_string()),
+
+        jobs: vec![api::NodeJob {
+            name: "download".to_string(),
+            status: 2,
+            exit_code: None,
+            message: Some("this is going great!".to_string()),
+            logs: vec!["[2023-10-03T23:48:21] omg so downloady".to_string()],
+            restarts: 2,
+            progress: Some(api::NodeJobProgress {
+                total: Some(10),
+                current: Some(3),
+                message: None,
+            }),
+        }],
     };
     metrics.insert(node_id.to_string(), metric);
     let req = api::MetricsServiceNodeRequest { metrics };
@@ -41,6 +52,11 @@ async fn responds_ok_for_write_node() {
     assert_eq!(node.consensus, Some(false));
     assert_eq!(node.chain_status, NodeChainStatus::Electing);
     assert_eq!(node.sync_status, NodeSyncStatus::Synced);
+    let job = node.jobs().unwrap().pop().unwrap();
+    let progress = job.progress.unwrap();
+    assert_eq!(progress.total, Some(10));
+    assert_eq!(progress.current, Some(3));
+    assert_eq!(progress.message, None);
 }
 
 #[tokio::test]
@@ -112,15 +128,25 @@ async fn single_failure_doesnt_abort_all_updates() {
         consensus: Some(false),
         application_status: Some(8),
         sync_status: Some(2),
-        data_sync_progress_total: Some(2),
-        data_sync_progress_current: Some(3),
-        data_sync_progress_message: Some("wowie".to_string()),
+        jobs: vec![api::NodeJob {
+            name: "download".to_string(),
+            status: 2,
+            exit_code: None,
+            message: Some("this is going great!".to_string()),
+            logs: vec!["[2023-10-03T23:48:21] omg so downloady".to_string()],
+            restarts: 2,
+            progress: Some(api::NodeJobProgress {
+                total: Some(10),
+                current: Some(3),
+                message: None,
+            }),
+        }],
     };
     let node_id = test.seed().node.id;
     metrics.insert(node_id.to_string(), metric.clone());
     metrics.insert(uuid::Uuid::from_u128(0).to_string(), metric);
     let req = api::MetricsServiceNodeRequest { metrics };
-    dbg!(test.send_with(Service::node, req, &jwt).await.unwrap_err());
+    test.send_with(Service::node, req, &jwt).await.unwrap_err();
 
     let mut conn = test.conn().await;
     let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
@@ -130,4 +156,9 @@ async fn single_failure_doesnt_abort_all_updates() {
     assert_eq!(node.consensus, Some(false));
     assert_eq!(node.chain_status, NodeChainStatus::Electing);
     assert_eq!(node.sync_status, NodeSyncStatus::Synced);
+    let job = node.jobs().unwrap().pop().unwrap();
+    let progress = job.progress.unwrap();
+    assert_eq!(progress.total, Some(10));
+    assert_eq!(progress.current, Some(3));
+    assert_eq!(progress.message, None);
 }

@@ -1,3 +1,6 @@
+pub mod job;
+pub use job::{NodeJob, NodeJobProgress, NodeJobStatus};
+
 pub mod key_file;
 pub use key_file::NodeKeyFile;
 
@@ -95,6 +98,8 @@ pub enum Error {
     UpdateById(NodeId, diesel::result::Error),
     /// Failed to update node {1}'s metrics: {0}
     UpdateMetrics(diesel::result::Error, NodeId),
+    /// Failed to parse the jobs column of the node table: {0}
+    UnparsableJobs(serde_json::Error),
 }
 
 impl From<Error> for Status {
@@ -149,9 +154,7 @@ pub struct Node {
     pub scheduler_resource: Option<ResourceAffinity>,
     pub scheduler_region: Option<RegionId>,
     pub data_directory_mountpoint: Option<String>,
-    pub data_sync_progress_total: Option<i32>,
-    pub data_sync_progress_current: Option<i32>,
-    pub data_sync_progress_message: Option<String>,
+    pub jobs: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
@@ -372,6 +375,10 @@ impl Node {
     fn filtered_ip_addrs(value: serde_json::Value) -> Result<Vec<FilteredIpAddr>, Error> {
         serde_json::from_value(value).map_err(Error::FilteredIps)
     }
+
+    pub fn jobs(&self) -> Result<Vec<NodeJob>, Error> {
+        serde_json::from_value(self.jobs.clone()).map_err(Error::UnparsableJobs)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -550,9 +557,7 @@ pub struct UpdateNodeMetrics {
     pub consensus: Option<bool>,
     pub chain_status: Option<NodeChainStatus>,
     pub sync_status: Option<NodeSyncStatus>,
-    pub data_sync_progress_total: Option<i32>,
-    pub data_sync_progress_current: Option<i32>,
-    pub data_sync_progress_message: Option<String>,
+    pub jobs: Option<serde_json::Value>,
 }
 
 impl UpdateNodeMetrics {
@@ -563,16 +568,16 @@ impl UpdateNodeMetrics {
         // We do this for determinism in our tests.
         updates.sort_by_key(|u| u.id);
 
-        let mut nodes = Vec::with_capacity(updates.len());
+        let mut results = Vec::with_capacity(updates.len());
         for update in updates {
             let updated = diesel::update(nodes::table.find(update.id))
                 .set(&update)
                 .get_result(conn)
                 .await
                 .map_err(|err| Error::UpdateMetrics(err, update.id))?;
-            nodes.push(updated);
+            results.push(updated);
         }
-        Ok(nodes)
+        Ok(results)
     }
 }
 

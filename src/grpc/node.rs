@@ -21,8 +21,9 @@ use crate::models::blockchain::{
 };
 use crate::models::command::NewCommand;
 use crate::models::node::{
-    ContainerStatus, FilteredIpAddr, NewNode, Node, NodeChainStatus, NodeFilter, NodeProperty,
-    NodeScheduler, NodeStakingStatus, NodeSyncStatus, UpdateNode,
+    ContainerStatus, FilteredIpAddr, NewNode, Node, NodeChainStatus, NodeFilter, NodeJob,
+    NodeJobProgress, NodeJobStatus, NodeProperty, NodeScheduler, NodeStakingStatus, NodeSyncStatus,
+    UpdateNode,
 };
 use crate::models::{Blockchain, Command, CommandType, Host, IpAddress, Org, Region, User};
 use crate::timestamp::NanosUtc;
@@ -690,7 +691,7 @@ impl api::Node {
             .map(api::FilteredIpAddr::from_model)
             .collect();
 
-        let data_sync_progress = Self::data_sync_progress(&node)?;
+        let jobs = Self::jobs(&node)?;
 
         let mut out = api::Node {
             id: node.id.to_string(),
@@ -728,7 +729,7 @@ impl api::Node {
             org_name: org.name.clone(),
             host_org_id: host.org_id.to_string(),
             data_directory_mountpoint: node.data_directory_mountpoint,
-            data_sync_progress,
+            jobs,
         };
         out.set_node_type(api::NodeType::from_model(node.node_type));
         out.set_status(api::NodeStatus::from_model(node.chain_status));
@@ -741,20 +742,9 @@ impl api::Node {
         Ok(out)
     }
 
-    fn data_sync_progress(node: &Node) -> Result<Option<api::DataSyncProgress>, Error> {
-        node.data_sync_progress_total
-            .map(|total| {
-                Ok(api::DataSyncProgress {
-                    total: Some(u32::try_from(total).map_err(Error::SyncTotal)?),
-                    current: node
-                        .data_sync_progress_current
-                        .map(u32::try_from)
-                        .transpose()
-                        .map_err(Error::SyncCurrent)?,
-                    message: node.data_sync_progress_message.clone(),
-                })
-            })
-            .transpose()
+    fn jobs(node: &Node) -> Result<Vec<api::NodeJob>, Error> {
+        let jobs = node.jobs()?;
+        Ok(jobs.into_iter().map(api::NodeJob::from_model).collect())
     }
 }
 
@@ -1002,6 +992,78 @@ impl api::FilteredIpAddr {
         FilteredIpAddr {
             ip: self.ip.clone(),
             description: self.description.clone(),
+        }
+    }
+}
+
+impl api::NodeJob {
+    pub fn into_model(self) -> NodeJob {
+        let status = self.status().into_model();
+        NodeJob {
+            name: self.name,
+            status,
+            exit_code: self.exit_code,
+            message: self.message,
+            logs: self.logs,
+            restarts: self.restarts,
+            progress: self.progress.map(api::NodeJobProgress::into_model),
+        }
+    }
+
+    pub fn from_model(model: NodeJob) -> Self {
+        let mut node_job = Self {
+            name: model.name,
+            status: 0,
+            exit_code: model.exit_code,
+            message: model.message,
+            logs: model.logs,
+            restarts: model.restarts,
+            progress: model.progress.map(api::NodeJobProgress::from_model),
+        };
+        if let Some(status) = model.status {
+            node_job.set_status(api::NodeJobStatus::from_model(status));
+        }
+        node_job
+    }
+}
+
+impl api::NodeJobProgress {
+    pub fn into_model(self) -> NodeJobProgress {
+        NodeJobProgress {
+            total: self.total,
+            current: self.current,
+            message: self.message,
+        }
+    }
+
+    fn from_model(model: NodeJobProgress) -> Self {
+        Self {
+            total: model.total,
+            current: model.current,
+            message: model.message,
+        }
+    }
+}
+
+impl api::NodeJobStatus {
+    pub fn into_model(self) -> Option<NodeJobStatus> {
+        match self {
+            Self::Unspecified => None,
+            Self::Pending => Some(NodeJobStatus::Pending),
+            Self::Running => Some(NodeJobStatus::Running),
+            Self::Finished => Some(NodeJobStatus::Finished),
+            Self::Failed => Some(NodeJobStatus::Failed),
+            Self::Stopped => Some(NodeJobStatus::Stopped),
+        }
+    }
+
+    fn from_model(model: NodeJobStatus) -> Self {
+        match model {
+            NodeJobStatus::Pending => Self::Pending,
+            NodeJobStatus::Running => Self::Running,
+            NodeJobStatus::Finished => Self::Finished,
+            NodeJobStatus::Failed => Self::Failed,
+            NodeJobStatus::Stopped => Self::Stopped,
         }
     }
 }
