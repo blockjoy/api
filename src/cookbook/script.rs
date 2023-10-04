@@ -51,7 +51,7 @@ pub struct HardwareRequirements {
     pub disk_size_gb: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NetType {
     Dev,

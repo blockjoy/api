@@ -121,7 +121,7 @@ impl Cookbook {
     /// Retrieve config identifiers from the S3 path structure.
     ///
     /// A bucket listing looks like:
-    /// ```ignore
+    /// ```text
     /// prefix/eth/validator/0.0.3/data.txt
     /// prefix/eth/validator/0.0.3/babel.rhai
     /// prefix/eth/validator/0.0.6/babel.rhai
@@ -201,7 +201,7 @@ impl Cookbook {
             }
         };
 
-        for chunk in manifest.chunks.iter_mut() {
+        for chunk in &mut manifest.chunks {
             chunk.url = self
                 .client
                 .download_url(&self.bucket.archive, &chunk.key, self.expiration)
@@ -276,7 +276,7 @@ impl Cookbook {
             .filter_map(|ver| last_segment(&ver).and_then(|segment| segment.parse::<u64>().ok()))
             .collect();
 
-        versions.sort();
+        versions.sort_unstable();
         Ok(versions)
     }
 

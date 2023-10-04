@@ -47,8 +47,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             ClaimsNotUser | UserMismatch | UserNotInOrg => {
                 Status::permission_denied("Access denied.")
@@ -141,7 +141,7 @@ async fn get(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceGetResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let _ = read.auth(&meta, SubscriptionPerm::Get, org_id).await?;
+    read.auth(&meta, SubscriptionPerm::Get, org_id).await?;
 
     let sub = Subscription::find_by_org(org_id, &mut read).await?;
 
@@ -157,7 +157,7 @@ async fn list(
 ) -> Result<api::SubscriptionServiceListResponse, Error> {
     let user_id = req.user_id.ok_or(Error::MissingUserId)?;
     let user_id = user_id.parse().map_err(Error::ParseUserId)?;
-    let _ = read.auth(&meta, SubscriptionPerm::List, user_id).await?;
+    read.auth(&meta, SubscriptionPerm::List, user_id).await?;
 
     let subscriptions = Subscription::find_by_user(user_id, &mut read)
         .await?
@@ -176,7 +176,7 @@ async fn update(
 ) -> Result<api::SubscriptionServiceUpdateResponse, Error> {
     let org_id = req.org_id.ok_or(Error::MissingOrgId)?;
     let org_id: OrgId = org_id.parse().map_err(Error::ParseOrgId)?;
-    let _ = write.auth(&meta, SubscriptionPerm::Update, org_id).await?;
+    write.auth(&meta, SubscriptionPerm::Update, org_id).await?;
 
     Ok(api::SubscriptionServiceUpdateResponse {})
 }
@@ -189,7 +189,7 @@ async fn delete(
     let sub_id = req.id.parse().map_err(Error::ParseId)?;
     let sub = Subscription::find_by_id(sub_id, &mut write).await?;
 
-    let _ = write
+    write
         .auth(&meta, SubscriptionPerm::Delete, sub.org_id)
         .await?;
 

@@ -241,6 +241,7 @@ impl Provider {
     }
 
     /// Parse the contents of the environment variable `var`.
+    #[allow(clippy::unused_self)]
     pub(super) fn read_var<T, E>(&self, var: &str) -> Result<T, Error>
     where
         T: FromStr<Err = E>,
@@ -261,11 +262,7 @@ impl Provider {
         T: FromStr<Err = E>,
         E: std::error::Error + Send + Sync + 'static,
     {
-        let mut table = if let Some(ref table) = self.toml_table {
-            Ok(table)
-        } else {
-            Err(Error::NoTomlFile)
-        }?;
+        let mut table = self.toml_table.as_ref().ok_or(Error::NoTomlFile)?;
 
         for path in entry.split('.') {
             match table.get(path) {
@@ -318,12 +315,12 @@ mod tests {
         temp_env::with_vars(env, || {
             let config = Config::new().unwrap();
             assert_eq!(*config.token.secret.jwt, "123123");
-        })
+        });
     }
 
     #[test]
     fn can_read_var_from_toml() {
         let config = Config::from_default_toml().unwrap();
-        assert_eq!(config.grpc.request_concurrency_limit, 128)
+        assert_eq!(config.grpc.request_concurrency_limit, 128);
     }
 }

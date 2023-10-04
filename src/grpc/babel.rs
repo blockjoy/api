@@ -24,8 +24,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             Diesel(_) => Status::internal("Internal error."),
             NotifyUnimplemented => Status::unimplemented("Unimplemeneted."),
@@ -47,6 +47,7 @@ impl BabelService for Grpc {
     }
 }
 
+#[allow(clippy::unused_async)]
 async fn notify(
     _req: api::BabelServiceNotifyRequest,
     _meta: MetadataMap,

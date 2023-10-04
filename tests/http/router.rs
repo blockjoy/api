@@ -25,7 +25,7 @@ async fn test_possible_routes() {
             .body(Body::empty())
             .unwrap();
 
-        let resp = http::router(context.clone()).oneshot(req).await.unwrap();
+        let resp = http::router(&context).oneshot(req).await.unwrap();
         assert_eq!(resp.status(), status, "{method} {route} failed");
     }
 }

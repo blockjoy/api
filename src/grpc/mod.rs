@@ -15,10 +15,12 @@ pub mod org;
 pub mod subscription;
 pub mod user;
 
+#[allow(clippy::nursery, clippy::pedantic)]
 pub mod api {
     tonic::include_proto!("blockjoy.v1");
 }
 
+#[allow(clippy::nursery, clippy::pedantic)]
 pub mod common {
     tonic::include_proto!("blockjoy.common.v1");
 
@@ -66,7 +68,7 @@ type MetricsServer = Stack<MetricsLayer, TraceServer>;
 type PoolServer = Stack<Extension<Pool>, MetricsServer>;
 type CorsServer = Stack<Stack<CorsLayer, PoolServer>, Identity>;
 
-/// This struct implements all the gRPC service traits.
+/// This struct implements all the grpc service traits.
 #[derive(Clone, Deref)]
 struct Grpc {
     #[deref]
@@ -79,7 +81,7 @@ impl Grpc {
     }
 }
 
-pub async fn server(context: Arc<Context>) -> Router<CorsServer> {
+pub fn server(context: &Arc<Context>) -> Router<CorsServer> {
     let grpc = Grpc::new(context.clone());
 
     let cors_rules = CorsLayer::new()

@@ -3,7 +3,7 @@ use diesel_derive_enum::DbEnum;
 use crate::grpc::api;
 use crate::models::schema::sql_types;
 
-/// ContainerStatus reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
+/// `ContainerStatus` reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
 #[ExistingTypePath = "sql_types::EnumContainerStatus"]
 pub enum ContainerStatus {
@@ -22,7 +22,7 @@ pub enum ContainerStatus {
     Failed,
 }
 
-/// NodeSyncStatus reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
+/// `NodeSyncStatus` reflects blockjoy.api.v1.node.NodeInfo.SyncStatus in node.proto
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
 #[ExistingTypePath = "sql_types::EnumNodeSyncStatus"]
 pub enum NodeSyncStatus {
@@ -31,7 +31,7 @@ pub enum NodeSyncStatus {
     Synced,
 }
 
-/// NodeStakingStatus reflects blockjoy.api.v1.node.NodeInfo.StakingStatus in node.proto
+/// `NodeStakingStatus` reflects blockjoy.api.v1.node.NodeInfo.StakingStatus in node.proto
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
 #[ExistingTypePath = "sql_types::EnumNodeStakingStatus"]
 pub enum NodeStakingStatus {
@@ -44,7 +44,7 @@ pub enum NodeStakingStatus {
     Unstaked,
 }
 
-/// NodeChainStatus reflects blockjoy.api.v1.node.NodeInfo.ApplicationStatus in node.proto
+/// `NodeChainStatus` reflects blockjoy.api.v1.node.NodeInfo.ApplicationStatus in node.proto
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
 #[ExistingTypePath = "sql_types::EnumNodeChainStatus"]
 pub enum NodeChainStatus {
@@ -69,7 +69,7 @@ pub enum NodeChainStatus {
 }
 
 impl api::ContainerStatus {
-    pub fn from_model(model: ContainerStatus) -> Self {
+    pub const fn from_model(model: ContainerStatus) -> Self {
         match model {
             ContainerStatus::Unknown => Self::Unspecified,
             ContainerStatus::Creating => Self::Creating,
@@ -87,7 +87,7 @@ impl api::ContainerStatus {
         }
     }
 
-    pub fn into_model(self) -> ContainerStatus {
+    pub const fn into_model(self) -> ContainerStatus {
         match self {
             Self::Unspecified => ContainerStatus::Unknown,
             Self::Creating => ContainerStatus::Creating,
@@ -107,7 +107,7 @@ impl api::ContainerStatus {
 }
 
 impl api::NodeStatus {
-    pub fn from_model(model: NodeChainStatus) -> Self {
+    pub const fn from_model(model: NodeChainStatus) -> Self {
         match model {
             NodeChainStatus::Unknown => Self::Unspecified,
             NodeChainStatus::Provisioning => Self::Provisioning,
@@ -130,7 +130,7 @@ impl api::NodeStatus {
         }
     }
 
-    pub fn into_model(self) -> NodeChainStatus {
+    pub const fn into_model(self) -> NodeChainStatus {
         match self {
             Self::Unspecified => NodeChainStatus::Unknown,
             Self::Provisioning => NodeChainStatus::Provisioning,
@@ -155,7 +155,7 @@ impl api::NodeStatus {
 }
 
 impl api::StakingStatus {
-    pub fn from_model(model: NodeStakingStatus) -> Self {
+    pub const fn from_model(model: NodeStakingStatus) -> Self {
         match model {
             NodeStakingStatus::Unknown => Self::Unspecified,
             NodeStakingStatus::Follower => Self::Follower,
@@ -167,7 +167,7 @@ impl api::StakingStatus {
         }
     }
 
-    pub fn into_model(self) -> NodeStakingStatus {
+    pub const fn into_model(self) -> NodeStakingStatus {
         match self {
             Self::Unspecified => NodeStakingStatus::Unknown,
             Self::Follower => NodeStakingStatus::Follower,
@@ -181,7 +181,7 @@ impl api::StakingStatus {
 }
 
 impl api::SyncStatus {
-    pub fn from_model(model: NodeSyncStatus) -> Self {
+    pub const fn from_model(model: NodeSyncStatus) -> Self {
         match model {
             NodeSyncStatus::Unknown => Self::Unspecified,
             NodeSyncStatus::Syncing => Self::Syncing,
@@ -189,7 +189,8 @@ impl api::SyncStatus {
         }
     }
 
-    pub fn into_model(self) -> NodeSyncStatus {
+    #[must_use]
+    pub const fn into_model(self) -> NodeSyncStatus {
         match self {
             Self::Unspecified => NodeSyncStatus::Unknown,
             Self::Syncing => NodeSyncStatus::Syncing,

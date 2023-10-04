@@ -2,6 +2,7 @@
 pub mod seed;
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use derive_more::{Deref, DerefMut};
 use diesel::{ConnectionError, ConnectionResult};
@@ -141,7 +142,7 @@ impl<'c, 't> Authorize for WriteConn<'c, 't> {
 impl<'c, 't> WriteConn<'c, 't> {
     pub fn meta(&mut self, key: &'static str, val: AsciiMetadataValue) {
         // safety: meta_rx is open for the lifetime of WriteConn
-        self.meta_tx.send((key, val)).expect("meta_rx")
+        self.meta_tx.send((key, val)).expect("meta_rx");
     }
 
     pub fn mqtt<M>(&mut self, message: M)
@@ -149,7 +150,7 @@ impl<'c, 't> WriteConn<'c, 't> {
         M: Into<Message>,
     {
         // safety: mqtt_rx is open for the lifetime of WriteConn
-        self.mqtt_tx.send(message.into()).expect("mqtt_rx")
+        self.mqtt_tx.send(message.into()).expect("mqtt_rx");
     }
 }
 
@@ -289,7 +290,7 @@ fn root_certs() -> RootCertStore {
 /// have to implement a custom certificate verifier for our certificate. The custom implementation
 /// falls back to the stardard `WebPkiVerifier`, but when it sees an `UnsupportedNameType` error
 /// being returned from the verification process, it marks the verification as succeeded. This
-/// emulates the default behaviour of SQLx and libpq.
+/// emulates the default behaviour of `SQLx` and libpq.
 struct DontVerifyHostName {
     pki: WebPkiVerifier,
 }
@@ -310,11 +311,9 @@ impl ServerCertVerifier for DontVerifyHostName {
         server_name: &ServerName,
         signed_cert_timestamps: &mut dyn Iterator<Item = &[u8]>,
         ocsp_response: &[u8],
-        now: std::time::SystemTime,
+        now: SystemTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        // We do the standard authentication process, check for the expected error, and mark it as
-        // a success.
-        let outcome = self.pki.verify_server_cert(
+        let verified = self.pki.verify_server_cert(
             end_entity,
             intermediates,
             server_name,
@@ -324,14 +323,10 @@ impl ServerCertVerifier for DontVerifyHostName {
         );
 
         // TODO: fix error handling
-        match outcome {
-            Ok(o) => Ok(o),
-            // Err(rustls::Error::UnsupportedNameType) => {
-            //     Ok(rustls::client::ServerCertVerified::assertion())
-            // }
-            // Err(e) => Err(e),
-            Err(_) => Ok(ServerCertVerified::assertion()),
-        }
+        verified.or_else(|err| {
+            warn!("Failed to verify database server certificate: {err}");
+            Ok(ServerCertVerified::assertion())
+        })
     }
 }
 
@@ -367,7 +362,10 @@ pub mod tests {
         ///
         /// This creates a new db with a random name, runs all migrations, and
         /// fills it with seed data.
-        pub async fn new<R: RngCore>(config: &Config, rng: &mut R) -> TestDb {
+        pub async fn new<R>(config: &Config, rng: &mut R) -> TestDb
+        where
+            R: RngCore + Send,
+        {
             let main_db_url = config.url.to_string();
             let test_db_name = Self::db_name(rng);
 

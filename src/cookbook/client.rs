@@ -104,7 +104,7 @@ impl Client for aws_sdk_s3::Client {
             .common_prefixes()
             .unwrap_or_default()
             .iter()
-            .filter_map(|object| object.prefix().map(|prefix| prefix.to_owned()))
+            .filter_map(|object| object.prefix().map(ToOwned::to_owned))
             .collect();
 
         Ok(files)
@@ -124,7 +124,7 @@ impl Client for aws_sdk_s3::Client {
             .contents()
             .unwrap_or_default()
             .iter()
-            .filter_map(|object| object.key().map(|key| key.to_owned()))
+            .filter_map(|object| object.key().map(ToOwned::to_owned))
             .collect();
 
         Ok(files)
@@ -134,7 +134,7 @@ impl Client for aws_sdk_s3::Client {
 #[cfg(any(test, feature = "integration-test"))]
 #[allow(unused_imports)]
 mod tests {
-    use mockall::predicate::*;
+    use mockall::predicate::eq;
 
     use crate::cookbook::identifier::Identifier;
     use crate::cookbook::script::tests::TEST_SCRIPT;
@@ -320,7 +320,7 @@ mod tests {
         client
             .expect_read_file()
             .once()
-            .returning(|_, _| Ok("invalid manifest content".to_owned().into_bytes()));
+            .returning(|_, _| Ok(b"invalid manifest content".to_vec()));
 
         let cookbook = Cookbook::new(&dummy_config(), client);
 
@@ -351,7 +351,7 @@ mod tests {
         client
             .expect_read_file()
             .once()
-            .returning(|_, _| Ok(r#"{"total_size": 128,"chunks": []}"#.to_owned().into_bytes()));
+            .returning(|_, _| Ok(br#"{"total_size": 128,"chunks": []}"#.to_vec()));
 
         let cookbook = Cookbook::new(&dummy_config(), client);
         let manifest = cookbook

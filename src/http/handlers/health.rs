@@ -18,6 +18,7 @@ where
         .with_state(context)
 }
 
+#[allow(clippy::unused_async)]
 async fn health(State(ctx): State<Arc<Context>>) -> Response {
     if ctx.pool.is_open() {
         response::ok().into_response()

@@ -142,14 +142,12 @@ impl NewApiKey {
         entry: ResourceEntry,
         conn: &mut WriteConn<'_, '_>,
     ) -> Result<Created, Error> {
-        let (salt, secret) = {
-            let mut rng = conn.ctx.rng.lock().await;
-            let salt = Salt::generate(&mut *rng);
-            let secret = Secret::generate(&mut *rng);
-            (salt, secret)
-        };
-        let key_hash = KeyHash::from(&salt, &secret);
+        let mut rng = conn.ctx.rng.lock().await;
+        let salt = Salt::generate(&mut *rng);
+        let secret = Secret::generate(&mut *rng);
+        drop(rng);
 
+        let key_hash = KeyHash::from(&salt, &secret);
         let new_api_key = NewApiKey {
             user_id,
             label,
@@ -165,7 +163,7 @@ impl NewApiKey {
             .await
             .map_err(Error::CreateNew)?;
 
-        let secret = BearerSecret::new(api_key.id, secret);
+        let secret = BearerSecret::new(api_key.id, &secret);
 
         Ok(Created { api_key, secret })
     }
@@ -179,7 +177,7 @@ impl NewApiKey {
 
         let key_hash = KeyHash::from(&existing.key_salt, &new_secret);
         let updated = ApiKey::regenerate(key_id, key_hash, conn).await?;
-        let secret = BearerSecret::new(updated.id, new_secret);
+        let secret = BearerSecret::new(updated.id, &new_secret);
 
         Ok(Created {
             api_key: updated,
@@ -202,7 +200,7 @@ pub struct UpdateLabel {
 }
 
 impl UpdateLabel {
-    pub fn new(id: KeyId, label: String) -> Self {
+    pub const fn new(id: KeyId, label: String) -> Self {
         UpdateLabel { id, label }
     }
 

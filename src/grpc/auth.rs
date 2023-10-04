@@ -62,8 +62,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             ClaimsNotUser | Jwt(_) | ParseToken(_) | RefreshResource => {
                 Status::permission_denied("Access denied.")
@@ -203,7 +203,7 @@ async fn refresh(
 ) -> Result<api::AuthServiceRefreshResponse, Error> {
     let claims = match req.token.parse().map_err(Error::ParseToken)? {
         RequestToken::Bearer(token) => write.ctx.auth.cipher.jwt.decode_expired(&token)?,
-        _ => Err(Error::NotBearer)?,
+        RequestToken::ApiKey(_) => Err(Error::NotBearer)?,
     };
 
     let refresh = if let Some(refresh) = req.refresh {
@@ -280,7 +280,7 @@ async fn reset_password(
     match User::find_by_email(&req.email, &mut write).await {
         Ok(user) => {
             if let Err(err) = write.ctx.email.reset_password(&user).await {
-                warn!("Failed to reset password: {err}")
+                warn!("Failed to reset password: {err}");
             }
         }
         Err(err) => warn!("Failed to find user to reset password: {err}"),
@@ -311,7 +311,7 @@ async fn update_ui_password(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceUpdateUiPasswordResponse, Error> {
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
-    let _ = write
+    write
         .auth(&meta, AuthPerm::UpdateUiPassword, user_id)
         .await?;
 
@@ -342,10 +342,7 @@ async fn list_permissions(
         granted
     };
 
-    let mut permissions = granted
-        .iter()
-        .map(|perm| perm.to_string())
-        .collect::<Vec<_>>();
+    let mut permissions = granted.iter().map(ToString::to_string).collect::<Vec<_>>();
     permissions.sort();
 
     Ok(api::AuthServiceListPermissionsResponse { permissions })

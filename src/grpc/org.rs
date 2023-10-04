@@ -59,8 +59,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             ClaimsNotUser | DeletePersonal | MissingRemoveMember => {
                 Status::permission_denied("Access denied.")
@@ -182,7 +182,7 @@ async fn get(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetResponse, Error> {
     let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
-    let _ = read.auth(&meta, OrgPerm::Get, org_id).await?;
+    read.auth(&meta, OrgPerm::Get, org_id).await?;
 
     let org = Org::find_by_id(org_id, &mut read).await?;
     let org = api::Org::from_model(&org, &mut read).await?;
@@ -200,7 +200,7 @@ async fn list(
         None => None,
     };
 
-    let _ = if let Some(user_id) = member_id {
+    if let Some(user_id) = member_id {
         read.auth(&meta, OrgPerm::List, user_id).await?
     } else {
         read.auth_all(&meta, OrgAdminPerm::List).await?
@@ -259,7 +259,7 @@ async fn delete(
     let invitation_ids = invitations.into_iter().map(|i| i.id).collect();
     Invitation::bulk_delete(invitation_ids, &mut write).await?;
 
-    let msg = api::OrgMessage::deleted(org, user);
+    let msg = api::OrgMessage::deleted(&org, user);
     write.mqtt(msg);
 
     Ok(api::OrgServiceDeleteResponse {})
@@ -311,7 +311,7 @@ async fn get_provision_token(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetProvisionTokenResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let _ = read.auth(&meta, OrgProvisionPerm::GetToken, org_id).await?;
+    read.auth(&meta, OrgProvisionPerm::GetToken, org_id).await?;
 
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
     let org_user = OrgUser::by_user_org(user_id, org_id, &mut read).await?;
@@ -327,7 +327,7 @@ async fn reset_provision_token(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceResetProvisionTokenResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let _ = write
+    write
         .auth(&meta, OrgProvisionPerm::ResetToken, org_id)
         .await?;
 
@@ -344,7 +344,7 @@ impl api::Org {
     /// Performs O(1) database queries irrespective of the number of orgs.
     pub async fn from_models<O>(orgs: &[O], conn: &mut Conn<'_>) -> Result<Vec<Self>, Error>
     where
-        O: AsRef<Org>,
+        O: AsRef<Org> + Send + Sync,
     {
         let org_ids = orgs
             .iter()

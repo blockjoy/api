@@ -92,6 +92,7 @@ impl Claims {
         Self::new(resource.into(), expirable, access.into())
     }
 
+    #[must_use]
     pub fn with_data(mut self, data: HashMap<String, String>) -> Self {
         self.data = Some(data);
         self
@@ -99,15 +100,15 @@ impl Claims {
 
     pub fn insert_data<K, V>(&mut self, key: K, value: V)
     where
-        K: ToString,
-        V: ToString,
+        K: Into<String>,
+        V: Into<String>,
     {
         match self.data {
             Some(ref mut data) => {
-                data.insert(key.to_string(), value.to_string());
+                data.insert(key.into(), value.into());
             }
             None => {
-                self.data = Some(hashmap! { key.to_string() => value.to_string() });
+                self.data = Some(hashmap! { key.into() => value.into() });
             }
         }
     }
@@ -116,7 +117,7 @@ impl Claims {
         self.resource_entry.into()
     }
 
-    pub fn expires_at(&self) -> SecondsUtc {
+    pub const fn expires_at(&self) -> SecondsUtc {
         self.expirable.expires_at
     }
 
@@ -124,7 +125,7 @@ impl Claims {
         self.data
             .as_ref()
             .and_then(|data| data.get(key))
-            .map(|val| val.as_str())
+            .map(String::as_str)
     }
 
     /// Ensure that `Claims` can access the target `Resources`.
@@ -258,10 +259,10 @@ impl Granted {
             Access::Perms(Perms::Many(perms)) => granted.join(perms),
 
             Access::Roles(Roles::One(role)) => {
-                granted.join(&RbacPerm::for_role(*role, conn).await?)
+                granted.join(&RbacPerm::for_role(*role, conn).await?);
             }
             Access::Roles(Roles::Many(roles)) => {
-                granted.join(&RbacPerm::for_roles(roles, conn).await?)
+                granted.join(&RbacPerm::for_roles(roles, conn).await?);
             }
 
             Access::Endpoints(Endpoints::Single(endpoint)) => match (*endpoint).into() {
@@ -305,7 +306,7 @@ impl Granted {
     }
 
     fn join(&mut self, perms: &HashSet<Perm>) {
-        self.0.extend(perms)
+        self.0.extend(perms);
     }
 
     pub fn has_perm<P>(&self, perm: P) -> bool
@@ -329,7 +330,7 @@ impl Granted {
         for perm in perms {
             self.has_perm(perm)
                 .then_some(())
-                .ok_or(Error::MissingPerm(perm))?
+                .ok_or(Error::MissingPerm(perm))?;
         }
 
         Ok(())

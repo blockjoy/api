@@ -46,7 +46,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub fn subject(self) -> &'static str {
+    pub const fn subject(self) -> &'static str {
         match self {
             Kind::InviteUser => "[BlockJoy] Organization Invite",
             Kind::InviteRegistered => "[BlockJoy] Organization Invite",
@@ -135,6 +135,7 @@ impl Templates {
 
 #[cfg(test)]
 mod test {
+    use chrono::DateTime;
     use uuid::Uuid;
 
     use crate::auth::Auth;
@@ -162,12 +163,12 @@ mod test {
             email: "tmp@tmp.tmp".to_string(),
             hashword: "something fake".to_string(),
             salt: "something even faker".to_string(),
-            created_at: Default::default(),
+            created_at: DateTime::default(),
             first_name: "Luuk".to_string(),
             last_name: "Tester".to_string(),
-            confirmed_at: Default::default(),
-            deleted_at: Default::default(),
-            billing_id: Default::default(),
+            confirmed_at: None,
+            deleted_at: None,
+            billing_id: None,
         };
         let user2 = User {
             email: "testing@receiver.blockjoy".to_string(),
@@ -181,9 +182,9 @@ mod test {
             created_by: Uuid::new_v4().into(),
             org_id: Uuid::new_v4().into(),
             invitee_email: "testing@receiver.blockjoy".to_string(),
-            created_at: Default::default(),
-            accepted_at: Default::default(),
-            declined_at: Default::default(),
+            created_at: DateTime::default(),
+            accepted_at: None,
+            declined_at: None,
         };
 
         email.update_password(&user).await.unwrap();

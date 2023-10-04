@@ -76,8 +76,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             Cookbook(_) | Diesel(_) | Jwt(_) | LookupMissingOrg(_) | Refresh(_) => {
                 Status::internal("Internal error.")
@@ -204,7 +204,7 @@ async fn create(
     };
 
     let host = req
-        .as_new(org_user, region.as_ref())?
+        .as_new(&org_user, region.as_ref())?
         .create(&mut write)
         .await?;
 
@@ -260,7 +260,7 @@ async fn update(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceUpdateResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    let _ = write.auth(&meta, HostPerm::Update, id).await?;
+    write.auth(&meta, HostPerm::Update, id).await?;
 
     let region = if let Some(ref region) = req.region {
         Region::get_or_create(region, &mut write).await.map(Some)?
@@ -268,7 +268,7 @@ async fn update(
         None
     };
 
-    let _ = req.as_update(region.as_ref())?.update(&mut write).await?;
+    req.as_update(region.as_ref())?.update(&mut write).await?;
 
     Ok(api::HostServiceUpdateResponse {})
 }
@@ -279,7 +279,7 @@ async fn delete(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceDeleteResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    let _ = write.auth(&meta, HostPerm::Delete, id).await?;
+    write.auth(&meta, HostPerm::Delete, id).await?;
 
     Host::delete(id, &mut write).await?;
 
@@ -292,7 +292,7 @@ async fn start(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceStartResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    let _ = write.auth(&meta, HostPerm::Start, id).await?;
+    write.auth(&meta, HostPerm::Start, id).await?;
 
     let command = NewCommand::from(id, CommandType::RestartBVS)
         .create(&mut write)
@@ -309,7 +309,7 @@ async fn stop(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceStopResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    let _ = write.auth(&meta, HostPerm::Stop, id).await?;
+    write.auth(&meta, HostPerm::Stop, id).await?;
 
     let command = NewCommand::from(id, CommandType::StopBVS)
         .create(&mut write)
@@ -326,7 +326,7 @@ async fn restart(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceRestartResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    let _ = write.auth(&meta, HostPerm::Restart, id).await?;
+    write.auth(&meta, HostPerm::Restart, id).await?;
 
     let command = NewCommand::from(id, CommandType::RestartBVS)
         .create(&mut write)
@@ -343,7 +343,7 @@ async fn regions(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceRegionsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let _ = read.auth(&meta, HostPerm::Regions, org_id).await?;
+    read.auth(&meta, HostPerm::Regions, org_id).await?;
 
     let blockchain_id = req
         .blockchain_id
@@ -392,7 +392,7 @@ impl api::Host {
         let lookup = Lookup::from_hosts(&hosts, conn).await?;
 
         let mut out = Vec::new();
-        for host in hosts.into_iter() {
+        for host in hosts {
             out.push(Self::from_model(host, authz, &lookup)?);
         }
 
@@ -446,7 +446,7 @@ impl Lookup {
 
     async fn from_hosts<H>(hosts: &[H], conn: &mut Conn<'_>) -> Result<Lookup, Error>
     where
-        H: AsRef<Host>,
+        H: AsRef<Host> + Send + Sync,
     {
         let host_ids = hosts.iter().map(|h| h.as_ref().id).collect();
         let nodes = Host::node_counts(host_ids, conn).await?;
@@ -458,7 +458,7 @@ impl Lookup {
             .map(|org| (org.id, org))
             .collect();
 
-        let region_ids = hosts.iter().flat_map(|h| h.as_ref().region_id).collect();
+        let region_ids = hosts.iter().filter_map(|h| h.as_ref().region_id).collect();
         let regions: HashMap<_, _> = Region::by_ids(region_ids, conn)
             .await?
             .into_iter()
@@ -486,7 +486,11 @@ impl common::BillingAmount {
 }
 
 impl api::HostServiceCreateRequest {
-    pub fn as_new(&self, org_user: OrgUser, region: Option<&Region>) -> Result<NewHost<'_>, Error> {
+    pub fn as_new(
+        &self,
+        org_user: &OrgUser,
+        region: Option<&Region>,
+    ) -> Result<NewHost<'_>, Error> {
         Ok(NewHost {
             name: &self.name,
             version: &self.version,
@@ -546,7 +550,7 @@ impl api::HostServiceUpdateRequest {
 }
 
 impl api::HostType {
-    fn into_model(self) -> Option<HostType> {
+    const fn into_model(self) -> Option<HostType> {
         match self {
             api::HostType::Unspecified => None,
             api::HostType::Cloud => Some(HostType::Cloud),

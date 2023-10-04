@@ -116,7 +116,7 @@ pub struct NewSubscription {
 }
 
 impl NewSubscription {
-    pub fn new(org_id: OrgId, user_id: UserId, external_id: String) -> Self {
+    pub const fn new(org_id: OrgId, user_id: UserId, external_id: String) -> Self {
         NewSubscription {
             org_id,
             user_id,

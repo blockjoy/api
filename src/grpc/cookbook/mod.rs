@@ -32,8 +32,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             Cookbook(_) | Diesel(_) => Status::internal("Internal error."),
             MissingId => Status::invalid_argument("id"),
@@ -101,7 +101,7 @@ async fn retrieve_plugin(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::CookbookServiceRetrievePluginResponse, Error> {
-    let _ = read.auth_all(&meta, CookbookPerm::RetrievePlugin).await?;
+    read.auth_all(&meta, CookbookPerm::RetrievePlugin).await?;
 
     let id = req.id.ok_or(Error::MissingId)?.into();
     let rhai_content = read.ctx.cookbook.read_rhai_file(&id).await?;
@@ -121,7 +121,7 @@ async fn retrieve_image(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::CookbookServiceRetrieveImageResponse, Error> {
-    let _ = read.auth_all(&meta, CookbookPerm::RetrieveImage).await?;
+    read.auth_all(&meta, CookbookPerm::RetrieveImage).await?;
 
     let id = req.id.ok_or(Error::MissingId)?.into();
     let url = read
@@ -141,7 +141,7 @@ async fn requirements(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::CookbookServiceRequirementsResponse, Error> {
-    let _ = read.auth_all(&meta, CookbookPerm::Requirements).await?;
+    read.auth_all(&meta, CookbookPerm::Requirements).await?;
 
     let id = req.id.ok_or(Error::MissingId)?.into();
     let requirements = read.ctx.cookbook.rhai_metadata(&id).await?.requirements;

@@ -77,7 +77,7 @@ where
                     };
 
                     span.set_attribute(RPC_GRPC_STATUS_CODE.i64(grpc_status as i64));
-                    span.set_attribute(HTTP_RESPONSE_STATUS_CODE.i64(http_status as i64));
+                    span.set_attribute(HTTP_RESPONSE_STATUS_CODE.i64(i64::from(http_status)));
                     span.end();
 
                     Ok(response)

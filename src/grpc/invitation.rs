@@ -70,8 +70,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             ClaimsNotUser | HostClaims | ListResource | MissingEmail | NodeClaims | WrongEmail
             | WrongOrg => Status::permission_denied("Access denied."),
@@ -216,7 +216,7 @@ async fn list(
         return Err(Error::ListResource);
     };
 
-    let _ = read.auth(&meta, InvitationPerm::List, resource).await?;
+    read.auth(&meta, InvitationPerm::List, resource).await?;
 
     let filter = req.as_filter()?;
     let invitations = Invitation::filter(filter, &mut read).await?;
@@ -261,7 +261,7 @@ async fn accept(
     // Only registered users can accept an invitation
     let user = User::find_by_email(&invitation.invitee_email, &mut write).await?;
     let org = Org::find_by_id(invitation.org_id, &mut write).await?;
-    let _ = org.add_member(user.id, &mut write).await?;
+    org.add_member(user.id, &mut write).await?;
 
     let msg = api::OrgMessage::invitation_accepted(invitation, org, user, &mut write)
         .await
@@ -290,7 +290,7 @@ async fn decline(
         Resource::Org(org_id) if org_id != invitation.org_id => Err(Error::WrongOrg),
         Resource::Org(_) => authz
             .get_data("email")
-            .map(|email| email.to_string())
+            .map(ToString::to_string)
             .ok_or(Error::MissingEmail),
 
         Resource::Host(_) => Err(Error::HostClaims),
@@ -327,7 +327,7 @@ async fn revoke(
     let authz = write
         .auth(&meta, InvitationPerm::Revoke, invitation.org_id)
         .await?;
-    let _ = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
+    authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
     if invitation.accepted_at.is_some() {
         return Err(Error::AlreadyAccepted);
@@ -372,24 +372,27 @@ impl api::Invitation {
             .map(|o| (o.id, o))
             .collect();
 
-        models
+        let invitations = models
             .into_iter()
-            .filter_map(|i| orgs.get(&i.org_id).map(|o| (i, o)))
-            .filter_map(|(i, org)| {
-                creators
-                    .get(&i.created_by)
-                    .map(|creator| Self::new(i, creator, org))
+            .filter_map(|invitation| {
+                orgs.get(&invitation.org_id).and_then(|org| {
+                    let creator = creators.get(&invitation.created_by)?;
+                    Some(Self::new(invitation, creator, org))
+                })
             })
-            .collect()
+            .collect();
+
+        Ok(invitations)
     }
 
     pub async fn from_model(model: Invitation, conn: &mut Conn<'_>) -> Result<Self, Error> {
         let creator = User::find_by_id(model.created_by, conn).await?;
         let org = Org::find_by_id(model.org_id, conn).await?;
-        Self::new(model, &creator, &org)
+
+        Ok(Self::new(model, &creator, &org))
     }
 
-    fn new(model: Invitation, creator: &User, org: &Org) -> Result<Self, Error> {
+    fn new(model: Invitation, creator: &User, org: &Org) -> Self {
         let mut invitation = Self {
             id: model.id.to_string(),
             created_by: model.created_by.to_string(),
@@ -402,14 +405,16 @@ impl api::Invitation {
             accepted_at: model.accepted_at.map(NanosUtc::from).map(Into::into),
             declined_at: model.declined_at.map(NanosUtc::from).map(Into::into),
         };
+
         let status = match (model.accepted_at, model.declined_at) {
             (None, None) => api::InvitationStatus::Open,
             (Some(_), None) => api::InvitationStatus::Accepted,
             (None, Some(_)) => api::InvitationStatus::Declined,
             (Some(_), Some(_)) => api::InvitationStatus::Unspecified,
         };
+
         invitation.set_status(status);
-        Ok(invitation)
+        invitation
     }
 }
 

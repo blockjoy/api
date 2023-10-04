@@ -172,7 +172,7 @@ pub struct NewCommand<'a> {
 }
 
 impl NewCommand<'_> {
-    pub fn from(host_id: HostId, cmd: CommandType) -> Self {
+    pub const fn from(host_id: HostId, cmd: CommandType) -> Self {
         NewCommand {
             host_id,
             cmd,

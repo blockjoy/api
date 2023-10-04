@@ -39,8 +39,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             Diesel(_) | Email(_) | ParseInvitationId(_) => Status::internal("Internal error."),
             ParseId(_) => Status::invalid_argument("id"),
@@ -167,7 +167,7 @@ async fn get(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::UserServiceGetResponse, Error> {
     let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
-    let _ = read.auth(&meta, UserPerm::Get, user_id).await?;
+    read.auth(&meta, UserPerm::Get, user_id).await?;
 
     let user = User::find_by_id(user_id, &mut read).await?;
 
@@ -186,7 +186,7 @@ async fn filter(
         .map(|id| id.parse().map_err(Error::ParseOrgId))
         .transpose()?;
 
-    let _ = if let Some(org_id) = org_id {
+    if let Some(org_id) = org_id {
         read.auth_or_all(&meta, UserAdminPerm::Filter, UserPerm::Filter, org_id)
             .await?
     } else {
@@ -206,7 +206,7 @@ async fn update(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceUpdateResponse, Error> {
     let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
-    let _ = write
+    write
         .auth_or_all(&meta, UserAdminPerm::Update, UserPerm::Update, user_id)
         .await?;
 
@@ -223,7 +223,7 @@ async fn delete(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceDeleteResponse, Error> {
     let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
-    let _ = write.auth(&meta, UserPerm::Delete, user_id).await?;
+    write.auth(&meta, UserPerm::Delete, user_id).await?;
 
     User::delete(user_id, &mut write).await?;
 
@@ -236,7 +236,7 @@ async fn get_billing(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::UserServiceGetBillingResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    let _ = read.auth(&meta, UserBillingPerm::Get, user_id).await?;
+    read.auth(&meta, UserBillingPerm::Get, user_id).await?;
 
     let user = User::find_by_id(user_id, &mut read).await?;
 
@@ -251,7 +251,7 @@ async fn update_billing(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceUpdateBillingResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    let _ = write.auth(&meta, UserBillingPerm::Update, user_id).await?;
+    write.auth(&meta, UserBillingPerm::Update, user_id).await?;
 
     let mut user = User::find_by_id(user_id, &mut write).await?;
     user.billing_id = req.billing_id;
@@ -268,7 +268,7 @@ async fn delete_billing(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceDeleteBillingResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    let _ = write.auth(&meta, UserBillingPerm::Delete, user_id).await?;
+    write.auth(&meta, UserBillingPerm::Delete, user_id).await?;
 
     let user = User::find_by_id(user_id, &mut write).await?;
     user.delete_billing(&mut write).await?;

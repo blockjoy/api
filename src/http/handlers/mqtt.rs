@@ -33,8 +33,8 @@ pub enum Error {
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
-        error!("{self}");
         use Error::*;
+        error!("{self}");
         match self {
             Auth(_) | Handler(handler::Error::Claims(_)) | ParseRequestToken(_) => {
                 response::unauthorized().into_response()
@@ -56,6 +56,7 @@ where
         .with_state(context)
 }
 
+#[allow(clippy::unused_async)]
 async fn auth(WithRejection(value, _): WithRejection<Json<Value>, Error>) -> impl IntoResponse {
     debug!("MQTT auth payload: {value:?}");
     response::ok()

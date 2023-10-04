@@ -13,7 +13,7 @@ use crate::config::Context;
 
 use self::handlers::{health, mqtt};
 
-pub fn router(context: Arc<Context>) -> Router {
+pub fn router(context: &Arc<Context>) -> Router {
     let cors = CorsLayer::new()
         .allow_headers(Any)
         .allow_methods(Any)
@@ -25,5 +25,5 @@ pub fn router(context: Arc<Context>) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(OtelAxumLayer::default())
         .nest("/mqtt", mqtt::router(context.clone()))
-        .merge(health::router(context))
+        .merge(health::router(context.clone()))
 }

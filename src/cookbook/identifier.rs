@@ -78,7 +78,7 @@ impl api::ConfigIdentifier {
     pub fn from_key<K: AsRef<str>>(key: K) -> Result<Self, Error> {
         let parts: Vec<_> = key.as_ref().split('/').collect();
 
-        let [_prefix, protocol, node_type, node_version, ..] = &parts[..] else {
+        let [_prefix, protocol, node_type, node_version, ..] = parts[..] else {
             return Err(Error::SplitKey(key.as_ref().into()));
         };
 

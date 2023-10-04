@@ -277,7 +277,7 @@ impl User {
     }
 
     // TODO: support other languages
-    pub fn preferred_language(&self) -> Language {
+    pub const fn preferred_language(&self) -> Language {
         Language::En
     }
 
@@ -381,6 +381,6 @@ mod tests {
             billing_id: None,
         };
         user.verify_password("A password that cannot be hacked!1")
-            .unwrap()
+            .unwrap();
     }
 }

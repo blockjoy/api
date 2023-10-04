@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+#[allow(clippy::wildcard_imports)]
 use super::rbac::*;
 
 const SPACE_PER_SERVICE: u64 = 100;

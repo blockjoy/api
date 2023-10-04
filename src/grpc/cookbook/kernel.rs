@@ -27,8 +27,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             Cookbook(_) | Diesel(_) => Status::internal("Internal error."),
             MissingId => Status::invalid_argument("id"),
@@ -64,7 +64,7 @@ async fn retrieve_kernel_(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::KernelServiceRetrieveResponse, Error> {
-    let _ = read.auth_all(&meta, CookbookPerm::RetrieveKernel).await?;
+    read.auth_all(&meta, CookbookPerm::RetrieveKernel).await?;
 
     let id = req.id.ok_or(Error::MissingId)?;
     let url = read.ctx.cookbook.download_kernel(&id.version).await?;

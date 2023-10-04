@@ -22,13 +22,16 @@ pub struct NodeScheduler {
 }
 
 impl NodeScheduler {
-    /// The scheduler can influence which node is selected through this function. It does so by
-    /// transforming itself into a string of the form:
+    /// The scheduler can influence which node is selected through this
+    /// function. It does so by transforming itself into a string of the form:
+    ///
     /// ```sql
     /// ORDER BY
     ///     *[<column> "ASC" | "DESC"],
     /// ```
-    /// This string in intented to be embedded into the query used in models::Host::host_candidates.
+    ///
+    /// This string in intented to be embedded into the query used in
+    /// `models::Host::host_candidates`.
     pub fn order_clause(&self) -> String {
         let mut clause = "ORDER BY \n    ".to_string();
         if let Some(similarity) = &self.similarity {
@@ -38,9 +41,11 @@ impl NodeScheduler {
     }
 }
 
-/// Controls whether nodes should first be deployed onto hosts that have another node of the same
-/// kind running on it. "The same kind" is defined as having the same blockchain_id and node_type,
-/// but the version field is _not_ used here.
+/// Controls whether nodes should first be deployed onto hosts that have another
+/// node of the same kind running on it.
+///
+/// The "same kind" is defined as having the same `blockchain_id` and
+/// `node_type`, but the version field is _not_ used here.
 #[derive(Clone, Copy, Debug, DbEnum)]
 #[ExistingTypePath = "sql_types::EnumNodeSimilarityAffinity"]
 pub enum SimilarNodeAffinity {
@@ -57,7 +62,7 @@ impl SimilarNodeAffinity {
     /// Since we are sorting by number of similar nodes, we want the greatest number (DESC) of
     /// similar nodes when we are `Cluster`ing, and the least number (ASC) of similar nodes when we
     /// are `Spread`ing.
-    fn order_clause(&self) -> &'static str {
+    const fn order_clause(self) -> &'static str {
         // Quick note, we can place a trailing comma here, because ResourceAffinity is required and
         // therefore there is always at least one other order_clause following this one.
         match self {
@@ -68,14 +73,14 @@ impl SimilarNodeAffinity {
 }
 
 impl api::node_scheduler::SimilarNodeAffinity {
-    pub fn from_model(model: SimilarNodeAffinity) -> Self {
+    pub const fn from_model(model: SimilarNodeAffinity) -> Self {
         match model {
             SimilarNodeAffinity::Cluster => Self::Cluster,
             SimilarNodeAffinity::Spread => Self::Spread,
         }
     }
 
-    pub fn into_model(self) -> Option<SimilarNodeAffinity> {
+    pub const fn into_model(self) -> Option<SimilarNodeAffinity> {
         match self {
             Self::Unspecified => None,
             Self::Cluster => Some(SimilarNodeAffinity::Cluster),
@@ -99,7 +104,7 @@ impl ResourceAffinity {
     /// When we want the greatest number (DESC) of resources, we take all of the resources in order
     /// of priority, and mark sort by them one by one, lexicographically. We do the same for the
     /// least number of resources, but sort ascendingly.
-    fn order_clause(&self) -> &'static str {
+    const fn order_clause(self) -> &'static str {
         match self {
             Self::MostResources => "av_cpus DESC, av_mem DESC, av_disk DESC",
             Self::LeastResources => "av_cpus ASC, av_mem ASC, av_disk ASC",
@@ -108,14 +113,14 @@ impl ResourceAffinity {
 }
 
 impl api::node_scheduler::ResourceAffinity {
-    pub fn from_model(model: ResourceAffinity) -> Self {
+    pub const fn from_model(model: ResourceAffinity) -> Self {
         match model {
             ResourceAffinity::MostResources => Self::MostResources,
             ResourceAffinity::LeastResources => Self::LeastResources,
         }
     }
 
-    pub fn into_model(self) -> Option<ResourceAffinity> {
+    pub const fn into_model(self) -> Option<ResourceAffinity> {
         match self {
             Self::Unspecified => None,
             Self::MostResources => Some(ResourceAffinity::MostResources),

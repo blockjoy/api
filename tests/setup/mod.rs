@@ -45,8 +45,7 @@ impl TestServer {
 
         let server_context = context.clone();
         tokio::spawn(async move {
-            blockvisor_api::grpc::server(server_context)
-                .await
+            blockvisor_api::grpc::server(&server_context)
                 .serve_with_incoming(stream)
                 .await
                 .unwrap()

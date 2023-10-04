@@ -1,7 +1,6 @@
-//! These structures were brutally copy pasted from BlockvisorD repository
-//! (blockvisor/babel_api/src/engine.rs).
+//! Structs copied from `blockvisor/babel_api/src/engine.rs`.
 //!
-//! To be removed once switched to monorepo.
+//! Should be removed if we switch to a monorepo.
 
 use std::path::PathBuf;
 
@@ -9,14 +8,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::grpc::api;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileLocation {
     pub path: PathBuf,
     pub pos: u64,
     pub size: u64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Checksum {
     Sha1([u8; 20]),
@@ -24,7 +23,7 @@ pub enum Checksum {
     Blake3([u8; 32]),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Chunk {
     pub key: String,
     pub url: String,
@@ -33,12 +32,12 @@ pub struct Chunk {
     pub destinations: Vec<FileLocation>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Compression {
     ZSTD(i32),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DownloadManifest {
     pub total_size: u64,
     pub compression: Option<Compression>,

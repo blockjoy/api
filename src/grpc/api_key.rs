@@ -45,8 +45,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             ClaimsNotUser => Status::permission_denied("Access denied."),
             Diesel(_) | MissingUpdatedAt => Status::internal("Internal error."),
@@ -151,7 +151,7 @@ async fn update(
     let existing = ApiKey::find_by_id(key_id, &mut write).await?;
 
     let entry = ResourceEntry::from(&existing);
-    let _ = write.auth(&meta, ApiKeyPerm::Update, entry).await?;
+    write.auth(&meta, ApiKeyPerm::Update, entry).await?;
 
     let mut updated_at = None;
 
@@ -188,7 +188,7 @@ async fn regenerate(
     let existing = ApiKey::find_by_id(key_id, &mut write).await?;
     let entry = ResourceEntry::from(&existing);
 
-    let _ = write.auth(&meta, ApiKeyPerm::Regenerate, entry).await?;
+    write.auth(&meta, ApiKeyPerm::Regenerate, entry).await?;
 
     let new_key = NewApiKey::regenerate(key_id, &mut write).await?;
     let updated_at = new_key.api_key.updated_at.ok_or(Error::MissingUpdatedAt)?;
@@ -208,7 +208,7 @@ async fn delete(
     let existing = ApiKey::find_by_id(key_id, &mut write).await?;
     let entry = ResourceEntry::from(&existing);
 
-    let _ = write.auth(&meta, ApiKeyPerm::Delete, entry).await?;
+    write.auth(&meta, ApiKeyPerm::Delete, entry).await?;
 
     ApiKey::delete(key_id, &mut write).await?;
 

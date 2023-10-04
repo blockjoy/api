@@ -103,11 +103,8 @@ impl Config {
     }
 
     pub fn from_default_toml() -> Result<Self, Error> {
-        if let Ok(file) = env::var(CONFIG_FILE_ENV) {
-            Self::from_toml(file)
-        } else {
-            Self::from_toml(CONFIG_FILE_DEFAULT)
-        }
+        env::var(CONFIG_FILE_ENV)
+            .map_or_else(|_| Self::from_toml(CONFIG_FILE_DEFAULT), Self::from_toml)
     }
 }
 
@@ -214,7 +211,7 @@ mod tests {
     #[test]
     fn debug_redacted_type() {
         let redacted: Redacted<String> = "secret".parse().unwrap();
-        assert_eq!(format!("{redacted:?}"), "<Redacted alloc::string::String>")
+        assert_eq!(format!("{redacted:?}"), "<Redacted alloc::string::String>");
     }
 
     #[test]

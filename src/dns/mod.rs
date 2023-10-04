@@ -2,6 +2,7 @@ pub mod cloudflare;
 pub use cloudflare::Cloudflare;
 
 use displaydoc::Display;
+use rand::rngs::OsRng;
 use thiserror::Error;
 
 #[derive(Debug, Display, Error)]
@@ -32,10 +33,11 @@ pub mod tests {
     use mockito::{Matcher, ServerGuard};
     use rand::Rng;
 
-    use super::*;
     use crate::config::cloudflare::{ApiConfig, Config, DnsConfig};
     #[allow(unused_imports)]
     use crate::config::Context;
+
+    use super::*;
 
     pub struct MockDns {
         pub server: ServerGuard,
@@ -44,16 +46,14 @@ pub mod tests {
     }
 
     impl MockDns {
-        pub async fn new() -> Self {
+        pub async fn new(rng: &mut OsRng) -> Self {
             let mut server = mockito::Server::new_async().await;
-
-            let mut rng = rand::thread_rng();
             let id_dns = rng.gen_range(200_000..5_000_000);
 
             server
                 .mock("POST", Matcher::Regex(r"^/zones/.*/dns_records$".into()))
                 .with_status(200)
-                .with_body(format!("{{\"result\":{{\"id\":\"{:x}\"}}}}", id_dns))
+                .with_body(format!("{{\"result\":{{\"id\":\"{id_dns:x}\"}}}}"))
                 .create_async()
                 .await;
 
@@ -105,8 +105,8 @@ pub mod tests {
     #[tokio::test]
     async fn can_create_node_dns() {
         let (ctx, _db) = Context::with_mocked().await.unwrap();
+        let name = format!("test_{}", petname::petname(3, "_").unwrap());
 
-        let name = format!("test_{}", petname::petname(3, "_"));
         let id = ctx
             .dns
             .get_node_dns(&name, "127.0.0.1".to_string())

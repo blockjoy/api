@@ -100,7 +100,7 @@ pub struct Refresh {
 }
 
 impl Refresh {
-    pub fn new(resource_id: ResourceId, expirable: Expirable) -> Self {
+    pub const fn new(resource_id: ResourceId, expirable: Expirable) -> Self {
         Self {
             resource_id,
             expirable,
@@ -114,11 +114,11 @@ impl Refresh {
         }
     }
 
-    pub fn resource_id(&self) -> ResourceId {
+    pub const fn resource_id(&self) -> ResourceId {
         self.resource_id
     }
 
-    pub fn expirable(&self) -> Expirable {
+    pub const fn expirable(&self) -> Expirable {
         self.expirable
     }
 
@@ -174,10 +174,10 @@ impl FromStr for RequestCookie {
 
     fn from_str(cookie: &str) -> Result<Self, Self::Err> {
         let encoded = {
-            let start = match cookie.find(COOKIE_REFRESH) {
-                Some(index) => Ok(index + COOKIE_REFRESH.len()),
-                None => Err(Error::MissingCookieRefresh),
-            }?;
+            let start = cookie
+                .find(COOKIE_REFRESH)
+                .map(|index| index + COOKIE_REFRESH.len())
+                .ok_or(Error::MissingCookieRefresh)?;
 
             let end = match cookie[start..].find(';') {
                 Some(index) => Ok(start + index),

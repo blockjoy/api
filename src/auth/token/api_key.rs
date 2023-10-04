@@ -203,7 +203,7 @@ impl Secret {
 pub struct BearerSecret(String);
 
 impl BearerSecret {
-    pub fn new(key_id: KeyId, secret: Secret) -> Self {
+    pub fn new(key_id: KeyId, secret: &Secret) -> Self {
         let key_id: String = STANDARD_NO_PAD.encode(key_id.0);
         let secret: String = STANDARD_NO_PAD.encode(secret.0);
 

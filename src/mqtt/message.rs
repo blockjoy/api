@@ -129,7 +129,7 @@ impl api::OrgMessage {
         }
     }
 
-    pub fn deleted(org: Org, user: User) -> Self {
+    pub fn deleted(org: &Org, user: User) -> Self {
         Self {
             message: Some(api::org_message::Message::Deleted(api::OrgDeleted {
                 org_id: org.id.to_string(),
@@ -249,7 +249,7 @@ impl api::HostMessage {
             .collect()
     }
 
-    pub fn deleted(host: Host, user: User) -> Self {
+    pub fn deleted(host: &Host, user: User) -> Self {
         Self {
             message: Some(api::host_message::Message::Deleted(api::HostDeleted {
                 host_id: host.id.to_string(),
@@ -323,7 +323,7 @@ impl api::NodeMessage {
             message: Some(api::node_message::Message::Updated(api::NodeUpdated {
                 node: Some(node),
                 updated_by: user.as_ref().map(|u| u.id.to_string()),
-                updated_by_name: user.as_ref().map(|u| u.name()),
+                updated_by_name: user.as_ref().map(User::name),
                 updated_by_email: user.map(|u| u.email),
             })),
         })
@@ -346,7 +346,7 @@ impl api::NodeMessage {
             .collect()
     }
 
-    pub fn deleted(node: Node, user: User) -> Self {
+    pub fn deleted(node: &Node, user: User) -> Self {
         Self {
             message: Some(api::node_message::Message::Deleted(api::NodeDeleted {
                 node_id: node.id.to_string(),
@@ -409,7 +409,7 @@ mod tests {
             .unwrap();
         ctx.notifier.send(msg).await.unwrap();
 
-        let msg = api::HostMessage::deleted(host, user);
+        let msg = api::HostMessage::deleted(&host, user);
         ctx.notifier.send(msg).await.unwrap();
     }
 
@@ -432,7 +432,7 @@ mod tests {
             .unwrap();
         ctx.notifier.send(msg).await.unwrap();
 
-        let msg = api::NodeMessage::deleted(node, user);
+        let msg = api::NodeMessage::deleted(&node, user);
         ctx.notifier.send(msg).await.unwrap();
     }
 }

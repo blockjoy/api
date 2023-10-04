@@ -72,8 +72,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             Diesel(_) | Message(_) | UnserializableJobs(_) => Status::internal("Internal error."),
             BlockAge(_) => Status::invalid_argument("block_age"),
@@ -156,7 +156,7 @@ async fn node(
     // handled by performing the update for all nodes that do exist, and then reporting any issues.
     let node_ids = Node::existing_ids(all_node_ids.iter().copied().collect(), &mut write).await?;
     // Check that the user has metrics-access to all nodes that do exist.
-    let _ = write.auth(&meta, MetricsPerm::Node, &node_ids).await?;
+    write.auth(&meta, MetricsPerm::Node, &node_ids).await?;
     // Query all the nodes from the database. We need the info from the `node.jobs` field to perform
     // a patch-sort-of-update on that field.
     let nodes = Node::find_by_ids(node_ids.clone(), &mut write).await?;
@@ -180,9 +180,9 @@ async fn node(
         .into_iter()
         .filter(|id| !node_ids.contains(id))
         .collect();
-    match missing.len() {
-        0 => Ok(RespOrError::Resp(api::MetricsServiceNodeResponse {})),
-        _ => {
+    match missing.is_empty() {
+        true => Ok(RespOrError::Resp(api::MetricsServiceNodeResponse {})),
+        false => {
             let msg = missing.iter().join(", ");
             Ok(RespOrError::Error(Error::MetricsForMissingNode { msg }))
         }
@@ -202,7 +202,7 @@ async fn host(
 
     let host_ids = updates.iter().map(|update| update.id).collect();
     let host_ids = Host::existing_ids(host_ids, &mut write).await?;
-    let _ = write.auth(&meta, MetricsPerm::Host, &host_ids).await?;
+    write.auth(&meta, MetricsPerm::Host, &host_ids).await?;
 
     let (updates, missing) = updates.into_iter().partition(|u| host_ids.contains(&u.id));
     let hosts = UpdateHostMetrics::update_metrics(updates, &mut write).await?;
@@ -213,12 +213,11 @@ async fn host(
         .into_iter()
         .for_each(|msg| write.mqtt(msg));
 
-    match missing.len() {
-        0 => Ok(RespOrError::Resp(api::MetricsServiceHostResponse {})),
-        _ => {
-            let msg = missing.iter().map(|m| m.id).join(", ");
-            Ok(RespOrError::Error(Error::MetricsForMissingHost { msg }))
-        }
+    if missing.is_empty() {
+        Ok(RespOrError::Resp(api::MetricsServiceHostResponse {}))
+    } else {
+        let msg = missing.iter().map(|m| m.id).join(", ");
+        Ok(RespOrError::Error(Error::MetricsForMissingHost { msg }))
     }
 }
 

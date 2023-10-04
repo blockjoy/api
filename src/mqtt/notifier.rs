@@ -68,20 +68,21 @@ impl Notifier {
 
     pub async fn send<M>(&self, message: M) -> Result<(), Error>
     where
-        M: Into<Message>,
+        M: Into<Message> + Send,
     {
         self.client.clone().send(message.into()).await
     }
 
     pub async fn send_all<I, M>(&self, messages: I) -> Result<(), Error>
     where
-        I: IntoIterator<Item = M>,
-        M: Into<Message>,
+        I: IntoIterator<Item = M> + Send,
+        I::IntoIter: Send,
+        M: Into<Message> + Send,
     {
         let mut client = self.client.clone();
 
         for msg in messages {
-            client.send(msg.into()).await?
+            client.send(msg.into()).await?;
         }
 
         Ok(())
@@ -94,7 +95,7 @@ pub struct Client {
 }
 
 impl Client {
-    fn new(client: AsyncClient) -> Self {
+    const fn new(client: AsyncClient) -> Self {
         Self { client }
     }
 

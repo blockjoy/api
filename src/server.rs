@@ -20,8 +20,8 @@ pub enum Error {
 }
 
 pub async fn start(context: Arc<Context>) -> Result<(), Error> {
-    let http = http::router(context.clone()).into_make_service();
-    let grpc = grpc::server(context.clone()).await.into_service();
+    let http = http::router(&context).into_make_service();
+    let grpc = grpc::server(&context).into_service();
     let both = hybrid(http, grpc);
 
     let server = axum::Server::bind(&context.config.database.bind_addr()).serve(both);

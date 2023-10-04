@@ -106,7 +106,7 @@ impl Context {
         let alert = Alert::default();
         let auth = Auth::new(&config.token);
         let cookbook = TestCookbook::new().await.get_cookbook_api();
-        let dns = MockDns::new().await;
+        let dns = MockDns::new(&mut rng).await;
         let email = Email::new_mocked(&config, auth.cipher.clone()).map_err(Error::Email)?;
         let notifier = Notifier::new(config.mqtt.options())
             .await
@@ -157,26 +157,31 @@ impl Builder {
         }))
     }
 
+    #[must_use]
     pub fn alert(mut self, alert: Alert) -> Self {
         self.alert = Some(alert);
         self
     }
 
+    #[must_use]
     pub fn auth(mut self, auth: Auth) -> Self {
         self.auth = Some(auth);
         self
     }
 
+    #[must_use]
     pub fn cookbook(mut self, cookbook: Cookbook) -> Self {
         self.cookbook = Some(cookbook);
         self
     }
 
+    #[must_use]
     pub fn config(mut self, config: Config) -> Self {
         self.config = Some(config);
         self
     }
 
+    #[must_use]
     pub fn dns<D>(mut self, dns: D) -> Self
     where
         D: Dns + Send + Sync + 'static,
@@ -185,22 +190,26 @@ impl Builder {
         self
     }
 
+    #[must_use]
     pub fn email(mut self, email: Email) -> Self {
         self.email = Some(email);
         self
     }
 
+    #[must_use]
     pub fn notifier(mut self, notifier: Notifier) -> Self {
         self.notifier = Some(notifier);
         self
     }
 
+    #[must_use]
     pub fn pool(mut self, pool: Pool) -> Self {
         self.pool = Some(pool);
         self
     }
 
-    pub fn rng(mut self, rng: OsRng) -> Self {
+    #[must_use]
+    pub const fn rng(mut self, rng: OsRng) -> Self {
         self.rng = Some(rng);
         self
     }

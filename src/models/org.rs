@@ -239,7 +239,7 @@ pub struct NewOrg<'a> {
 }
 
 impl<'a> NewOrg<'a> {
-    pub fn personal() -> Self {
+    pub const fn personal() -> Self {
         NewOrg {
             name: PERSONAL_ORG_NAME,
             is_personal: true,
@@ -344,7 +344,7 @@ pub struct NewOrgUser {
 }
 
 impl NewOrgUser {
-    pub fn new(org_id: OrgId, user_id: UserId, role: OrgRole) -> Self {
+    pub const fn new(org_id: OrgId, user_id: UserId, role: OrgRole) -> Self {
         Self {
             org_id,
             user_id,

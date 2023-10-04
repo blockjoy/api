@@ -29,8 +29,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             CreateNodeId => Status::invalid_argument("node_id"),
             Blockchain(err) => err.into(),
@@ -123,27 +123,24 @@ async fn recover_created(
 
     // 4. We notify blockvisor of our retry via an MQTT message.
     if let Ok(cmd) = node::create_node_command(&node, CommandType::CreateNode, write).await {
-        if let Ok(create_cmd) = api::Command::from_model(&cmd, write).await {
-            vec.push(create_cmd)
-        } else {
+        let result = api::Command::from_model(&cmd, write).await;
+        result.map_or_else(|_| {
             error!("Could not convert node create command to gRPC repr while recovering. Command: {:?}", cmd);
-        }
+        }, |command| vec.push(command));
     } else {
         error!("Could not create node create command while recovering");
     }
+
     // we also start the node.
     if let Ok(cmd) = node::create_node_command(&node, CommandType::RestartNode, write).await {
-        if let Ok(start_cmd) = api::Command::from_model(&cmd, write).await {
-            vec.push(start_cmd);
-        } else {
-            error!(
-                "Could not convert node start command to gRPC repr while recovering. Command {:?}",
-                cmd
-            );
-        }
+        let result = api::Command::from_model(&cmd, write).await;
+        result.map_or_else(|_| {
+            error!("Could not convert node start command to gRPC repr while recovering. Command {:?}", cmd);
+        }, |command| vec.push(command));
     } else {
         error!("Could not create node start command while recovering");
     }
+
     Ok(vec)
 }
 

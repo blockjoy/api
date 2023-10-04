@@ -320,6 +320,7 @@ impl Host {
         {order_by}
         {limit_clause};");
 
+        #[allow(clippy::cast_possible_wrap)]
         let hosts: Vec<HostCandidate> = diesel::sql_query(query)
             .bind::<BigInt, _>(requirements.vcpu_count as i64)
             .bind::<BigInt, _>(requirements.mem_size_mb as i64 * 1000 * 1000)
@@ -381,7 +382,7 @@ impl Host {
         let regions = Self::host_candidates(requirements, None, conn)
             .await?
             .into_iter()
-            .flat_map(|host| host.region_id)
+            .filter_map(|host| host.region_id)
             .collect();
 
         Region::by_ids(regions, conn).await.map_err(Error::Region)
@@ -533,13 +534,13 @@ impl MonthlyCostUsd {
             None => Err(Error::BillingAmountMissingAmount),
         }?;
 
-        match common::Currency::from_i32(amount.currency) {
-            Some(common::Currency::Usd) => Ok(()),
+        match common::Currency::try_from(amount.currency) {
+            Ok(common::Currency::Usd) => Ok(()),
             _ => Err(Error::BillingAmountCurrency(amount.currency)),
         }?;
 
-        match common::Period::from_i32(billing.period) {
-            Some(common::Period::Monthly) => Ok(()),
+        match common::Period::try_from(billing.period) {
+            Ok(common::Period::Monthly) => Ok(()),
             _ => Err(Error::BillingAmountPeriod(billing.period)),
         }?;
 

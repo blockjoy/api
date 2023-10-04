@@ -29,8 +29,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             Cookbook(_) | Diesel(_) | NotUsed => Status::internal("Internal error."),
             MissingId => Status::invalid_argument("id"),
@@ -76,7 +76,7 @@ async fn retrieve(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BundleServiceRetrieveResponse, Error> {
-    let _ = read.auth_all(&meta, BundlePerm::Retrieve).await?;
+    read.auth_all(&meta, BundlePerm::Retrieve).await?;
 
     let id = req.id.ok_or(Error::MissingId)?;
     let url = read.ctx.cookbook.download_bundle(&id.version).await?;
@@ -92,7 +92,7 @@ async fn list_bundle_versions(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BundleServiceListBundleVersionsResponse, Error> {
-    let _ = read.auth_all(&meta, BundlePerm::ListBundleVersions).await?;
+    read.auth_all(&meta, BundlePerm::ListBundleVersions).await?;
     let identifiers = read.ctx.cookbook.list_bundles().await?;
 
     Ok(api::BundleServiceListBundleVersionsResponse { identifiers })
@@ -104,7 +104,7 @@ async fn delete(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BundleServiceDeleteResponse, Error> {
-    let _ = read.auth_all(&meta, BundlePerm::Delete).await?;
+    read.auth_all(&meta, BundlePerm::Delete).await?;
 
     Err(Error::NotUsed)
 }

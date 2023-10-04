@@ -130,7 +130,7 @@ impl From<NodeType> for i32 {
 }
 
 impl api::NodeType {
-    pub fn from_model(model: NodeType) -> Self {
+    pub const fn from_model(model: NodeType) -> Self {
         match model {
             NodeType::Unknown => Self::Unspecified,
             NodeType::Miner => Self::Miner,
@@ -148,7 +148,7 @@ impl api::NodeType {
         }
     }
 
-    pub fn into_model(self) -> NodeType {
+    pub const fn into_model(self) -> NodeType {
         match self {
             Self::Unspecified => NodeType::Unknown,
             Self::Miner => NodeType::Miner,

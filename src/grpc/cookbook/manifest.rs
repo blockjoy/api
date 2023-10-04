@@ -27,8 +27,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             Cookbook(_) | Diesel(_) => Status::internal("Internal error."),
             MissingId => Status::invalid_argument("id"),
@@ -56,7 +56,7 @@ async fn retrieve_download_manifest(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ManifestServiceRetrieveDownloadManifestResponse, Error> {
-    let _ = read.auth_all(&meta, ManifestPerm::RetrieveDownload).await?;
+    read.auth_all(&meta, ManifestPerm::RetrieveDownload).await?;
 
     let id = req.id.ok_or(Error::MissingId)?.into();
     let manifest = read

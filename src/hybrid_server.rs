@@ -1,16 +1,21 @@
-//! Hybrid service impl providing both, HTTP and gRPC
-//! @see https://github.com/snoyberg/tonic-example/blob/master/src/bin/server-hybrid.rs
+//! Hybrid service impl providing both, HTTP and `gRPC`.
+//!
+//! See: `https://github.com/snoyberg/tonic-example/blob/master/src/bin/server-hybrid.rs`
 
 use std::future::Future;
 use std::pin::Pin;
 use std::task::Poll;
 
+use axum::http::HeaderValue;
 use hyper::HeaderMap;
 use hyper::{body::HttpBody, Body, Request, Response};
 use pin_project::pin_project;
 use tower::Service;
 
-pub fn hybrid<MakeWeb, Grpc>(make_web: MakeWeb, grpc: Grpc) -> HybridMakeService<MakeWeb, Grpc> {
+pub const fn hybrid<MakeWeb, Grpc>(
+    make_web: MakeWeb,
+    grpc: Grpc,
+) -> HybridMakeService<MakeWeb, Grpc> {
     HybridMakeService { make_web, grpc }
 }
 
@@ -95,7 +100,8 @@ where
     }
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
-        if req.headers().get("content-type").map(|x| x.as_bytes()) == Some(b"application/grpc") {
+        if req.headers().get("content-type").map(HeaderValue::as_bytes) == Some(b"application/grpc")
+        {
             HybridFuture::Grpc(self.grpc.call(req))
         } else {
             HybridFuture::Web(self.web.call(req))
@@ -124,8 +130,8 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
         match self.project() {
-            HybridBodyProj::Web(b) => b.poll_data(cx).map_err(|e| e.into()),
-            HybridBodyProj::Grpc(b) => b.poll_data(cx).map_err(|e| e.into()),
+            HybridBodyProj::Web(b) => b.poll_data(cx).map_err(Into::into),
+            HybridBodyProj::Grpc(b) => b.poll_data(cx).map_err(Into::into),
         }
     }
 
@@ -134,8 +140,8 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
         match self.project() {
-            HybridBodyProj::Web(b) => b.poll_trailers(cx).map_err(|e| e.into()),
-            HybridBodyProj::Grpc(b) => b.poll_trailers(cx).map_err(|e| e.into()),
+            HybridBodyProj::Web(b) => b.poll_trailers(cx).map_err(Into::into),
+            HybridBodyProj::Grpc(b) => b.poll_trailers(cx).map_err(Into::into),
         }
     }
 

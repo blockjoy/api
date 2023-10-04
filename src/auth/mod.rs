@@ -197,7 +197,7 @@ impl Auth {
     /// Try to get a `Refresh` token from the request headers.
     ///
     /// Will return `Ok(None)` if the header is missing so that an alternative
-    /// representation may be tried (e.g. from a gRPC request body).
+    /// representation may be tried (e.g. from a `gRPC` request body).
     pub fn maybe_refresh(&self, meta: &MetadataMap) -> Result<Option<Refresh>, Error> {
         use refresh::Error::*;
         match self.refresh(meta) {

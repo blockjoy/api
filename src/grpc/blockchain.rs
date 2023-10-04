@@ -49,8 +49,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             Diesel(_) | MissingVersionId | MissingVersionNodeType => {
                 Status::internal("Internal error.")
@@ -90,7 +90,7 @@ async fn get(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServiceGetResponse, Error> {
-    let _ = read.auth_all(&meta, BlockchainPerm::Get).await?;
+    read.auth_all(&meta, BlockchainPerm::Get).await?;
 
     let id = req.id.parse().map_err(Error::ParseId)?;
     let blockchain = Blockchain::find_by_id(id, &mut read).await?;
@@ -130,7 +130,7 @@ async fn list(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServiceListResponse, Error> {
-    let _ = read.auth_all(&meta, BlockchainPerm::List).await?;
+    read.auth_all(&meta, BlockchainPerm::List).await?;
 
     // We need to combine info from two seperate sources: the database and cookbook. Since
     // cookbook is slow, the step where we call it is parallelized.
@@ -178,10 +178,12 @@ async fn list(
     Ok(api::BlockchainServiceListResponse { blockchains })
 }
 
-/// This is a helper function for BlockchainService::list. It retrieves the networks for a given set
-/// of query parameters, and logs an error when something goes wrong. This behaviour is important,
-/// because calls to cookbook sometimes fail and we don't want this whole endpoint to crash when
-/// cookbook is having a sad day.
+/// This is a helper function for `BlockchainService::list`.
+///
+/// It retrieves the networks for a given set of query parameters, and logs an
+/// error when something goes wrong. This behaviour is important because calls
+/// to cookbook sometimes fail and we don't want this whole endpoint to crash
+/// when cookbook is having a sad day.
 async fn try_get_networks(
     cookbook: &Cookbook,
     version_id: BlockchainVersionId,

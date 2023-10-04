@@ -24,8 +24,8 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        error!("{err}");
         use Error::*;
+        error!("{err}");
         match err {
             Diesel(_) => Status::internal("Internal error."),
             Auth(err) => err.into(),
@@ -51,7 +51,7 @@ async fn services(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::DiscoveryServiceServicesResponse, Error> {
-    let _ = read.auth_all(&meta, DiscoveryPerm::Services).await?;
+    read.auth_all(&meta, DiscoveryPerm::Services).await?;
 
     Ok(api::DiscoveryServiceServicesResponse {
         key_service_url: read.ctx.config.key_service.url.to_string(),

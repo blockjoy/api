@@ -94,7 +94,7 @@ impl NewIpAddressRange {
             .map_err(Error::Create)
     }
 
-    fn to_ipv4(addr: IpAddr) -> Result<Ipv4Addr, Error> {
+    const fn to_ipv4(addr: IpAddr) -> Result<Ipv4Addr, Error> {
         match addr {
             IpAddr::V4(v4) => Ok(v4),
             IpAddr::V6(v6) => Err(Error::UnexpectedIpv6(v6)),

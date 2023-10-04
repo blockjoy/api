@@ -92,7 +92,7 @@ pub struct RbacRole;
 impl RbacRole {
     async fn create<R>(role: R, conn: &mut Conn<'_>) -> Result<(), Error>
     where
-        R: Into<Role>,
+        R: Into<Role> + Send,
     {
         let role = role.into();
         diesel::insert_into(roles::table)
@@ -110,7 +110,7 @@ impl RbacRole {
 
     pub async fn exists<R>(role: R, conn: &mut Conn<'_>) -> Result<bool, Error>
     where
-        R: Into<Role>,
+        R: Into<Role> + Send,
     {
         let role = role.into();
         let query = roles::table.filter(roles::name.eq(role.to_string()));
@@ -132,8 +132,8 @@ impl RbacRole {
 
     pub async fn has_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<bool, Error>
     where
-        P: Into<Perm>,
-        R: Into<Role>,
+        P: Into<Perm> + Send,
+        R: Into<Role> + Send,
     {
         let (role, perm) = (role.into(), perm.into());
         let query = role_permissions::table
@@ -148,8 +148,8 @@ impl RbacRole {
 
     pub async fn link_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<(), Error>
     where
-        P: Into<Perm>,
-        R: Into<Role>,
+        P: Into<Perm> + Send,
+        R: Into<Role> + Send,
     {
         let (role, perm) = (role.into(), perm.into());
         diesel::insert_into(role_permissions::table)
@@ -169,8 +169,8 @@ impl RbacRole {
 
     pub async fn unlink_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<(), Error>
     where
-        P: Into<Perm>,
-        R: Into<Role>,
+        P: Into<Perm> + Send,
+        R: Into<Role> + Send,
     {
         let (role, perm) = (role.into(), perm.into());
         diesel::delete(role_permissions::table)
@@ -192,7 +192,7 @@ pub struct RbacPerm;
 impl RbacPerm {
     async fn create<P>(perm: P, conn: &mut Conn<'_>) -> Result<(), Error>
     where
-        P: Into<Perm>,
+        P: Into<Perm> + Send,
     {
         let perm = perm.into();
         diesel::insert_into(permissions::table)
@@ -210,7 +210,7 @@ impl RbacPerm {
 
     pub async fn exists<P>(perm: P, conn: &mut Conn<'_>) -> Result<bool, Error>
     where
-        P: Into<Perm>,
+        P: Into<Perm> + Send,
     {
         let perm = perm.into();
         let query = permissions::table.filter(permissions::name.eq(perm.to_string()));
@@ -232,7 +232,7 @@ impl RbacPerm {
 
     pub async fn for_role<R>(role: R, conn: &mut Conn<'_>) -> Result<HashSet<Perm>, Error>
     where
-        R: Into<Role>,
+        R: Into<Role> + Send,
     {
         let role = role.into();
         role_permissions::table
@@ -251,7 +251,7 @@ impl RbacPerm {
         conn: &mut Conn<'_>,
     ) -> Result<HashSet<Perm>, Error> {
         role_permissions::table
-            .filter(role_permissions::role.eq_any(roles.iter().map(|role| role.to_string())))
+            .filter(role_permissions::role.eq_any(roles.iter().map(ToString::to_string)))
             .select(role_permissions::permission)
             .get_results(conn)
             .await
@@ -273,7 +273,7 @@ impl RbacPerm {
         let mut perms = RbacPerm::for_roles(&roles, conn).await?;
 
         if let Some(admin) = RbacUser::admin_perms(user_id, conn).await? {
-            perms.extend(admin)
+            perms.extend(admin);
         }
 
         Ok(perms)
@@ -348,7 +348,7 @@ impl RbacUser {
         conn: &mut Conn<'_>,
     ) -> Result<(), Error>
     where
-        R: Into<Role>,
+        R: Into<Role> + Send,
     {
         let role = role.into();
         diesel::insert_into(user_roles::table)
@@ -374,8 +374,8 @@ impl RbacUser {
         conn: &mut Conn<'_>,
     ) -> Result<(), Error>
     where
-        I: Iterator<Item = R>,
-        R: Into<Role>,
+        I: Iterator<Item = R> + Send,
+        R: Into<Role> + Send,
     {
         for role in roles {
             Self::link_role(user_id, org_id, role, conn).await?;
@@ -394,7 +394,7 @@ impl RbacUser {
         conn: &mut Conn<'_>,
     ) -> Result<(), Error>
     where
-        R: Into<Role>,
+        R: Into<Role> + Send,
     {
         let role = role.map(Into::into);
         let mut delete = diesel::delete(user_roles::table)
@@ -457,7 +457,7 @@ impl OrgUsers {
                 .user_roles
                 .entry(row.user_id)
                 .or_default()
-                .push(role)
+                .push(role);
         }
 
         Ok(orgs_users)

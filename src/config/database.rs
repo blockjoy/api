@@ -52,7 +52,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn bind_addr(&self) -> SocketAddr {
+    pub const fn bind_addr(&self) -> SocketAddr {
         SocketAddr::new(self.bind_ip, self.bind_port)
     }
 }

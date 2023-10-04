@@ -39,6 +39,7 @@ pub mod rbac;
 pub mod region;
 pub use region::{Region, RegionId};
 
+#[allow(clippy::wildcard_imports)]
 pub mod schema;
 
 pub mod subscription;

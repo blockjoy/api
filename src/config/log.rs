@@ -95,7 +95,7 @@ impl Config {
 
         let resource = Resource::new(vec![KeyValue::new(SERVICE_NAME, self.service_name())]);
         let trace_config = trace::config()
-            .with_resource(resource.clone())
+            .with_resource(resource)
             .with_sampler(Sampler::AlwaysOn);
         let batch_config =
             BatchConfig::default().with_scheduled_delay(*self.opentelemetry.export_interval);
@@ -120,7 +120,7 @@ impl Config {
         Ok(registry)
     }
 
-    pub fn service_name(&self) -> &'static str {
+    pub const fn service_name(&self) -> &'static str {
         match self.environment {
             Environment::Dev => SERVICE_NAME_DEV,
             Environment::Staging => SERVICE_NAME_STAGING,

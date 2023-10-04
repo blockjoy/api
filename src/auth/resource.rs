@@ -83,7 +83,7 @@ pub enum Resource {
 }
 
 impl Resource {
-    pub fn id(self) -> ResourceId {
+    pub const fn id(self) -> ResourceId {
         match self {
             Resource::User(UserId(id)) => ResourceId(id),
             Resource::Org(OrgId(id)) => ResourceId(id),
@@ -92,7 +92,7 @@ impl Resource {
         }
     }
 
-    pub fn user(self) -> Option<UserId> {
+    pub const fn user(self) -> Option<UserId> {
         if let Resource::User(id) = self {
             Some(id)
         } else {
@@ -100,7 +100,7 @@ impl Resource {
         }
     }
 
-    pub fn org(self) -> Option<OrgId> {
+    pub const fn org(self) -> Option<OrgId> {
         if let Resource::Org(id) = self {
             Some(id)
         } else {
@@ -108,7 +108,7 @@ impl Resource {
         }
     }
 
-    pub fn host(self) -> Option<HostId> {
+    pub const fn host(self) -> Option<HostId> {
         if let Resource::Host(id) = self {
             Some(id)
         } else {
@@ -116,7 +116,7 @@ impl Resource {
         }
     }
 
-    pub fn node(self) -> Option<NodeId> {
+    pub const fn node(self) -> Option<NodeId> {
         if let Resource::Node(id) = self {
             Some(id)
         } else {
@@ -236,7 +236,7 @@ pub struct ResourceEntry {
 }
 
 impl ResourceEntry {
-    pub fn new(resource_type: ResourceType, resource_id: ResourceId) -> Self {
+    pub const fn new(resource_type: ResourceType, resource_id: ResourceId) -> Self {
         ResourceEntry {
             resource_type,
             resource_id,

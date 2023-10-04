@@ -7,17 +7,19 @@ use crate::models::blockchain::Blockchain;
 use crate::models::command::{Command, CommandType};
 use crate::models::node::{NewNodeLog, Node, NodeLogEvent};
 
-/// Some endpoints require some additional action from us when we recieve a success message back
-/// from blockvisord. For now this is limited to creating a node_logs entry when
-/// CreateNode has succeeded, but this may expand over time.
+/// Some endpoints require some additional action from us when we recieve a
+/// success message back from blockvisord.
+///
+/// For now this is limited to creating a `node_logs` entry when `CreateNode`
+/// has succeeded, but this may expand over time.
 pub(super) async fn register(succeeded_cmd: &Command, conn: &mut Conn<'_>) {
     if succeeded_cmd.cmd == CommandType::CreateNode {
         create_node_success(succeeded_cmd, conn).await;
     }
 }
 
-/// In case of a successful node deployment, we are expected to write node_logs entry to
-/// the database. The `event` we pass in is `Succeeded`.
+/// In case of a successful node deployment, we are expected to write
+/// `node_logs` entry to the database. The `event` we pass in is `Succeeded`.
 async fn create_node_success(succeeded_cmd: &Command, conn: &mut Conn<'_>) {
     let Some(node_id) = succeeded_cmd.node_id else {
         error!("`CreateNode` command has no node id!");

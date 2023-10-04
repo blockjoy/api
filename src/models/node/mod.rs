@@ -424,16 +424,16 @@ impl NewNode {
         host: Option<Host>,
         mut write: &mut WriteConn<'_, '_>,
     ) -> Result<Node, Error> {
-        let host = match host {
-            Some(host) => host,
-            None => {
-                let scheduler = self
-                    .scheduler(write)
-                    .await?
-                    .ok_or(Error::NoHostOrScheduler)?;
-                self.find_host(scheduler, write).await?
-            }
+        let host = if let Some(host) = host {
+            host
+        } else {
+            let scheduler = self
+                .scheduler(write)
+                .await?
+                .ok_or(Error::NoHostOrScheduler)?;
+            self.find_host(scheduler, write).await?
         };
+
         let ip_addr = IpAddress::next_for_host(host.id, write)
             .await
             .map_err(Error::NextHostIp)?
@@ -583,7 +583,6 @@ impl UpdateNodeMetrics {
 
 #[cfg(test)]
 mod tests {
-    use petname::petname;
     use tokio::sync::mpsc;
     use uuid::Uuid;
 
@@ -594,7 +593,7 @@ mod tests {
     #[tokio::test]
     async fn can_filter_nodes() {
         let (ctx, db) = Context::with_mocked().await.unwrap();
-        let name = format!("test_{}", petname(3, "_"));
+        let name = format!("test_{}", petname::petname(3, "_").unwrap());
 
         let blockchain_id = db.seed.blockchain.id;
         let user_id = db.seed.user.id;

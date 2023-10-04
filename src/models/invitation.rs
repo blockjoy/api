@@ -117,18 +117,18 @@ impl Invitation {
         if let Some(created_by) = filter.created_by {
             query = query.filter(invitations::created_by.eq(created_by));
         }
-        if let Some(true) = filter.accepted {
-            query = query.filter(invitations::accepted_at.is_not_null());
-        }
-        if let Some(false) = filter.accepted {
-            query = query.filter(invitations::accepted_at.is_null());
-        }
-        if let Some(true) = filter.declined {
-            query = query.filter(invitations::declined_at.is_not_null());
-        }
-        if let Some(false) = filter.declined {
-            query = query.filter(invitations::declined_at.is_null());
-        }
+
+        let query = match filter.accepted {
+            Some(true) => query.filter(invitations::accepted_at.is_not_null()),
+            Some(false) => query.filter(invitations::accepted_at.is_null()),
+            None => query,
+        };
+
+        let query = match filter.declined {
+            Some(true) => query.filter(invitations::declined_at.is_not_null()),
+            Some(false) => query.filter(invitations::declined_at.is_null()),
+            None => query,
+        };
 
         query
             .select(invitations::all_columns)

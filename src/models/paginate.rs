@@ -1,6 +1,6 @@
 //! This fragment is modified from
-//! (here)[https://github.com/diesel-rs/diesel/blob/master/examples/postgres/advanced-blog-cli/src/pagination.rs]
-//! to work with diesel_async.
+//! [here](https://github.com/diesel-rs/diesel/blob/master/examples/postgres/advanced-blog-cli/src/pagination.rs)
+//! to work with `diesel_async`.
 
 use diesel::pg::Pg;
 use diesel::query_builder::{AstPass, Query, QueryFragment, QueryId};
@@ -47,7 +47,7 @@ impl<T> Paginated<T> {
         // lifetime of the resulting Future, but rather the lifetime of `Future::Output` to `'_`.
         async move {
             let results = self.load::<(U, i64)>(conn).await?;
-            let total = results.get(0).map(|x| x.1).unwrap_or(0);
+            let total = results.get(0).map_or(0, |x| x.1);
             let records = results.into_iter().map(|x| x.0).collect();
             Ok((total, records))
         }
