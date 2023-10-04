@@ -78,14 +78,12 @@ impl From<NetType> for api::NetType {
 }
 
 #[cfg(any(test, feature = "integration-test"))]
-#[allow(unused_imports)]
 pub mod tests {
-    use crate::cookbook::identifier::Identifier;
-    use crate::cookbook::tests::dummy_config;
-    use crate::cookbook::Cookbook;
-    use crate::models::NodeType;
-
-    use super::*;
+    #[cfg(test)]
+    use {
+        super::*,
+        crate::{cookbook::identifier::Identifier, models::NodeType},
+    };
 
     pub const TEST_SCRIPT: &str = r#"
         const METADATA = #{

@@ -34,7 +34,7 @@ pub mod tests {
     use rand::Rng;
 
     use crate::config::cloudflare::{ApiConfig, Config, DnsConfig};
-    #[allow(unused_imports)]
+    #[cfg(test)]
     use crate::config::Context;
 
     use super::*;

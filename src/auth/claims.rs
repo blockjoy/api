@@ -378,7 +378,7 @@ impl Expirable {
 
 #[cfg(any(test, feature = "integration-test"))]
 pub mod tests {
-    #[allow(unused_imports)]
+    #[cfg(test)]
     use crate::auth::endpoint::Endpoint;
 
     use super::*;

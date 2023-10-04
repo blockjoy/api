@@ -132,16 +132,18 @@ impl Client for aws_sdk_s3::Client {
 }
 
 #[cfg(any(test, feature = "integration-test"))]
-#[allow(unused_imports)]
 mod tests {
-    use mockall::predicate::eq;
-
     use crate::cookbook::identifier::Identifier;
     use crate::cookbook::script::tests::TEST_SCRIPT;
-    use crate::cookbook::tests::{dummy_config, MockStorage};
-    use crate::cookbook::Cookbook;
-    use crate::grpc::api;
+    use crate::cookbook::tests::MockStorage;
     use crate::models::NodeType;
+
+    #[cfg(test)]
+    use {
+        crate::cookbook::{tests::dummy_config, Cookbook},
+        crate::grpc::api,
+        mockall::predicate::eq,
+    };
 
     use super::*;
 
