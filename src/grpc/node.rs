@@ -1052,7 +1052,7 @@ impl api::NodeJobProgress {
 }
 
 impl api::NodeJobStatus {
-    pub fn into_model(self) -> Option<NodeJobStatus> {
+    pub const fn into_model(self) -> Option<NodeJobStatus> {
         match self {
             Self::Unspecified => None,
             Self::Pending => Some(NodeJobStatus::Pending),
@@ -1063,7 +1063,7 @@ impl api::NodeJobStatus {
         }
     }
 
-    fn from_model(model: NodeJobStatus) -> Self {
+    const fn from_model(model: NodeJobStatus) -> Self {
         match model {
             NodeJobStatus::Pending => Self::Pending,
             NodeJobStatus::Running => Self::Running,

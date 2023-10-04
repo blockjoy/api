@@ -165,7 +165,7 @@ async fn node(
     let updates = updates
         .into_iter()
         .zip(all_node_ids.iter())
-        .flat_map(|(update, id)| nodes_map.get(id).map(|&node| (node, update)))
+        .filter_map(|(update, id)| nodes_map.get(id).map(|&node| (node, update)))
         .map(|(node, update)| update.as_metrics_update(node))
         .collect::<Result<_, _>>()?;
     let nodes = UpdateNodeMetrics::update_metrics(updates, &mut write).await?;
@@ -180,12 +180,11 @@ async fn node(
         .into_iter()
         .filter(|id| !node_ids.contains(id))
         .collect();
-    match missing.is_empty() {
-        true => Ok(RespOrError::Resp(api::MetricsServiceNodeResponse {})),
-        false => {
-            let msg = missing.iter().join(", ");
-            Ok(RespOrError::Error(Error::MetricsForMissingNode { msg }))
-        }
+    if missing.is_empty() {
+        Ok(RespOrError::Resp(api::MetricsServiceNodeResponse {}))
+    } else {
+        let msg = missing.iter().join(", ");
+        Ok(RespOrError::Error(Error::MetricsForMissingNode { msg }))
     }
 }
 

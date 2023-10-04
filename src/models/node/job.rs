@@ -9,7 +9,7 @@ pub struct NodeJob {
     pub progress: Option<NodeJobProgress>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NodeJobStatus {
     Pending,
