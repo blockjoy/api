@@ -65,9 +65,14 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            Diesel(_) | MissingVersionId | MissingVersionNodeType => {
-                Status::internal("Internal error.")
-            }
+            Diesel(_)
+            | MissingVersionId
+            | MissingVersionNodeType
+            | NodeCount(_)
+            | NodeCountActive(_)
+            | NodeCountSyncing(_)
+            | NodeCountProvisioning(_)
+            | NodeCountFailed(_) => Status::internal("Internal error."),
             ParseId(_) => Status::invalid_argument("id"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             Auth(err) => err.into(),
@@ -76,11 +81,6 @@ impl From<Error> for Status {
             BlockchainNodeType(err) => err.into(),
             BlockchainVersion(err) => err.into(),
             Property(err) => err.into(),
-            NodeCount(_) => Status::internal("Node count too large"),
-            NodeCountActive(_) => Status::internal("Active node count too large"),
-            NodeCountSyncing(_) => Status::internal("Syncing node count too large"),
-            NodeCountProvisioning(_) => Status::internal("Provisioning node count too large"),
-            NodeCountFailed(_) => Status::internal("Failed node count too large"),
         }
     }
 }
@@ -330,36 +330,46 @@ impl api::Blockchain {
                     )?,
                     created_at: Some(NanosUtc::from(model.created_at).into()),
                     updated_at: Some(NanosUtc::from(model.updated_at).into()),
-                    node_count: node_stats
-                        .get(&model.id)
-                        .map(|stat| stat.node_count)
-                        .unwrap_or_default()
-                        .try_into()
-                        .map_err(Error::NodeCount)?,
-                    node_count_active: node_stats
-                        .get(&model.id)
-                        .map(|stat| stat.node_count_active)
-                        .unwrap_or_default()
-                        .try_into()
-                        .map_err(Error::NodeCountActive)?,
-                    node_count_syncing: node_stats
-                        .get(&model.id)
-                        .map(|stat| stat.node_count_syncing)
-                        .unwrap_or_default()
-                        .try_into()
-                        .map_err(Error::NodeCountSyncing)?,
-                    node_count_provisioning: node_stats
-                        .get(&model.id)
-                        .map(|stat| stat.node_count_provisioning)
-                        .unwrap_or_default()
-                        .try_into()
-                        .map_err(Error::NodeCountProvisioning)?,
-                    node_count_failed: node_stats
-                        .get(&model.id)
-                        .map(|stat| stat.node_count_failed)
-                        .unwrap_or_default()
-                        .try_into()
-                        .map_err(Error::NodeCountFailed)?,
+                    node_count: Some(
+                        node_stats
+                            .get(&model.id)
+                            .map(|stat| stat.node_count)
+                            .unwrap_or_default()
+                            .try_into()
+                            .map_err(Error::NodeCount)?,
+                    ),
+                    node_count_active: Some(
+                        node_stats
+                            .get(&model.id)
+                            .map(|stat| stat.node_count_active)
+                            .unwrap_or_default()
+                            .try_into()
+                            .map_err(Error::NodeCountActive)?,
+                    ),
+                    node_count_syncing: Some(
+                        node_stats
+                            .get(&model.id)
+                            .map(|stat| stat.node_count_syncing)
+                            .unwrap_or_default()
+                            .try_into()
+                            .map_err(Error::NodeCountSyncing)?,
+                    ),
+                    node_count_provisioning: Some(
+                        node_stats
+                            .get(&model.id)
+                            .map(|stat| stat.node_count_provisioning)
+                            .unwrap_or_default()
+                            .try_into()
+                            .map_err(Error::NodeCountProvisioning)?,
+                    ),
+                    node_count_failed: Some(
+                        node_stats
+                            .get(&model.id)
+                            .map(|stat| stat.node_count_failed)
+                            .unwrap_or_default()
+                            .try_into()
+                            .map_err(Error::NodeCountFailed)?,
+                    ),
                 })
             })
             .collect()
