@@ -118,6 +118,8 @@ async fn member_count_works() {
     // Now we perform the same assertion for querying in bulk:
     let req = api::OrgServiceListRequest {
         member_id: Some(user_id.to_string()),
+        offset: 0,
+        limit: 10,
     };
     let resp = test.send_admin(Service::list, req).await.unwrap();
     let org_resp = resp

@@ -8,7 +8,7 @@ use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::{error, warn};
 
-use crate::auth::rbac::BlockchainPerm;
+use crate::auth::rbac::{BlockchainAdminPerm, BlockchainPerm};
 use crate::auth::Authorize;
 use crate::cookbook::identifier::Identifier;
 use crate::cookbook::script::NetType;
@@ -16,8 +16,9 @@ use crate::cookbook::Cookbook;
 use crate::database::{Conn, ReadConn, Transaction};
 use crate::models::blockchain::{
     Blockchain, BlockchainNodeType, BlockchainNodeTypeId, BlockchainProperty, BlockchainVersion,
-    BlockchainVersionId,
+    BlockchainVersionId, NodeStats,
 };
+use crate::models::BlockchainId;
 use crate::timestamp::NanosUtc;
 
 use super::api::blockchain_service_server::BlockchainService;
@@ -41,8 +42,20 @@ pub enum Error {
     MissingVersionId,
     /// Missing blockchain version node type. This should not happen.
     MissingVersionNodeType,
+    /// Unable to cast node count from i64 to u64 for use in the api: {0}
+    NodeCount(std::num::TryFromIntError),
+    ///  Unable to cast active node count from i64 to u64 for use in the api: {0}
+    NodeCountActive(std::num::TryFromIntError),
+    ///  Unable to cast syncing node count from i64 to u64 for use in the api: {0}
+    NodeCountSyncing(std::num::TryFromIntError),
+    ///  Unable to cast provisioning node count from i64 to u64 for use in the api: {0}
+    NodeCountProvisioning(std::num::TryFromIntError),
+    ///  Unable to cast ok node count from i64 to u64 for use in the api: {0}
+    NodeCountFailed(std::num::TryFromIntError),
     /// Failed to parse BlockchainId: {0}
     ParseId(uuid::Error),
+    /// Failed to parse OrgId: {0}
+    ParseOrgId(uuid::Error),
     /// Failed to get blockchain property: {0}
     Property(#[from] crate::models::blockchain::property::Error),
 }
@@ -56,12 +69,18 @@ impl From<Error> for Status {
                 Status::internal("Internal error.")
             }
             ParseId(_) => Status::invalid_argument("id"),
+            ParseOrgId(_) => Status::invalid_argument("org_id"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Blockchain(err) => err.into(),
             BlockchainNodeType(err) => err.into(),
             BlockchainVersion(err) => err.into(),
             Property(err) => err.into(),
+            NodeCount(_) => Status::internal("Node count too large"),
+            NodeCountActive(_) => Status::internal("Active node count too large"),
+            NodeCountSyncing(_) => Status::internal("Syncing node count too large"),
+            NodeCountProvisioning(_) => Status::internal("Provisioning node count too large"),
+            NodeCountFailed(_) => Status::internal("Failed node count too large"),
         }
     }
 }
@@ -90,9 +109,18 @@ async fn get(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServiceGetResponse, Error> {
-    read.auth_all(&meta, BlockchainPerm::Get).await?;
-
     let id = req.id.parse().map_err(Error::ParseId)?;
+    let org_id = req
+        .org_id
+        .as_deref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
+    if let Some(org_id) = org_id {
+        read.auth_or_all(&meta, BlockchainAdminPerm::Get, BlockchainPerm::Get, org_id)
+            .await?
+    } else {
+        read.auth_all(&meta, BlockchainAdminPerm::Get).await?
+    };
     let blockchain = Blockchain::find_by_id(id, &mut read).await?;
 
     let node_types = BlockchainNodeType::by_blockchain_id(blockchain.id, &mut read).await?;
@@ -117,8 +145,15 @@ async fn get(
         .map(|(version_id, id)| try_get_networks(&read.ctx.cookbook, version_id, id));
     let version_to_network_map = join_all(network_futs).await.into_iter().collect();
 
+    let node_stats = Blockchain::node_stats(org_id, &mut read).await?;
+    let node_stats = node_stats
+        .into_iter()
+        .map(|ns| (ns.blockchain_id, ns))
+        .collect();
+
     let blockchain =
-        api::Blockchain::from_model(blockchain, &version_to_network_map, &mut read).await?;
+        api::Blockchain::from_model(blockchain, &version_to_network_map, &node_stats, &mut read)
+            .await?;
 
     Ok(api::BlockchainServiceGetResponse {
         blockchain: Some(blockchain),
@@ -126,11 +161,27 @@ async fn get(
 }
 
 async fn list(
-    _req: api::BlockchainServiceListRequest,
+    req: api::BlockchainServiceListRequest,
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServiceListResponse, Error> {
-    read.auth_all(&meta, BlockchainPerm::List).await?;
+    let org_id = req
+        .org_id
+        .as_deref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
+
+    if let Some(org_id) = org_id {
+        read.auth_or_all(
+            &meta,
+            BlockchainAdminPerm::List,
+            BlockchainPerm::List,
+            org_id,
+        )
+        .await?
+    } else {
+        read.auth_all(&meta, BlockchainAdminPerm::List).await?
+    };
 
     // We need to combine info from two seperate sources: the database and cookbook. Since
     // cookbook is slow, the step where we call it is parallelized.
@@ -172,8 +223,15 @@ async fn list(
         .map(|(version_id, id)| try_get_networks(&read.ctx.cookbook, version_id, id));
     let version_to_network_map = join_all(network_futs).await.into_iter().collect();
 
+    let node_stats = Blockchain::node_stats(org_id, &mut read).await?;
+    let node_stats = node_stats
+        .into_iter()
+        .map(|ns| (ns.blockchain_id, ns))
+        .collect();
+
     let blockchains =
-        api::Blockchain::from_models(blockchains, &version_to_network_map, &mut read).await?;
+        api::Blockchain::from_models(blockchains, &version_to_network_map, &node_stats, &mut read)
+            .await?;
 
     Ok(api::BlockchainServiceListResponse { blockchains })
 }
@@ -222,6 +280,7 @@ impl api::Blockchain {
     async fn from_models(
         models: Vec<Blockchain>,
         version_to_network_map: &HashMap<BlockchainVersionId, Vec<api::BlockchainNetwork>>,
+        node_stats: &HashMap<BlockchainId, NodeStats>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         let ids: HashSet<_> = models.iter().map(|blockchain| blockchain.id).collect();
@@ -249,7 +308,6 @@ impl api::Blockchain {
                 .or_default()
                 .push(property);
         }
-
         models
             .into_iter()
             .map(|model| {
@@ -272,6 +330,36 @@ impl api::Blockchain {
                     )?,
                     created_at: Some(NanosUtc::from(model.created_at).into()),
                     updated_at: Some(NanosUtc::from(model.updated_at).into()),
+                    node_count: node_stats
+                        .get(&model.id)
+                        .map(|stat| stat.node_count)
+                        .unwrap_or_default()
+                        .try_into()
+                        .map_err(Error::NodeCount)?,
+                    node_count_active: node_stats
+                        .get(&model.id)
+                        .map(|stat| stat.node_count_active)
+                        .unwrap_or_default()
+                        .try_into()
+                        .map_err(Error::NodeCountActive)?,
+                    node_count_syncing: node_stats
+                        .get(&model.id)
+                        .map(|stat| stat.node_count_syncing)
+                        .unwrap_or_default()
+                        .try_into()
+                        .map_err(Error::NodeCountSyncing)?,
+                    node_count_provisioning: node_stats
+                        .get(&model.id)
+                        .map(|stat| stat.node_count_provisioning)
+                        .unwrap_or_default()
+                        .try_into()
+                        .map_err(Error::NodeCountProvisioning)?,
+                    node_count_failed: node_stats
+                        .get(&model.id)
+                        .map(|stat| stat.node_count_failed)
+                        .unwrap_or_default()
+                        .try_into()
+                        .map_err(Error::NodeCountFailed)?,
                 })
             })
             .collect()
@@ -280,9 +368,12 @@ impl api::Blockchain {
     async fn from_model(
         model: Blockchain,
         version_to_network_map: &HashMap<BlockchainVersionId, Vec<api::BlockchainNetwork>>,
+        node_stats: &HashMap<BlockchainId, NodeStats>,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
-        Ok(Self::from_models(vec![model], version_to_network_map, conn).await?[0].clone())
+        let chains =
+            Self::from_models(vec![model], version_to_network_map, node_stats, conn).await?;
+        Ok(chains[0].clone())
     }
 }
 

@@ -19,6 +19,7 @@ use crate::database::Conn;
 
 use super::rbac::RbacUser;
 use super::schema::{nodes, orgs, orgs_users, user_roles};
+use super::Paginate;
 
 const PERSONAL_ORG_NAME: &str = "Personal";
 
@@ -46,18 +47,24 @@ pub enum Error {
     FindPersonal(UserId, diesel::result::Error),
     /// Failed to check if org `{0}` has user `{1}`: {2}
     HasUser(OrgId, UserId, diesel::result::Error),
+    /// Failed to parse org limit as i64: {0}
+    Limit(std::num::TryFromIntError),
     /// Failed to find org memberships for user `{0}`: {1}
     Memberships(UserId, diesel::result::Error),
     /// Failed to parse node count for org: {0}
     NodeCount(std::num::TryFromIntError),
     /// Failed to get node counts for org: {0}
     NodeCounts(diesel::result::Error),
+    /// Failed to parse org offset as i64: {0}
+    Offset(std::num::TryFromIntError),
     /// Org model RBAC error: {0}
     Rbac(#[from] crate::models::rbac::Error),
     /// Failed to remove org user: {0}
     RemoveUser(diesel::result::Error),
     /// Failed to reset token: {0}
     ResetToken(diesel::result::Error),
+    /// Failed to parse org total as i64: {0}
+    Total(std::num::TryFromIntError),
     /// Failed to update org: {0}
     Update(diesel::result::Error),
 }
@@ -113,10 +120,12 @@ impl Org {
             .map_err(|err| Error::FindByIds(org_ids, err))
     }
 
-    pub async fn filter(
-        member_id: Option<UserId>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
+    pub async fn filter(filter: OrgFilter, conn: &mut Conn<'_>) -> Result<(u64, Vec<Self>), Error> {
+        let OrgFilter {
+            member_id,
+            offset,
+            limit,
+        } = filter;
         let mut query = Self::not_deleted()
             .left_join(user_roles::table)
             .into_boxed();
@@ -125,12 +134,19 @@ impl Org {
             query = query.filter(user_roles::user_id.eq(member_id));
         }
 
-        query
+        let limit = i64::try_from(limit).map_err(Error::Limit)?;
+        let offset = i64::try_from(offset).map_err(Error::Offset)?;
+        let (total, orgs) = query
+            .order_by(orgs::created_at.desc())
             .select(Self::as_select())
-            .distinct()
-            .get_results(conn)
+            .paginate(limit, offset)
+            .get_results_counted(conn)
             .await
-            .map_err(Error::Filter)
+            .map_err(Error::Filter)?;
+
+        let total = u64::try_from(total).map_err(Error::Total)?;
+
+        Ok((total, orgs))
     }
 
     pub async fn find_personal(user_id: UserId, conn: &mut Conn<'_>) -> Result<Org, Error> {
@@ -229,6 +245,12 @@ impl AsRef<Org> for Org {
     fn as_ref(&self) -> &Org {
         self
     }
+}
+
+pub struct OrgFilter {
+    pub member_id: Option<UserId>,
+    pub offset: u64,
+    pub limit: u64,
 }
 
 #[derive(Debug, Insertable)]

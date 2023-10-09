@@ -18,7 +18,7 @@ use blockvisor_api::config::Context;
 use blockvisor_api::database::seed::{self, Seed};
 use blockvisor_api::database::tests::TestDb;
 use blockvisor_api::database::Conn;
-use blockvisor_api::models::{Host, User};
+use blockvisor_api::models::{Host, Org, User};
 
 use self::helper::rpc;
 use self::helper::traits::SocketRpc;
@@ -141,6 +141,12 @@ impl TestServer {
     pub async fn host2(&self) -> Host {
         let mut conn = self.conn().await;
         Host::find_by_name(seed::HOST_2, &mut conn).await.unwrap()
+    }
+
+    pub async fn org(&self) -> Org {
+        let mut conn = self.conn().await;
+        let org_id = seed::ORG_ID.parse().unwrap();
+        Org::find_by_id(org_id, &mut conn).await.unwrap()
     }
 
     pub async fn rng(&mut self) -> OsRng {

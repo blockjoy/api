@@ -178,42 +178,47 @@ async fn test_billing() {
 }
 
 #[tokio::test]
-async fn test_filter() {
+async fn test_list() {
     let test = TestServer::new().await;
 
     let org_id = test.seed().org.id.to_string();
     let fake_org_id = Uuid::new_v4().to_string();
-    let req = |org_id, email_like| api::UserServiceFilterRequest { org_id, email_like };
+    let req = |org_id, email_like| api::UserServiceListRequest {
+        org_id,
+        email_like,
+        offset: 0,
+        limit: 10,
+    };
 
-    // Test that an org member can filter our own org.
+    // Test that an org member can list our own org.
     let resp = test
-        .send_member(Service::filter, req(Some(org_id), None))
+        .send_member(Service::list, req(Some(org_id), None))
         .await
         .unwrap();
     assert_eq!(resp.users.len(), 3, "{resp:?}");
 
-    // Test that an org member cannot filter other organizations
-    test.send_member(Service::filter, req(Some(fake_org_id.clone()), None))
+    // Test that an org member cannot list other organizations
+    test.send_member(Service::list, req(Some(fake_org_id.clone()), None))
         .await
         .unwrap_err();
 
-    // Test that a blockjoy admin can filter for other organizations.
+    // Test that a blockjoy admin can list for other organizations.
     let resp = test
-        .send_root(Service::filter, req(Some(fake_org_id), None))
+        .send_root(Service::list, req(Some(fake_org_id), None))
         .await
         .unwrap();
     assert_eq!(resp.users.len(), 0, "{resp:?}");
 
-    // Test that root can filter by email
+    // Test that root can list by email
     let resp = test
-        .send_root(Service::filter, req(None, Some("admin%".to_string())))
+        .send_root(Service::list, req(None, Some("admin%".to_string())))
         .await
         .unwrap();
     assert_eq!(resp.users.len(), 1, "{resp:?}");
 
     // Test that we don't get matches when there are none
     let resp = test
-        .send_root(Service::filter, req(None, Some("admin".to_string())))
+        .send_root(Service::list, req(None, Some("admin".to_string())))
         .await
         .unwrap();
     assert_eq!(resp.users.len(), 0, "{resp:?}");

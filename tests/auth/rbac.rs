@@ -66,21 +66,24 @@ async fn blockjoy_admin_can_list_all_orgs() {
             .map(|org| org.id.parse().unwrap())
             .collect::<HashSet<OrgId>>()
     };
+    let make_req = |id| api::OrgServiceListRequest {
+        member_id: id,
+        offset: 0,
+        limit: 10,
+    };
 
     // user can list own org
-    let req = api::OrgServiceListRequest {
-        member_id: Some(test.seed().user.id.to_string()),
-    };
+    let req = make_req(Some(test.seed().user.id.to_string()));
     let resp = test.send_admin(OrgService::list, req).await.unwrap();
     assert!(org_ids(resp).contains(&org_id));
 
     // user cannot list all orgs
-    let req = api::OrgServiceListRequest { member_id: None };
+    let req = make_req(None);
     let status = test.send_admin(OrgService::list, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::PermissionDenied);
 
     // blockjoy admin can list all orgs
-    let req = api::OrgServiceListRequest { member_id: None };
+    let req = make_req(None);
     let resp = test.send_root(OrgService::list, req).await.unwrap();
     assert!(org_ids(resp).contains(&org_id));
 }

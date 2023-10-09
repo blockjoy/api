@@ -21,6 +21,7 @@ use crate::email::Language;
 
 use super::org::NewOrg;
 use super::schema::{user_roles, users};
+use super::Paginate;
 
 type NotDeleted = dsl::Filter<users::table, dsl::IsNull<users::deleted_at>>;
 
@@ -50,12 +51,16 @@ pub enum Error {
     FindByIds(HashSet<UserId>, diesel::result::Error),
     /// Failed to check if user `{0}` is confirmed: {1}
     IsConfirmed(UserId, diesel::result::Error),
+    /// Failed to parse user limit as i64: {0}
+    Limit(std::num::TryFromIntError),
     /// Login failed because no email was found.
     LoginEmail,
     /// Missing password hash.
     MissingHash,
     /// User is not confirmed.
     NotConfirmed,
+    /// Failed to parse user offset as i64: {0}
+    Offset(std::num::TryFromIntError),
     /// User org model error: {0}
     Org(#[from] crate::models::org::Error),
     /// Failed to parse password hash: {0}
@@ -64,6 +69,8 @@ pub enum Error {
     ParseSalt(password_hash::Error),
     /// User RBAC error: {0}
     Rbac(#[from] crate::models::rbac::Error),
+    /// Failed to parse user total as i64: {0}
+    Total(std::num::TryFromIntError),
     /// Failed to update user: {0}
     Update(diesel::result::Error),
     /// Failed to update user `{0}`: {1}
@@ -147,10 +154,15 @@ impl User {
     }
 
     pub async fn filter(
-        org_id: Option<OrgId>,
-        email_like: Option<&str>,
+        filter: UserFilter<'_>,
         conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
+    ) -> Result<(u64, Vec<Self>), Error> {
+        let UserFilter {
+            org_id,
+            email_like,
+            offset,
+            limit,
+        } = filter;
         let mut query = Self::not_deleted()
             .left_join(user_roles::table)
             .into_boxed();
@@ -162,12 +174,17 @@ impl User {
             query = query.filter(super::lower(users::email).like(email_like.trim().to_lowercase()));
         }
 
-        query
-            .select(User::as_select())
+        let limit = i64::try_from(limit).map_err(Error::Limit)?;
+        let offset = i64::try_from(offset).map_err(Error::Offset)?;
+        let (total, users) = query
+            .select(Self::as_select())
             .distinct()
-            .get_results(conn)
+            .paginate(limit, offset)
+            .get_results_counted(conn)
             .await
-            .map_err(Error::Filter)
+            .map_err(Error::Filter)?;
+        let total = u64::try_from(total).map_err(Error::Total)?;
+        Ok((total, users))
     }
 
     pub fn verify_password(&self, password: &str) -> Result<(), Error> {
@@ -288,6 +305,13 @@ impl User {
     fn not_deleted() -> NotDeleted {
         users::table.filter(users::deleted_at.is_null())
     }
+}
+
+pub struct UserFilter<'a> {
+    pub org_id: Option<OrgId>,
+    pub email_like: Option<&'a str>,
+    pub offset: u64,
+    pub limit: u64,
 }
 
 #[derive(Debug, Clone, Validate, Insertable)]

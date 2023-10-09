@@ -11,7 +11,7 @@ use crate::auth::rbac::{OrgAdminPerm, OrgPerm, OrgProvisionPerm};
 use crate::auth::resource::{OrgId, UserId};
 use crate::auth::Authorize;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
-use crate::models::org::{NewOrg, UpdateOrg};
+use crate::models::org::{NewOrg, OrgFilter, UpdateOrg};
 use crate::models::rbac::{OrgUsers, RbacUser};
 use crate::models::{Invitation, Org, OrgUser, User};
 use crate::timestamp::NanosUtc;
@@ -195,21 +195,17 @@ async fn list(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceListResponse, Error> {
-    let member_id: Option<UserId> = match req.member_id {
-        Some(id) => Some(id.parse().map_err(Error::ParseUserId)?),
-        None => None,
-    };
-
-    if let Some(user_id) = member_id {
+    let filter = req.as_filter()?;
+    if let Some(user_id) = filter.member_id {
         read.auth(&meta, OrgPerm::List, user_id).await?
     } else {
         read.auth_all(&meta, OrgAdminPerm::List).await?
     };
 
-    let orgs = Org::filter(member_id, &mut read).await?;
+    let (org_count, orgs) = Org::filter(filter, &mut read).await?;
     let orgs = api::Org::from_models(orgs.as_slice(), &mut read).await?;
 
-    Ok(api::OrgServiceListResponse { orgs })
+    Ok(api::OrgServiceListResponse { orgs, org_count })
 }
 
 async fn update(
@@ -405,5 +401,19 @@ impl api::Org {
             .await?
             .pop()
             .ok_or(Error::ConvertNoOrg)
+    }
+}
+
+impl api::OrgServiceListRequest {
+    fn as_filter(&self) -> Result<OrgFilter, Error> {
+        Ok(OrgFilter {
+            member_id: self
+                .member_id
+                .as_ref()
+                .map(|id| id.parse().map_err(Error::ParseUserId))
+                .transpose()?,
+            offset: self.offset,
+            limit: self.limit,
+        })
     }
 }

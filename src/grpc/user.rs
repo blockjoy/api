@@ -9,7 +9,7 @@ use crate::auth::rbac::{UserAdminPerm, UserBillingPerm, UserPerm};
 use crate::auth::resource::UserId;
 use crate::auth::{self, token, Authorize};
 use crate::database::{ReadConn, Transaction, WriteConn};
-use crate::models::user::{NewUser, UpdateUser, User};
+use crate::models::user::{NewUser, UpdateUser, User, UserFilter};
 use crate::timestamp::NanosUtc;
 
 use super::api::user_service_server::UserService;
@@ -72,13 +72,12 @@ impl UserService for Grpc {
         self.read(|read| get(req, meta, read).scope_boxed()).await
     }
 
-    async fn filter(
+    async fn list(
         &self,
-        req: Request<api::UserServiceFilterRequest>,
-    ) -> Result<Response<api::UserServiceFilterResponse>, Status> {
+        req: Request<api::UserServiceListRequest>,
+    ) -> Result<Response<api::UserServiceListResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| filter(req, meta, read).scope_boxed())
-            .await
+        self.read(|read| list(req, meta, read).scope_boxed()).await
     }
 
     async fn update(
@@ -176,28 +175,22 @@ async fn get(
     })
 }
 
-async fn filter(
-    req: api::UserServiceFilterRequest,
+async fn list(
+    req: api::UserServiceListRequest,
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
-) -> Result<api::UserServiceFilterResponse, Error> {
-    let org_id = req
-        .org_id
-        .map(|id| id.parse().map_err(Error::ParseOrgId))
-        .transpose()?;
-
-    if let Some(org_id) = org_id {
+) -> Result<api::UserServiceListResponse, Error> {
+    let filter = req.as_filter()?;
+    if let Some(org_id) = filter.org_id {
         read.auth_or_all(&meta, UserAdminPerm::Filter, UserPerm::Filter, org_id)
             .await?
     } else {
         read.auth_all(&meta, UserAdminPerm::Filter).await?
     };
 
-    let users = User::filter(org_id, req.email_like.as_deref(), &mut read)
-        .await
-        .map(api::User::from_models)?;
-
-    Ok(api::UserServiceFilterResponse { users })
+    let (user_count, users) = User::filter(filter, &mut read).await?;
+    let users = api::User::from_models(users);
+    Ok(api::UserServiceListResponse { users, user_count })
 }
 
 async fn update(
@@ -302,6 +295,21 @@ impl api::UserServiceCreateRequest {
             &self.password,
         )
         .map_err(Into::into)
+    }
+}
+
+impl api::UserServiceListRequest {
+    fn as_filter(&self) -> Result<UserFilter<'_>, Error> {
+        Ok(UserFilter {
+            org_id: self
+                .org_id
+                .as_ref()
+                .map(|id| id.parse().map_err(Error::ParseOrgId))
+                .transpose()?,
+            email_like: self.email_like.as_deref(),
+            offset: self.offset,
+            limit: self.limit,
+        })
     }
 }
 
