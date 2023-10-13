@@ -193,6 +193,14 @@ impl Claims {
         match self.resource() {
             Resource::User(id) => Ok(Some(Granted(RbacPerm::for_org(id, org_id, conn).await?))),
             Resource::Org(id) if id == org_id => Ok(None),
+            Resource::Host(id) => {
+                let host = Host::find_by_id(id, conn).await?;
+                if host.org_id == org_id {
+                    Ok(None)
+                } else {
+                    Err(Error::EnsureOrg)
+                }
+            }
             _ => Err(Error::EnsureOrg),
         }
     }
