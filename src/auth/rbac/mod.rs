@@ -117,6 +117,11 @@ define_perms! {
         Regions,
     }
 
+    HostAdmin => {
+        Get,
+        List,
+    }
+
     HostBilling => {
         Get
     }
@@ -187,6 +192,7 @@ define_perms! {
     }
 
     OrgAdmin => {
+        Get,
         List,
     }
 

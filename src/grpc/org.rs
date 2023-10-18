@@ -182,7 +182,8 @@ async fn get(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetResponse, Error> {
     let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
-    read.auth(&meta, OrgPerm::Get, org_id).await?;
+    read.auth_or_all(&meta, OrgAdminPerm::Get, OrgPerm::Get, org_id)
+        .await?;
 
     let org = Org::find_by_id(org_id, &mut read).await?;
     let org = api::Org::from_model(&org, &mut read).await?;

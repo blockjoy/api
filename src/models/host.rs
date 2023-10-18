@@ -158,7 +158,7 @@ impl AsRef<Host> for Host {
 
 #[derive(Clone, Debug)]
 pub struct HostFilter {
-    pub org_id: OrgId,
+    pub org_id: Option<OrgId>,
     pub offset: u64,
     pub limit: u64,
 }
@@ -217,7 +217,11 @@ impl Host {
             offset,
             limit,
         } = filter;
-        let query = hosts::table.filter(hosts::org_id.eq(org_id)).into_boxed();
+        let mut query = hosts::table.into_boxed();
+
+        if let Some(org_id) = org_id {
+            query = query.filter(hosts::org_id.eq(org_id));
+        }
 
         let limit = i64::try_from(limit).map_err(Error::Limit)?;
         let offset = i64::try_from(offset).map_err(Error::Offset)?;

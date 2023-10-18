@@ -8,7 +8,7 @@ use tonic::{Request, Response, Status};
 use tracing::error;
 
 use crate::auth::claims::Claims;
-use crate::auth::rbac::{GrpcRole, HostPerm};
+use crate::auth::rbac::{GrpcRole, HostAdminPerm, HostPerm};
 use crate::auth::resource::{HostId, OrgId};
 use crate::auth::token::refresh::Refresh;
 use crate::auth::{AuthZ, Authorize};
@@ -232,7 +232,9 @@ async fn get(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceGetResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
-    let authz = read.auth(&meta, HostPerm::Get, id).await?;
+    let authz = read
+        .auth_or_all(&meta, HostAdminPerm::Get, HostPerm::Get, id)
+        .await?;
 
     let host = Host::find_by_id(id, &mut read).await?;
     let host = api::Host::from_host(host, Some(&authz), &mut read).await?;
@@ -245,10 +247,15 @@ async fn list(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceListResponse, Error> {
-    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let authz = read.auth(&meta, HostPerm::List, org_id).await?;
+    let filter = req.as_filter()?;
+    let authz = if let Some(org_id) = filter.org_id {
+        read.auth_or_all(&meta, HostAdminPerm::List, HostPerm::List, org_id)
+            .await?
+    } else {
+        read.auth_all(&meta, HostAdminPerm::List).await?
+    };
 
-    let (host_count, hosts) = Host::filter(req.as_filter()?, &mut read).await?;
+    let (host_count, hosts) = Host::filter(filter, &mut read).await?;
     let hosts = api::Host::from_hosts(hosts, Some(&authz), &mut read).await?;
 
     Ok(api::HostServiceListResponse { hosts, host_count })
@@ -517,7 +524,11 @@ impl api::HostServiceCreateRequest {
 impl api::HostServiceListRequest {
     fn as_filter(&self) -> Result<HostFilter, Error> {
         Ok(HostFilter {
-            org_id: self.org_id.parse().map_err(Error::ParseOrgId)?,
+            org_id: self
+                .org_id
+                .as_ref()
+                .map(|id| id.parse().map_err(Error::ParseOrgId))
+                .transpose()?,
             offset: self.offset,
             limit: self.limit,
         })
