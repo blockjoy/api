@@ -62,13 +62,13 @@ where
 
 #[derive(Debug, Deserialize)]
 struct Callback {
-    event: Event,
+    content: Content,
+    event_type: EventType,
 }
 
 #[derive(Debug, Deserialize)]
-struct Event {
+struct Content {
     subscription: EventSubscription,
-    event_type: EventType,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,7 +112,7 @@ async fn callback(
 
     dbg!(&callback);
 
-    let resp = match callback.event.event_type {
+    let resp = match callback.event_type {
         EventType::SubscriptionCancelled => {
             ctx.write(|c| subscription_cancelled(callback, c).scope_boxed())
                 .await
@@ -132,7 +132,7 @@ async fn subscription_cancelled(
     callback: Callback,
     mut write: WriteConn<'_, '_>,
 ) -> Result<&'static str, Error> {
-    let id = callback.event.subscription.id;
+    let id = callback.content.subscription.id;
     let subscription = Subscription::find_by_external_id(&id, &mut write).await?;
     let nodes = Node::find_by_org(subscription.org_id, &mut write).await?;
 
@@ -179,13 +179,205 @@ async fn delete_node(node: &Node, write: &mut WriteConn<'_, '_>) -> Result<(), E
     Ok(())
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[test]
-//     fn can_parse_example_event() {
-//         let test_event = "put sample event here once we have one";
-//         let _: Callback = serde_json::from_str(test_event).unwrap();
-//     }
-// }
+    #[test]
+    fn can_parse_example_event() {
+        let test_event = r#"{
+            "id": "ev_Azqea1ToyBXXnjoP",
+            "occurred_at": 1693902804,
+            "source": "api",
+            "user": "full_access_key_v1",
+            "object": "event",
+            "api_version": "v2",
+            "content": {
+                "subscription": {
+                    "id": "Azz5eSTos9KFABDRX",
+                    "billing_period": 1,
+                    "billing_period_unit": "year",
+                    "auto_collection": "on",
+                    "customer_id": "169luiToJHAWBQHr",
+                    "status": "cancelled",
+                    "current_term_start": 1693813618,
+                    "current_term_end": 1693902804,
+                    "created_at": 1693813618,
+                    "started_at": 1693813618,
+                    "activated_at": 1693813618,
+                    "cancelled_at": 1693902804,
+                    "updated_at": 1693902804,
+                    "has_scheduled_changes": false,
+                    "payment_source_id": "pm_Azz5eSTos998aBDIe",
+                    "cancel_schedule_created_at": 1693902526,
+                    "channel": "web",
+                    "resource_version": 1693902804209,
+                    "deleted": false,
+                    "object": "subscription",
+                    "currency_code": "USD",
+                    "subscription_items": [
+                        {
+                            "item_price_id": "STANDARD-USD-Y",
+                            "item_type": "plan",
+                            "quantity": 1,
+                            "unit_price": 0,
+                            "amount": 0,
+                            "free_quantity": 0,
+                            "object": "subscription_item"
+                        }
+                    ],
+                    "due_invoices_count": 0,
+                    "mrr": 0,
+                    "has_scheduled_advance_invoices": false
+                },
+                "customer": {
+                    "id": "169luiToJHAWBQHr",
+                    "first_name": "10Dragan",
+                    "last_name": "Rakita",
+                    "email": "dragan+10@blockjoy.com",
+                    "auto_collection": "on",
+                    "net_term_days": 0,
+                    "allow_direct_debit": false,
+                    "created_at": 1693298315,
+                    "taxability": "taxable",
+                    "updated_at": 1693861347,
+                    "pii_cleared": "active",
+                    "channel": "web",
+                    "resource_version": 1693861347042,
+                    "deleted": false,
+                    "object": "customer",
+                    "billing_address": {
+                        "first_name": "10Dragan",
+                        "last_name": "010Rakita",
+                        "line1": "339 Pacific Ave.",
+                        "city": "Hernando",
+                        "country": "US",
+                        "zip": "85001",
+                        "validation_status": "not_validated",
+                        "object": "billing_address"
+                    },
+                    "card_status": "valid",
+                    "contacts": [
+                        {
+                            "id": "contact_AzqeaYToP5cUKem7",
+                            "first_name": "Dragan  Rakita",
+                            "email": "dragan@blockjoy.com",
+                            "label": "AzZiy3ToJHCIQSrk",
+                            "enabled": true,
+                            "send_account_email": false,
+                            "send_billing_email": true,
+                            "object": "contact"
+                        },
+                        {
+                            "id": "contact_AzZj5RToP7vrIiqr",
+                            "first_name": "Dragan  Rakita2",
+                            "email": "dragan+02@blockjoy.com",
+                            "label": "AzZiy3ToJHCIQSrk",
+                            "enabled": true,
+                            "send_account_email": false,
+                            "send_billing_email": true,
+                            "object": "contact"
+                        },
+                        {
+                            "id": "contact_AzqeaYToP88S3gq0",
+                            "first_name": "Dragan  Rakita3",
+                            "email": "dragan+03@blockjoy.com",
+                            "label": "AzZiy3ToJHCIQSrk",
+                            "enabled": true,
+                            "send_account_email": false,
+                            "send_billing_email": true,
+                            "object": "contact"
+                        },
+                        {
+                            "id": "contact_AzZj5RToP8mAvjdp",
+                            "first_name": "Dragan  Rakita4",
+                            "email": "dragan+04@blockjoy.com",
+                            "label": "AzZiy3ToJHCIQSrk",
+                            "enabled": true,
+                            "send_account_email": false,
+                            "send_billing_email": true,
+                            "object": "contact"
+                        },
+                        {
+                            "id": "contact_Azz5cbToUiF3bNoc",
+                            "first_name": "Dragan  Rakita5",
+                            "email": "dragan+05@blockjoy.com",
+                            "label": "AzZiy3ToJHCIQSrk",
+                            "enabled": true,
+                            "send_account_email": false,
+                            "send_billing_email": true,
+                            "object": "contact"
+                        },
+                        {
+                            "id": "contact_Azz5jjTovNad52Gxz",
+                            "first_name": "Dragan  Rakita",
+                            "email": "dragan@blockjoy.com",
+                            "label": "16CJAsToViB8HLTQ",
+                            "enabled": true,
+                            "send_account_email": false,
+                            "send_billing_email": true,
+                            "object": "contact"
+                        }
+                    ],
+                    "balances": [
+                        {
+                            "promotional_credits": 0,
+                            "excess_payments": 0,
+                            "refundable_credits": 12,
+                            "unbilled_charges": 0,
+                            "object": "customer_balance",
+                            "currency_code": "USD",
+                            "balance_currency_code": "USD"
+                        }
+                    ],
+                    "promotional_credits": 0,
+                    "refundable_credits": 12,
+                    "excess_payments": 0,
+                    "unbilled_charges": 0,
+                    "preferred_currency_code": "USD",
+                    "primary_payment_source_id": "pm_Azz5eSTos998aBDIe",
+                    "payment_method": {
+                        "object": "payment_method",
+                        "type": "card",
+                        "reference_id": "CB_AzqeOcTos98L0BE1M/XQ2BP5MZF3M84H82",
+                        "gateway": "adyen",
+                        "gateway_account_id": "gw_AzZiy6TcWrETcfCo",
+                        "status": "valid"
+                    },
+                    "tax_providers_fields": []
+                },
+                "card": {
+                    "status": "valid",
+                    "gateway": "adyen",
+                    "gateway_account_id": "gw_AzZiy6TcWrETcfCo",
+                    "ref_tx_id": "ZKSS94Z9HVTFWR82",
+                    "first_name": "10Dragan",
+                    "last_name": "010Rakita",
+                    "iin": "555555",
+                    "last4": "4444",
+                    "card_type": "mastercard",
+                    "funding_type": "not_known",
+                    "expiry_month": 3,
+                    "expiry_year": 2030,
+                    "billing_addr1": "339 Pacific Ave.",
+                    "billing_addr2": "ZZ",
+                    "billing_city": "Hernando",
+                    "billing_state": "ZZ",
+                    "billing_country": "US",
+                    "billing_zip": "85001",
+                    "created_at": 1693813575,
+                    "updated_at": 1693813575,
+                    "powered_by": "card",
+                    "resource_version": 1693813575765,
+                    "object": "card",
+                    "masked_number": "************4444",
+                    "customer_id": "169luiToJHAWBQHr",
+                    "payment_source_id": "pm_Azz5eSTos998aBDIe"
+                }
+            },
+            "event_type": "subscription_cancelled",
+            "webhook_status": "not_configured"
+        }"#;
+        let _: Callback = serde_json::from_str(test_event).unwrap();
+    }
+}
