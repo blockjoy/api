@@ -251,8 +251,12 @@ async fn list(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::NodeServiceListResponse, Error> {
     let filter = req.as_filter()?;
-    read.auth_or_all(&meta, NodeAdminPerm::List, NodePerm::List, filter.org_id)
-        .await?;
+    if let Some(org_id) = filter.org_id {
+        read.auth_or_all(&meta, NodeAdminPerm::List, NodePerm::List, org_id)
+            .await?
+    } else {
+        read.auth_all(&meta, NodeAdminPerm::List).await?
+    };
 
     let (node_count, nodes) = Node::filter(filter, &mut read).await?;
     let nodes = api::Node::from_models(nodes, &mut read).await?;
@@ -837,7 +841,11 @@ impl api::NodeServiceCreateRequest {
 impl api::NodeServiceListRequest {
     fn as_filter(&self) -> Result<NodeFilter, Error> {
         Ok(NodeFilter {
-            org_id: self.org_id.parse().map_err(Error::ParseOrgId)?,
+            org_id: self
+                .org_id
+                .as_ref()
+                .map(|id| id.parse().map_err(Error::ParseOrgId))
+                .transpose()?,
             offset: self.offset,
             limit: self.limit,
             status: self.statuses().map(api::NodeStatus::into_model).collect(),

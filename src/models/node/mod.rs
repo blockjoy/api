@@ -161,7 +161,7 @@ pub struct Node {
 
 #[derive(Clone, Debug)]
 pub struct NodeFilter {
-    pub org_id: OrgId,
+    pub org_id: Option<OrgId>,
     pub offset: u64,
     pub limit: u64,
     pub status: Vec<NodeChainStatus>,
@@ -232,7 +232,11 @@ impl Node {
             host_id,
         } = filter;
 
-        let mut query = nodes::table.filter(nodes::org_id.eq(org_id)).into_boxed();
+        let mut query = nodes::table.into_boxed();
+
+        if let Some(org_id) = org_id {
+            query = query.filter(nodes::org_id.eq(org_id));
+        }
 
         // Apply filters if present
         if !blockchains.is_empty() {
@@ -654,7 +658,7 @@ mod tests {
             blockchains: vec![blockchain_id],
             limit: 10,
             offset: 0,
-            org_id,
+            org_id: Some(org_id),
             host_id: Some(host_id),
         };
 
