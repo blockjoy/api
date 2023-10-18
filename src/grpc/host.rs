@@ -364,7 +364,7 @@ async fn regions(
     let image = Image::new(&blockchain.name, node_type, req.version.into());
     let requirements = read.ctx.cookbook.rhai_metadata(&image).await?.requirements;
 
-    let regions = Host::regions_for(
+    let mut regions = Host::regions_for(
         org_id,
         blockchain,
         node_type,
@@ -373,9 +373,15 @@ async fn regions(
         &mut read,
     )
     .await?;
+    regions.sort_by(|r1, r2| r1.name.cmp(&r2.name));
 
-    let mut regions = regions.into_iter().map(|r| r.name).collect::<Vec<_>>();
-    regions.sort();
+    let regions = regions
+        .into_iter()
+        .map(|r| api::Region {
+            name: Some(r.name),
+            pricing_tier: r.pricing_tier,
+        })
+        .collect();
 
     Ok(api::HostServiceRegionsResponse { regions })
 }

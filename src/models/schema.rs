@@ -329,6 +329,7 @@ diesel::table! {
     regions (id) {
         id -> Uuid,
         name -> Text,
+        pricing_tier -> Nullable<Text>,
     }
 }
 
@@ -392,7 +393,6 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(api_keys -> users (user_id));
 diesel::joinable!(blockchain_node_types -> blockchains (blockchain_id));
 diesel::joinable!(blockchain_properties -> blockchain_node_types (blockchain_node_type_id));
 diesel::joinable!(blockchain_properties -> blockchain_versions (blockchain_version_id));
@@ -420,7 +420,6 @@ diesel::joinable!(orgs_users -> users (user_id));
 diesel::joinable!(role_permissions -> permissions (permission));
 diesel::joinable!(role_permissions -> roles (role));
 diesel::joinable!(subscriptions -> orgs (org_id));
-diesel::joinable!(subscriptions -> users (user_id));
 diesel::joinable!(user_roles -> orgs (org_id));
 diesel::joinable!(user_roles -> roles (role));
 diesel::joinable!(user_roles -> users (user_id));

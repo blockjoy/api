@@ -45,6 +45,7 @@ pub struct RegionId(Uuid);
 pub struct Region {
     pub id: RegionId,
     pub name: String,
+    pub pricing_tier: Option<String>,
 }
 
 impl Region {
