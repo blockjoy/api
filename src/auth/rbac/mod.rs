@@ -213,6 +213,7 @@ define_perms! {
 
     UserAdmin => {
         Filter,
+        Get,
         Update,
     }
 

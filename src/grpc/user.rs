@@ -166,7 +166,8 @@ async fn get(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::UserServiceGetResponse, Error> {
     let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
-    read.auth(&meta, UserPerm::Get, user_id).await?;
+    read.auth_or_all(&meta, UserAdminPerm::Get, UserPerm::Get, user_id)
+        .await?;
 
     let user = User::find_by_id(user_id, &mut read).await?;
 
