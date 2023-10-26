@@ -127,9 +127,7 @@ impl Org {
             limit,
             search,
         } = filter;
-        let mut query = Self::not_deleted()
-            .left_join(user_roles::table)
-            .into_boxed();
+        let mut query = orgs::table.left_join(user_roles::table).into_boxed();
 
         // search fields
         if let Some(search) = search {
@@ -161,6 +159,8 @@ impl Org {
         let limit = i64::try_from(limit).map_err(Error::Limit)?;
         let offset = i64::try_from(offset).map_err(Error::Offset)?;
         let (total, orgs) = query
+            .filter(orgs::deleted_at.is_null())
+            .filter(dsl::not(orgs::is_personal))
             .order_by(orgs::created_at.desc())
             .select(Self::as_select())
             .distinct()
