@@ -164,9 +164,7 @@ impl User {
             limit,
             search,
         } = filter;
-        let mut query = Self::not_deleted()
-            .left_join(user_roles::table)
-            .into_boxed();
+        let mut query = users::table.left_join(user_roles::table).into_boxed();
 
         // search fields
         if let Some(search) = search {
@@ -210,6 +208,7 @@ impl User {
         let limit = i64::try_from(limit).map_err(Error::Limit)?;
         let offset = i64::try_from(offset).map_err(Error::Offset)?;
         let (total, users) = query
+            .filter(users::deleted_at.is_null())
             .select(Self::as_select())
             .distinct()
             .paginate(limit, offset)
