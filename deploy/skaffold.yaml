@@ -8,6 +8,8 @@ build:
   artifacts:
     - image: us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api
       context: ./
+      docker:
+        dockerfile: docker/Dockerfile
   local:
     push: true
 profiles:
