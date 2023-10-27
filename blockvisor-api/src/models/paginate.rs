@@ -17,8 +17,12 @@ impl<T> Paginate for T {
     fn paginate(self, limit: i64, offset: i64) -> Paginated<Self> {
         Paginated {
             query: self,
-            limit,
+            // If someone requests 0 items, i.e. `self.limit == 0`, we still want to return the
+            // correct count, so we need to return at least one row. That's why in this function we
+            // change the limit into 1, and then correct in `Paginated::get_results_counted`.
+            limit: if limit == 0 { 1 } else { limit },
             offset,
+            no_results: limit == 0,
         }
     }
 }
@@ -28,6 +32,7 @@ pub struct Paginated<T> {
     query: T,
     limit: i64,
     offset: i64,
+    no_results: bool,
 }
 
 impl<T> Paginated<T> {
@@ -46,9 +51,14 @@ impl<T> Paginated<T> {
         // `async fn get_results_counted<...>(...) -> ... + '_`, then we would not restrict the
         // lifetime of the resulting Future, but rather the lifetime of `Future::Output` to `'_`.
         async move {
+            let no_results = self.no_results;
             let results = self.load::<(U, i64)>(conn).await?;
             let total = results.get(0).map_or(0, |x| x.1);
-            let records = results.into_iter().map(|x| x.0).collect();
+            let records = if no_results {
+                vec![]
+            } else {
+                results.into_iter().map(|x| x.0).collect()
+            };
             Ok((total, records))
         }
     }
