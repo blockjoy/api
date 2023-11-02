@@ -124,6 +124,7 @@ impl Org {
     pub async fn filter(filter: OrgFilter, conn: &mut Conn<'_>) -> Result<(u64, Vec<Self>), Error> {
         let OrgFilter {
             member_id,
+            personal,
             offset,
             limit,
             search,
@@ -155,6 +156,9 @@ impl Org {
 
         if let Some(member_id) = member_id {
             query = query.filter(user_roles::user_id.eq(member_id));
+        }
+        if let Some(personal) = personal {
+            query = query.filter(orgs::is_personal.eq(personal));
         }
 
         let limit = i64::try_from(limit).map_err(Error::Limit)?;
@@ -275,6 +279,7 @@ impl AsRef<Org> for Org {
 
 pub struct OrgFilter {
     pub member_id: Option<UserId>,
+    pub personal: Option<bool>,
     pub offset: u64,
     pub limit: u64,
     pub search: Option<OrgSearch>,

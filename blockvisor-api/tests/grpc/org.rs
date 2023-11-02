@@ -114,6 +114,7 @@ async fn member_count_works() {
     // Now we perform the same assertion for querying in bulk:
     let req = api::OrgServiceListRequest {
         member_id: Some(user_id.to_string()),
+        personal: None,
         offset: 0,
         limit: 10,
         search: None,

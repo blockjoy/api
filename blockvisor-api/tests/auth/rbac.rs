@@ -66,6 +66,7 @@ async fn blockjoy_admin_can_list_all_orgs() {
     };
     let make_req = |id| api::OrgServiceListRequest {
         member_id: id,
+        personal: None,
         offset: 0,
         limit: 10,
         search: None,

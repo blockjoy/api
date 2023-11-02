@@ -409,16 +409,23 @@ impl api::Org {
 
 impl api::OrgServiceListRequest {
     fn as_filter(&self) -> Result<OrgFilter, Error> {
+        let Self {
+            member_id,
+            personal,
+            offset,
+            limit,
+            search,
+        } = self;
+
         Ok(OrgFilter {
-            member_id: self
-                .member_id
+            member_id: member_id
                 .as_ref()
                 .map(|id| id.parse().map_err(Error::ParseUserId))
                 .transpose()?,
-            offset: self.offset,
-            limit: self.limit,
-            search: self
-                .search
+            personal: *personal,
+            offset: *offset,
+            limit: *limit,
+            search: search
                 .as_ref()
                 .map(|s| {
                     s.operator().try_into().map(|operator| OrgSearch {
