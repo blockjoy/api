@@ -46,6 +46,8 @@ pub enum Topic {
     Orgs { org_id: OrgId, rest: String },
     /// `/hosts/<uuid>/...`
     Hosts { host_id: HostId, rest: String },
+    /// `/bv/hosts/<uuid>/status`
+    HostStatus { host_id: HostId },
     /// `/nodes/<uuid>/...`
     Nodes { node_id: NodeId, rest: String },
 }
@@ -58,6 +60,8 @@ impl FromStr for Topic {
             Ok((TopicType::Orgs, suffix))
         } else if let Some(suffix) = s.strip_prefix("/hosts/") {
             Ok((TopicType::Hosts, suffix))
+        } else if let Some(suffix) = s.strip_prefix("/bv/hosts/") {
+            Ok((TopicType::HostStatus, suffix))
         } else if let Some(suffix) = s.strip_prefix("/nodes/") {
             Ok((TopicType::Nodes, suffix))
         } else {
@@ -79,6 +83,15 @@ impl FromStr for Topic {
                 host_id: uuid.parse().map_err(Error::ParseHostId)?,
                 rest: rest.to_string(),
             }),
+            TopicType::HostStatus => {
+                if rest == "/status" {
+                    Ok(Topic::HostStatus {
+                        host_id: uuid.parse().map_err(Error::ParseHostId)?,
+                    })
+                } else {
+                    return Err(Error::UnknownTopic(s.into()));
+                }
+            }
             TopicType::Nodes => Ok(Topic::Nodes {
                 node_id: uuid.parse().map_err(Error::ParseNodeId)?,
                 rest: rest.to_string(),
@@ -100,6 +113,7 @@ impl<'de> Deserialize<'de> for Topic {
 enum TopicType {
     Orgs,
     Hosts,
+    HostStatus,
     Nodes,
 }
 
@@ -111,7 +125,7 @@ mod tests {
 
     #[test]
     fn parse_topic() {
-        let uuid = Uuid::new_v4().to_string();
+        let uuid = Uuid::new_v4();
         let tests = [
             (format!("/org/{uuid}"), false),
             (format!("orgs/{uuid}"), false),
@@ -120,6 +134,9 @@ mod tests {
             (format!("/orgs/{uuid}/stuff"), true),
             (format!("/hosts/{uuid}/"), true),
             (format!("/nodes/{uuid}/"), true),
+            (format!("/bv/hosts/{uuid}/status"), true),
+            (format!("/bv/hosts/{uuid}/status123"), false),
+            (format!("/bv/hosts/{uuid}/stat"), false),
         ];
 
         for (test, pass) in tests {
@@ -130,5 +147,11 @@ mod tests {
                 assert!(result.is_err());
             }
         }
+    }
+
+    #[test]
+    fn parse_acl_request() {
+        let req = r#"{"operation":"1", "username": "jwt","topic":"/bv/hosts/c1ce7b5c-fde1-40ab-afa5-06c8265b63f8/status"}"#;
+        let _: AclRequest = serde_json::from_str(req).unwrap();
     }
 }

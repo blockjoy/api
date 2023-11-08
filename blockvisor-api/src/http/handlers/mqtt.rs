@@ -70,6 +70,7 @@ async fn acl(
     let resource: Resource = match req.topic {
         Topic::Orgs { org_id, .. } => org_id.into(),
         Topic::Hosts { host_id, .. } => host_id.into(),
+        Topic::HostStatus { host_id } => host_id.into(),
         Topic::Nodes { node_id, .. } => node_id.into(),
     };
 
