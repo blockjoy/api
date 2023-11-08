@@ -201,6 +201,15 @@ impl NodeService for Grpc {
             .await
     }
 
+    async fn report(
+        &self,
+        req: Request<api::NodeServiceReportRequest>,
+    ) -> Result<Response<api::NodeServiceReportResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| report(req, meta, write).scope_boxed())
+            .await
+    }
+
     async fn start(
         &self,
         req: Request<api::NodeServiceStartRequest>,
@@ -432,6 +441,27 @@ async fn delete(
     write.mqtt(deleted);
 
     Ok(api::NodeServiceDeleteResponse {})
+}
+
+async fn repprt(
+    req: api::NodeServiceReportRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::NodeServiceReportResponse, Error> {
+    let node_id: NodeId = req.node_id.parse().map_err(Error::ParseId)?;
+
+    write
+        .auth_or_all(&meta, NodeAdminPerm::Report, NodePerm::Report, node_id)
+        .await?;
+    let node = Node::find_by_id(node_id, &mut write).await?;
+    let host = Host::find_by_id(node.host_id, &mut write).await?;
+    let org = Org::find_by_id(node.org_id, &mut write).await?;
+
+    let report = node.report();
+
+    Ok(api::NodeServiceReportResponse {
+        id: report.id.to_string(),
+    })
 }
 
 async fn start(
