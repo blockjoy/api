@@ -89,7 +89,7 @@ impl FromStr for Topic {
                         host_id: uuid.parse().map_err(Error::ParseHostId)?,
                     })
                 } else {
-                    return Err(Error::UnknownTopic(s.into()));
+                    Err(Error::UnknownTopic(s.into()))
                 }
             }
             TopicType::Nodes => Ok(Topic::Nodes {
