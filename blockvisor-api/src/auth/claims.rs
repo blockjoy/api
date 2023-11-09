@@ -14,9 +14,7 @@ use crate::util::SecondsUtc;
 
 use super::endpoint::Endpoints;
 use super::rbac::{Access, Perm, Perms, Roles};
-use super::resource::{
-    HostId, NodeId, OrgId, Resource, ResourceEntry, ResourceId, ResourceType, Resources, UserId,
-};
+use super::resource::{HostId, NodeId, OrgId, Resource, ResourceEntry, Resources, UserId};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -32,8 +30,8 @@ pub enum Error {
     ExpiresBeforeIssued,
     /// Failed to check claims for host: {0},
     Host(#[from] crate::models::host::Error),
-    /// Permission `{0}` not held by {1} resource {2}
-    MissingPerm(Perm, ResourceType, ResourceId),
+    /// Permission `{0}` not held by {1}
+    MissingPerm(Perm, Resource),
     /// Failed to check claims for node: {0},
     Node(#[from] crate::models::node::Error),
     /// Failed to check claims for org: {0},
@@ -52,7 +50,7 @@ impl From<Error> for Status {
                 Status::permission_denied("Access denied.")
             }
             ExpiresBeforeIssued => Status::internal("Internal error."),
-            MissingPerm(perm, _, _) => {
+            MissingPerm(perm, _) => {
                 Status::permission_denied(format!("Missing permission: {perm}"))
             }
             Host(err) => err.into(),
@@ -328,20 +326,20 @@ impl Granted {
         perms.into_iter().any(|perm| self.contains(&perm.into()))
     }
 
-    pub fn ensure_perm<P>(&self, perm: P, resource: ResourceEntry) -> Result<(), Error>
+    pub fn ensure_perm<P>(&self, perm: P, claims: &Claims) -> Result<(), Error>
     where
         P: Into<Perm>,
     {
         let perm = perm.into();
         self.has_perm(perm)
             .then_some(())
-            .ok_or_else(|| Error::MissingPerm(perm, resource.resource_type, resource.resource_id))
+            .ok_or_else(|| Error::MissingPerm(perm, claims.resource()))
     }
 
-    pub fn ensure_perms(&self, perms: HashSet<Perm>, resource: ResourceEntry) -> Result<(), Error> {
+    pub fn ensure_perms(&self, perms: HashSet<Perm>, claims: &Claims) -> Result<(), Error> {
         perms
             .into_iter()
-            .try_for_each(|p| self.ensure_perm(p, resource))
+            .try_for_each(|p| self.ensure_perm(p, claims))
     }
 }
 

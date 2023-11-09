@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt;
 
 use derive_more::{Deref, Display, From, FromStr};
 use diesel_derive_enum::DbEnum;
@@ -105,6 +106,18 @@ impl From<NodeId> for Resource {
 impl From<HostId> for Resource {
     fn from(id: HostId) -> Self {
         Resource::Host(id)
+    }
+}
+
+impl fmt::Display for Resource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (resource_name, resource_id): (&str, ResourceId) = match *self {
+            Resource::User(id) => ("user", id.into()),
+            Resource::Org(id) => ("org", id.into()),
+            Resource::Host(id) => ("host", id.into()),
+            Resource::Node(id) => ("node", id.into()),
+        };
+        write!(f, "{resource_name} resource {resource_id}")
     }
 }
 
