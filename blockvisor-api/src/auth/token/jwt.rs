@@ -75,7 +75,7 @@ impl Cipher {
             &self.fallback_decoding_keys,
             &self.validation_expired_tokens,
         )
-        .map_err(Error::Decode)
+        .map_err(Error::DecodeExpired)
     }
 
     fn decode_inner(
