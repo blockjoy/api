@@ -178,8 +178,8 @@ impl Auth {
 
         let granted = Granted::from_access(&claims.access, initial, conn).await?;
         match perms {
-            Perms::One(perm) => granted.ensure_perm(perm)?,
-            Perms::Many(perms) => granted.ensure_perms(perms)?,
+            Perms::One(perm) => granted.ensure_perm(perm, claims.resource_entry)?,
+            Perms::Many(perms) => granted.ensure_perms(perms, claims.resource_entry)?,
         }
 
         Ok(AuthZ { claims, granted })
