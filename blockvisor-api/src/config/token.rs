@@ -107,11 +107,7 @@ impl FromStr for JwtSecrets {
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let secrets = s
-            .split(',')
-            .map(|s| s.trim())
-            .map(|s| s.to_owned())
-            .collect();
+        let secrets = s.split(',').map(str::trim).map(str::to_owned).collect();
         Ok(Self(Redacted(secrets)))
     }
 }
@@ -124,11 +120,7 @@ impl FromStr for RefreshSecrets {
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let secrets = s
-            .split(',')
-            .map(|s| s.trim())
-            .map(|s| s.to_owned())
-            .collect();
+        let secrets = s.split(',').map(str::trim).map(str::to_owned).collect();
         Ok(Self(Redacted(secrets)))
     }
 }
@@ -139,7 +131,7 @@ pub struct SecretConfig {
     pub jwt: JwtSecret,
     pub refresh: RefreshSecret,
     pub jwt_fallback: JwtSecrets,
-    pub refresh_fallback: JwtSecrets,
+    pub refresh_fallback: RefreshSecrets,
 }
 
 impl TryFrom<&Provider> for SecretConfig {

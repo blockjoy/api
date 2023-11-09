@@ -69,7 +69,7 @@ impl Cipher {
             decoding_key: DecodingKey::from_secret(secret.as_bytes()),
             fallback_decoding_keys: fallback_secrets
                 .iter()
-                .map(|s| s.as_bytes())
+                .map(String::as_bytes)
                 .map(DecodingKey::from_secret)
                 .collect(),
         }
@@ -108,7 +108,7 @@ impl Cipher {
             Err(err) => err,
         };
         for decoding_key in fallback_decoding_keys {
-            if let Ok(data) = jsonwebtoken::decode(token, decoding_key, &validation) {
+            if let Ok(data) = jsonwebtoken::decode(token, decoding_key, validation) {
                 return Ok(data.claims);
             }
         }

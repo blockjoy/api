@@ -36,10 +36,8 @@ pub struct Cipher {
 impl Cipher {
     pub fn new(secret: &JwtSecret, fallback_secrets: &JwtSecrets) -> Self {
         let validation = Validation::new(ALGORITHM);
-        let validation_expired_tokens = Validation {
-            validate_exp: false,
-            ..validation.clone()
-        };
+        let mut validation_expired_tokens = validation.clone();
+        validation_expired_tokens.validate_exp = false;
         Cipher {
             header: Header::new(ALGORITHM),
             validation,
@@ -48,7 +46,7 @@ impl Cipher {
             decoding_key: DecodingKey::from_secret(secret.as_bytes()),
             fallback_decoding_keys: fallback_secrets
                 .iter()
-                .map(|s| s.as_bytes())
+                .map(String::as_bytes)
                 .map(DecodingKey::from_secret)
                 .collect(),
         }
@@ -91,7 +89,7 @@ impl Cipher {
             Err(err) => err,
         };
         for decoding_key in fallback_decoding_keys {
-            if let Ok(data) = jsonwebtoken::decode(token, decoding_key, &validation) {
+            if let Ok(data) = jsonwebtoken::decode(token, decoding_key, validation) {
                 return Ok(data.claims);
             }
         }
