@@ -4,7 +4,7 @@ use jsonwebtoken::{errors, Algorithm, DecodingKey, EncodingKey, Header, Validati
 use thiserror::Error;
 
 use crate::auth::claims::Claims;
-use crate::config::token::JwtSecret;
+use crate::config::token::{JwtSecret, JwtSecrets};
 
 use super::BearerToken;
 
@@ -27,17 +27,30 @@ pub struct Jwt(String);
 pub struct Cipher {
     header: Header,
     validation: Validation,
+    validation_expired_tokens: Validation,
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
+    fallback_decoding_keys: Vec<DecodingKey>,
 }
 
 impl Cipher {
-    pub fn new(secret: &JwtSecret) -> Self {
+    pub fn new(secret: &JwtSecret, fallback_secrets: &JwtSecrets) -> Self {
+        let validation = Validation::new(ALGORITHM);
+        let validation_expired_tokens = Validation {
+            validate_exp: false,
+            ..validation.clone()
+        };
         Cipher {
             header: Header::new(ALGORITHM),
-            validation: Validation::new(ALGORITHM),
+            validation,
+            validation_expired_tokens,
             encoding_key: EncodingKey::from_secret(secret.as_bytes()),
             decoding_key: DecodingKey::from_secret(secret.as_bytes()),
+            fallback_decoding_keys: fallback_secrets
+                .iter()
+                .map(|s| s.as_bytes())
+                .map(DecodingKey::from_secret)
+                .collect(),
         }
     }
 
@@ -48,22 +61,41 @@ impl Cipher {
     }
 
     pub fn decode(&self, token: &BearerToken) -> Result<Claims, Error> {
-        let fallback_decoding = DecodingKey::from_secret(b"1245456");
-        jsonwebtoken::decode(token, &self.decoding_key, &self.validation)
-            .or_else(|_| jsonwebtoken::decode(token, &fallback_decoding, &self.validation))
-            .map(|data| data.claims)
-            .map_err(Error::Decode)
+        Self::decode_inner(
+            token,
+            &self.decoding_key,
+            &self.fallback_decoding_keys,
+            &self.validation,
+        )
+        .map_err(Error::Decode)
     }
 
     pub fn decode_expired(&self, token: &BearerToken) -> Result<Claims, Error> {
-        let fallback_decoding = DecodingKey::from_secret(b"1245456");
-        let mut validation = Validation::new(ALGORITHM);
-        validation.validate_exp = false;
+        Self::decode_inner(
+            token,
+            &self.decoding_key,
+            &self.fallback_decoding_keys,
+            &self.validation_expired_tokens,
+        )
+        .map_err(Error::Decode)
+    }
 
-        jsonwebtoken::decode(token, &self.decoding_key, &validation)
-            .or_else(|_| jsonwebtoken::decode(token, &fallback_decoding, &validation))
-            .map(|data| data.claims)
-            .map_err(Error::DecodeExpired)
+    fn decode_inner(
+        token: &BearerToken,
+        decoding_key: &DecodingKey,
+        fallback_decoding_keys: &[DecodingKey],
+        validation: &Validation,
+    ) -> Result<Claims, jsonwebtoken::errors::Error> {
+        let err = match jsonwebtoken::decode(token, decoding_key, validation) {
+            Ok(data) => return Ok(data.claims),
+            Err(err) => err,
+        };
+        for decoding_key in fallback_decoding_keys {
+            if let Ok(data) = jsonwebtoken::decode(token, decoding_key, &validation) {
+                return Ok(data.claims);
+            }
+        }
+        Err(err)
     }
 }
 
