@@ -16,8 +16,8 @@ use crate::grpc::api::command_service_server::CommandService;
 use crate::grpc::{api, Grpc};
 use crate::models::blockchain::{Blockchain, BlockchainProperty, BlockchainVersion};
 use crate::models::command::UpdateCommand;
-use crate::models::node::FilteredIpAddr;
-use crate::models::{Command, Host, Node};
+use crate::models::node::{FilteredIpAddr, NodeStatus};
+use crate::models::{Command, CommandType, Host, Node};
 use crate::util::NanosUtc;
 
 #[derive(Debug, Display, Error)]
@@ -36,6 +36,8 @@ pub enum Error {
     Command(#[from] crate::models::command::Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
+    /// Error constructing grpc node message: {0}
+    GrpcNode(Box<crate::grpc::node::Error>),
     /// Command host error: {0}
     Host(#[from] crate::models::host::Error),
     /// IP is not a CIDR.
@@ -50,6 +52,8 @@ pub enum Error {
     ParseHostId(uuid::Error),
     /// Failed to parse CommandId: {0}
     ParseId(uuid::Error),
+    /// Resource error: {0}
+    Resource(#[from] crate::auth::resource::Error),
 }
 
 impl From<Error> for Status {
@@ -67,8 +71,10 @@ impl From<Error> for Status {
             BlockchainVersion(err) => err.into(),
             Claims(err) => err.into(),
             Command(err) => err.into(),
+            GrpcNode(err) => (*err).into(),
             Host(err) => err.into(),
             Node(err) => err.into(),
+            Resource(err) => err.into(),
         }
     }
 }
@@ -111,9 +117,9 @@ async fn update(
     let id = req.id.parse().map_err(Error::ParseId)?;
     let command = Command::find_by_id(id, &mut write).await?;
 
-    command.host(&mut write).await?;
-    command.node(&mut write).await?;
-    write.auth_all(&meta, CommandPerm::Update).await?;
+    write
+        .auth(&meta, CommandPerm::Update, command.host_id)
+        .await?;
 
     let update_cmd = req.as_update()?;
     let cmd = update_cmd.update(&mut write).await?;
@@ -152,13 +158,12 @@ async fn ack(
 ) -> Result<api::CommandServiceAckResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
     let command = Command::find_by_id(id, &mut write).await?;
-
-    command.host(&mut write).await?;
-    command.node(&mut write).await?;
     write.auth_all(&meta, CommandPerm::Ack).await?;
-
     if command.acked_at.is_none() {
         command.ack(&mut write).await?;
+        if let Some(node) = command.node(&mut write).await? {
+            ack_update_node_status(node, command, &mut write).await?;
+        }
     }
 
     Ok(api::CommandServiceAckResponse {})
@@ -183,6 +188,29 @@ async fn pending(
     Ok(api::CommandServicePendingResponse { commands })
 }
 
+async fn ack_update_node_status(
+    mut node: Node,
+    command: Command,
+    write: &mut WriteConn<'_, '_>,
+) -> Result<(), Error> {
+    let new_status = match command.cmd {
+        // If the create node command gets acknowledged, we move the node from `ProvisioningPending`
+        // to `Provisioning`.
+        CommandType::CreateNode => NodeStatus::Provisioning,
+        // If the delete node command gets acknowledged, we move the node from `DeletePending` to
+        // `Deleting`.
+        CommandType::DeleteNode => NodeStatus::Deleting,
+        // If the update node command gets acknowledged, we move the node from `UpdatePending` to
+        // `Deleting`.
+        CommandType::UpdateNode => NodeStatus::Updating,
+        // The rest of the acks do not require us updating the status of our nodes.
+        _ => return Ok(()),
+    };
+    node.node_status = new_status;
+    node.update(write).await?;
+    Ok(())
+}
+
 impl api::Command {
     pub async fn from_model(model: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
         use api::command;
@@ -193,15 +221,14 @@ impl api::Command {
         // Extract the node id from the model, if there is one.
         let node_id = || model.node_id.ok_or(Error::MissingNodeId);
 
-        // Closure to construct an api::Command from the data that we need to have.
-        let node_cmd = |command, node_id| -> Result<api::Command, Error> {
+        let node_cmd = |command| {
             Ok(api::Command {
                 id: model.id.to_string(),
                 response: model.response.clone(),
                 exit_code: model.exit_status,
                 acked_at: model.acked_at.map(NanosUtc::from).map(Into::into),
                 command: Some(command::Command::Node(api::NodeCommand {
-                    node_id,
+                    node_id: node_id()?.to_string(),
                     host_id: model.host_id.to_string(),
                     command: Some(command),
                     api_command_id: model.id.to_string(),
@@ -209,10 +236,6 @@ impl api::Command {
                 })),
             })
         };
-
-        // Construct an api::Command with the node id extracted from the `node.node_id` field.
-        // Only `DeleteNode` does not use this method.
-        let node_cmd_default_id = |command| node_cmd(command, node_id()?.to_string());
 
         let host_cmd = |host_id| {
             Ok(api::Command {
@@ -225,15 +248,15 @@ impl api::Command {
         };
 
         match model.cmd {
-            RestartNode => node_cmd_default_id(Command::Restart(api::NodeRestart {})),
-            KillNode => node_cmd_default_id(Command::Stop(api::NodeStop {})),
-            ShutdownNode => node_cmd_default_id(Command::Stop(api::NodeStop {})),
+            RestartNode => node_cmd(Command::Restart(api::NodeRestart {})),
+            KillNode => node_cmd(Command::Stop(api::NodeStop {})),
+            ShutdownNode => node_cmd(Command::Stop(api::NodeStop {})),
             UpdateNode => {
                 let node = Node::find_by_id(node_id()?, conn).await?;
                 let cmd = Command::Update(api::NodeUpdate {
                     rules: Self::rules(&node)?,
                 });
-                node_cmd_default_id(cmd)
+                node_cmd(cmd)
             }
             UpgradeNode => {
                 let node = Node::find_by_id(node_id()?, conn).await?;
@@ -245,12 +268,10 @@ impl api::Command {
                 };
                 image.set_node_type(node.node_type.into());
                 let cmd = Command::Upgrade(api::NodeUpgrade { image: Some(image) });
-                node_cmd_default_id(cmd)
+                node_cmd(cmd)
             }
             MigrateNode => Err(Error::NotImplemented),
-            GetNodeVersion => node_cmd_default_id(Command::InfoGet(api::NodeGet {})),
-
-            // The following should be HostCommands
+            GetNodeVersion => node_cmd(Command::InfoGet(api::NodeGet {})),
             CreateNode => {
                 let node = Node::find_by_id(node_id()?, conn).await?;
                 let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
@@ -285,13 +306,13 @@ impl api::Command {
                 node_create.set_node_type(node.node_type.into());
                 let cmd = Command::Create(node_create);
 
-                node_cmd_default_id(cmd)
+                node_cmd(cmd)
             }
             DeleteNode => {
-                let node_id = model.sub_cmd.clone().ok_or(Error::MissingNodeId)?;
                 let cmd = Command::Delete(api::NodeDelete {});
-                node_cmd(cmd, node_id)
+                node_cmd(cmd)
             }
+
             GetBVSVersion => host_cmd(model.host_id.to_string()),
             UpdateBVS => host_cmd(model.host_id.to_string()),
             RestartBVS => host_cmd(model.host_id.to_string()),

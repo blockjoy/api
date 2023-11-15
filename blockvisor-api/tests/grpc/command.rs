@@ -15,7 +15,6 @@ async fn create_command(test: &TestServer, node_id: NodeId, cmd_type: CommandTyp
     let new_cmd = NewCommand {
         host_id: test.seed().host.id,
         cmd: cmd_type,
-        sub_cmd: None,
         node_id: Some(node_id),
     };
 
@@ -61,7 +60,7 @@ async fn responds_ok_for_pending() {
         ip_addr: Some("123.123.123.123"),
         block_height: None,
         node_data: None,
-        chain_status: None,
+        node_status: None,
         sync_status: None,
         staking_status: None,
         container_status: None,

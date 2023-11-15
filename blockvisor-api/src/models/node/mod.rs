@@ -11,7 +11,7 @@ pub mod scheduler;
 pub use scheduler::{NodeScheduler, ResourceAffinity, SimilarNodeAffinity};
 
 pub mod status;
-pub use status::{ContainerStatus, NodeChainStatus, NodeStakingStatus, NodeSyncStatus};
+pub use status::{ContainerStatus, NodeStakingStatus, NodeStatus, NodeSyncStatus};
 
 pub mod node_type;
 pub use node_type::{NodeNetwork, NodeType, NodeVersion};
@@ -19,9 +19,9 @@ pub use node_type::{NodeNetwork, NodeType, NodeVersion};
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
-use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
+use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
 use displaydoc::Display;
 use futures_util::future::OptionFuture;
@@ -46,6 +46,8 @@ pub enum Error {
     AssignIpAddr(#[from] super::ip_address::Error),
     /// Blockchain error for node: {0}
     Blockchain(#[from] super::blockchain::Error),
+    /// Command error: {0}
+    Command(Box<super::command::Error>),
     /// Cookbook error for node: {0}
     Cookbook(#[from] crate::cookbook::Error),
     /// Failed to create node: {0}
@@ -88,6 +90,8 @@ pub enum Error {
     NoMatchingHost,
     /// Failed to parse node offset as i64: {0}
     Offset(std::num::TryFromIntError),
+    /// Failed to parse IpAddr: {0}
+    ParseIpAddr(std::net::AddrParseError),
     /// Node region error: {0}
     Region(crate::models::region::Error),
     /// Failed to parse node total as i64: {0}
@@ -135,7 +139,7 @@ pub struct Node {
     pub updated_at: DateTime<Utc>,
     pub blockchain_id: BlockchainId,
     pub sync_status: NodeSyncStatus,
-    pub chain_status: NodeChainStatus,
+    pub node_status: NodeStatus,
     pub staking_status: Option<NodeStakingStatus>,
     pub container_status: ContainerStatus,
     pub ip_gateway: String,
@@ -158,6 +162,7 @@ pub struct Node {
     pub data_directory_mountpoint: Option<String>,
     pub jobs: serde_json::Value,
     pub created_by_resource: Option<ResourceType>,
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug)]
@@ -165,7 +170,7 @@ pub struct NodeFilter {
     pub org_id: Option<OrgId>,
     pub offset: u64,
     pub limit: u64,
-    pub status: Vec<NodeChainStatus>,
+    pub status: Vec<NodeStatus>,
     pub node_types: Vec<NodeType>,
     pub blockchains: Vec<BlockchainId>,
     pub host_id: Option<HostId>,
@@ -179,6 +184,15 @@ pub struct NodeSearch {
     pub name: Option<String>,
     pub ip: Option<String>,
 }
+
+type NotDeleted = dsl::Filter<nodes::table, dsl::IsNull<nodes::deleted_at>>;
+
+// These statuses imply that a node is deleted.
+const DELETED_STATUSES: [NodeStatus; 3] = [
+    NodeStatus::DeletePending,
+    NodeStatus::Deleting,
+    NodeStatus::Deleted,
+];
 
 impl Node {
     pub async fn find_by_id(id: NodeId, conn: &mut Conn<'_>) -> Result<Self, Error> {
@@ -201,7 +215,7 @@ impl Node {
     }
 
     pub async fn find_by_org(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
-        nodes::table
+        Self::not_deleted()
             .filter(nodes::org_id.eq(org_id))
             .get_results(conn)
             .await
@@ -213,7 +227,7 @@ impl Node {
         node_type: NodeType,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
-        nodes::table
+        Self::not_deleted()
             .filter(nodes::blockchain_id.eq(blockchain_id))
             .filter(nodes::node_type.eq(node_type))
             .filter(nodes::self_update)
@@ -227,7 +241,7 @@ impl Node {
         ids: HashSet<NodeId>,
         conn: &mut Conn<'_>,
     ) -> Result<HashSet<NodeId>, Error> {
-        let ids = nodes::table
+        let ids = Node::not_deleted()
             .filter(nodes::id.eq_any(ids.iter()))
             .select(nodes::id)
             .get_results(conn)
@@ -301,8 +315,13 @@ impl Node {
             query = query.filter(nodes::blockchain_id.eq_any(blockchains));
         }
 
+        // If the user requested a deleted status, we include deleted records with the response.
+        // Conversely, if no such request is made, we exlude all deleted rows.
+        if !status.iter().any(|s| DELETED_STATUSES.contains(s)) {
+            query = query.filter(nodes::deleted_at.is_null());
+        }
         if !status.is_empty() {
-            query = query.filter(nodes::chain_status.eq_any(status));
+            query = query.filter(nodes::node_status.eq_any(status));
         }
 
         if !node_types.is_empty() {
@@ -342,10 +361,21 @@ impl Node {
     pub async fn delete(id: NodeId, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
         let node = Self::find_by_id(id, write).await?;
 
-        diesel::delete(nodes::table.find(id))
+        diesel::update(nodes::table.find(id))
+            .set(nodes::deleted_at.eq(Utc::now()))
             .execute(write)
             .await
             .map_err(|err| Error::Delete(id, err))?;
+
+        let ip_addr = node.ip_addr.parse().map_err(Error::ParseIpAddr)?;
+        let ip = IpAddress::find_by_node(ip_addr, write).await?;
+
+        IpAddress::unassign(ip.id, node.host_id, write).await?;
+
+        // Delete all pending commands for this node: there are not useable anymore
+        super::Command::delete_pending(node.id, write)
+            .await
+            .map_err(|err| Error::Command(Box::new(err)))?;
 
         if let Err(err) = write.ctx.dns.remove_node_dns(&node.dns_record_id).await {
             warn!("Failed to remove node dns: {err}");
@@ -434,6 +464,10 @@ impl Node {
     pub fn jobs(&self) -> Result<Vec<NodeJob>, Error> {
         serde_json::from_value(self.jobs.clone()).map_err(Error::UnparsableJobs)
     }
+
+    pub fn not_deleted() -> NotDeleted {
+        nodes::table.filter(nodes::deleted_at.is_null())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -452,7 +486,7 @@ pub struct NewNode {
     pub blockchain_id: BlockchainId,
     pub block_height: Option<i64>,
     pub node_data: Option<serde_json::Value>,
-    pub chain_status: NodeChainStatus,
+    pub node_status: NodeStatus,
     pub sync_status: NodeSyncStatus,
     pub staking_status: NodeStakingStatus,
     pub container_status: ContainerStatus,
@@ -578,7 +612,7 @@ pub struct UpdateNode<'a> {
     pub ip_addr: Option<&'a str>,
     pub block_height: Option<i64>,
     pub node_data: Option<serde_json::Value>,
-    pub chain_status: Option<NodeChainStatus>,
+    pub node_status: Option<NodeStatus>,
     pub sync_status: Option<NodeSyncStatus>,
     pub staking_status: Option<NodeStakingStatus>,
     pub container_status: Option<ContainerStatus>,
@@ -607,7 +641,7 @@ pub struct UpdateNodeMetrics {
     pub block_age: Option<i64>,
     pub staking_status: Option<NodeStakingStatus>,
     pub consensus: Option<bool>,
-    pub chain_status: Option<NodeChainStatus>,
+    pub node_status: Option<NodeStatus>,
     pub sync_status: Option<NodeSyncStatus>,
     pub jobs: Option<serde_json::Value>,
 }
@@ -622,7 +656,7 @@ impl UpdateNodeMetrics {
 
         let mut results = Vec::with_capacity(updates.len());
         for update in updates {
-            let updated = diesel::update(nodes::table.find(update.id))
+            let updated = diesel::update(Node::not_deleted().find(update.id))
                 .set(&update)
                 .get_result(conn)
                 .await
@@ -655,7 +689,7 @@ mod tests {
             id: Uuid::new_v4().into(),
             org_id,
             blockchain_id,
-            chain_status: NodeChainStatus::Unknown,
+            node_status: NodeStatus::Earning,
             sync_status: NodeSyncStatus::Syncing,
             container_status: ContainerStatus::Installing,
             block_height: None,
@@ -692,7 +726,7 @@ mod tests {
         req.create(Some(host), &mut write).await.unwrap();
 
         let filter = NodeFilter {
-            status: vec![NodeChainStatus::Unknown],
+            status: vec![NodeStatus::Ingesting],
             node_types: vec![],
             blockchains: vec![blockchain_id],
             limit: 10,

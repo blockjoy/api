@@ -25,9 +25,10 @@ use crate::auth::rbac::{BlockchainAdminPerm, BlockchainPerm};
 use crate::auth::resource::OrgId;
 use crate::auth::AuthZ;
 use crate::database::Conn;
-use crate::models::node::{ContainerStatus, NodeChainStatus, NodeSyncStatus};
+use crate::models::node::{ContainerStatus, NodeStatus, NodeSyncStatus};
 
 use super::schema::{blockchains, nodes};
+use super::Node;
 
 #[derive(Debug, DisplayDoc, Error)]
 pub enum Error {
@@ -141,7 +142,7 @@ pub struct NodeStats {
 impl NodeStats {
     const ACTIVE_STATES: [ContainerStatus; 1] = [ContainerStatus::Running];
     const SYNCING_STATES: [NodeSyncStatus; 1] = [NodeSyncStatus::Syncing];
-    const PROVISIONING_STATES: [NodeChainStatus; 1] = [NodeChainStatus::Provisioning];
+    const PROVISIONING_STATES: [NodeStatus; 1] = [NodeStatus::Provisioning];
 
     /// Compute stats about nodes across all orgs and their blockchain states.
     pub async fn for_all(
@@ -152,17 +153,17 @@ impl NodeStats {
             return Ok(None);
         }
 
-        nodes::table
+        Node::not_deleted()
             .group_by(nodes::blockchain_id)
             .select((
                 nodes::blockchain_id,
                 count(nodes::id),
                 count(nodes::container_status.eq_any(Self::ACTIVE_STATES)),
                 count(nodes::sync_status.eq_any(Self::SYNCING_STATES)),
-                count(nodes::chain_status.eq_any(Self::PROVISIONING_STATES)),
+                count(nodes::node_status.eq_any(Self::PROVISIONING_STATES)),
                 count(not((nodes::container_status.eq_any(Self::ACTIVE_STATES))
                     .or(nodes::sync_status.eq_any(Self::SYNCING_STATES))
-                    .or(nodes::chain_status.eq_any(Self::PROVISIONING_STATES)))),
+                    .or(nodes::node_status.eq_any(Self::PROVISIONING_STATES)))),
             ))
             .get_results(conn)
             .await
@@ -180,7 +181,7 @@ impl NodeStats {
             return Ok(None);
         }
 
-        nodes::table
+        Node::not_deleted()
             .filter(nodes::org_id.eq(org_id))
             .group_by(nodes::blockchain_id)
             .select((
@@ -188,10 +189,10 @@ impl NodeStats {
                 count(nodes::id),
                 count(nodes::container_status.eq_any(Self::ACTIVE_STATES)),
                 count(nodes::sync_status.eq_any(Self::SYNCING_STATES)),
-                count(nodes::chain_status.eq_any(Self::PROVISIONING_STATES)),
+                count(nodes::node_status.eq_any(Self::PROVISIONING_STATES)),
                 count(not((nodes::container_status.eq_any(Self::ACTIVE_STATES))
                     .or(nodes::sync_status.eq_any(Self::SYNCING_STATES))
-                    .or(nodes::chain_status.eq_any(Self::PROVISIONING_STATES)))),
+                    .or(nodes::node_status.eq_any(Self::PROVISIONING_STATES)))),
             ))
             .get_results(conn)
             .await

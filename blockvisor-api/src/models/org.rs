@@ -20,6 +20,7 @@ use crate::util::SearchOperator;
 
 use super::rbac::RbacUser;
 use super::schema::{nodes, orgs, orgs_users, user_roles};
+use super::Node;
 use super::Paginate;
 
 const PERSONAL_ORG_NAME: &str = "Personal";
@@ -251,7 +252,7 @@ impl Org {
         org_ids: &HashSet<OrgId>,
         conn: &mut Conn<'_>,
     ) -> Result<HashMap<OrgId, u64>, Error> {
-        let counts: Vec<(OrgId, i64)> = nodes::table
+        let counts: Vec<(OrgId, i64)> = Node::not_deleted()
             .filter(nodes::org_id.eq_any(org_ids))
             .group_by(nodes::org_id)
             .select((nodes::org_id, dsl::count(nodes::id)))

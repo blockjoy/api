@@ -309,7 +309,7 @@ fn upgrade_node<'b, 'n>(
     node: &'n Node,
     node_version: &'n NodeVersion,
     blockchain_name: &'b str,
-) -> Result<Option<(NewCommand<'b>, NewNodeLog<'b>)>, Error> {
+) -> Result<Option<(NewCommand, NewNodeLog<'b>)>, Error> {
     if node_version.semver()? <= node.version.semver()? {
         return Ok(None);
     }
@@ -317,7 +317,6 @@ fn upgrade_node<'b, 'n>(
     let command = NewCommand {
         host_id: node.host_id,
         cmd: CommandType::UpgradeNode,
-        sub_cmd: None,
         node_id: Some(node.id),
     };
 

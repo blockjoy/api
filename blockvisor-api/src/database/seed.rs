@@ -10,7 +10,7 @@ use crate::grpc::common;
 use crate::models::blockchain::BlockchainId;
 use crate::models::host::{ConnectionStatus, Host, HostType, MonthlyCostUsd, NewHost};
 use crate::models::ip_address::NewIpAddressRange;
-use crate::models::node::{Node, NodeChainStatus, NodeProperty, NodeType, ResourceAffinity};
+use crate::models::node::{Node, NodeProperty, NodeStatus, NodeType, ResourceAffinity};
 use crate::models::rbac::RbacUser;
 use crate::models::schema::{blockchains, nodes, orgs};
 use crate::models::user::NewUser;
@@ -252,7 +252,7 @@ async fn create_nodes(
             nodes::blockchain_id.eq(blockchain.id),
             nodes::block_age.eq(0),
             nodes::consensus.eq(true),
-            nodes::chain_status.eq(NodeChainStatus::Broadcasting),
+            nodes::node_status.eq(NodeStatus::Broadcasting),
             nodes::ip_gateway.eq(ip_gateway),
             nodes::ip_addr.eq(ip_addr),
             nodes::node_type.eq(NodeType::Validator),

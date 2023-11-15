@@ -147,14 +147,10 @@ async fn recover_created(
 /// Send a delete message to blockvisord, to delete the given node. We do this to assist blockvisord
 /// to clean up after a failed node create.
 async fn send_delete(node: &Node, commands: &mut Vec<api::Command>, conn: &mut Conn<'_>) {
-    let node_id = node.id.to_string();
     let cmd = NewCommand {
         host_id: node.host_id,
         cmd: CommandType::DeleteNode,
-        // NOTE: the node id goes into the sub_cmd field, since the node has just been deleted, so
-        // using the `node_id` field would cause an integrity error.
-        sub_cmd: Some(&node_id),
-        node_id: None,
+        node_id: Some(node.id),
     };
     let Ok(cmd) = cmd.create(conn).await else {
         error!("Could not create node delete command while recovering");

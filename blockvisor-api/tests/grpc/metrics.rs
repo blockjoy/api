@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use blockvisor_api::grpc::api;
-use blockvisor_api::models::node::{Node, NodeChainStatus, NodeStakingStatus, NodeSyncStatus};
+use blockvisor_api::models::node::{Node, NodeStakingStatus, NodeStatus, NodeSyncStatus};
 use blockvisor_api::models::Host;
 use tonic::transport::Channel;
 
@@ -50,7 +50,7 @@ async fn responds_ok_for_write_node() {
     assert_eq!(node.block_age, Some(5));
     assert_eq!(node.staking_status, Some(NodeStakingStatus::Validating));
     assert_eq!(node.consensus, Some(false));
-    assert_eq!(node.chain_status, NodeChainStatus::Electing);
+    assert_eq!(node.node_status, NodeStatus::Electing);
     assert_eq!(node.sync_status, NodeSyncStatus::Synced);
     let job = node.jobs().unwrap().pop().unwrap();
     let progress = job.progress.unwrap();
@@ -154,7 +154,7 @@ async fn single_failure_doesnt_abort_all_updates() {
     assert_eq!(node.block_age, Some(5));
     assert_eq!(node.staking_status, Some(NodeStakingStatus::Validating));
     assert_eq!(node.consensus, Some(false));
-    assert_eq!(node.chain_status, NodeChainStatus::Electing);
+    assert_eq!(node.node_status, NodeStatus::Electing);
     assert_eq!(node.sync_status, NodeSyncStatus::Synced);
     let job = node.jobs().unwrap().pop().unwrap();
     let progress = job.progress.unwrap();

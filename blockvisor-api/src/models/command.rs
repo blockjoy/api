@@ -97,7 +97,6 @@ pub struct Command {
     pub id: CommandId,
     pub host_id: HostId,
     pub cmd: CommandType,
-    pub sub_cmd: Option<String>,
     pub response: Option<String>,
     pub exit_status: Option<i32>,
     pub created_at: DateTime<Utc>,
@@ -164,19 +163,17 @@ impl Command {
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = commands)]
-pub struct NewCommand<'a> {
+pub struct NewCommand {
     pub host_id: HostId,
     pub cmd: CommandType,
-    pub sub_cmd: Option<&'a str>,
     pub node_id: Option<NodeId>,
 }
 
-impl NewCommand<'_> {
+impl NewCommand {
     pub const fn from(host_id: HostId, cmd: CommandType) -> Self {
         NewCommand {
             host_id,
             cmd,
-            sub_cmd: None,
             node_id: None,
         }
     }

@@ -19,11 +19,11 @@ use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::blockchain::{BlockchainProperty, BlockchainPropertyId, BlockchainVersion};
 use crate::models::command::NewCommand;
 use crate::models::node::{
-    ContainerStatus, FilteredIpAddr, NewNode, Node, NodeChainStatus, NodeFilter, NodeJob,
-    NodeJobProgress, NodeJobStatus, NodeProperty, NodeScheduler, NodeSearch, NodeStakingStatus,
+    ContainerStatus, FilteredIpAddr, NewNode, Node, NodeFilter, NodeJob, NodeJobProgress,
+    NodeJobStatus, NodeProperty, NodeScheduler, NodeSearch, NodeStakingStatus, NodeStatus,
     NodeSyncStatus, NodeType, UpdateNode,
 };
-use crate::models::{Blockchain, Command, CommandType, Host, IpAddress, Org, Region, User};
+use crate::models::{Blockchain, Command, CommandType, Host, Org, Region, User};
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::node_service_server::NodeService;
@@ -75,6 +75,8 @@ pub enum Error {
     ModelProperty(#[from] crate::models::node::property::Error),
     /// No ResourceAffinity.
     NoResourceAffinity,
+    /// The NodeStatus that was received was `Unspecified`
+    NodeStatusUnspecified,
     /// Node org error: {0}
     Org(#[from] crate::models::org::Error),
     /// Failed to parse BlockchainId: {0}
@@ -121,6 +123,7 @@ impl From<Error> for Status {
             MemSize(_) => Status::invalid_argument("mem_size_bytes"),
             MissingPlacement => Status::invalid_argument("placement"),
             NoResourceAffinity => Status::invalid_argument("resource"),
+            NodeStatusUnspecified => Status::invalid_argument("Bad node status."),
             ParseBlockchainId(_) => Status::invalid_argument("blockchain_id"),
             ParseHostId(_) => Status::invalid_argument("host_id"),
             ParseId(_) => Status::invalid_argument("id"),
@@ -392,35 +395,20 @@ async fn delete(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceDeleteResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    let node = Node::find_by_id(node_id, &mut write).await?;
+    let mut node = Node::find_by_id(node_id, &mut write).await?;
 
     let authz = write
         .auth_or_all(&meta, NodeAdminPerm::Delete, NodePerm::Delete, node_id)
         .await?;
 
-    // 1. Delete node, if the node belongs to the current user
-    // Key files are deleted automatically because of 'on delete cascade' in tables DDL
-    Node::delete(node.id, &mut write).await?;
-
-    let host_id = node.host_id;
-    // 2. Do NOT delete reserved IP addresses, but set assigned to false
-    let ip_addr = node.ip_addr.parse().map_err(Error::ParseIpAddr)?;
-    let ip = IpAddress::find_by_node(ip_addr, &mut write).await?;
-
-    IpAddress::unassign(ip.id, host_id, &mut write).await?;
-
-    // Delete all pending commands for this node: there are not useable anymore
-    Command::delete_pending(node.id, &mut write).await?;
+    node.node_status = NodeStatus::DeletePending;
+    let node = node.update(&mut write).await?;
 
     // Send delete node command
-    let node_id = node.id.to_string();
     let new_command = NewCommand {
         host_id: node.host_id,
         cmd: CommandType::DeleteNode,
-        sub_cmd: Some(&node_id),
-        // Note that the `node_id` goes into the `sub_cmd` field, not the node_id field, because the
-        // node was just deleted.
-        node_id: None,
+        node_id: Some(node.id),
     };
     let cmd = new_command.create(&mut write).await?;
     let cmd = api::Command::from_model(&cmd, &mut write).await?;
@@ -502,7 +490,6 @@ pub(super) async fn create_node_command(
     let new_command = NewCommand {
         host_id: node.host_id,
         cmd: cmd_type,
-        sub_cmd: None,
         node_id: Some(node.id),
     };
     new_command.create(conn).await.map_err(Into::into)
@@ -685,7 +672,7 @@ impl api::Node {
             block_height,
             created_at: Some(NanosUtc::from(node.created_at).into()),
             updated_at: Some(NanosUtc::from(node.updated_at).into()),
-            status: api::NodeStatus::from_model(node.chain_status).into(),
+            status: api::NodeStatus::from_model(node.node_status).into(),
             staking_status,
             container_status: api::ContainerStatus::from_model(node.container_status).into(),
             sync_status: api::SyncStatus::from_model(node.sync_status).into(),
@@ -750,7 +737,7 @@ impl api::NodeServiceCreateRequest {
                 .map_err(Error::ParseBlockchainId)?,
             block_height: None,
             node_data: None,
-            chain_status: NodeChainStatus::Provisioning,
+            node_status: NodeStatus::ProvisioningPending,
             sync_status: NodeSyncStatus::Unknown,
             staking_status: NodeStakingStatus::Unknown,
             container_status: ContainerStatus::Unknown,
@@ -824,7 +811,10 @@ impl api::NodeServiceListRequest {
                 .transpose()?,
             offset: self.offset,
             limit: self.limit,
-            status: self.statuses().map(api::NodeStatus::into_model).collect(),
+            status: self
+                .statuses()
+                .map(|status| status.into_model().ok_or(Error::NodeStatusUnspecified))
+                .collect::<Result<_, _>>()?,
             node_types: self.node_types().map(NodeType::from).collect(),
             blockchains: self
                 .blockchain_ids
@@ -874,7 +864,7 @@ impl api::NodeServiceUpdateConfigRequest {
             ip_addr: None,
             block_height: None,
             node_data: None,
-            chain_status: None,
+            node_status: None,
             sync_status: None,
             staking_status: None,
             container_status: None,
@@ -895,7 +885,7 @@ impl api::NodeServiceUpdateStatusRequest {
             ip_addr: None,
             block_height: None,
             node_data: None,
-            chain_status: None,
+            node_status: None,
             sync_status: None,
             staking_status: None,
             container_status: Some(self.container_status().into_model()),

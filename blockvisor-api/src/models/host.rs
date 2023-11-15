@@ -25,6 +25,7 @@ use super::blockchain::{Blockchain, BlockchainId};
 use super::ip_address::NewIpAddressRange;
 use super::node::{NodeScheduler, NodeType, ResourceAffinity};
 use super::schema::{hosts, nodes, sql_types};
+use super::Node;
 use super::{Paginate, Region, RegionId};
 
 #[derive(Debug, Display, Error)]
@@ -401,7 +402,7 @@ impl Host {
         host_ids: HashSet<HostId>,
         conn: &mut Conn<'_>,
     ) -> Result<HashMap<HostId, u64>, Error> {
-        let counts: Vec<(HostId, i64)> = nodes::table
+        let counts: Vec<(HostId, i64)> = Node::not_deleted()
             .filter(nodes::host_id.eq_any(host_ids))
             .group_by(nodes::host_id)
             .select((nodes::host_id, dsl::count(nodes::id)))

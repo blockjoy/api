@@ -45,11 +45,10 @@ pub enum NodeStakingStatus {
     Unstaked,
 }
 
-/// `NodeChainStatus` reflects blockjoy.api.v1.node.NodeInfo.ApplicationStatus in node.proto
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "sql_types::EnumNodeChainStatus"]
-pub enum NodeChainStatus {
-    Unknown,
+#[ExistingTypePath = "sql_types::EnumNodeStatus"]
+pub enum NodeStatus {
+    ProvisioningPending,
     Provisioning,
     Broadcasting,
     Cancelled,
@@ -65,8 +64,11 @@ pub enum NodeChainStatus {
     Minting,
     Processing,
     Relaying,
-    Removed,
-    Removing,
+    DeletePending,
+    Deleting,
+    Deleted,
+    UpdatePending,
+    Updating,
 }
 
 impl api::ContainerStatus {
@@ -110,49 +112,56 @@ impl api::ContainerStatus {
 }
 
 impl api::NodeStatus {
-    pub const fn from_model(model: NodeChainStatus) -> Self {
+    pub const fn from_model(model: NodeStatus) -> Self {
         match model {
-            NodeChainStatus::Unknown => Self::Unspecified,
-            NodeChainStatus::Provisioning => Self::Provisioning,
-            NodeChainStatus::Broadcasting => Self::Broadcasting,
-            NodeChainStatus::Cancelled => Self::Cancelled,
-            NodeChainStatus::Delegating => Self::Delegating,
-            NodeChainStatus::Delinquent => Self::Delinquent,
-            NodeChainStatus::Disabled => Self::Disabled,
-            NodeChainStatus::Earning => Self::Earning,
-            NodeChainStatus::Electing => Self::Electing,
-            NodeChainStatus::Elected => Self::Elected,
-            NodeChainStatus::Exported => Self::Exported,
-            NodeChainStatus::Ingesting => Self::Ingesting,
-            NodeChainStatus::Mining => Self::Mining,
-            NodeChainStatus::Minting => Self::Minting,
-            NodeChainStatus::Processing => Self::Processing,
-            NodeChainStatus::Relaying => Self::Relaying,
-            NodeChainStatus::Removed => Self::Removed,
-            NodeChainStatus::Removing => Self::Removing,
+            NodeStatus::ProvisioningPending => Self::ProvisioningPending,
+            NodeStatus::Provisioning => Self::Provisioning,
+            NodeStatus::Broadcasting => Self::Broadcasting,
+            NodeStatus::Cancelled => Self::Cancelled,
+            NodeStatus::Delegating => Self::Delegating,
+            NodeStatus::Delinquent => Self::Delinquent,
+            NodeStatus::Disabled => Self::Disabled,
+            NodeStatus::Earning => Self::Earning,
+            NodeStatus::Electing => Self::Electing,
+            NodeStatus::Elected => Self::Elected,
+            NodeStatus::Exported => Self::Exported,
+            NodeStatus::Ingesting => Self::Ingesting,
+            NodeStatus::Mining => Self::Mining,
+            NodeStatus::Minting => Self::Minting,
+            NodeStatus::Processing => Self::Processing,
+            NodeStatus::Relaying => Self::Relaying,
+            NodeStatus::DeletePending => Self::DeletePending,
+            NodeStatus::Deleting => Self::Deleting,
+            NodeStatus::Deleted => Self::Deleted,
+            NodeStatus::UpdatePending => Self::UpdatePending,
+            NodeStatus::Updating => Self::Updating,
         }
     }
 
-    pub const fn into_model(self) -> NodeChainStatus {
+    pub const fn into_model(self) -> Option<NodeStatus> {
         match self {
-            Self::Unspecified => NodeChainStatus::Unknown,
-            Self::Provisioning => NodeChainStatus::Provisioning,
-            Self::Broadcasting => NodeChainStatus::Broadcasting,
-            Self::Cancelled => NodeChainStatus::Cancelled,
-            Self::Delegating => NodeChainStatus::Delegating,
-            Self::Delinquent => NodeChainStatus::Delinquent,
-            Self::Disabled => NodeChainStatus::Disabled,
-            Self::Earning => NodeChainStatus::Earning,
-            Self::Electing => NodeChainStatus::Electing,
-            Self::Elected => NodeChainStatus::Elected,
-            Self::Exported => NodeChainStatus::Exported,
-            Self::Ingesting => NodeChainStatus::Ingesting,
-            Self::Mining => NodeChainStatus::Mining,
-            Self::Minting => NodeChainStatus::Minting,
-            Self::Processing => NodeChainStatus::Processing,
-            Self::Relaying => NodeChainStatus::Relaying,
-            Self::Removed => NodeChainStatus::Removed,
-            Self::Removing => NodeChainStatus::Removing,
+            Self::Unspecified => None,
+            Self::ProvisioningPending => Some(NodeStatus::ProvisioningPending),
+            Self::Provisioning => Some(NodeStatus::Provisioning),
+            Self::Broadcasting => Some(NodeStatus::Broadcasting),
+            Self::Cancelled => Some(NodeStatus::Cancelled),
+            Self::Delegating => Some(NodeStatus::Delegating),
+            Self::Delinquent => Some(NodeStatus::Delinquent),
+            Self::Disabled => Some(NodeStatus::Disabled),
+            Self::Earning => Some(NodeStatus::Earning),
+            Self::Electing => Some(NodeStatus::Electing),
+            Self::Elected => Some(NodeStatus::Elected),
+            Self::Exported => Some(NodeStatus::Exported),
+            Self::Ingesting => Some(NodeStatus::Ingesting),
+            Self::Mining => Some(NodeStatus::Mining),
+            Self::Minting => Some(NodeStatus::Minting),
+            Self::Processing => Some(NodeStatus::Processing),
+            Self::Relaying => Some(NodeStatus::Relaying),
+            Self::DeletePending => Some(NodeStatus::DeletePending),
+            Self::Deleting => Some(NodeStatus::Deleting),
+            Self::Deleted => Some(NodeStatus::Deleted),
+            Self::UpdatePending => Some(NodeStatus::UpdatePending),
+            Self::Updating => Some(NodeStatus::Updating),
         }
     }
 }

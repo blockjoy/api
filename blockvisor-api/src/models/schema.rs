@@ -22,10 +22,6 @@ pub mod sql_types {
     pub struct EnumHostType;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "enum_node_chain_status"))]
-    pub struct EnumNodeChainStatus;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_log_event"))]
     pub struct EnumNodeLogEvent;
 
@@ -40,6 +36,10 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_staking_status"))]
     pub struct EnumNodeStakingStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_node_status"))]
+    pub struct EnumNodeStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_sync_status"))]
@@ -140,7 +140,6 @@ diesel::table! {
         id -> Uuid,
         host_id -> Uuid,
         cmd -> EnumHostCmd,
-        sub_cmd -> Nullable<Text>,
         response -> Nullable<Text>,
         exit_status -> Nullable<Int4>,
         created_at -> Timestamptz,
@@ -243,7 +242,7 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::EnumNodeSyncStatus;
-    use super::sql_types::EnumNodeChainStatus;
+    use super::sql_types::EnumNodeStatus;
     use super::sql_types::EnumNodeStakingStatus;
     use super::sql_types::EnumContainerStatus;
     use super::sql_types::EnumNodeType;
@@ -266,7 +265,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         blockchain_id -> Uuid,
         sync_status -> EnumNodeSyncStatus,
-        chain_status -> EnumNodeChainStatus,
+        node_status -> EnumNodeStatus,
         staking_status -> Nullable<EnumNodeStakingStatus>,
         container_status -> EnumContainerStatus,
         ip_gateway -> Text,
@@ -290,6 +289,7 @@ diesel::table! {
         data_directory_mountpoint -> Nullable<Text>,
         jobs -> Jsonb,
         created_by_resource -> Nullable<EnumResourceType>,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -390,7 +390,6 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(api_keys -> users (user_id));
 diesel::joinable!(blockchain_node_types -> blockchains (blockchain_id));
 diesel::joinable!(blockchain_properties -> blockchain_node_types (blockchain_node_type_id));
 diesel::joinable!(blockchain_properties -> blockchain_versions (blockchain_version_id));
@@ -416,7 +415,6 @@ diesel::joinable!(orgs_users -> users (user_id));
 diesel::joinable!(role_permissions -> permissions (permission));
 diesel::joinable!(role_permissions -> roles (role));
 diesel::joinable!(subscriptions -> orgs (org_id));
-diesel::joinable!(subscriptions -> users (user_id));
 diesel::joinable!(user_roles -> orgs (org_id));
 diesel::joinable!(user_roles -> roles (role));
 diesel::joinable!(user_roles -> users (user_id));
