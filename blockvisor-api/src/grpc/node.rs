@@ -123,7 +123,7 @@ impl From<Error> for Status {
             MemSize(_) => Status::invalid_argument("mem_size_bytes"),
             MissingPlacement => Status::invalid_argument("placement"),
             NoResourceAffinity => Status::invalid_argument("resource"),
-            NodeStatusUnspecified => Status::invalid_argument("Bad node status."),
+            NodeStatusUnspecified => Status::invalid_argument("node_status"),
             ParseBlockchainId(_) => Status::invalid_argument("blockchain_id"),
             ParseHostId(_) => Status::invalid_argument("host_id"),
             ParseId(_) => Status::invalid_argument("id"),

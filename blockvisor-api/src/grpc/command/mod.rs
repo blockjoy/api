@@ -36,8 +36,6 @@ pub enum Error {
     Command(#[from] crate::models::command::Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
-    /// Error constructing grpc node message: {0}
-    GrpcNode(Box<crate::grpc::node::Error>),
     /// Command host error: {0}
     Host(#[from] crate::models::host::Error),
     /// IP is not a CIDR.
@@ -71,7 +69,6 @@ impl From<Error> for Status {
             BlockchainVersion(err) => err.into(),
             Claims(err) => err.into(),
             Command(err) => err.into(),
-            GrpcNode(err) => (*err).into(),
             Host(err) => err.into(),
             Node(err) => err.into(),
             Resource(err) => err.into(),

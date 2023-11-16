@@ -1,5 +1,3 @@
-use std::ops::DerefMut;
-
 use blockvisor_api::grpc::api;
 use blockvisor_api::models::command::{Command, CommandType};
 use blockvisor_api::models::node::Node;
@@ -306,10 +304,9 @@ async fn validate_command(test: &TestServer) {
                 .and(schema::commands::cmd.ne(CommandType::DeleteNode))
                 .or(schema::commands::cmd
                     .eq(CommandType::DeleteNode)
-                    .and(schema::commands::sub_cmd.is_null())
                     .and(schema::commands::node_id.is_null())),
         )
-        .load::<Command>(conn.deref_mut())
+        .load::<Command>(&mut conn)
         .await
         .unwrap();
 

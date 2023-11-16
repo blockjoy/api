@@ -324,7 +324,6 @@ mod tests {
             id: Uuid::new_v4().into(),
             host_id: db.seed.host.id,
             cmd: CommandType::CreateNode,
-            sub_cmd: None,
             response: None,
             exit_status: None,
             created_at: chrono::Utc::now(),
