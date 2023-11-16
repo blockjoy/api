@@ -28,6 +28,8 @@ use super::schema::{hosts, nodes, sql_types};
 use super::Node;
 use super::{Paginate, Region, RegionId};
 
+type NotDeleted = dsl::Filter<hosts::table, dsl::IsNull<hosts::deleted_at>>;
+
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// Protobuf BillingAmount is missing an Amount.
@@ -143,6 +145,7 @@ pub struct Host {
     // The monthly billing amount for this host (only visible to host owners).
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
     pub vmm_mountpoint: Option<String>,
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 impl AsRef<Host> for Host {
@@ -204,7 +207,7 @@ impl Host {
         ids: HashSet<HostId>,
         conn: &mut Conn<'_>,
     ) -> Result<HashSet<HostId>, Error> {
-        let ids = hosts::table
+        let ids = Self::not_deleted()
             .filter(hosts::id.eq_any(ids.iter()))
             .select(hosts::id)
             .get_results(conn)
@@ -224,7 +227,7 @@ impl Host {
             limit,
             search,
         } = filter;
-        let mut query = hosts::table.into_boxed();
+        let mut query = Self::not_deleted().into_boxed();
 
         // search fields
         if let Some(search) = search {
@@ -294,7 +297,7 @@ impl Host {
     }
 
     pub async fn find_by_name(name: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        hosts::table
+        Self::not_deleted()
             .filter(hosts::name.eq(name))
             .get_result(conn)
             .await
@@ -302,7 +305,8 @@ impl Host {
     }
 
     pub async fn delete(id: HostId, conn: &mut Conn<'_>) -> Result<usize, Error> {
-        diesel::delete(hosts::table.find(id))
+        diesel::update(Self::not_deleted().find(id))
+            .set(hosts::deleted_at.eq(Utc::now()))
             .execute(conn)
             .await
             .map_err(|err| Error::Delete(id, err))
@@ -365,6 +369,8 @@ impl Host {
                 hosts.host_type AS host_type
             FROM
                 hosts
+            WHERE
+                deleted_at IS NULL
         ) AS resouces
         WHERE
             -- These are our hard filters, we do not want any nodes that cannot satisfy the
@@ -455,6 +461,10 @@ impl Host {
             None
         }
     }
+
+    pub fn not_deleted() -> NotDeleted {
+        hosts::table.filter(hosts::deleted_at.is_null())
+    }
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -528,7 +538,7 @@ pub struct UpdateHost<'a> {
 
 impl UpdateHost<'_> {
     pub async fn update(self, conn: &mut Conn<'_>) -> Result<Host, Error> {
-        diesel::update(hosts::table.find(self.id))
+        diesel::update(Host::not_deleted().find(self.id))
             .set(self)
             .get_result(conn)
             .await
@@ -562,7 +572,7 @@ impl UpdateHostMetrics {
 
         let mut hosts = Vec::with_capacity(updates.len());
         for update in updates {
-            let updated = diesel::update(hosts::table.find(update.id))
+            let updated = diesel::update(Host::not_deleted().find(update.id))
                 .set(&update)
                 .get_result(conn)
                 .await

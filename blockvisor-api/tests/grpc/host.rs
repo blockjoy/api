@@ -1,3 +1,4 @@
+use blockvisor_api::database::seed::NODE_ID;
 use blockvisor_api::grpc::api;
 use blockvisor_api::models::host::{Host, UpdateHost};
 use blockvisor_api::models::schema;
@@ -139,7 +140,7 @@ async fn responds_ok_for_delete() {
 
     type NodeService = api::node_service_client::NodeServiceClient<Channel>;
     let node_req = api::NodeServiceDeleteRequest {
-        id: "cdbbc736-f399-42ab-86cf-617ce983011d".to_string(),
+        id: NODE_ID.to_string(),
     };
     test.send_admin(NodeService::delete, node_req)
         .await
@@ -229,7 +230,7 @@ async fn can_update_host_info() {
 
     // Fetch host after update to see if it really worked as expected
 
-    let updated_host: Host = hosts::table
+    let updated_host: Host = Host::not_deleted()
         .filter(hosts::id.eq(host.id))
         .get_result(&mut conn)
         .await

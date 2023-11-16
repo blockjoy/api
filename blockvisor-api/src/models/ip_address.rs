@@ -221,7 +221,7 @@ mod test {
     }
 
     #[tokio::test]
-    #[should_panic]
+    #[should_panic(expected = "called `Result::unwrap()` on an `Err` value: ToIpBeforeFrom")]
     async fn should_fail_creating_ip_range() {
         let (_ctx, db) = Context::with_mocked().await.unwrap();
 

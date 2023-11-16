@@ -40,6 +40,8 @@ use super::host::{Host, HostRequirements, HostType};
 use super::schema::nodes;
 use super::{IpAddress, Paginate, Region, RegionId};
 
+type NotDeleted = dsl::Filter<nodes::table, dsl::IsNull<nodes::deleted_at>>;
+
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// Failed to assign ip address to node: {0},
@@ -60,6 +62,8 @@ pub enum Error {
     Filter(diesel::result::Error),
     /// Failed to parse filtered IP addresses: {0}
     FilteredIps(serde_json::Error),
+    /// Failed to find nodes by host id {0}: {1}
+    FindByHostId(HostId, diesel::result::Error),
     /// Failed to find node by id `{0}`: {1}
     FindById(NodeId, diesel::result::Error),
     /// Failed to find nodes by id `{0:?}`: {1}
@@ -185,8 +189,6 @@ pub struct NodeSearch {
     pub ip: Option<String>,
 }
 
-type NotDeleted = dsl::Filter<nodes::table, dsl::IsNull<nodes::deleted_at>>;
-
 // These statuses imply that a node is deleted.
 const DELETED_STATUSES: [NodeStatus; 3] = [
     NodeStatus::DeletePending,
@@ -220,6 +222,14 @@ impl Node {
             .get_results(conn)
             .await
             .map_err(|err| Error::FindByOrgId(org_id, err))
+    }
+
+    pub async fn find_by_host(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+        Self::not_deleted()
+            .filter(nodes::host_id.eq(host_id))
+            .get_results(conn)
+            .await
+            .map_err(|err| Error::FindByHostId(host_id, err))
     }
 
     pub async fn upgradeable_by_type(
@@ -689,7 +699,7 @@ mod tests {
             id: Uuid::new_v4().into(),
             org_id,
             blockchain_id,
-            node_status: NodeStatus::Earning,
+            node_status: NodeStatus::Ingesting,
             sync_status: NodeSyncStatus::Syncing,
             container_status: ContainerStatus::Installing,
             block_height: None,

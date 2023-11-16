@@ -403,6 +403,7 @@ async fn delete(
 
     node.node_status = NodeStatus::DeletePending;
     let node = node.update(&mut write).await?;
+    Node::delete(node.id, &mut write).await?;
 
     // Send delete node command
     let new_command = NewCommand {

@@ -18,7 +18,7 @@ use crate::models::command::NewCommand;
 use crate::models::host::{
     ConnectionStatus, Host, HostFilter, HostSearch, HostType, MonthlyCostUsd, NewHost, UpdateHost,
 };
-use crate::models::{Blockchain, CommandType, Org, OrgUser, Region, RegionId};
+use crate::models::{Blockchain, CommandType, Node, Org, OrgUser, Region, RegionId};
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::host_service_server::HostService;
@@ -44,6 +44,8 @@ pub enum Error {
     Diesel(#[from] diesel::result::Error),
     /// Failed to parse disk size: {0}
     DiskSize(std::num::TryFromIntError),
+    /// This host cannot be deleted because it still has nodes.
+    HasNodes,
     /// Host model error: {0}
     Host(#[from] crate::models::host::Error),
     /// Host JWT failure: {0}
@@ -52,6 +54,8 @@ pub enum Error {
     LookupMissingOrg(OrgId),
     /// Failed to parse mem size: {0}
     MemSize(std::num::TryFromIntError),
+    /// Node model error: {0}
+    Node(#[from] crate::models::node::Error),
     /// Failed to parse BlockchainId: {0}
     ParseBlockchainId(uuid::Error),
     /// Failed to parse HostId: {0}
@@ -93,12 +97,14 @@ impl From<Error> for Status {
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ProvisionOrg => Status::failed_precondition("Wrong org."),
             SearchOperator(_) => Status::invalid_argument("search.operator"),
+            HasNodes => Status::failed_precondition("This host still has nodes."),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Blockchain(err) => err.into(),
             Command(err) => err.into(),
             CommandApi(err) => err.into(),
             Host(err) => err.into(),
+            Node(err) => err.into(),
             Org(err) => err.into(),
             Region(err) => err.into(),
         }
@@ -291,6 +297,9 @@ async fn delete(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Delete, id).await?;
 
+    if !Node::find_by_host(id, &mut write).await?.is_empty() {
+        return Err(Error::HasNodes);
+    }
     Host::delete(id, &mut write).await?;
 
     Ok(api::HostServiceDeleteResponse {})

@@ -23,4 +23,5 @@ ALTER TABLE nodes ALTER COLUMN chain_status TYPE enum_node_chain_status USING ch
 ALTER TABLE nodes ALTER COLUMN chain_status SET DEFAULT 'unknown';
 DROP TYPE enum_node_status;
 ALTER TABLE nodes DROP COLUMN deleted_at;
+ALTER TABLE hosts DROP COLUMN deleted_at;
 ALTER TABLE commands ADD COLUMN sub_cmd TEXT NULL;

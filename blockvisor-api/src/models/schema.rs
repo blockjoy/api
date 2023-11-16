@@ -184,6 +184,7 @@ diesel::table! {
         region_id -> Nullable<Uuid>,
         monthly_cost_in_usd -> Nullable<Int8>,
         vmm_mountpoint -> Nullable<Text>,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 
