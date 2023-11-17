@@ -23,6 +23,7 @@ async fn responds_unauthenticated_without_token_for_update() {
         os_version: None,
         region: None,
         billing_amount: None,
+        total_disk_space: None,
     };
     let status = test.send(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
@@ -42,6 +43,7 @@ async fn responds_permission_denied_with_token_ownership_for_update() {
         os_version: Some("5".to_string()),
         region: None,
         billing_amount: None,
+        total_disk_space: None,
     };
 
     let status = test
@@ -64,6 +66,7 @@ async fn responds_permission_denied_with_user_token_for_update() {
         os_version: Some("5".to_string()),
         region: None,
         billing_amount: None,
+        total_disk_space: None,
     };
 
     let status = test.send_admin(Service::update, req).await.unwrap_err();
@@ -119,6 +122,7 @@ async fn responds_ok_for_update() {
         os_version: Some("5".to_string()),
         region: None,
         billing_amount: None,
+        total_disk_space: None,
     };
 
     test.send_with(Service::update, req, &jwt).await.unwrap();

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
@@ -18,7 +18,7 @@ use crate::models::command::NewCommand;
 use crate::models::host::{
     ConnectionStatus, Host, HostFilter, HostSearch, HostType, MonthlyCostUsd, NewHost, UpdateHost,
 };
-use crate::models::{Blockchain, CommandType, Node, Org, OrgUser, Region, RegionId};
+use crate::models::{Blockchain, CommandType, IpAddress, Node, Org, OrgUser, Region, RegionId};
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::host_service_server::HostService;
@@ -48,6 +48,8 @@ pub enum Error {
     HasNodes,
     /// Host model error: {0}
     Host(#[from] crate::models::host::Error),
+    /// Host model error: {0}
+    IpAddress(#[from] crate::models::ip_address::Error),
     /// Host JWT failure: {0}
     Jwt(#[from] crate::auth::token::jwt::Error),
     /// Looking is missing org id: {0}
@@ -104,6 +106,7 @@ impl From<Error> for Status {
             Command(err) => err.into(),
             CommandApi(err) => err.into(),
             Host(err) => err.into(),
+            IpAddress(err) => err.into(),
             Node(err) => err.into(),
             Org(err) => err.into(),
             Region(err) => err.into(),
@@ -425,6 +428,7 @@ impl api::Host {
     }
 
     fn from_model(host: Host, authz: Option<&AuthZ>, lookup: &Lookup) -> Result<Self, Error> {
+        let empty = vec![];
         let billing_amount =
             authz.and_then(|authz| common::BillingAmount::from_model(&host, authz));
 
@@ -454,6 +458,9 @@ impl api::Host {
                 .and_then(|id| lookup.regions.get(&id).map(|region| region.name.clone())),
             billing_amount,
             vmm_mountpoint: host.vmm_mountpoint,
+            ip_addresses: api::HostIpAddress::from_models(
+                lookup.ip_addresses.get(&host.id).unwrap_or(&empty),
+            ),
         })
     }
 }
@@ -462,6 +469,7 @@ struct Lookup {
     nodes: HashMap<HostId, u64>,
     orgs: HashMap<OrgId, Org>,
     regions: HashMap<RegionId, Region>,
+    ip_addresses: HashMap<HostId, Vec<IpAddress>>,
 }
 
 impl Lookup {
@@ -473,8 +481,8 @@ impl Lookup {
     where
         H: AsRef<Host> + Send + Sync,
     {
-        let host_ids = hosts.iter().map(|h| h.as_ref().id).collect();
-        let nodes = Host::node_counts(host_ids, conn).await?;
+        let host_ids: HashSet<HostId> = hosts.iter().map(|h| h.as_ref().id).collect();
+        let nodes = Host::node_counts(host_ids.clone(), conn).await?;
 
         let org_ids = hosts.iter().map(|h| h.as_ref().org_id).collect();
         let orgs = Org::find_by_ids(org_ids, conn)
@@ -486,11 +494,30 @@ impl Lookup {
             .await?
             .to_map_keep_last(|region| (region.id, region));
 
+        let ip_addresses = IpAddress::find_by_hosts(host_ids, conn)
+            .await?
+            .into_iter()
+            .filter_map(|ip| ip.host_id.map(|host_id| (host_id, ip)))
+            .to_map_keep_all(|(host_id, ip)| (host_id, ip));
+
         Ok(Lookup {
             nodes,
             orgs,
             regions,
+            ip_addresses,
         })
+    }
+}
+
+impl api::HostIpAddress {
+    fn from_models(models: &[IpAddress]) -> Vec<Self> {
+        models
+            .iter()
+            .map(|ip| Self {
+                ip: ip.ip(),
+                assigned: ip.is_assigned,
+            })
+            .collect()
     }
 }
 

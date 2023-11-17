@@ -378,7 +378,7 @@ impl Node {
             .map_err(|err| Error::Delete(id, err))?;
 
         let ip_addr = node.ip_addr.parse().map_err(Error::ParseIpAddr)?;
-        let ip = IpAddress::find_by_node(ip_addr, write).await?;
+        let ip = IpAddress::find_by_ip(ip_addr, write).await?;
 
         IpAddress::unassign(ip.id, node.host_id, write).await?;
 
