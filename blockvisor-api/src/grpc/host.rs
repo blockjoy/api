@@ -482,7 +482,7 @@ impl Lookup {
         H: AsRef<Host> + Send + Sync,
     {
         let host_ids: HashSet<HostId> = hosts.iter().map(|h| h.as_ref().id).collect();
-        let nodes = Host::node_counts(host_ids.clone(), conn).await?;
+        let nodes = Host::node_counts(&host_ids, conn).await?;
 
         let org_ids = hosts.iter().map(|h| h.as_ref().org_id).collect();
         let orgs = Org::find_by_ids(org_ids, conn)

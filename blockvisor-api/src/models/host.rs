@@ -405,7 +405,7 @@ impl Host {
     }
 
     pub async fn node_counts(
-        host_ids: HashSet<HostId>,
+        host_ids: &HashSet<HostId>,
         conn: &mut Conn<'_>,
     ) -> Result<HashMap<HostId, u64>, Error> {
         let counts: Vec<(HostId, i64)> = Node::not_deleted()
