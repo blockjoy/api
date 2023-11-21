@@ -57,7 +57,11 @@ async fn delete_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, 
         .ok_or_else(|| error!("`DeleteNode` command {command_id} has no node!"))?;
     let node_id = node.id;
     node.node_status = NodeStatus::Deleted;
-    node.update(write)
+    let node = node
+        .update(write)
+        .await
+        .map_err(|err| error!("Failed to delete node {node_id} for command {command_id}: {err}"))?;
+    Node::delete(node.id, write)
         .await
         .map_err(|err| error!("Failed to delete node {node_id} for command {command_id}: {err}"))?;
     Ok(())
