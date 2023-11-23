@@ -324,12 +324,13 @@ mod tests {
             id: Uuid::new_v4().into(),
             host_id: db.seed.host.id,
             cmd: CommandType::CreateNode,
-            response: None,
-            exit_status: None,
+            exit_message: None,
             created_at: chrono::Utc::now(),
             completed_at: None,
             node_id: Some(db.seed.node.id),
             acked_at: None,
+            retry_hint_seconds: None,
+            exit_code: None,
         };
         let mut conn = db.conn().await;
 

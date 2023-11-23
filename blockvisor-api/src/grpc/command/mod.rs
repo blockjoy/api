@@ -221,14 +221,14 @@ impl api::Command {
         let node_id = || model.node_id.ok_or(Error::MissingNodeId);
 
         let node_cmd = |command| {
-            Ok(api::Command {
+            let mut command = api::Command {
                 id: model.id.to_string(),
-                response: model.exit_message.clone(),
-                exit_code: match model.exit_code {
-                    None => None,
-                    Some(CommandExitCode::Ok) => Some(0),
-                    Some(_) => Some(1),
-                },
+                exit_code: None,
+                exit_message: model.exit_message.clone(),
+                retry_hint_seconds: model
+                    .retry_hint_seconds
+                    .map(|hint| hint.try_into().map_err(Error::RetryHint))
+                    .transpose()?,
                 acked_at: model.acked_at.map(NanosUtc::from).map(Into::into),
                 command: Some(command::Command::Node(api::NodeCommand {
                     node_id: node_id()?.to_string(),
@@ -237,21 +237,29 @@ impl api::Command {
                     api_command_id: model.id.to_string(),
                     created_at: Some(NanosUtc::from(model.created_at).into()),
                 })),
-            })
+            };
+            if let Some(exit_code) = model.exit_code {
+                command.set_exit_code(api::CommandExitCode::from_model(exit_code));
+            }
+            Ok(command)
         };
 
         let host_cmd = |host_id| {
-            Ok(api::Command {
+            let mut command = api::Command {
                 id: model.id.to_string(),
-                response: model.exit_message.clone(),
-                exit_code: match model.exit_code {
-                    None => None,
-                    Some(CommandExitCode::Ok) => Some(0),
-                    Some(_) => Some(1),
-                },
+                exit_code: None,
+                exit_message: model.exit_message.clone(),
+                retry_hint_seconds: model
+                    .retry_hint_seconds
+                    .map(|hint| hint.try_into().map_err(Error::RetryHint))
+                    .transpose()?,
                 acked_at: model.acked_at.map(NanosUtc::from).map(Into::into),
                 command: Some(command::Command::Host(api::HostCommand { host_id })),
-            })
+            };
+            if let Some(exit_code) = model.exit_code {
+                command.set_exit_code(api::CommandExitCode::from_model(exit_code));
+            }
+            Ok(command)
         };
 
         match model.cmd {
@@ -379,13 +387,28 @@ impl api::CommandServiceUpdateRequest {
 }
 
 impl api::CommandExitCode {
-    fn into_model(self) -> Option<CommandExitCode> {
+    const fn into_model(self) -> Option<CommandExitCode> {
         match self {
             Self::Unspecified => None,
             Self::Ok => Some(CommandExitCode::Ok),
             Self::InternalError => Some(CommandExitCode::InternalError),
             Self::NodeNotFound => Some(CommandExitCode::NodeNotFound),
             Self::BlockingJobRunning => Some(CommandExitCode::BlockingJobRunning),
+            Self::ServiceNotReady => Some(CommandExitCode::ServiceNotReady),
+            Self::ServiceBroken => Some(CommandExitCode::ServiceBroken),
+            Self::NotSupported => Some(CommandExitCode::NotSupported),
+        }
+    }
+
+    const fn from_model(model: CommandExitCode) -> Self {
+        match model {
+            CommandExitCode::Ok => Self::Ok,
+            CommandExitCode::InternalError => Self::InternalError,
+            CommandExitCode::NodeNotFound => Self::NodeNotFound,
+            CommandExitCode::BlockingJobRunning => Self::BlockingJobRunning,
+            CommandExitCode::ServiceNotReady => Self::ServiceNotReady,
+            CommandExitCode::ServiceBroken => Self::ServiceBroken,
+            CommandExitCode::NotSupported => Self::NotSupported,
         }
     }
 }

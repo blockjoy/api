@@ -1,6 +1,6 @@
 use blockvisor_api::auth::resource::NodeId;
 use blockvisor_api::grpc::api;
-use blockvisor_api::models::command::{Command, CommandType, NewCommand};
+use blockvisor_api::models::command::{Command, CommandExitCode, CommandType, NewCommand};
 use blockvisor_api::models::host::Host;
 use blockvisor_api::models::node::UpdateNode;
 use tonic::transport::Channel;
@@ -35,16 +35,18 @@ async fn responds_ok_for_update() {
 
     let req = api::CommandServiceUpdateRequest {
         id: cmd.id.to_string(),
-        response: Some("hugo boss".to_string()),
-        exit_code: Some(98),
+        exit_message: Some("hugo boss".to_string()),
+        exit_code: Some(api::CommandExitCode::ServiceBroken as i32),
+        retry_hint_seconds: Some(10),
     };
 
     test.send_with(Service::update, req, &jwt).await.unwrap();
 
     let cmd = Command::find_by_id(cmd.id, &mut conn).await.unwrap();
 
-    assert_eq!(cmd.response.unwrap(), "hugo boss");
-    assert_eq!(cmd.exit_status.unwrap(), 98);
+    assert_eq!(cmd.exit_message.unwrap(), "hugo boss");
+    assert_eq!(cmd.exit_code.unwrap(), CommandExitCode::ServiceBroken);
+    assert_eq!(cmd.retry_hint_seconds.unwrap(), 10);
 }
 
 #[tokio::test]

@@ -20,7 +20,7 @@ use crate::models::blockchain::{
     BlockchainVersion, BlockchainVersionId, NewBlockchainNodeType, NewProperty, NewVersion,
     NodeStats,
 };
-use crate::models::command::{CommandExitCode, NewCommand};
+use crate::models::command::NewCommand;
 use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeType, NodeVersion};
 use crate::models::{Command, CommandType};
 use crate::util::{HashVec, NanosUtc};
@@ -290,7 +290,7 @@ async fn add_version(
             new_log.create(&mut write).await?;
             let command = new_command.create(&mut write).await?;
 
-            write.mqtt(upgrade_command(node.id, command, image.clone()));
+            write.mqtt(upgrade_command(node.id, &command, image.clone()));
         }
     }
 
@@ -333,16 +333,14 @@ fn upgrade_node<'b, 'n>(
     Ok(Some((command, log)))
 }
 
-fn upgrade_command(node_id: NodeId, command: Command, image: Image) -> api::Command {
+/// Take our new Command and turn it into a `gRPC` message
+fn upgrade_command(node_id: NodeId, command: &Command, image: Image) -> api::Command {
     api::Command {
         id: command.id.to_string(),
-        response: command.exit_message.clone(),
-        exit_code: match command.exit_code {
-            None => None,
-            Some(CommandExitCode::Ok) => Some(0),
-            Some(_) => Some(1),
-        },
-        acked_at: command.acked_at.map(NanosUtc::from).map(Into::into),
+        exit_code: None,
+        exit_message: None,
+        retry_hint_seconds: None,
+        acked_at: None,
         command: Some(api::command::Command::Node(api::NodeCommand {
             node_id: node_id.to_string(),
             host_id: command.host_id.to_string(),

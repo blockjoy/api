@@ -106,17 +106,6 @@ pub struct Command {
     pub exit_code: Option<CommandExitCode>,
 }
 
-// id -> Uuid,
-// host_id -> Uuid,
-// cmd -> EnumHostCmd,
-// exit_message -> Nullable<Text>,
-// created_at -> Timestamptz,
-// completed_at -> Nullable<Timestamptz>,
-// node_id -> Nullable<Uuid>,
-// acked_at -> Nullable<Timestamptz>,
-// retry_hint_seconds -> Nullable<Int8>,
-// exit_code -> Nullable<EnumCommandExitCode>,
-
 impl Command {
     pub async fn find_by_id(id: CommandId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         commands::table
@@ -214,9 +203,11 @@ pub struct UpdateCommand<'a> {
 pub enum CommandExitCode {
     Ok,
     InternalError,
-    Staking,
     NodeNotFound,
     BlockingJobRunning,
+    ServiceNotReady,
+    ServiceBroken,
+    NotSupported,
 }
 
 impl UpdateCommand<'_> {
