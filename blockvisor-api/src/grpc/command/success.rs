@@ -4,9 +4,8 @@ use tracing::error;
 
 use crate::database::WriteConn;
 use crate::grpc::api;
-use crate::grpc::node::create_node_command;
 use crate::models::blockchain::Blockchain;
-use crate::models::command::{Command, CommandType};
+use crate::models::command::{Command, CommandType, NewCommand};
 use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeStatus};
 
 type Result = std::result::Result<(), ()>;
@@ -48,7 +47,8 @@ async fn create_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, 
     };
     let _ = new_log.create(write).await;
 
-    let start_notif = create_node_command(&node, CommandType::RestartNode, write)
+    let start_notif = NewCommand::node(&node, CommandType::RestartNode)
+        .create(write)
         .await
         .map_err(|err| error!("Could not insert new command into database: {err}"))?;
     let start_cmd = api::Command::from_model(&start_notif, write)

@@ -316,7 +316,8 @@ async fn start(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Start, id).await?;
 
-    let command = NewCommand::from(id, CommandType::RestartBVS)
+    let host = Host::find_by_id(id, &mut write).await?;
+    let command = NewCommand::host(&host, CommandType::RestartBVS)
         .create(&mut write)
         .await?;
     let message = api::Command::from_model(&command, &mut write).await?;
@@ -333,7 +334,8 @@ async fn stop(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Stop, id).await?;
 
-    let command = NewCommand::from(id, CommandType::StopBVS)
+    let host = Host::find_by_id(id, &mut write).await?;
+    let command = NewCommand::host(&host, CommandType::StopBVS)
         .create(&mut write)
         .await?;
     let message = api::Command::from_model(&command, &mut write).await?;
@@ -350,7 +352,8 @@ async fn restart(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Restart, id).await?;
 
-    let command = NewCommand::from(id, CommandType::RestartBVS)
+    let host = Host::find_by_id(id, &mut write).await?;
+    let command = NewCommand::host(&host, CommandType::RestartBVS)
         .create(&mut write)
         .await?;
     let message = api::Command::from_model(&command, &mut write).await?;

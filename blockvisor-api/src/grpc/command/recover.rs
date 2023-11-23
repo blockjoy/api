@@ -6,7 +6,8 @@ use tonic::Status;
 use tracing::error;
 
 use crate::database::WriteConn;
-use crate::grpc::{api, node};
+use crate::grpc::api;
+use crate::models::command::NewCommand;
 use crate::models::node::{NewNodeLog, NodeLogEvent};
 use crate::models::{Blockchain, Command, CommandType, Node};
 
@@ -117,7 +118,10 @@ async fn recover_created(
     let node = node.update(write).await.map_err(Error::UpdateNode)?;
 
     // 3. We notify blockvisor of our retry via an MQTT message.
-    if let Ok(cmd) = node::create_node_command(&node, CommandType::CreateNode, write).await {
+    if let Ok(cmd) = NewCommand::node(&node, CommandType::CreateNode)
+        .create(write)
+        .await
+    {
         let result = api::Command::from_model(&cmd, write).await;
         result.map_or_else(|_| {
             error!("Could not convert node create command to gRPC repr while recovering. Command: {:?}", cmd);
@@ -127,7 +131,10 @@ async fn recover_created(
     }
 
     // we also start the node.
-    if let Ok(cmd) = node::create_node_command(&node, CommandType::RestartNode, write).await {
+    if let Ok(cmd) = NewCommand::node(&node, CommandType::RestartNode)
+        .create(write)
+        .await
+    {
         let result = api::Command::from_model(&cmd, write).await;
         result.map_or_else(|_| {
             error!("Could not convert node start command to gRPC repr while recovering. Command {:?}", cmd);

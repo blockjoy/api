@@ -170,11 +170,19 @@ pub struct NewCommand {
 }
 
 impl NewCommand {
-    pub const fn from(host_id: HostId, cmd: CommandType) -> Self {
+    pub const fn host(host: &Host, cmd: CommandType) -> Self {
         NewCommand {
-            host_id,
+            host_id: host.id,
             cmd,
             node_id: None,
+        }
+    }
+
+    pub const fn node(node: &Node, cmd: CommandType) -> Self {
+        NewCommand {
+            host_id: node.host_id,
+            cmd,
+            node_id: Some(node.id),
         }
     }
 
