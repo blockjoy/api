@@ -603,7 +603,10 @@ impl api::HostServiceUpdateRequest {
             version: self.version.as_deref(),
             cpu_count: None,
             mem_size_bytes: None,
-            disk_size_bytes: None,
+            disk_size_bytes: self
+                .total_disk_space
+                .map(|space| space.try_into().map_err(Error::DiskSize))
+                .transpose()?,
             os: self.os.as_deref(),
             os_version: self.os_version.as_deref(),
             ip_addr: None,

@@ -20,7 +20,7 @@ use crate::models::blockchain::{
     BlockchainVersion, BlockchainVersionId, NewBlockchainNodeType, NewProperty, NewVersion,
     NodeStats,
 };
-use crate::models::command::NewCommand;
+use crate::models::command::{CommandExitCode, NewCommand};
 use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeType, NodeVersion};
 use crate::models::{Command, CommandType};
 use crate::util::{HashVec, NanosUtc};
@@ -336,8 +336,12 @@ fn upgrade_node<'b, 'n>(
 fn upgrade_command(node_id: NodeId, command: Command, image: Image) -> api::Command {
     api::Command {
         id: command.id.to_string(),
-        response: command.response,
-        exit_code: command.exit_status,
+        response: command.exit_message.clone(),
+        exit_code: match command.exit_code {
+            None => None,
+            Some(CommandExitCode::Ok) => Some(0),
+            Some(_) => Some(1),
+        },
         acked_at: command.acked_at.map(NanosUtc::from).map(Into::into),
         command: Some(api::command::Command::Node(api::NodeCommand {
             node_id: node_id.to_string(),

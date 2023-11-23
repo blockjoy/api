@@ -6,6 +6,10 @@ pub mod sql_types {
     pub struct BlockchainPropertyUiType;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_command_exit_code"))]
+    pub struct EnumCommandExitCode;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_conn_status"))]
     pub struct EnumConnStatus;
 
@@ -135,17 +139,19 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::EnumHostCmd;
+    use super::sql_types::EnumCommandExitCode;
 
     commands (id) {
         id -> Uuid,
         host_id -> Uuid,
         cmd -> EnumHostCmd,
-        response -> Nullable<Text>,
-        exit_status -> Nullable<Int4>,
+        exit_message -> Nullable<Text>,
         created_at -> Timestamptz,
         completed_at -> Nullable<Timestamptz>,
         node_id -> Nullable<Uuid>,
         acked_at -> Nullable<Timestamptz>,
+        retry_hint_seconds -> Nullable<Int8>,
+        exit_code -> Nullable<EnumCommandExitCode>,
     }
 }
 
