@@ -315,8 +315,6 @@ async fn create(
 
     let create_notif = create_node_command(&node, CommandType::CreateNode, &mut write).await?;
     let create_cmd = api::Command::from_model(&create_notif, &mut write).await?;
-    let start_notif = create_node_command(&node, CommandType::RestartNode, &mut write).await?;
-    let start_cmd = api::Command::from_model(&start_notif, &mut write).await?;
     let node_api = api::Node::from_model(node, &mut write).await?;
 
     let created_by = common::EntityUpdate::from_resource(created_by, &mut write).await?;
@@ -324,7 +322,6 @@ async fn create(
 
     write.mqtt(create_cmd);
     write.mqtt(created);
-    write.mqtt(start_cmd);
 
     Ok(api::NodeServiceCreateResponse {
         node: Some(node_api),

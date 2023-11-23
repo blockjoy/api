@@ -3,6 +3,8 @@
 use tracing::error;
 
 use crate::database::WriteConn;
+use crate::grpc::api;
+use crate::grpc::node::create_node_command;
 use crate::models::blockchain::Blockchain;
 use crate::models::command::{Command, CommandType};
 use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeStatus};
@@ -22,8 +24,8 @@ pub(super) async fn register(succeeded_cmd: &Command, write: &mut WriteConn<'_, 
     };
 }
 
-/// In case of a successful node deployment, we are expected to write
-/// `node_logs` entry to the database. The `event` we pass in is `Succeeded`.
+/// In case of a successful node deployment, we are expected to write `node_logs` entry to the
+/// database. The `event` we pass in is `Succeeded`. Afterwards, we will start the node.
 async fn create_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, '_>) -> Result {
     let node_id = succeeded_cmd
         .node_id
@@ -41,10 +43,18 @@ async fn create_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, 
         event: NodeLogEvent::CreateSucceeded,
         blockchain_name: &blockchain.name,
         node_type: node.node_type,
-        version: node.version,
+        version: node.version.clone(),
         created_at: chrono::Utc::now(),
     };
     let _ = new_log.create(write).await;
+
+    let start_notif = create_node_command(&node, CommandType::RestartNode, write)
+        .await
+        .map_err(|err| error!("Could not insert new command into database: {err}"))?;
+    let start_cmd = api::Command::from_model(&start_notif, write)
+        .await
+        .map_err(|err| error!("Could not serialize new command to gRPC message: {err}"))?;
+    write.mqtt(start_cmd);
     Ok(())
 }
 
