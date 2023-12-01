@@ -265,11 +265,11 @@ impl api::NodeMessage {
         }
     }
 
-    pub fn updated(node: api::Node, updated_by: impl Into<Option<common::EntityUpdate>>) -> Self {
+    pub const fn updated(node: api::Node, updated_by: common::EntityUpdate) -> Self {
         api::NodeMessage {
             message: Some(api::node_message::Message::Updated(api::NodeUpdated {
                 node: Some(node),
-                updated_by: updated_by.into(),
+                updated_by: Some(updated_by),
             })),
         }
     }
