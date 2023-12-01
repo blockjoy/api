@@ -38,6 +38,8 @@ pub enum Error {
     Command(#[from] crate::models::command::Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
+    /// Error creating a gRPC representation of a node: {0}
+    GrpcHost(Box<crate::grpc::node::Error>),
     /// Command host error: {0}
     Host(#[from] crate::models::host::Error),
     /// IP is not a CIDR.
@@ -69,7 +71,7 @@ impl From<Error> for Status {
             ParseHostId(_) => Status::invalid_argument("host_id"),
             ParseId(_) => Status::invalid_argument("id"),
             RetryHint(_) => Status::invalid_argument("retry_hint_seconds"),
-            Diesel(_) | IpNotCidr | MissingBlockchainPropertyId | NotImplemented => {
+            Diesel(_) | IpNotCidr | MissingBlockchainPropertyId | NotImplemented | GrpcHost(_) => {
                 Status::internal("Internal error.")
             }
             Auth(err) => err.into(),
@@ -215,7 +217,13 @@ async fn ack_node_transition(
     };
 
     node.node_status = next_status;
-    node.update(write).await?;
+    let node = node.update(write).await?;
+
+    let node = api::Node::from_model(node, write)
+        .await
+        .map_err(|err| Error::GrpcHost(Box::new(err)))?;
+    let msg = api::NodeMessage::updated(node, None);
+    write.mqtt(msg);
 
     Ok(())
 }

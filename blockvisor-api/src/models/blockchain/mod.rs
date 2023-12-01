@@ -154,6 +154,7 @@ impl NodeStats {
         }
 
         Node::not_deleted()
+            .filter(nodes::deleted_at.is_null())
             .group_by(nodes::blockchain_id)
             .select((
                 nodes::blockchain_id,
