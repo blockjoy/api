@@ -67,6 +67,7 @@ pub enum NodeType {
     Node = 10,
     FullNode = 11,
     LightNode = 12,
+    Archive = 13,
 }
 
 impl From<common::NodeType> for NodeType {
@@ -85,6 +86,7 @@ impl From<common::NodeType> for NodeType {
             common::NodeType::Node => NodeType::Node,
             common::NodeType::Fullnode => NodeType::FullNode,
             common::NodeType::Lightnode => NodeType::LightNode,
+            common::NodeType::Archive => NodeType::Archive,
         }
     }
 }
@@ -105,6 +107,7 @@ impl From<NodeType> for common::NodeType {
             NodeType::Node => common::NodeType::Node,
             NodeType::FullNode => common::NodeType::Fullnode,
             NodeType::LightNode => common::NodeType::Lightnode,
+            NodeType::Archive => common::NodeType::Archive,
         }
     }
 }
@@ -125,6 +128,7 @@ impl fmt::Display for NodeType {
             Self::Node => "Node",
             Self::FullNode => "FullNode",
             Self::LightNode => "LightNode",
+            Self::Archive => "Archive",
         };
         write!(f, "{s}")
     }
@@ -148,6 +152,7 @@ impl FromStr for NodeType {
             "node" => Ok(Self::Node),
             "fullnode" => Ok(Self::FullNode),
             "lightnode" => Ok(Self::LightNode),
+            "archive" => Ok(Self::Archive),
             _ => Err(Error::UnknownNodeType(s.into())),
         }
     }
@@ -172,5 +177,6 @@ mod tests {
         assert_eq!(NodeType::Node.to_string(), "Node");
         assert_eq!(NodeType::FullNode.to_string(), "FullNode");
         assert_eq!(NodeType::LightNode.to_string(), "LightNode");
+        assert_eq!(NodeType::Archive.to_string(), "Archive");
     }
 }
