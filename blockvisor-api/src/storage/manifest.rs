@@ -23,8 +23,6 @@ pub enum Error {
     ParseArchiveUrl(url::ParseError),
     /// Failed to parse upload URL: {0}
     ParseUploadUrl(url::ParseError),
-    /// Unknown ChecksumType.
-    UnknownChecksumType,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,7 +90,7 @@ impl From<ArchiveChunk> for api::ArchiveChunk {
         api::ArchiveChunk {
             key: chunk.key,
             url: chunk.url.map(|url| url.to_string()),
-            checksum: Some((&chunk.checksum).into()),
+            checksum: Some(chunk.checksum.into()),
             size: chunk.size,
             destinations: chunk.destinations.into_iter().map(Into::into).collect(),
         }
@@ -139,35 +137,30 @@ impl TryFrom<api::Checksum> for Checksum {
     type Error = Error;
 
     fn try_from(checksum: api::Checksum) -> Result<Self, Self::Error> {
-        let ty = checksum.checksum_type();
-        let val = checksum.checksum;
-
-        match ty {
-            api::ChecksumType::Unspecified => Err(Error::UnknownChecksumType),
-            api::ChecksumType::Sha1 => {
-                Ok(Checksum::Sha1(val.try_into().map_err(Error::ChecksumSha1)?))
-            }
-            api::ChecksumType::Sha256 => Ok(Checksum::Sha256(
-                val.try_into().map_err(Error::ChecksumSha256)?,
+        match checksum.checksum.ok_or(Error::MissingChecksum)? {
+            api::checksum::Checksum::Sha1(bytes) => Ok(Checksum::Sha1(
+                bytes.try_into().map_err(Error::ChecksumSha1)?,
             )),
-            api::ChecksumType::Blake3 => Ok(Checksum::Blake3(
-                val.try_into().map_err(Error::ChecksumBlake3)?,
+            api::checksum::Checksum::Sha256(bytes) => Ok(Checksum::Sha256(
+                bytes.try_into().map_err(Error::ChecksumSha256)?,
+            )),
+            api::checksum::Checksum::Blake3(bytes) => Ok(Checksum::Blake3(
+                bytes.try_into().map_err(Error::ChecksumBlake3)?,
             )),
         }
     }
 }
 
-impl From<&Checksum> for api::Checksum {
-    fn from(checksum: &Checksum) -> Self {
-        let (ty, val) = match checksum {
-            Checksum::Sha1(val) => (api::ChecksumType::Sha1, val.to_vec()),
-            Checksum::Sha256(val) => (api::ChecksumType::Sha256, val.to_vec()),
-            Checksum::Blake3(val) => (api::ChecksumType::Blake3, val.to_vec()),
+impl From<Checksum> for api::Checksum {
+    fn from(checksum: Checksum) -> Self {
+        let inner = match checksum {
+            Checksum::Sha1(bytes) => api::checksum::Checksum::Sha1(bytes.to_vec()),
+            Checksum::Sha256(bytes) => api::checksum::Checksum::Sha256(bytes.to_vec()),
+            Checksum::Blake3(bytes) => api::checksum::Checksum::Blake3(bytes.to_vec()),
         };
 
         api::Checksum {
-            checksum_type: ty.into(),
-            checksum: val,
+            checksum: Some(inner),
         }
     }
 }
