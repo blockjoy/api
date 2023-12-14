@@ -9,7 +9,7 @@ use crate::auth::rbac::BundlePerm;
 use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction};
 use crate::grpc::api::bundle_service_server::BundleService;
-use crate::grpc::{api, Grpc};
+use crate::grpc::{api, common, Grpc};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -17,14 +17,14 @@ pub enum Error {
     Auth(#[from] crate::auth::Error),
     /// Claims check failed: {0}
     Claims(#[from] crate::auth::claims::Error),
-    /// Cookbook failed: {0}
-    Cookbook(#[from] crate::cookbook::Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
-    /// Missing cookbook id.
+    /// Missing image identifier.
     MissingId,
     /// This endpoint is not currently used.
     NotUsed,
+    /// Storage failed: {0}
+    Storage(#[from] crate::storage::Error),
 }
 
 impl From<Error> for Status {
@@ -32,7 +32,7 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            Cookbook(_) | Diesel(_) | NotUsed => Status::internal("Internal error."),
+            Diesel(_) | NotUsed | Storage(_) => Status::internal("Internal error."),
             MissingId => Status::invalid_argument("id"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
@@ -79,10 +79,12 @@ async fn retrieve(
     read.auth_all(&meta, BundlePerm::Retrieve).await?;
 
     let id = req.id.ok_or(Error::MissingId)?;
-    let url = read.ctx.cookbook.download_bundle(&id.version).await?;
+    let url = read.ctx.storage.download_bundle(&id.version).await?;
 
     Ok(api::BundleServiceRetrieveResponse {
-        location: Some(api::ArchiveLocation { url }),
+        location: Some(common::ArchiveLocation {
+            url: url.to_string(),
+        }),
     })
 }
 
@@ -93,7 +95,7 @@ async fn list_bundle_versions(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BundleServiceListBundleVersionsResponse, Error> {
     read.auth_all(&meta, BundlePerm::ListBundleVersions).await?;
-    let identifiers = read.ctx.cookbook.list_bundles().await?;
+    let identifiers = read.ctx.storage.list_bundles().await?;
 
     Ok(api::BundleServiceListBundleVersionsResponse { identifiers })
 }

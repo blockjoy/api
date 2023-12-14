@@ -1,10 +1,16 @@
 ### Build container
-FROM us-docker.pkg.dev/blockjoy-deployer/blockvisor-api/blockvisor-api-builder:latest as build
+FROM rust:alpine as build
+
+RUN apk update && apk add \
+  protobuf \
+  protobuf-dev \
+  protoc \
+  libc-dev \
+  libpq-dev
 
 ENV RUSTFLAGS -Ctarget-feature=-crt-static
 
 WORKDIR /src
-
 COPY . /src
 
 RUN cargo build --release

@@ -10,20 +10,6 @@ token = "9QjEiXC4B26tgshHZjuZ57kJcjaChSSsDfzUvfYQ"
 base = "n0des.xyz"
 ttl = 300
 
-[cookbook]
-prefix = "chains"
-url = "https://r2.dev"
-expiration = "1h"
-aws_region = "eu-west-2"
-aws_access_key_id = "<your value>"
-aws_secret_access_key = "<your value>"
-
-[cookbook.bucket]
-cookbook = "cookbook"
-bundle = "bundle"
-kernel = "kernel"
-archive = "archive"
-
 [database]
 url = "postgres://blockvisor:password@localhost:25432/blockvisor_db"
 bind_ip = "0.0.0.0"
@@ -43,9 +29,6 @@ ui_base_url = "https://app.alpha.blockvisor.dev"
 [grpc]
 request_concurrency_limit = 128
 
-[key_service]
-url = "https://api.dev.blockjoy.com"
-
 [log]
 environment = "dev"
 filter = "info,grpc_tests=debug,tower_http=off"
@@ -58,6 +41,20 @@ server_address = "127.0.0.1"
 server_port = 21883
 username = "blockvisor"
 password = "password"
+
+[storage]
+prefix = "chains"
+url = "https://r2.dev"
+expiration = "1h"
+aws_region = "eu-west-2"
+aws_access_key_id = "<your value>"
+aws_secret_access_key = "<your value>"
+
+[storage.bucket]
+cookbook = "cookbook"
+bundle = "bundle"
+kernel = "kernel"
+archive = "archive"
 
 [token.secret]
 jwt = "1245456"

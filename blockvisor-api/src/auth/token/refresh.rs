@@ -12,7 +12,7 @@ use tracing::warn;
 
 use crate::auth::claims::Expirable;
 use crate::auth::resource::ResourceId;
-use crate::config::token::RefreshSecret;
+use crate::config::token::{RefreshSecret, RefreshSecrets};
 
 const ALGORITHM: Algorithm = Algorithm::HS512;
 const COOKIE_HEADER: &str = "cookie";
@@ -57,15 +57,21 @@ pub struct Cipher {
     validation: Validation,
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
+    fallback_decoding_keys: Vec<DecodingKey>,
 }
 
 impl Cipher {
-    pub fn new(secret: &RefreshSecret) -> Self {
+    pub fn new(secret: &RefreshSecret, fallback_secrets: &RefreshSecrets) -> Self {
         Cipher {
             header: Header::new(ALGORITHM),
             validation: Validation::new(ALGORITHM),
             encoding_key: EncodingKey::from_secret(secret.as_bytes()),
             decoding_key: DecodingKey::from_secret(secret.as_bytes()),
+            fallback_decoding_keys: fallback_secrets
+                .iter()
+                .map(String::as_bytes)
+                .map(DecodingKey::from_secret)
+                .collect(),
         }
     }
 
@@ -76,15 +82,37 @@ impl Cipher {
     }
 
     pub fn decode(&self, encoded: &Encoded) -> Result<Refresh, Error> {
-        let refresh: Refresh = jsonwebtoken::decode(encoded, &self.decoding_key, &self.validation)
-            .map(|data| data.claims)
-            .map_err(Error::Decode)?;
+        let refresh = Self::decode_inner(
+            encoded,
+            &self.decoding_key,
+            &self.fallback_decoding_keys,
+            &self.validation,
+        )
+        .map_err(Error::Decode)?;
 
         if refresh.expirable.expires_at < refresh.expirable.issued_at {
             return Err(Error::ExpiresBeforeIssued);
         }
 
         Ok(refresh)
+    }
+
+    fn decode_inner(
+        token: &Encoded,
+        decoding_key: &DecodingKey,
+        fallback_decoding_keys: &[DecodingKey],
+        validation: &Validation,
+    ) -> Result<Refresh, jsonwebtoken::errors::Error> {
+        let err = match jsonwebtoken::decode(token, decoding_key, validation) {
+            Ok(data) => return Ok(data.claims),
+            Err(err) => err,
+        };
+        for decoding_key in fallback_decoding_keys {
+            if let Ok(data) = jsonwebtoken::decode(token, decoding_key, validation) {
+                return Ok(data.claims);
+            }
+        }
+        Err(err)
     }
 
     pub fn cookie(&self, refresh: &Refresh) -> Result<RequestCookie, Error> {

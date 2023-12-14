@@ -6,6 +6,10 @@ pub mod sql_types {
     pub struct BlockchainPropertyUiType;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_command_exit_code"))]
+    pub struct EnumCommandExitCode;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_conn_status"))]
     pub struct EnumConnStatus;
 
@@ -22,10 +26,6 @@ pub mod sql_types {
     pub struct EnumHostType;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "enum_node_chain_status"))]
-    pub struct EnumNodeChainStatus;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_log_event"))]
     pub struct EnumNodeLogEvent;
 
@@ -40,6 +40,10 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_staking_status"))]
     pub struct EnumNodeStakingStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_node_status"))]
+    pub struct EnumNodeStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_sync_status"))]
@@ -82,10 +86,10 @@ diesel::table! {
     blockchain_node_types (id) {
         id -> Uuid,
         blockchain_id -> Uuid,
-        node_type -> EnumNodeType,
         description -> Nullable<Text>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        node_type -> EnumNodeType,
     }
 }
 
@@ -135,18 +139,19 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::EnumHostCmd;
+    use super::sql_types::EnumCommandExitCode;
 
     commands (id) {
         id -> Uuid,
         host_id -> Uuid,
         cmd -> EnumHostCmd,
-        sub_cmd -> Nullable<Text>,
-        response -> Nullable<Text>,
-        exit_status -> Nullable<Int4>,
+        exit_message -> Nullable<Text>,
         created_at -> Timestamptz,
         completed_at -> Nullable<Timestamptz>,
         node_id -> Nullable<Uuid>,
         acked_at -> Nullable<Timestamptz>,
+        retry_hint_seconds -> Nullable<Int8>,
+        exit_code -> Nullable<EnumCommandExitCode>,
     }
 }
 
@@ -185,6 +190,7 @@ diesel::table! {
         region_id -> Nullable<Uuid>,
         monthly_cost_in_usd -> Nullable<Int8>,
         vmm_mountpoint -> Nullable<Text>,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -224,10 +230,10 @@ diesel::table! {
         node_id -> Uuid,
         event -> EnumNodeLogEvent,
         blockchain_name -> Text,
-        node_type -> EnumNodeType,
         #[max_length = 32]
         version -> Varchar,
         created_at -> Timestamptz,
+        node_type -> EnumNodeType,
     }
 }
 
@@ -242,14 +248,28 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::EnumNodeSyncStatus;
-    use super::sql_types::EnumNodeChainStatus;
-    use super::sql_types::EnumNodeStakingStatus;
-    use super::sql_types::EnumContainerStatus;
-    use super::sql_types::EnumNodeType;
+    use super::sql_types::EnumResourceType;
+
+    node_reports (id) {
+        id -> Uuid,
+        node_id -> Uuid,
+        created_by_resource -> EnumResourceType,
+        created_by -> Uuid,
+        message -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::EnumNodeSimilarityAffinity;
     use super::sql_types::EnumNodeResourceAffinity;
     use super::sql_types::EnumResourceType;
+    use super::sql_types::EnumNodeType;
+    use super::sql_types::EnumNodeStatus;
+    use super::sql_types::EnumContainerStatus;
+    use super::sql_types::EnumNodeSyncStatus;
+    use super::sql_types::EnumNodeStakingStatus;
 
     nodes (id) {
         id -> Uuid,
@@ -265,10 +285,6 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         blockchain_id -> Uuid,
-        sync_status -> EnumNodeSyncStatus,
-        chain_status -> EnumNodeChainStatus,
-        staking_status -> Nullable<EnumNodeStakingStatus>,
-        container_status -> EnumContainerStatus,
         ip_gateway -> Text,
         self_update -> Bool,
         block_age -> Nullable<Int8>,
@@ -283,13 +299,18 @@ diesel::table! {
         dns_record_id -> Varchar,
         allow_ips -> Jsonb,
         deny_ips -> Jsonb,
-        node_type -> EnumNodeType,
         scheduler_similarity -> Nullable<EnumNodeSimilarityAffinity>,
         scheduler_resource -> Nullable<EnumNodeResourceAffinity>,
         scheduler_region -> Nullable<Uuid>,
         data_directory_mountpoint -> Nullable<Text>,
         jobs -> Jsonb,
         created_by_resource -> Nullable<EnumResourceType>,
+        deleted_at -> Nullable<Timestamptz>,
+        node_type -> EnumNodeType,
+        node_status -> EnumNodeStatus,
+        container_status -> EnumContainerStatus,
+        sync_status -> EnumNodeSyncStatus,
+        staking_status -> Nullable<EnumNodeStakingStatus>,
     }
 }
 
@@ -407,6 +428,7 @@ diesel::joinable!(invitations -> users (invited_by));
 diesel::joinable!(ip_addresses -> hosts (host_id));
 diesel::joinable!(node_properties -> blockchain_properties (blockchain_property_id));
 diesel::joinable!(node_properties -> nodes (node_id));
+diesel::joinable!(node_reports -> nodes (node_id));
 diesel::joinable!(nodes -> blockchains (blockchain_id));
 diesel::joinable!(nodes -> hosts (host_id));
 diesel::joinable!(nodes -> orgs (org_id));
@@ -433,6 +455,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     ip_addresses,
     node_logs,
     node_properties,
+    node_reports,
     nodes,
     orgs,
     orgs_users,

@@ -1,8 +1,9 @@
 DATABASE_URL ?= postgres://blockvisor:password@localhost:25432/blockvisor_db
-DIESEL_CONFIG ?= blockvisor-api/diesel.toml
+DOCKER_COMPOSE ?= docker-compose --file docker/docker-compose.yaml
+DIESEL ?= diesel --config-file blockvisor-api/diesel.toml --database-url ${DATABASE_URL}
 TEST_SERVICES ?= postgres emqx
 
-.PHONY: help setup start stop test test-nc
+.PHONY: help setup diesel up up-all down reset reset-all test test-out
 .DEFAULT_GOAL := help
 
 define fetch_arg
@@ -19,20 +20,24 @@ setup: ## Install the prerequistes for running tests.
 	@git submodule update --init --recursive --remote
 	@cargo install --force diesel_cli --no-default-features --features postgres
 
-start: ## Start required docker services for integration tests.
-	@docker-compose up --detach --wait ${TEST_SERVICES}
-	@diesel migration run --config-file ${DIESEL_CONFIG} --database-url ${DATABASE_URL}
+diesel: res := $(call fetch_arg)
+diesel: ## Run a diesel cli command.
+	@${DIESEL} $($@_arg)
 
-start-all: ## Start all docker services for integration tests and metrics.
-	@docker-compose up --detach --wait
-	@diesel migration run --config-file ${DIESEL_CONFIG} --database-url ${DATABASE_URL}
+up: ## Start required docker services for integration tests.
+	@${DOCKER_COMPOSE} up --detach --wait ${TEST_SERVICES}
+	@${DIESEL} migration run
 
-stop: ## Stop all running docker services.
-	@docker-compose down --volumes
+up-all: ## Start all docker services for integration tests and metrics.
+	@${DOCKER_COMPOSE} up --detach --wait
+	@${DIESEL} migration run
+
+down: ## Stop all running docker services.
+	@${DOCKER_COMPOSE} down --volumes
 	@rm -rf ./docker/{clickhouse,signoz}/data
 
-reset: stop start ## Reset the required docker services.
-reset-all: stop start-all ## Reset all docker services.
+reset: down up ## Reset the required docker services.
+reset-all: down up-all ## Reset all docker services.
 
 test: res := $(call fetch_arg)
 test: ## Run cargo test (usage: `make test <name>`).

@@ -68,13 +68,13 @@ impl NodeProperty {
     }
 
     pub async fn by_node_ids(
-        node_ids: HashSet<NodeId>,
+        node_ids: &HashSet<NodeId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         node_properties::table
-            .filter(node_properties::node_id.eq_any(node_ids.iter()))
+            .filter(node_properties::node_id.eq_any(node_ids))
             .get_results(conn)
             .await
-            .map_err(|err| Error::ByNodeIds(node_ids, err))
+            .map_err(|err| Error::ByNodeIds(node_ids.clone(), err))
     }
 }

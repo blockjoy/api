@@ -1,28 +1,34 @@
 use std::time::Duration;
 
 use displaydoc::Display;
-use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
+use prost::Message as _;
+use rumqttc::v5::mqttbytes::v5::{Packet, Publish};
+use rumqttc::v5::{AsyncClient, Event, MqttOptions};
 use thiserror::Error;
 use tracing::{trace, warn};
 
-use super::Message;
+use crate::database::{Database, Pool};
+use crate::grpc::api;
+use crate::models::host::{ConnectionStatus, UpdateHost};
 
-const CLIENT_CAPACITY: usize = 10;
-const CLIENT_QOS: QoS = QoS::ExactlyOnce;
-const CLIENT_RETAIN: bool = false;
+use super::{Client, Message, CLIENT_CAPACITY, CLIENT_QOS};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to get Message channels: {0}
-    Channels(super::message::Error),
-    /// Critical MQTT connection error: {0}
-    Critical(rumqttc::ConnectionError),
-    /// Failed to publish Message: {0}
-    Publish(rumqttc::ClientError),
+    /// MQTT client error: {0}
+    Client(#[from] crate::mqtt::Error),
+    /// Failed to parse HostId from MQTT HostStatus: {0}
+    ParseHostId(uuid::Error),
+    /// Failed to parse HostStatus: {0}
+    ParseHostStatus(prost::DecodeError),
+    /// MQTT failed to get a pool connection: {0}
+    PoolConnection(crate::database::Error),
     /// Failed to starting polling for events: {0}
-    StartPolling(rumqttc::ConnectionError),
+    StartPolling(rumqttc::v5::ConnectionError),
     /// Failed to subscribe to `/bv/hosts/#`: {0}
-    SubscribeHosts(rumqttc::ClientError),
+    SubscribeHosts(rumqttc::v5::ClientError),
+    /// MQTT failed to update host connection status: {0}
+    UpdateHostStatus(crate::models::host::Error),
 }
 
 #[derive(Clone, Debug)]
@@ -31,11 +37,11 @@ pub struct Notifier {
 }
 
 impl Notifier {
-    pub async fn new(options: MqttOptions) -> Result<Self, Error> {
+    pub async fn new(options: MqttOptions, pool: Pool) -> Result<Self, Error> {
         let (client, mut event_loop) = AsyncClient::new(options, CLIENT_CAPACITY);
 
         client
-            .subscribe("/bv/hosts/#", QoS::AtLeastOnce)
+            .subscribe("$share/blockvisor-api//bv/hosts/#", CLIENT_QOS)
             .await
             .map_err(Error::SubscribeHosts)?;
 
@@ -50,9 +56,15 @@ impl Notifier {
 
         // then continue polling in the background and warn on errors
         tokio::spawn(async move {
+            let pool = pool;
             loop {
                 match event_loop.poll().await {
-                    Ok(event) => trace!("received MQTT event: {event:?}"),
+                    Ok(Event::Incoming(Packet::Publish(packet))) => {
+                        if let Err(err) = handle_packet(packet, &pool).await {
+                            warn!("Failed to handle MQTT host event: {err}");
+                        }
+                    }
+                    Ok(event) => trace!("incoming MQTT event: {event:?}"),
                     Err(err) => {
                         warn!("MQTT polling failure: {err}");
                         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -70,7 +82,11 @@ impl Notifier {
     where
         M: Into<Message> + Send,
     {
-        self.client.clone().send(message.into()).await
+        self.client
+            .clone()
+            .send(message.into())
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn send_all<I, M>(&self, messages: I) -> Result<(), Error>
@@ -89,28 +105,39 @@ impl Notifier {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Client {
-    client: AsyncClient,
+async fn handle_packet(packet: Publish, pool: &Pool) -> Result<(), Error> {
+    let status = api::HostStatus::decode(&*packet.payload).map_err(Error::ParseHostStatus)?;
+    let mut conn = pool.conn().await.map_err(Error::PoolConnection)?;
+
+    UpdateHost::try_from(status)?
+        .update(&mut conn)
+        .await
+        .map(|_host| ())
+        .map_err(Error::UpdateHostStatus)
 }
 
-impl Client {
-    const fn new(client: AsyncClient) -> Self {
-        Self { client }
-    }
+impl<'u> TryFrom<api::HostStatus> for UpdateHost<'u> {
+    type Error = Error;
 
-    pub async fn send(&mut self, msg: Message) -> Result<(), Error> {
-        let payload = msg.encode();
-        let channels = msg.channels().map_err(Error::Channels)?;
+    fn try_from(status: api::HostStatus) -> Result<Self, Self::Error> {
+        let id = status.host_id.parse().map_err(Error::ParseHostId)?;
 
-        for channel in channels {
-            self.client
-                .publish(&channel, CLIENT_QOS, CLIENT_RETAIN, payload.clone())
-                .await
-                .map_err(Error::Publish)?;
-        }
-
-        Ok(())
+        Ok(UpdateHost {
+            id,
+            status: Some(ConnectionStatus::from(status.connection_status())),
+            name: None,
+            version: None,
+            cpu_count: None,
+            mem_size_bytes: None,
+            disk_size_bytes: None,
+            os: None,
+            os_version: None,
+            ip_addr: None,
+            ip_range_from: None,
+            ip_range_to: None,
+            ip_gateway: None,
+            region_id: None,
+        })
     }
 }
 
@@ -118,25 +145,29 @@ impl Client {
 mod tests {
     use std::sync::Arc;
 
-    use crate::config::Config;
+    use crate::config::Context;
 
     use super::*;
 
     #[tokio::test]
     async fn can_subscribe_with_valid_credentials() {
-        let config = Config::from_default_toml().unwrap();
+        let context = Context::from_default_toml().await.unwrap();
+        let options = context.config.mqtt.options();
 
-        let result = Notifier::new(config.mqtt.options()).await;
+        let result = Notifier::new(options, context.pool.clone()).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn will_fail_on_bad_credentials() {
-        let mut config = Config::from_default_toml().unwrap();
+        let context = Context::from_default_toml().await.unwrap();
+        let context = Arc::into_inner(context).unwrap();
+        let mut config = Arc::into_inner(context.config).unwrap();
+
         let mqtt = Arc::get_mut(&mut config.mqtt).unwrap();
         mqtt.username = "wrong".to_string();
 
-        let result = Notifier::new(mqtt.options()).await;
+        let result = Notifier::new(mqtt.options(), context.pool.clone()).await;
         assert!(result.is_err());
     }
 }

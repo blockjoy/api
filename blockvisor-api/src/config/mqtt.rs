@@ -2,7 +2,7 @@ use std::fmt;
 
 use derive_more::{Deref, FromStr};
 use displaydoc::Display;
-use rumqttc::MqttOptions;
+use rumqttc::v5::MqttOptions;
 use serde::Deserialize;
 use thiserror::Error;
 use uuid::Uuid;
@@ -50,6 +50,7 @@ impl Config {
         let client_id = format!("blockvisor-api-{}", Uuid::new_v4());
         let mut options = MqttOptions::new(client_id, &self.server_address, self.server_port);
         options.set_credentials(&self.username, &*self.password);
+        options.set_clean_start(true);
         options
     }
 

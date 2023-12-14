@@ -11,6 +11,28 @@ use tonic::{IntoRequest, Request, Response, Status};
 use blockvisor_api::auth::token::jwt::Jwt;
 use tracing::debug;
 
+pub trait GrpcClient<T> {
+    fn create(channel: Channel) -> Self;
+}
+
+grpc_clients! [
+    api_key => ApiKey,
+    auth => Auth,
+    blockchain => Blockchain,
+    blockchain_archive => BlockchainArchive,
+    bundle => Bundle,
+    command => Command,
+    discovery => Discovery,
+    host => Host,
+    invitation => Invitation,
+    kernel => Kernel,
+    metrics => Metrics,
+    node => Node,
+    org => Org,
+    subscription => Subscription,
+    user => User
+];
+
 #[tonic::async_trait]
 pub trait SocketRpc {
     fn input_socket(&self) -> Arc<TempPath>;
@@ -211,24 +233,3 @@ where
 {
     type Fut = Fut;
 }
-
-pub trait GrpcClient<T> {
-    fn create(channel: Channel) -> Self;
-}
-
-grpc_clients! [
-    api_key => ApiKey,
-    auth => Auth,
-    babel => Babel,
-    blockchain => Blockchain,
-    command => Command,
-    discovery => Discovery,
-    host => Host,
-    invitation => Invitation,
-    key_file => KeyFile,
-    metrics => Metrics,
-    node => Node,
-    org => Org,
-    subscription => Subscription,
-    user => User
-];

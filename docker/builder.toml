@@ -1,9 +1,0 @@
-[package]
-name = "blockvisor-api-builder"
-version = "0.1.0"
-publish = false
-edition = "2021"
-
-[build-dependencies]
-anyhow = "1.0.72"
-tonic-build = "0.10.1"

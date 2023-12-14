@@ -137,9 +137,9 @@ impl NewApiKey {
         user_id: UserId,
         label: String,
         entry: ResourceEntry,
-        conn: &mut WriteConn<'_, '_>,
+        write: &mut WriteConn<'_, '_>,
     ) -> Result<Created, Error> {
-        let mut rng = conn.ctx.rng.lock().await;
+        let mut rng = write.ctx.rng.lock().await;
         let salt = Salt::generate(&mut *rng);
         let secret = Secret::generate(&mut *rng);
         drop(rng);
@@ -156,7 +156,7 @@ impl NewApiKey {
 
         let api_key: ApiKey = diesel::insert_into(api_keys::table)
             .values(new_api_key)
-            .get_result(conn)
+            .get_result(write)
             .await
             .map_err(Error::CreateNew)?;
 
@@ -165,15 +165,18 @@ impl NewApiKey {
         Ok(Created { api_key, secret })
     }
 
-    pub async fn regenerate(key_id: KeyId, conn: &mut WriteConn<'_, '_>) -> Result<Created, Error> {
-        let existing = ApiKey::find_by_id(key_id, conn).await?;
+    pub async fn regenerate(
+        key_id: KeyId,
+        write: &mut WriteConn<'_, '_>,
+    ) -> Result<Created, Error> {
+        let existing = ApiKey::find_by_id(key_id, write).await?;
         let new_secret = {
-            let mut rng = conn.ctx.rng.lock().await;
+            let mut rng = write.ctx.rng.lock().await;
             Secret::generate(&mut *rng)
         };
 
         let key_hash = KeyHash::from(&existing.key_salt, &new_secret);
-        let updated = ApiKey::regenerate(key_id, key_hash, conn).await?;
+        let updated = ApiKey::regenerate(key_id, key_hash, write).await?;
         let secret = BearerSecret::new(updated.id, &new_secret);
 
         Ok(Created {

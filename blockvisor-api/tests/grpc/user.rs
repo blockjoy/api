@@ -192,6 +192,7 @@ async fn test_list() {
             email: email_like,
             ..Default::default()
         }),
+        sort: vec![],
     };
 
     // Test that an org member can list our own org.

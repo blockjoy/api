@@ -9,7 +9,7 @@ use crate::auth::rbac::{UserAdminPerm, UserBillingPerm, UserPerm};
 use crate::auth::resource::UserId;
 use crate::auth::{self, token, Authorize};
 use crate::database::{ReadConn, Transaction, WriteConn};
-use crate::models::user::{NewUser, UpdateUser, User, UserFilter, UserSearch};
+use crate::models::user::{NewUser, UpdateUser, User, UserFilter, UserSearch, UserSort};
 use crate::util::NanosUtc;
 
 use super::api::user_service_server::UserService;
@@ -37,6 +37,10 @@ pub enum Error {
     Model(#[from] crate::models::user::Error),
     /// User search failed: {0}
     SearchOperator(crate::util::search::Error),
+    /// Sort order: {0}
+    SortOrder(crate::util::search::Error),
+    /// The requested sort field is unknown.
+    UnknownSortField,
 }
 
 impl From<Error> for Status {
@@ -49,6 +53,8 @@ impl From<Error> for Status {
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseUserId(_) => Status::invalid_argument("user_id"),
             SearchOperator(_) => Status::invalid_argument("search.operator"),
+            SortOrder(_) => Status::invalid_argument("sort.order"),
+            UnknownSortField => Status::invalid_argument("sort.field"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Model(err) => err.into(),
@@ -184,7 +190,7 @@ async fn list(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::UserServiceListResponse, Error> {
-    let filter = req.as_filter()?;
+    let filter = req.into_filter()?;
     if let Some(org_id) = filter.org_id {
         read.auth_or_all(&meta, UserAdminPerm::Filter, UserPerm::Filter, org_id)
             .await?
@@ -192,8 +198,9 @@ async fn list(
         read.auth_all(&meta, UserAdminPerm::Filter).await?
     };
 
-    let (user_count, users) = User::filter(filter, &mut read).await?;
+    let (users, user_count) = filter.query(&mut read).await?;
     let users = api::User::from_models(users);
+
     Ok(api::UserServiceListResponse { users, user_count })
 }
 
@@ -281,7 +288,6 @@ impl api::User {
             first_name: model.first_name,
             last_name: model.last_name,
             created_at: Some(NanosUtc::from(model.created_at).into()),
-            updated_at: None,
         }
     }
 
@@ -303,28 +309,46 @@ impl api::UserServiceCreateRequest {
 }
 
 impl api::UserServiceListRequest {
-    fn as_filter(&self) -> Result<UserFilter, Error> {
+    fn into_filter(self) -> Result<UserFilter, Error> {
+        let org_id = self
+            .org_id
+            .map(|id| id.parse().map_err(Error::ParseOrgId))
+            .transpose()?;
+        let search = self
+            .search
+            .map(|search| {
+                Ok::<_, Error>(UserSearch {
+                    operator: search
+                        .operator()
+                        .try_into()
+                        .map_err(Error::SearchOperator)?,
+                    id: search.id.map(|id| id.trim().to_lowercase()),
+                    name: search.name.map(|name| name.trim().to_lowercase()),
+                    email: search.email.map(|email| email.trim().to_lowercase()),
+                })
+            })
+            .transpose()?;
+        let sort = self
+            .sort
+            .into_iter()
+            .map(|sort| {
+                let order = sort.order().try_into().map_err(Error::SortOrder)?;
+                match sort.field() {
+                    api::UserSortField::Unspecified => Err(Error::UnknownSortField),
+                    api::UserSortField::Email => Ok(UserSort::Email(order)),
+                    api::UserSortField::FirstName => Ok(UserSort::FirstName(order)),
+                    api::UserSortField::LastName => Ok(UserSort::LastName(order)),
+                    api::UserSortField::CreatedAt => Ok(UserSort::CreatedAt(order)),
+                }
+            })
+            .collect::<Result<_, _>>()?;
+
         Ok(UserFilter {
-            org_id: self
-                .org_id
-                .as_ref()
-                .map(|id| id.parse().map_err(Error::ParseOrgId))
-                .transpose()?,
+            org_id,
             offset: self.offset,
             limit: self.limit,
-            search: self
-                .search
-                .as_ref()
-                .map(|s| {
-                    s.operator().try_into().map(|operator| UserSearch {
-                        operator,
-                        id: s.id.as_ref().map(|id| id.trim().to_lowercase()),
-                        name: s.name.as_ref().map(|name| name.trim().to_lowercase()),
-                        email: s.email.as_ref().map(|email| email.trim().to_lowercase()),
-                    })
-                })
-                .transpose()
-                .map_err(Error::SearchOperator)?,
+            search,
+            sort,
         })
     }
 }

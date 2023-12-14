@@ -50,8 +50,8 @@ pub struct Cipher {
 impl Cipher {
     pub fn new(config: &SecretConfig) -> Self {
         Cipher {
-            jwt: jwt::Cipher::new(&config.jwt),
-            refresh: refresh::Cipher::new(&config.refresh),
+            jwt: jwt::Cipher::new(&config.jwt, &config.jwt_fallback),
+            refresh: refresh::Cipher::new(&config.refresh, &config.refresh_fallback),
         }
     }
 }

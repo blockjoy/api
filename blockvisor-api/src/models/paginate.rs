@@ -2,77 +2,98 @@
 //! [here](https://github.com/diesel-rs/diesel/blob/master/examples/postgres/advanced-blog-cli/src/pagination.rs)
 //! to work with `diesel_async`.
 
+use std::future::Future;
+
 use diesel::pg::Pg;
 use diesel::query_builder::{AstPass, Query, QueryFragment, QueryId};
 use diesel::sql_types::BigInt;
 use diesel::QueryResult;
 use diesel_async::methods::LoadQuery;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use displaydoc::Display;
+use thiserror::Error;
 
 pub trait Paginate: Sized {
-    fn paginate(self, limit: i64, offset: i64) -> Paginated<Self>;
+    fn paginate(self, limit: u64, offset: u64) -> Result<Paginated<Self>, Error>;
 }
 
-impl<T> Paginate for T {
-    fn paginate(self, limit: i64, offset: i64) -> Paginated<Self> {
-        Paginated {
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Failed to parse row count as u64: {0}
+    Count(std::num::TryFromIntError),
+    /// Failed to parse row limit as i64: {0}
+    Limit(std::num::TryFromIntError),
+    /// Failed to parse row offset as i64: {0}
+    Offset(std::num::TryFromIntError),
+    /// Failed to run paginated query: {0}
+    Query(diesel::result::Error),
+}
+
+impl<Q> Paginate for Q {
+    fn paginate(self, limit: u64, offset: u64) -> Result<Paginated<Self>, Error> {
+        let (limit, empty) = match i64::try_from(limit).map_err(Error::Limit)? {
+            // at least 1 row is needed for the correct count,
+            0 => (1, true),
+            n => (n, false),
+        };
+        let offset = i64::try_from(offset).map_err(Error::Offset)?;
+
+        Ok(Paginated {
             query: self,
-            // If someone requests 0 items, i.e. `self.limit == 0`, we still want to return the
-            // correct count, so we need to return at least one row. That's why in this function we
-            // change the limit into 1, and then correct in `Paginated::get_results_counted`.
-            limit: if limit == 0 { 1 } else { limit },
+            limit,
             offset,
-            no_results: limit == 0,
-        }
+            empty,
+        })
     }
 }
 
-#[derive(Debug, Clone, Copy, QueryId)]
-pub struct Paginated<T> {
-    query: T,
+#[derive(Clone, Copy, Debug, QueryId)]
+pub struct Paginated<Q> {
+    query: Q,
     limit: i64,
     offset: i64,
-    no_results: bool,
+    empty: bool,
 }
 
-impl<T> Paginated<T> {
-    #[allow(clippy::manual_async_fn)] // clippy lies
-    pub fn get_results_counted<'a, U>(
+impl<Q> Paginated<Q> {
+    // manual async to restrict Future to `'_` (instead of Future::Output)
+    #[allow(clippy::manual_async_fn)]
+    pub fn count_results<T>(
         self,
         conn: &mut AsyncPgConnection,
-    ) -> impl std::future::Future<Output = QueryResult<(i64, Vec<U>)>> + Send + '_
+    ) -> impl Future<Output = Result<(Vec<T>, u64), Error>> + Send + '_
     where
-        Self: LoadQuery<'a, AsyncPgConnection, (U, i64)> + 'static,
-        U: Send,
+        Self: for<'a> LoadQuery<'a, AsyncPgConnection, (T, i64)> + 'static,
+        Q: Send,
         T: Send,
     {
-        // It is not possible to write this function as an async function, because we need to
-        // restrict the lifetime of the resulting `Future` to `'_`. If we wrote
-        // `async fn get_results_counted<...>(...) -> ... + '_`, then we would not restrict the
-        // lifetime of the resulting Future, but rather the lifetime of `Future::Output` to `'_`.
         async move {
-            let no_results = self.no_results;
-            let results = self.load::<(U, i64)>(conn).await?;
-            let total = results.get(0).map_or(0, |x| x.1);
-            let records = if no_results {
+            let empty = self.empty;
+
+            let data = self.load::<(T, i64)>(conn).await.map_err(Error::Query)?;
+            let count = data.get(0).map_or(0, |x| x.1);
+            let count = u64::try_from(count).map_err(Error::Count)?;
+
+            let rows = if empty {
                 vec![]
             } else {
-                results.into_iter().map(|x| x.0).collect()
+                data.into_iter().map(|x| x.0).collect()
             };
-            Ok((total, records))
+
+            Ok((rows, count))
         }
     }
 }
 
-impl<T: Query> Query for Paginated<T> {
-    type SqlType = (T::SqlType, BigInt);
+impl<Q: Query> Query for Paginated<Q> {
+    type SqlType = (Q::SqlType, BigInt);
 }
 
-impl<T> diesel::RunQueryDsl<AsyncPgConnection> for Paginated<T> {}
+impl<Q> diesel::RunQueryDsl<AsyncPgConnection> for Paginated<Q> {}
 
-impl<T> QueryFragment<Pg> for Paginated<T>
+impl<Q> QueryFragment<Pg> for Paginated<Q>
 where
-    T: QueryFragment<Pg>,
+    Q: QueryFragment<Pg>,
 {
     fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Pg>) -> QueryResult<()> {
         out.push_sql("SELECT *, COUNT(*) OVER () FROM (");

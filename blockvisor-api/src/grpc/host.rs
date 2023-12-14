@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
@@ -12,13 +12,14 @@ use crate::auth::rbac::{GrpcRole, HostAdminPerm, HostPerm};
 use crate::auth::resource::{HostId, OrgId};
 use crate::auth::token::refresh::Refresh;
 use crate::auth::{AuthZ, Authorize};
-use crate::cookbook::image::Image;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::command::NewCommand;
 use crate::models::host::{
-    ConnectionStatus, Host, HostFilter, HostSearch, HostType, MonthlyCostUsd, NewHost, UpdateHost,
+    ConnectionStatus, Host, HostFilter, HostSearch, HostSort, HostType, MonthlyCostUsd, NewHost,
+    UpdateHost,
 };
-use crate::models::{Blockchain, CommandType, Org, OrgUser, Region, RegionId};
+use crate::models::{Blockchain, CommandType, IpAddress, Node, Org, OrgUser, Region, RegionId};
+use crate::storage::image::ImageId;
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::host_service_server::HostService;
@@ -36,22 +37,28 @@ pub enum Error {
     Command(#[from] crate::models::command::Error),
     /// Host command API error: {0}
     CommandApi(#[from] crate::grpc::command::Error),
-    /// Host cookbook error: {0}
-    Cookbook(#[from] crate::cookbook::Error),
     /// Failed to parse cpu count: {0}
     CpuCount(std::num::TryFromIntError),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
     /// Failed to parse disk size: {0}
     DiskSize(std::num::TryFromIntError),
+    /// This host cannot be deleted because it still has nodes.
+    HasNodes,
     /// Host model error: {0}
     Host(#[from] crate::models::host::Error),
+    /// Host model error: {0}
+    IpAddress(#[from] crate::models::ip_address::Error),
     /// Host JWT failure: {0}
     Jwt(#[from] crate::auth::token::jwt::Error),
     /// Looking is missing org id: {0}
     LookupMissingOrg(OrgId),
     /// Failed to parse mem size: {0}
     MemSize(std::num::TryFromIntError),
+    /// Node model error: {0}
+    Node(#[from] crate::models::node::Error),
+    /// Host org error: {0}
+    Org(#[from] crate::models::org::Error),
     /// Failed to parse BlockchainId: {0}
     ParseBlockchainId(uuid::Error),
     /// Failed to parse HostId: {0}
@@ -66,14 +73,18 @@ pub enum Error {
     ParseOrgId(uuid::Error),
     /// Provision token is for a different organization.
     ProvisionOrg,
-    /// Host search failed: {0}
-    SearchOperator(crate::util::search::Error),
-    /// Host org error: {0}
-    Org(#[from] crate::models::org::Error),
     /// Host Refresh token failure: {0}
     Refresh(#[from] crate::auth::token::refresh::Error),
     /// Host region error: {0}
     Region(#[from] crate::models::region::Error),
+    /// Host search failed: {0}
+    SearchOperator(crate::util::search::Error),
+    /// Sort order: {0}
+    SortOrder(crate::util::search::Error),
+    /// Host storage error: {0}
+    Storage(#[from] crate::storage::Error),
+    /// The requested sort field is unknown.
+    UnknownSortField,
 }
 
 impl From<Error> for Status {
@@ -81,10 +92,11 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            Cookbook(_) | Diesel(_) | Jwt(_) | LookupMissingOrg(_) | Refresh(_) => {
+            Diesel(_) | Jwt(_) | LookupMissingOrg(_) | Refresh(_) | Storage(_) => {
                 Status::internal("Internal error.")
             }
             CpuCount(_) | DiskSize(_) | MemSize(_) => Status::out_of_range("Host resource."),
+            HasNodes => Status::failed_precondition("This host still has nodes."),
             ParseBlockchainId(_) => Status::invalid_argument("blockchain_id"),
             ParseId(_) => Status::invalid_argument("id"),
             ParseIpFrom(_) => Status::invalid_argument("ip_range_from"),
@@ -93,12 +105,16 @@ impl From<Error> for Status {
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ProvisionOrg => Status::failed_precondition("Wrong org."),
             SearchOperator(_) => Status::invalid_argument("search.operator"),
+            SortOrder(_) => Status::invalid_argument("sort.order"),
+            UnknownSortField => Status::invalid_argument("sort.field"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Blockchain(err) => err.into(),
             Command(err) => err.into(),
             CommandApi(err) => err.into(),
             Host(err) => err.into(),
+            IpAddress(err) => err.into(),
+            Node(err) => err.into(),
             Org(err) => err.into(),
             Region(err) => err.into(),
         }
@@ -250,7 +266,7 @@ async fn list(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceListResponse, Error> {
-    let filter = req.as_filter()?;
+    let filter = req.into_filter()?;
     let authz = if let Some(org_id) = filter.org_id {
         read.auth_or_all(&meta, HostAdminPerm::List, HostPerm::List, org_id)
             .await?
@@ -258,7 +274,7 @@ async fn list(
         read.auth_all(&meta, HostAdminPerm::List).await?
     };
 
-    let (host_count, hosts) = Host::filter(filter, &mut read).await?;
+    let (hosts, host_count) = filter.query(&mut read).await?;
     let hosts = api::Host::from_hosts(hosts, Some(&authz), &mut read).await?;
 
     Ok(api::HostServiceListResponse { hosts, host_count })
@@ -291,6 +307,9 @@ async fn delete(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Delete, id).await?;
 
+    if !Node::find_by_host(id, &mut write).await?.is_empty() {
+        return Err(Error::HasNodes);
+    }
     Host::delete(id, &mut write).await?;
 
     Ok(api::HostServiceDeleteResponse {})
@@ -304,7 +323,8 @@ async fn start(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Start, id).await?;
 
-    let command = NewCommand::from(id, CommandType::RestartBVS)
+    let host = Host::find_by_id(id, &mut write).await?;
+    let command = NewCommand::host(&host, CommandType::RestartBVS)
         .create(&mut write)
         .await?;
     let message = api::Command::from_model(&command, &mut write).await?;
@@ -321,7 +341,8 @@ async fn stop(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Stop, id).await?;
 
-    let command = NewCommand::from(id, CommandType::StopBVS)
+    let host = Host::find_by_id(id, &mut write).await?;
+    let command = NewCommand::host(&host, CommandType::StopBVS)
         .create(&mut write)
         .await?;
     let message = api::Command::from_model(&command, &mut write).await?;
@@ -338,7 +359,8 @@ async fn restart(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Restart, id).await?;
 
-    let command = NewCommand::from(id, CommandType::RestartBVS)
+    let host = Host::find_by_id(id, &mut write).await?;
+    let command = NewCommand::host(&host, CommandType::RestartBVS)
         .create(&mut write)
         .await?;
     let message = api::Command::from_model(&command, &mut write).await?;
@@ -364,8 +386,8 @@ async fn regions(
     let node_type = req.node_type().into();
     let host_type = req.host_type().into_model();
 
-    let image = Image::new(&blockchain.name, node_type, req.version.into());
-    let requirements = read.ctx.cookbook.rhai_metadata(&image).await?.requirements;
+    let image = ImageId::new(&blockchain.name, node_type, req.version.into());
+    let requirements = read.ctx.storage.rhai_metadata(&image).await?.requirements;
 
     let mut regions = Host::regions_for(
         org_id,
@@ -416,6 +438,7 @@ impl api::Host {
     }
 
     fn from_model(host: Host, authz: Option<&AuthZ>, lookup: &Lookup) -> Result<Self, Error> {
+        let empty = vec![];
         let billing_amount =
             authz.and_then(|authz| common::BillingAmount::from_model(&host, authz));
 
@@ -445,6 +468,9 @@ impl api::Host {
                 .and_then(|id| lookup.regions.get(&id).map(|region| region.name.clone())),
             billing_amount,
             vmm_mountpoint: host.vmm_mountpoint,
+            ip_addresses: api::HostIpAddress::from_models(
+                lookup.ip_addresses.get(&host.id).unwrap_or(&empty),
+            ),
         })
     }
 }
@@ -453,6 +479,7 @@ struct Lookup {
     nodes: HashMap<HostId, u64>,
     orgs: HashMap<OrgId, Org>,
     regions: HashMap<RegionId, Region>,
+    ip_addresses: HashMap<HostId, Vec<IpAddress>>,
 }
 
 impl Lookup {
@@ -464,8 +491,8 @@ impl Lookup {
     where
         H: AsRef<Host> + Send + Sync,
     {
-        let host_ids = hosts.iter().map(|h| h.as_ref().id).collect();
-        let nodes = Host::node_counts(host_ids, conn).await?;
+        let host_ids: HashSet<HostId> = hosts.iter().map(|h| h.as_ref().id).collect();
+        let nodes = Host::node_counts(&host_ids, conn).await?;
 
         let org_ids = hosts.iter().map(|h| h.as_ref().org_id).collect();
         let orgs = Org::find_by_ids(org_ids, conn)
@@ -477,11 +504,30 @@ impl Lookup {
             .await?
             .to_map_keep_last(|region| (region.id, region));
 
+        let ip_addresses = IpAddress::find_by_hosts(host_ids, conn)
+            .await?
+            .into_iter()
+            .filter_map(|ip| ip.host_id.map(|host_id| (host_id, ip)))
+            .to_map_keep_all(|(host_id, ip)| (host_id, ip));
+
         Ok(Lookup {
             nodes,
             orgs,
             regions,
+            ip_addresses,
         })
+    }
+}
+
+impl api::HostIpAddress {
+    fn from_models(models: &[IpAddress]) -> Vec<Self> {
+        models
+            .iter()
+            .map(|ip| Self {
+                ip: ip.ip().to_string(),
+                assigned: ip.is_assigned,
+            })
+            .collect()
     }
 }
 
@@ -531,30 +577,52 @@ impl api::HostServiceCreateRequest {
 }
 
 impl api::HostServiceListRequest {
-    fn as_filter(&self) -> Result<HostFilter, Error> {
+    fn into_filter(self) -> Result<HostFilter, Error> {
+        let org_id = self
+            .org_id
+            .map(|id| id.parse().map_err(Error::ParseOrgId))
+            .transpose()?;
+        let search = self
+            .search
+            .map(|search| {
+                Ok::<_, Error>(HostSearch {
+                    operator: search
+                        .operator()
+                        .try_into()
+                        .map_err(Error::SearchOperator)?,
+                    id: search.id.map(|id| id.trim().to_lowercase()),
+                    name: search.name.map(|name| name.trim().to_lowercase()),
+                    version: search.version.map(|version| version.trim().to_lowercase()),
+                    os: search.os.map(|os| os.trim().to_lowercase()),
+                    ip: search.ip.map(|ip| ip.trim().to_lowercase()),
+                })
+            })
+            .transpose()?;
+        let sort = self
+            .sort
+            .into_iter()
+            .map(|sort| {
+                let order = sort.order().try_into().map_err(Error::SortOrder)?;
+                match sort.field() {
+                    api::HostSortField::Unspecified => Err(Error::UnknownSortField),
+                    api::HostSortField::HostName => Ok(HostSort::HostName(order)),
+                    api::HostSortField::CreatedAt => Ok(HostSort::CreatedAt(order)),
+                    api::HostSortField::Version => Ok(HostSort::Version(order)),
+                    api::HostSortField::Os => Ok(HostSort::Os(order)),
+                    api::HostSortField::OsVersion => Ok(HostSort::OsVersion(order)),
+                    api::HostSortField::CpuCount => Ok(HostSort::CpuCount(order)),
+                    api::HostSortField::MemSizeBytes => Ok(HostSort::MemSizeBytes(order)),
+                    api::HostSortField::DiskSizeBytes => Ok(HostSort::DiskSizeBytes(order)),
+                }
+            })
+            .collect::<Result<_, _>>()?;
+
         Ok(HostFilter {
-            org_id: self
-                .org_id
-                .as_ref()
-                .map(|id| id.parse().map_err(Error::ParseOrgId))
-                .transpose()?,
+            org_id,
             offset: self.offset,
             limit: self.limit,
-            search: self
-                .search
-                .as_ref()
-                .map(|s| {
-                    s.operator().try_into().map(|operator| HostSearch {
-                        operator,
-                        id: s.id.as_ref().map(|id| id.trim().to_lowercase()),
-                        name: s.name.as_ref().map(|name| name.trim().to_lowercase()),
-                        version: s.version.as_ref().map(|v| v.trim().to_lowercase()),
-                        os: s.os.as_ref().map(|os| os.trim().to_lowercase()),
-                        ip: s.ip.as_ref().map(|ip| ip.trim().to_lowercase()),
-                    })
-                })
-                .transpose()
-                .map_err(Error::SearchOperator)?,
+            search,
+            sort,
         })
     }
 }
@@ -567,7 +635,10 @@ impl api::HostServiceUpdateRequest {
             version: self.version.as_deref(),
             cpu_count: None,
             mem_size_bytes: None,
-            disk_size_bytes: None,
+            disk_size_bytes: self
+                .total_disk_space
+                .map(|space| space.try_into().map_err(Error::DiskSize))
+                .transpose()?,
             os: self.os.as_deref(),
             os_version: self.os_version.as_deref(),
             ip_addr: None,

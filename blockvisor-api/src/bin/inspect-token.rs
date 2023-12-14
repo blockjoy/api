@@ -114,6 +114,8 @@ impl TryFrom<&Args> for SecretConfig {
         Ok(SecretConfig {
             jwt: args.jwt_secret.parse()?,
             refresh: args.refresh_secret.parse()?,
+            jwt_fallback: Default::default(),
+            refresh_fallback: Default::default(),
         })
     }
 }

@@ -1,7 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use chrono::{DateTime, Utc};
 use diesel::dsl;
+use diesel::expression::expression_types::NotSelectable;
+use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
@@ -16,16 +18,19 @@ use tonic::Status;
 use crate::auth::rbac::HostBillingPerm;
 use crate::auth::resource::{HostId, OrgId, UserId};
 use crate::auth::AuthZ;
-use crate::cookbook::script::HardwareRequirements;
 use crate::database::Conn;
-use crate::grpc::common;
-use crate::util::SearchOperator;
+use crate::grpc::{api, common};
+use crate::storage::metadata::HardwareRequirements;
+use crate::util::{SearchOperator, SortOrder};
 
 use super::blockchain::{Blockchain, BlockchainId};
 use super::ip_address::NewIpAddressRange;
 use super::node::{NodeScheduler, NodeType, ResourceAffinity};
 use super::schema::{hosts, nodes, sql_types};
+use super::Node;
 use super::{Paginate, Region, RegionId};
+
+type NotDeleted = dsl::Filter<hosts::table, dsl::IsNull<hosts::deleted_at>>;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -39,8 +44,6 @@ pub enum Error {
     Create(diesel::result::Error),
     /// Failed to delete host id `{0}`: {1}
     Delete(HostId, diesel::result::Error),
-    /// Failed to filter hosts: {0}
-    Filter(diesel::result::Error),
     /// Failed to find host by id `{0}`: {1}
     FindById(HostId, diesel::result::Error),
     /// Failed to find hosts by id `{0:?}`: {1}
@@ -53,20 +56,16 @@ pub enum Error {
     HostCandidates(diesel::result::Error),
     /// Host ip address error: {0}
     IpAddress(#[from] crate::models::ip_address::Error),
-    /// Failed to parse host limit as i64: {0}
-    Limit(std::num::TryFromIntError),
     /// Failed to parse node count for host as i64: {0}
     NodeCount(std::num::TryFromIntError),
     /// Failed to get node counts for host: {0}
     NodeCounts(diesel::result::Error),
-    /// Failed to parse host offset as i64: {0}
-    Offset(std::num::TryFromIntError),
+    /// Host pagination: {0}
+    Paginate(#[from] crate::models::paginate::Error),
     /// Failed to parse host ip address: {0}
     ParseIp(std::net::AddrParseError),
     /// Host region error: {0}
     Region(super::region::Error),
-    /// Failed to parse host total as i64: {0}
-    Total(std::num::TryFromIntError),
     /// Failed to update host: {0}
     Update(diesel::result::Error),
     /// Failed to update host {1}'s metrics: {0}
@@ -91,13 +90,6 @@ impl From<Error> for Status {
             _ => Status::internal("Internal error."),
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "sql_types::EnumConnStatus"]
-pub enum ConnectionStatus {
-    Online,
-    Offline,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
@@ -149,30 +141,13 @@ pub struct Host {
     // The monthly billing amount for this host (only visible to host owners).
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
     pub vmm_mountpoint: Option<String>,
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 impl AsRef<Host> for Host {
     fn as_ref(&self) -> &Host {
         self
     }
-}
-
-#[derive(Debug)]
-pub struct HostFilter {
-    pub org_id: Option<OrgId>,
-    pub offset: u64,
-    pub limit: u64,
-    pub search: Option<HostSearch>,
-}
-
-#[derive(Debug)]
-pub struct HostSearch {
-    pub operator: SearchOperator,
-    pub id: Option<String>,
-    pub name: Option<String>,
-    pub version: Option<String>,
-    pub os: Option<String>,
-    pub ip: Option<String>,
 }
 
 #[derive(Debug)]
@@ -210,7 +185,7 @@ impl Host {
         ids: HashSet<HostId>,
         conn: &mut Conn<'_>,
     ) -> Result<HashSet<HostId>, Error> {
-        let ids = hosts::table
+        let ids = Self::not_deleted()
             .filter(hosts::id.eq_any(ids.iter()))
             .select(hosts::id)
             .get_results(conn)
@@ -219,88 +194,8 @@ impl Host {
         Ok(ids.into_iter().collect())
     }
 
-    /// For each provided argument, filters the hosts by that argument.
-    pub async fn filter(
-        filter: HostFilter,
-        conn: &mut Conn<'_>,
-    ) -> Result<(u64, Vec<Self>), Error> {
-        let HostFilter {
-            org_id,
-            offset,
-            limit,
-            search,
-        } = filter;
-        let mut query = hosts::table.into_boxed();
-
-        // search fields
-        if let Some(search) = search {
-            let HostSearch {
-                operator,
-                id,
-                name,
-                version,
-                os,
-                ip,
-            } = search;
-            match operator {
-                SearchOperator::Or => {
-                    if let Some(id) = id {
-                        query = query.filter(super::text(hosts::id).like(id));
-                    }
-                    if let Some(name) = name {
-                        query = query.or_filter(super::lower(hosts::name).like(name));
-                    }
-                    if let Some(version) = version {
-                        query = query.or_filter(super::lower(hosts::version).like(version));
-                    }
-                    if let Some(os) = os {
-                        query = query.or_filter(super::lower(hosts::os).like(os));
-                    }
-                    if let Some(ip) = ip {
-                        query = query.or_filter(hosts::ip_addr.like(ip));
-                    }
-                }
-                SearchOperator::And => {
-                    if let Some(id) = id {
-                        query = query.filter(super::text(hosts::id).like(id));
-                    }
-                    if let Some(name) = name {
-                        query = query.filter(super::lower(hosts::name).like(name));
-                    }
-                    if let Some(version) = version {
-                        query = query.filter(super::lower(hosts::version).like(version));
-                    }
-                    if let Some(os) = os {
-                        query = query.filter(super::lower(hosts::os).like(os));
-                    }
-                    if let Some(ip) = ip {
-                        query = query.filter(hosts::ip_addr.like(ip));
-                    }
-                }
-            }
-        }
-
-        if let Some(org_id) = org_id {
-            query = query.filter(hosts::org_id.eq(org_id));
-        }
-
-        let limit = i64::try_from(limit).map_err(Error::Limit)?;
-        let offset = i64::try_from(offset).map_err(Error::Offset)?;
-
-        let (total, hosts) = query
-            .order_by(hosts::created_at)
-            .paginate(limit, offset)
-            .get_results_counted(conn)
-            .await
-            .map_err(Error::Filter)?;
-
-        let total = u64::try_from(total).map_err(Error::Total)?;
-
-        Ok((total, hosts))
-    }
-
     pub async fn find_by_name(name: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        hosts::table
+        Self::not_deleted()
             .filter(hosts::name.eq(name))
             .get_result(conn)
             .await
@@ -308,7 +203,8 @@ impl Host {
     }
 
     pub async fn delete(id: HostId, conn: &mut Conn<'_>) -> Result<usize, Error> {
-        diesel::delete(hosts::table.find(id))
+        diesel::update(Self::not_deleted().find(id))
+            .set(hosts::deleted_at.eq(Utc::now()))
             .execute(conn)
             .await
             .map_err(|err| Error::Delete(id, err))
@@ -361,16 +257,18 @@ impl Host {
         (
             SELECT
                 id as host_id,
-                hosts.cpu_count - (SELECT COALESCE(SUM(vcpu_count), 0)::BIGINT FROM nodes WHERE host_id = hosts.id) AS av_cpus,
-                hosts.mem_size_bytes - (SELECT COALESCE(SUM(mem_size_bytes), 0)::BIGINT FROM nodes WHERE host_id = hosts.id) AS av_mem,
-                hosts.disk_size_bytes - (SELECT COALESCE(SUM(disk_size_bytes), 0)::BIGINT FROM nodes WHERE host_id = hosts.id) AS av_disk,
+                hosts.cpu_count - (SELECT COALESCE(SUM(vcpu_count), 0)::BIGINT FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id) AS av_cpus,
+                hosts.mem_size_bytes - (SELECT COALESCE(SUM(mem_size_bytes), 0)::BIGINT FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id) AS av_mem,
+                hosts.disk_size_bytes - (SELECT COALESCE(SUM(disk_size_bytes), 0)::BIGINT FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id) AS av_disk,
                 (SELECT COUNT(*) FROM ip_addresses WHERE ip_addresses.host_id = hosts.id AND NOT ip_addresses.is_assigned) AS ips,
-                (SELECT COUNT(*) FROM nodes WHERE host_id = hosts.id AND blockchain_id = $4 AND node_type = $5 AND host_type = 'cloud') AS n_similar,
+                (SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id AND blockchain_id = $4 AND node_type = $5 AND host_type = 'cloud') AS n_similar,
                 hosts.region_id AS region_id,
                 hosts.org_id AS org_id,
                 hosts.host_type AS host_type
             FROM
                 hosts
+            WHERE
+                deleted_at IS NULL
         ) AS resouces
         WHERE
             -- These are our hard filters, we do not want any nodes that cannot satisfy the
@@ -387,7 +285,7 @@ impl Host {
 
         #[allow(clippy::cast_possible_wrap)]
         let hosts: Vec<HostCandidate> = diesel::sql_query(query)
-            .bind::<BigInt, _>(requirements.vcpu_count as i64)
+            .bind::<BigInt, _>(i64::from(requirements.vcpu_count))
             .bind::<BigInt, _>(requirements.mem_size_mb as i64 * 1000 * 1000)
             .bind::<BigInt, _>(requirements.disk_size_gb as i64 * 1000 * 1000 * 1000)
             .bind::<Uuid, _>(blockchain_id)
@@ -405,10 +303,10 @@ impl Host {
     }
 
     pub async fn node_counts(
-        host_ids: HashSet<HostId>,
+        host_ids: &HashSet<HostId>,
         conn: &mut Conn<'_>,
     ) -> Result<HashMap<HostId, u64>, Error> {
-        let counts: Vec<(HostId, i64)> = nodes::table
+        let counts: Vec<(HostId, i64)> = Node::not_deleted()
             .filter(nodes::host_id.eq_any(host_ids))
             .group_by(nodes::host_id)
             .select((nodes::host_id, dsl::count(nodes::id)))
@@ -460,6 +358,149 @@ impl Host {
         } else {
             None
         }
+    }
+
+    pub fn not_deleted() -> NotDeleted {
+        hosts::table.filter(hosts::deleted_at.is_null())
+    }
+}
+
+#[derive(Debug)]
+pub struct HostSearch {
+    pub operator: SearchOperator,
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub os: Option<String>,
+    pub ip: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum HostSort {
+    HostName(SortOrder),
+    CreatedAt(SortOrder),
+    Version(SortOrder),
+    Os(SortOrder),
+    OsVersion(SortOrder),
+    CpuCount(SortOrder),
+    MemSizeBytes(SortOrder),
+    DiskSizeBytes(SortOrder),
+}
+
+impl HostSort {
+    fn into_expr<T>(self) -> Box<dyn BoxableExpression<T, Pg, SqlType = NotSelectable>>
+    where
+        hosts::name: SelectableExpression<T>,
+        hosts::created_at: SelectableExpression<T>,
+        hosts::version: SelectableExpression<T>,
+        hosts::os: SelectableExpression<T>,
+        hosts::os_version: SelectableExpression<T>,
+        hosts::cpu_count: SelectableExpression<T>,
+        hosts::mem_size_bytes: SelectableExpression<T>,
+        hosts::disk_size_bytes: SelectableExpression<T>,
+    {
+        use HostSort::*;
+        use SortOrder::*;
+
+        match self {
+            HostName(Asc) => Box::new(hosts::name.asc()),
+            HostName(Desc) => Box::new(hosts::name.desc()),
+
+            CreatedAt(Asc) => Box::new(hosts::created_at.asc()),
+            CreatedAt(Desc) => Box::new(hosts::created_at.desc()),
+
+            Version(Asc) => Box::new(hosts::version.asc()),
+            Version(Desc) => Box::new(hosts::version.desc()),
+
+            Os(Asc) => Box::new(hosts::os.asc()),
+            Os(Desc) => Box::new(hosts::os.desc()),
+
+            OsVersion(Asc) => Box::new(hosts::os_version.asc()),
+            OsVersion(Desc) => Box::new(hosts::os_version.desc()),
+
+            CpuCount(Asc) => Box::new(hosts::cpu_count.asc()),
+            CpuCount(Desc) => Box::new(hosts::cpu_count.desc()),
+
+            MemSizeBytes(Asc) => Box::new(hosts::mem_size_bytes.asc()),
+            MemSizeBytes(Desc) => Box::new(hosts::mem_size_bytes.desc()),
+
+            DiskSizeBytes(Asc) => Box::new(hosts::disk_size_bytes.asc()),
+            DiskSizeBytes(Desc) => Box::new(hosts::disk_size_bytes.desc()),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct HostFilter {
+    pub org_id: Option<OrgId>,
+    pub offset: u64,
+    pub limit: u64,
+    pub search: Option<HostSearch>,
+    pub sort: VecDeque<HostSort>,
+}
+
+impl HostFilter {
+    pub async fn query(mut self, conn: &mut Conn<'_>) -> Result<(Vec<Host>, u64), Error> {
+        let mut query = Host::not_deleted().into_boxed();
+
+        if let Some(search) = self.search {
+            match search.operator {
+                SearchOperator::Or => {
+                    if let Some(id) = search.id {
+                        query = query.filter(super::text(hosts::id).like(id));
+                    }
+                    if let Some(name) = search.name {
+                        query = query.or_filter(super::lower(hosts::name).like(name));
+                    }
+                    if let Some(version) = search.version {
+                        query = query.or_filter(super::lower(hosts::version).like(version));
+                    }
+                    if let Some(os) = search.os {
+                        query = query.or_filter(super::lower(hosts::os).like(os));
+                    }
+                    if let Some(ip) = search.ip {
+                        query = query.or_filter(hosts::ip_addr.like(ip));
+                    }
+                }
+                SearchOperator::And => {
+                    if let Some(id) = search.id {
+                        query = query.filter(super::text(hosts::id).like(id));
+                    }
+                    if let Some(name) = search.name {
+                        query = query.filter(super::lower(hosts::name).like(name));
+                    }
+                    if let Some(version) = search.version {
+                        query = query.filter(super::lower(hosts::version).like(version));
+                    }
+                    if let Some(os) = search.os {
+                        query = query.filter(super::lower(hosts::os).like(os));
+                    }
+                    if let Some(ip) = search.ip {
+                        query = query.filter(hosts::ip_addr.like(ip));
+                    }
+                }
+            }
+        }
+
+        if let Some(org_id) = self.org_id {
+            query = query.filter(hosts::org_id.eq(org_id));
+        }
+
+        if let Some(sort) = self.sort.pop_front() {
+            query = query.order_by(sort.into_expr());
+        } else {
+            query = query.order_by(hosts::created_at.desc());
+        }
+
+        while let Some(sort) = self.sort.pop_front() {
+            query = query.then_order_by(sort.into_expr());
+        }
+
+        query
+            .paginate(self.limit, self.offset)?
+            .count_results(conn)
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -534,7 +575,7 @@ pub struct UpdateHost<'a> {
 
 impl UpdateHost<'_> {
     pub async fn update(self, conn: &mut Conn<'_>) -> Result<Host, Error> {
-        diesel::update(hosts::table.find(self.id))
+        diesel::update(Host::not_deleted().find(self.id))
             .set(self)
             .get_result(conn)
             .await
@@ -568,7 +609,7 @@ impl UpdateHostMetrics {
 
         let mut hosts = Vec::with_capacity(updates.len());
         for update in updates {
-            let updated = diesel::update(hosts::table.find(update.id))
+            let updated = diesel::update(Host::not_deleted().find(update.id))
                 .set(&update)
                 .get_result(conn)
                 .await
@@ -577,13 +618,6 @@ impl UpdateHostMetrics {
         }
         Ok(hosts)
     }
-}
-
-#[derive(Debug, Clone, AsChangeset)]
-#[diesel(table_name = hosts)]
-pub struct HostStatusRequest {
-    pub version: Option<String>,
-    pub status: ConnectionStatus,
 }
 
 /// The billing cost per month in USD for this host.
@@ -610,5 +644,23 @@ impl MonthlyCostUsd {
         }?;
 
         Ok(MonthlyCostUsd(amount.value))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
+#[ExistingTypePath = "sql_types::EnumConnStatus"]
+pub enum ConnectionStatus {
+    Online,
+    Offline,
+}
+
+impl From<api::HostConnectionStatus> for ConnectionStatus {
+    fn from(status: api::HostConnectionStatus) -> Self {
+        match status {
+            api::HostConnectionStatus::Unspecified | api::HostConnectionStatus::Offline => {
+                ConnectionStatus::Offline
+            }
+            api::HostConnectionStatus::Online => ConnectionStatus::Online,
+        }
     }
 }

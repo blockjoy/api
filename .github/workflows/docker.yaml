@@ -1,22 +1,24 @@
-name: Local Build
+name: Docker
+
 on:
   push:
-    branches: [main, ci/gcr]
+    branches: [main]
+
 jobs:
-  build-and-push-to-gcr:
+  build-and-push:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: true
 
-      - id: "auth"
-        name: "Authenticate to Google Cloud"
-        uses: "google-github-actions/auth@v1"
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
         with:
           credentials_json: "${{ secrets.GOOGLE_CREDENTIALS }}"
 
-      - name: Build and Push API
+      - name: Docker build and push
         uses: RafikFarhad/push-to-gcr-github-action@v5-beta
         with:
           registry: us-docker.pkg.dev

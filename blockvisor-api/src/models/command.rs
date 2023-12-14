@@ -14,11 +14,12 @@ use uuid::Uuid;
 
 use crate::auth::resource::{HostId, NodeId};
 use crate::database::Conn;
+use crate::grpc::api;
 
 use super::schema::{commands, sql_types};
 use super::{Host, Node};
 
-type Pending = dsl::Filter<commands::table, dsl::IsNull<commands::exit_status>>;
+type Pending = dsl::Filter<commands::table, dsl::IsNull<commands::exit_code>>;
 
 #[derive(Debug, DisplayDoc, Error)]
 pub enum Error {
@@ -36,6 +37,10 @@ pub enum Error {
     Host(#[from] super::host::Error),
     /// Command Node error: {0}
     Node(#[from] super::node::Error),
+    /// Failed to parse CommandId: {0}
+    ParseId(uuid::Error),
+    /// Failed to parse `retry_hint_seconds` as u64: {0}
+    RetryHint(std::num::TryFromIntError),
     /// Failed to update command: {0}
     Update(diesel::result::Error),
 }
@@ -48,6 +53,8 @@ impl From<Error> for Status {
             DeletePending(NotFound) | FindById(_, NotFound) | FindPending(NotFound) => {
                 Status::not_found("Not found.")
             }
+            ParseId(_) => Status::invalid_argument("id"),
+            RetryHint(_) => Status::invalid_argument("retry_hint_seconds"),
             Host(err) => err.into(),
             Node(err) => err.into(),
             _ => Status::internal("Internal error."),
@@ -97,13 +104,13 @@ pub struct Command {
     pub id: CommandId,
     pub host_id: HostId,
     pub cmd: CommandType,
-    pub sub_cmd: Option<String>,
-    pub response: Option<String>,
-    pub exit_status: Option<i32>,
+    pub exit_message: Option<String>,
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub node_id: Option<NodeId>,
     pub acked_at: Option<DateTime<Utc>>,
+    pub retry_hint_seconds: Option<i64>,
+    pub exit_code: Option<ExitCode>,
 }
 
 impl Command {
@@ -158,26 +165,32 @@ impl Command {
     }
 
     fn pending() -> Pending {
-        commands::table.filter(commands::exit_status.is_null())
+        commands::table.filter(commands::exit_code.is_null())
     }
 }
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = commands)]
-pub struct NewCommand<'a> {
+pub struct NewCommand {
     pub host_id: HostId,
     pub cmd: CommandType,
-    pub sub_cmd: Option<&'a str>,
     pub node_id: Option<NodeId>,
 }
 
-impl NewCommand<'_> {
-    pub const fn from(host_id: HostId, cmd: CommandType) -> Self {
+impl NewCommand {
+    pub const fn host(host: &Host, cmd: CommandType) -> Self {
         NewCommand {
-            host_id,
+            host_id: host.id,
             cmd,
-            sub_cmd: None,
             node_id: None,
+        }
+    }
+
+    pub const fn node(node: &Node, cmd: CommandType) -> Self {
+        NewCommand {
+            host_id: node.host_id,
+            cmd,
+            node_id: Some(node.id),
         }
     }
 
@@ -192,19 +205,74 @@ impl NewCommand<'_> {
 
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = commands)]
-pub struct UpdateCommand<'a> {
+pub struct UpdateCommand {
     pub id: CommandId,
-    pub response: Option<&'a str>,
-    pub exit_status: Option<i32>,
+    pub exit_code: Option<ExitCode>,
+    pub exit_message: Option<String>,
+    pub retry_hint_seconds: Option<i64>,
     pub completed_at: Option<DateTime<Utc>>,
 }
 
-impl UpdateCommand<'_> {
+impl UpdateCommand {
+    pub fn from_request(request: api::CommandServiceUpdateRequest) -> Result<Self, Error> {
+        Ok(UpdateCommand {
+            id: request.id.parse().map_err(Error::ParseId)?,
+            exit_code: request.exit_code().into(),
+            exit_message: request.exit_message,
+            retry_hint_seconds: request
+                .retry_hint_seconds
+                .map(|secs| secs.try_into().map_err(Error::RetryHint))
+                .transpose()?,
+            completed_at: request.exit_code.map(|_| chrono::Utc::now()),
+        })
+    }
+
     pub async fn update(self, conn: &mut Conn<'_>) -> Result<Command, Error> {
         diesel::update(commands::table.find(self.id))
             .set(self)
-            .get_result::<Command>(conn)
+            .get_result(conn)
             .await
             .map_err(Error::Update)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
+#[ExistingTypePath = "sql_types::EnumCommandExitCode"]
+pub enum ExitCode {
+    Ok,
+    InternalError,
+    NodeNotFound,
+    BlockingJobRunning,
+    ServiceNotReady,
+    ServiceBroken,
+    NotSupported,
+}
+
+impl From<api::CommandExitCode> for Option<ExitCode> {
+    fn from(code: api::CommandExitCode) -> Self {
+        match code {
+            api::CommandExitCode::Unspecified => None,
+            api::CommandExitCode::Ok => Some(ExitCode::Ok),
+            api::CommandExitCode::InternalError => Some(ExitCode::InternalError),
+            api::CommandExitCode::NodeNotFound => Some(ExitCode::NodeNotFound),
+            api::CommandExitCode::BlockingJobRunning => Some(ExitCode::BlockingJobRunning),
+            api::CommandExitCode::ServiceNotReady => Some(ExitCode::ServiceNotReady),
+            api::CommandExitCode::ServiceBroken => Some(ExitCode::ServiceBroken),
+            api::CommandExitCode::NotSupported => Some(ExitCode::NotSupported),
+        }
+    }
+}
+
+impl From<ExitCode> for api::CommandExitCode {
+    fn from(code: ExitCode) -> Self {
+        match code {
+            ExitCode::Ok => api::CommandExitCode::Ok,
+            ExitCode::InternalError => api::CommandExitCode::InternalError,
+            ExitCode::NodeNotFound => api::CommandExitCode::NodeNotFound,
+            ExitCode::BlockingJobRunning => api::CommandExitCode::BlockingJobRunning,
+            ExitCode::ServiceNotReady => api::CommandExitCode::ServiceNotReady,
+            ExitCode::ServiceBroken => api::CommandExitCode::ServiceBroken,
+            ExitCode::NotSupported => api::CommandExitCode::NotSupported,
+        }
     }
 }

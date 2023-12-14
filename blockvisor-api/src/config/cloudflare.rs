@@ -54,7 +54,7 @@ impl TryFrom<&Provider> for Config {
 #[serde(deny_unknown_fields)]
 pub struct DnsConfig {
     pub base: String,
-    pub ttl: i64,
+    pub ttl: u32,
 }
 
 impl TryFrom<&Provider> for DnsConfig {

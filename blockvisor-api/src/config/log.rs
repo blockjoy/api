@@ -1,14 +1,14 @@
 use std::time::Duration;
 
 use displaydoc::Display;
-use opentelemetry::runtime::Tokio;
-use opentelemetry::sdk::propagation::{
-    BaggagePropagator, TextMapCompositePropagator, TraceContextPropagator,
-};
-use opentelemetry::sdk::trace::{BatchConfig, Sampler};
-use opentelemetry::sdk::{trace, Resource};
 use opentelemetry::{global, KeyValue};
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::propagation::{
+    BaggagePropagator, TextMapCompositePropagator, TraceContextPropagator,
+};
+use opentelemetry_sdk::runtime::Tokio;
+use opentelemetry_sdk::trace::{BatchConfig, Sampler};
+use opentelemetry_sdk::{trace, Resource};
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use serde::Deserialize;
 use strum::{EnumString, IntoStaticStr};
@@ -183,4 +183,18 @@ impl TryFrom<&Provider> for OpentelemetryConfig {
             export_interval,
         })
     }
+}
+
+#[cfg(any(test, feature = "integration-test"))]
+pub fn test_log(filter: &str) {
+    Registry::default()
+        .with(EnvFilter::new(filter))
+        .with(fmt::Layer::default().with_ansi(true))
+        .with(ErrorLayer::default())
+        .init();
+}
+
+#[cfg(any(test, feature = "integration-test"))]
+pub fn test_debug() {
+    test_log("debug,blockvisor_api::config::provider=info,tower_http=off");
 }

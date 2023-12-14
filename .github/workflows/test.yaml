@@ -32,23 +32,27 @@ jobs:
           --health-retries 5
 
       mqtt:
-        image: emqx/emqx-enterprise:5.1.0
+        image: emqx/emqx-enterprise:5.3.0
         ports:
           - 21883:1883
         volumes:
           - ${{ github.workspace }}/docker/emqx:/opt/emqx/etc
+
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: true
+
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           profile: minimal
           override: true
+
       - name: Install libpq
         run: apt update && apt install libpq-dev -y
-      - name: Test
+
+      - name: Cargo test
         uses: actions-rs/cargo@v1
         with:
           command: test
@@ -57,21 +61,25 @@ jobs:
   lints:
     name: Lints
     runs-on: self-hosted
+
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: true
+
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           profile: minimal
           components: clippy, rustfmt
           override: true
+
       - name: Check formatting
         uses: actions-rs/cargo@v1
         with:
           command: fmt
           args: -- --check
+
       - name: Catch common mistakes
         uses: actions-rs/cargo@v1
         with:

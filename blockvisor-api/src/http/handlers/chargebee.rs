@@ -20,7 +20,7 @@ use crate::database::{Transaction, WriteConn};
 use crate::grpc::api;
 use crate::http::response::{bad_params, failed, not_found, ok_custom};
 use crate::models::command::NewCommand;
-use crate::models::{Command, CommandType, IpAddress, Node, Subscription};
+use crate::models::{CommandType, Node, Subscription};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -144,29 +144,11 @@ async fn subscription_cancelled(
 }
 
 async fn delete_node(node: &Node, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
-    // 1. Delete node, if the node belongs to the current user
-    // Key files are deleted automatically because of 'on delete cascade' in tables DDL
-    Node::delete(node.id, write).await?;
-
-    let host_id = node.host_id;
-    // 2. Do NOT delete reserved IP addresses, but set assigned to false
-    let ip_addr = node.ip_addr.parse().map_err(Error::ParseIpAddr)?;
-    let ip = IpAddress::find_by_node(ip_addr, write).await?;
-
-    IpAddress::unassign(ip.id, host_id, write).await?;
-
-    // Delete all pending commands for this node: there are not useable anymore
-    Command::delete_pending(node.id, write).await?;
-
     // Send delete node command
-    let node_id = node.id.to_string();
     let new_command = NewCommand {
         host_id: node.host_id,
         cmd: CommandType::DeleteNode,
-        sub_cmd: Some(&node_id),
-        // Note that the `node_id` goes into the `sub_cmd` field, not the node_id field, because the
-        // node was just deleted.
-        node_id: None,
+        node_id: Some(node.id),
     };
     let cmd = new_command.create(write).await?;
     let cmd = api::Command::from_model(&cmd, write).await?;

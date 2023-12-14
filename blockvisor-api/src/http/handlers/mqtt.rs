@@ -10,8 +10,8 @@ use serde_json::Value;
 use thiserror::Error;
 use tracing::{debug, error};
 
-use crate::auth::rbac::MqttPerm;
-use crate::auth::resource::Resource;
+use crate::auth::rbac::{MqttAdminPerm, MqttPerm};
+use crate::auth::resource::{Resource, Resources};
 use crate::config::Context;
 use crate::database::Database;
 use crate::http::response;
@@ -29,6 +29,8 @@ pub enum Error {
     ParseJson(#[from] JsonRejection),
     /// Failed to parse RequestToken: {0}
     ParseRequestToken(crate::auth::token::Error),
+    /// Wildcard topic subscribe without `mqtt-admin-acl`: {0}
+    WildcardTopic(String),
 }
 
 impl IntoResponse for Error {
@@ -42,6 +44,7 @@ impl IntoResponse for Error {
             Database(_) => response::failed().into_response(),
             Handler(_) => response::bad_params().into_response(),
             ParseJson(rejection) => (rejection.status(), rejection.body_text()).into_response(),
+            WildcardTopic(_) => response::unauthorized(),
         }
     }
 }
@@ -67,22 +70,28 @@ async fn acl(
     WithRejection(req, _): WithRejection<Json<AclRequest>, Error>,
 ) -> Result<impl IntoResponse, Error> {
     let token = req.username.parse().map_err(Error::ParseRequestToken)?;
-    let resource: Resource = match req.topic {
-        Topic::Orgs { org_id, .. } => org_id.into(),
-        Topic::Hosts { host_id, .. } => host_id.into(),
-        Topic::Nodes { node_id, .. } => node_id.into(),
+    let mut conn = ctx.pool.conn().await?;
+
+    if ctx
+        .auth
+        .authorize_token(&token, MqttAdminPerm::Acl.into(), None, &mut conn)
+        .await
+        .is_ok()
+    {
+        return Ok(response::ok());
+    }
+
+    let resources: Resources = match &req.topic {
+        Topic::Orgs(org_id) => Resource::from(*org_id).into(),
+        Topic::Hosts(host_id) => Resource::from(*host_id).into(),
+        Topic::Nodes(node_id) => Resource::from(*node_id).into(),
+        Topic::BvHostsStatus(host_id) => Resource::from(*host_id).into(),
+        Topic::Wildcard(topic) => return Err(Error::WildcardTopic(topic.clone())),
     };
 
-    let mut conn = ctx.pool.conn().await?;
-    let _ = ctx
-        .auth
-        .authorize_token(
-            &token,
-            MqttPerm::Acl.into(),
-            Some(resource.into()),
-            &mut conn,
-        )
-        .await?;
-
-    Ok(response::ok())
+    ctx.auth
+        .authorize_token(&token, MqttPerm::Acl.into(), Some(resources), &mut conn)
+        .await
+        .map(|_authz| response::ok())
+        .map_err(Into::into)
 }

@@ -56,10 +56,10 @@ pub struct BlockchainNodeTypeId(Uuid);
 pub struct BlockchainNodeType {
     pub id: BlockchainNodeTypeId,
     pub blockchain_id: BlockchainId,
-    pub node_type: NodeType,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub node_type: NodeType,
 }
 
 impl BlockchainNodeType {

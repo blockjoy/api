@@ -3,6 +3,7 @@
 mod auth;
 mod grpc;
 mod http;
+mod mqtt;
 mod setup;
 
 #[macro_use]

@@ -54,7 +54,6 @@ async fn services(
     read.auth_all(&meta, DiscoveryPerm::Services).await?;
 
     Ok(api::DiscoveryServiceServicesResponse {
-        key_service_url: String::new(), // TODO: remove from proto
         notification_url: read.ctx.config.mqtt.notification_url(),
     })
 }

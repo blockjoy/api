@@ -1,6 +1,4 @@
-use std::ops::DerefMut;
-
-use blockvisor_api::grpc::api;
+use blockvisor_api::grpc::{api, common};
 use blockvisor_api::models::command::{Command, CommandType};
 use blockvisor_api::models::node::Node;
 use blockvisor_api::models::schema;
@@ -22,7 +20,7 @@ async fn can_create_node_with_dns() {
     let req = api::NodeServiceCreateRequest {
         org_id: test.seed().org.id.to_string(),
         blockchain_id: test.seed().blockchain.id.to_string(),
-        node_type: api::NodeType::Validator.into(),
+        node_type: common::NodeType::Validator.into(),
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
@@ -108,13 +106,11 @@ async fn responds_ok_with_valid_data_for_create() {
     let req = api::NodeServiceCreateRequest {
         org_id: test.seed().org.id.to_string(),
         blockchain_id: test.seed().blockchain.id.to_string(),
-        node_type: api::NodeType::Validator.into(),
+        node_type: common::NodeType::Validator.into(),
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
         placement: Some(api::NodePlacement {
-            // This was changed it because otherwise it would make a real call to Cookbook which is
-            // not desirable and it would fail because it's not running.
             placement: Some(api::node_placement::Placement::HostId(
                 test.seed().host.id.to_string(),
             )),
@@ -153,7 +149,7 @@ async fn responds_ok_with_valid_data_for_create_schedule() {
     let req = api::NodeServiceCreateRequest {
         org_id: test.seed().org.id.to_string(),
         blockchain_id: test.seed().blockchain.id.to_string(),
-        node_type: api::NodeType::Validator.into(),
+        node_type: common::NodeType::Validator.into(),
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
@@ -179,7 +175,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         // This is an invalid uuid so the api call should fail.
         org_id: "wowowowowow".to_string(),
         blockchain_id: test.seed().blockchain.id.to_string(),
-        node_type: api::NodeType::Validator.into(),
+        node_type: common::NodeType::Validator.into(),
         properties: vec![],
         version: "3.3.0".to_string(),
         network: "some network".to_string(),
@@ -306,10 +302,9 @@ async fn validate_command(test: &TestServer) {
                 .and(schema::commands::cmd.ne(CommandType::DeleteNode))
                 .or(schema::commands::cmd
                     .eq(CommandType::DeleteNode)
-                    .and(schema::commands::sub_cmd.is_null())
                     .and(schema::commands::node_id.is_null())),
         )
-        .load::<Command>(conn.deref_mut())
+        .load::<Command>(&mut conn)
         .await
         .unwrap();
 

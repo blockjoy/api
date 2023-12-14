@@ -6,12 +6,11 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::auth::Auth;
-use crate::cookbook::Cookbook;
+use crate::cloudflare::{Cloudflare, Dns};
 use crate::database::Pool;
-use crate::dns::{Cloudflare, Dns};
 use crate::email::Email;
 use crate::mqtt::Notifier;
-use crate::server::Alert;
+use crate::storage::Storage;
 
 use super::Config;
 
@@ -19,14 +18,12 @@ use super::Config;
 pub enum Error {
     /// Failed to build Config: {0}
     Config(super::Error),
+    /// Failed to create Cloudflare: {0}
+    Cloudflare(crate::cloudflare::Error),
     /// Failed to create Email: {0}
     Email(crate::email::Error),
-    /// Builder is missing Alert.
-    MissingAlert,
     /// Builder is missing Auth.
     MissingAuth,
-    /// Builder is missing Cookbook.
-    MissingCookbook,
     /// Builder is missing Config.
     MissingConfig,
     /// Builder is missing Cloudflare DNS.
@@ -37,6 +34,8 @@ pub enum Error {
     MissingNotifier,
     /// Builder is missing Pool.
     MissingPool,
+    /// Builder is missing Storage.
+    MissingStorage,
     /// Failed to create Notifier: {0}
     Notifier(crate::mqtt::notifier::Error),
     /// Failed to create database Pool: {0}
@@ -49,15 +48,14 @@ pub enum Error {
 /// their own internal reference.
 #[derive(Clone)]
 pub struct Context {
-    pub alert: Alert,
     pub auth: Arc<Auth>,
-    pub cookbook: Arc<Cookbook>,
     pub config: Arc<Config>,
     pub dns: Arc<Box<dyn Dns + Send + Sync + 'static>>,
     pub email: Arc<Email>,
     pub notifier: Arc<Notifier>,
     pub pool: Pool,
     pub rng: Arc<Mutex<OsRng>>,
+    pub storage: Arc<Storage>,
 }
 
 impl Context {
@@ -72,56 +70,52 @@ impl Context {
     }
 
     pub async fn builder_from(config: Config) -> Result<Builder, Error> {
-        let alert = Alert::default();
         let auth = Auth::new(&config.token);
-        let cookbook = Cookbook::new_s3(&config.cookbook);
-        let dns = Cloudflare::new(config.cloudflare.clone());
+        let dns = Cloudflare::new(config.cloudflare.clone()).map_err(Error::Cloudflare)?;
         let email = Email::new(&config, auth.cipher.clone()).map_err(Error::Email)?;
         let pool = Pool::new(&config.database).await.map_err(Error::Pool)?;
-        let notifier = Notifier::new(config.mqtt.options())
+        let notifier = Notifier::new(config.mqtt.options(), pool.clone())
             .await
             .map_err(Error::Notifier)?;
+        let storage = Storage::new_s3(&config.storage);
 
         Ok(Builder::default()
-            .alert(alert)
             .auth(auth)
-            .cookbook(cookbook)
             .dns(dns)
             .email(email)
             .notifier(notifier)
             .pool(pool)
+            .storage(storage)
             .config(config))
     }
 
     #[cfg(any(test, feature = "integration-test"))]
     pub async fn with_mocked() -> Result<(Arc<Self>, crate::database::tests::TestDb), Error> {
-        use crate::cookbook::tests::TestCookbook;
+        use crate::cloudflare::tests::MockCloudflare;
         use crate::database::tests::TestDb;
-        use crate::dns::tests::MockDns;
+        use crate::storage::tests::TestStorage;
 
         let config = Config::from_default_toml().map_err(Error::Config)?;
         let mut rng = OsRng;
         let db = TestDb::new(&config.database, &mut rng).await;
 
-        let alert = Alert::default();
         let auth = Auth::new(&config.token);
-        let cookbook = TestCookbook::new().await.get_cookbook_api();
-        let dns = MockDns::new(&mut rng).await;
+        let dns = MockCloudflare::new(&mut rng).await;
         let email = Email::new_mocked(&config, auth.cipher.clone()).map_err(Error::Email)?;
-        let notifier = Notifier::new(config.mqtt.options())
+        let pool = db.pool();
+        let notifier = Notifier::new(config.mqtt.options(), pool.clone())
             .await
             .map_err(Error::Notifier)?;
-        let pool = db.pool();
+        let storage = TestStorage::new().await.new_mock();
 
         Builder::default()
-            .alert(alert)
             .auth(auth)
-            .cookbook(cookbook)
             .dns(dns)
             .email(email)
             .notifier(notifier)
             .pool(pool)
             .rng(rng)
+            .storage(storage)
             .config(config)
             .build()
             .map(|ctx| (ctx, db))
@@ -131,47 +125,33 @@ impl Context {
 /// Incrementally build a new `Context` from constituent parts.
 #[derive(Default)]
 pub struct Builder {
-    alert: Option<Alert>,
     auth: Option<Auth>,
-    cookbook: Option<Cookbook>,
     config: Option<Config>,
     dns: Option<Box<dyn Dns + Send + Sync + 'static>>,
     email: Option<Email>,
     notifier: Option<Notifier>,
     pool: Option<Pool>,
     rng: Option<OsRng>,
+    storage: Option<Storage>,
 }
 
 impl Builder {
     pub fn build(self) -> Result<Arc<Context>, Error> {
         Ok(Arc::new(Context {
-            alert: self.alert.ok_or(Error::MissingAlert)?,
             auth: self.auth.ok_or(Error::MissingAuth).map(Arc::new)?,
-            cookbook: self.cookbook.ok_or(Error::MissingCookbook).map(Arc::new)?,
             config: self.config.ok_or(Error::MissingConfig).map(Arc::new)?,
             dns: self.dns.ok_or(Error::MissingDns).map(Arc::new)?,
             email: self.email.ok_or(Error::MissingEmail).map(Arc::new)?,
             notifier: self.notifier.ok_or(Error::MissingNotifier).map(Arc::new)?,
             pool: self.pool.ok_or(Error::MissingPool)?,
             rng: Arc::new(Mutex::new(self.rng.unwrap_or_default())),
+            storage: self.storage.ok_or(Error::MissingStorage).map(Arc::new)?,
         }))
-    }
-
-    #[must_use]
-    pub fn alert(mut self, alert: Alert) -> Self {
-        self.alert = Some(alert);
-        self
     }
 
     #[must_use]
     pub fn auth(mut self, auth: Auth) -> Self {
         self.auth = Some(auth);
-        self
-    }
-
-    #[must_use]
-    pub fn cookbook(mut self, cookbook: Cookbook) -> Self {
-        self.cookbook = Some(cookbook);
         self
     }
 
@@ -211,6 +191,12 @@ impl Builder {
     #[must_use]
     pub const fn rng(mut self, rng: OsRng) -> Self {
         self.rng = Some(rng);
+        self
+    }
+
+    #[must_use]
+    pub fn storage(mut self, storage: Storage) -> Self {
+        self.storage = Some(storage);
         self
     }
 }

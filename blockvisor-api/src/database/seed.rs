@@ -10,7 +10,7 @@ use crate::grpc::common;
 use crate::models::blockchain::BlockchainId;
 use crate::models::host::{ConnectionStatus, Host, HostType, MonthlyCostUsd, NewHost};
 use crate::models::ip_address::NewIpAddressRange;
-use crate::models::node::{Node, NodeChainStatus, NodeProperty, NodeType, ResourceAffinity};
+use crate::models::node::{Node, NodeProperty, NodeStatus, NodeType, ResourceAffinity};
 use crate::models::rbac::RbacUser;
 use crate::models::schema::{blockchains, nodes, orgs};
 use crate::models::user::NewUser;
@@ -252,7 +252,7 @@ async fn create_nodes(
             nodes::blockchain_id.eq(blockchain.id),
             nodes::block_age.eq(0),
             nodes::consensus.eq(true),
-            nodes::chain_status.eq(NodeChainStatus::Broadcasting),
+            nodes::node_status.eq(NodeStatus::Broadcasting),
             nodes::ip_gateway.eq(ip_gateway),
             nodes::ip_addr.eq(ip_addr),
             nodes::node_type.eq(NodeType::Validator),
@@ -299,6 +299,9 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'blockchain-admin-list'),
         ('blockjoy-admin', 'blockchain-admin-add-node-type'),
         ('blockjoy-admin', 'blockchain-admin-add-version'),
+        ('blockjoy-admin', 'host-admin-get'),
+        ('blockjoy-admin', 'host-admin-list'),
+        ('blockjoy-admin', 'mqtt-admin-acl'),
         ('blockjoy-admin', 'node-admin-create'),
         ('blockjoy-admin', 'node-admin-delete'),
         ('blockjoy-admin', 'node-admin-get'),
@@ -450,7 +453,14 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-new-host', 'auth-refresh'),
         ('grpc-new-host', 'babel-notify'),
         ('grpc-new-host', 'blockchain-get'),
+        ('grpc-new-host', 'blockchain-get-image'),
+        ('grpc-new-host', 'blockchain-get-plugin'),
+        ('grpc-new-host', 'blockchain-get-requirements'),
         ('grpc-new-host', 'blockchain-list'),
+        ('grpc-new-host', 'blockchain-list-image-versions'),
+        ('grpc-new-host', 'blockchain-archive-get-download'),
+        ('grpc-new-host', 'blockchain-archive-get-upload'),
+        ('grpc-new-host', 'blockchain-archive-put-download'),
         ('grpc-new-host', 'bundle-list-bundle-versions'),
         ('grpc-new-host', 'bundle-retrieve'),
         ('grpc-new-host', 'command-ack'),
@@ -458,19 +468,13 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-new-host', 'command-get'),
         ('grpc-new-host', 'command-pending'),
         ('grpc-new-host', 'command-update'),
-        ('grpc-new-host', 'cookbook-list-babel-versions'),
-        ('grpc-new-host', 'cookbook-net-configurations'),
-        ('grpc-new-host', 'cookbook-requirements'),
-        ('grpc-new-host', 'cookbook-retrieve-image'),
-        ('grpc-new-host', 'cookbook-retrieve-kernel'),
-        ('grpc-new-host', 'cookbook-retrieve-plugin'),
         ('grpc-new-host', 'discovery-services'),
         ('grpc-new-host', 'host-get'),
         ('grpc-new-host', 'host-list'),
         ('grpc-new-host', 'host-update'),
+        ('grpc-new-host', 'kernel-retrieve'),
         ('grpc-new-host', 'key-file-create'),
         ('grpc-new-host', 'key-file-list'),
-        ('grpc-new-host', 'manifest-retrieve-download'),
         ('grpc-new-host', 'metrics-host'),
         ('grpc-new-host', 'metrics-node'),
         ('grpc-new-host', 'mqtt-acl'),

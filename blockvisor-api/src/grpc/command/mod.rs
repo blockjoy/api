@@ -7,17 +7,19 @@ use displaydoc::Display;
 use thiserror::Error;
 use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::auth::rbac::CommandPerm;
-use crate::auth::Authorize;
+use crate::auth::resource::{NodeId, Resource};
+use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::grpc::api::command_service_server::CommandService;
-use crate::grpc::{api, Grpc};
+use crate::grpc::common::{FirewallAction, FirewallDirection, FirewallProtocol, FirewallRule};
+use crate::grpc::{api, common, Grpc};
 use crate::models::blockchain::{Blockchain, BlockchainProperty, BlockchainVersion};
-use crate::models::command::UpdateCommand;
-use crate::models::node::FilteredIpAddr;
-use crate::models::{Command, Host, Node};
+use crate::models::command::{ExitCode, UpdateCommand};
+use crate::models::node::NodeStatus;
+use crate::models::{Command, CommandType, Host, Node};
 use crate::util::NanosUtc;
 
 #[derive(Debug, Display, Error)]
@@ -36,10 +38,14 @@ pub enum Error {
     Command(#[from] crate::models::command::Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
+    /// Error creating a gRPC representation of a node: {0}
+    GrpcHost(Box<crate::grpc::node::Error>),
     /// Command host error: {0}
     Host(#[from] crate::models::host::Error),
     /// IP is not a CIDR.
     IpNotCidr,
+    /// Missing BlockchainPropertyId. This should not happen.
+    MissingBlockchainPropertyId,
     /// Missing `command.node_id`.
     MissingNodeId,
     /// Command node error: {0}
@@ -50,6 +56,10 @@ pub enum Error {
     ParseHostId(uuid::Error),
     /// Failed to parse CommandId: {0}
     ParseId(uuid::Error),
+    /// Unable to cast retry hint from u64 to i64: {0}
+    RetryHint(std::num::TryFromIntError),
+    /// Resource error: {0}
+    Resource(#[from] crate::auth::resource::Error),
 }
 
 impl From<Error> for Status {
@@ -60,7 +70,10 @@ impl From<Error> for Status {
             MissingNodeId => Status::invalid_argument("command.node_id"),
             ParseHostId(_) => Status::invalid_argument("host_id"),
             ParseId(_) => Status::invalid_argument("id"),
-            Diesel(_) | IpNotCidr | NotImplemented => Status::internal("Internal error."),
+            RetryHint(_) => Status::invalid_argument("retry_hint_seconds"),
+            Diesel(_) | IpNotCidr | MissingBlockchainPropertyId | NotImplemented | GrpcHost(_) => {
+                Status::internal("Internal error.")
+            }
             Auth(err) => err.into(),
             Blockchain(err) => err.into(),
             BlockchainProperty(err) => err.into(),
@@ -69,6 +82,7 @@ impl From<Error> for Status {
             Command(err) => err.into(),
             Host(err) => err.into(),
             Node(err) => err.into(),
+            Resource(err) => err.into(),
         }
     }
 }
@@ -110,39 +124,25 @@ async fn update(
 ) -> Result<api::CommandServiceUpdateResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
     let command = Command::find_by_id(id, &mut write).await?;
+    write
+        .auth(&meta, CommandPerm::Update, command.host_id)
+        .await?;
 
-    command.host(&mut write).await?;
-    command.node(&mut write).await?;
-    write.auth_all(&meta, CommandPerm::Update).await?;
-
-    let update_cmd = req.as_update()?;
-    let cmd = update_cmd.update(&mut write).await?;
-
-    match cmd.exit_status {
-        Some(0) => {
-            // Some responses require us to register success.
-            success::register(&cmd, &mut write).await;
-        }
-        // Will match any integer other than 0.
-        Some(_) => {
-            // We got back an error status code. In practice, blockvisord sends 0 for
-            // success and 1 for failure, but we treat every non-zero exit code as an
-            // error, not just 1.
-            recover::recover(&cmd, &mut write)
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .for_each(|cmd| write.mqtt(cmd));
-        }
+    let updated = UpdateCommand::from_request(req)?.update(&mut write).await?;
+    match updated.exit_code {
+        Some(ExitCode::Ok) => success::register(&updated, &mut write).await,
+        Some(_) => recover::recover(&updated, &mut write)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .for_each(|cmd| write.mqtt(cmd)),
         None => (),
     };
 
-    let command = api::Command::from_model(&cmd, &mut write).await?;
-    write.mqtt(command.clone());
+    let cmd = api::Command::from_model(&updated, &mut write).await?;
+    write.mqtt(cmd.clone());
 
-    Ok(api::CommandServiceUpdateResponse {
-        command: Some(command),
-    })
+    Ok(api::CommandServiceUpdateResponse { command: Some(cmd) })
 }
 
 async fn ack(
@@ -153,12 +153,17 @@ async fn ack(
     let id = req.id.parse().map_err(Error::ParseId)?;
     let command = Command::find_by_id(id, &mut write).await?;
 
-    command.host(&mut write).await?;
-    command.node(&mut write).await?;
-    write.auth_all(&meta, CommandPerm::Ack).await?;
+    let resource: Resource = command.node_id.map_or(command.host_id.into(), Into::into);
+    let authz = write.auth(&meta, CommandPerm::Ack, resource).await?;
 
     if command.acked_at.is_none() {
         command.ack(&mut write).await?;
+    } else {
+        warn!("Duplicate ack for command id: {0}", command.id);
+    }
+
+    if let Some(node) = command.node(&mut write).await? {
+        ack_node_transition(node, &command, authz, &mut write).await?;
     }
 
     Ok(api::CommandServiceAckResponse {})
@@ -183,176 +188,248 @@ async fn pending(
     Ok(api::CommandServicePendingResponse { commands })
 }
 
-impl api::Command {
-    pub async fn from_model(model: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
-        use api::command;
-        use api::node_command::Command;
+/// Apply state transition after acknowledging a node command.
+async fn ack_node_transition(
+    mut node: Node,
+    command: &Command,
+    authz: AuthZ,
+    write: &mut WriteConn<'_, '_>,
+) -> Result<(), Error> {
+    let next_status = match (command.cmd, node.node_status) {
+        (CommandType::CreateNode, NodeStatus::ProvisioningPending) => NodeStatus::Provisioning,
+        (CommandType::CreateNode, status) => {
+            warn!("Moving node {} from {status:?} to Provisioning", node.id);
+            NodeStatus::Provisioning
+        }
 
+        (CommandType::UpdateNode, NodeStatus::UpdatePending) => NodeStatus::Updating,
+        (CommandType::UpdateNode, status) => {
+            warn!("Moving node {} from {status:?} to Updating", node.id);
+            NodeStatus::Updating
+        }
+
+        (CommandType::DeleteNode, NodeStatus::DeletePending) => NodeStatus::Deleting,
+        (CommandType::DeleteNode, status) => {
+            warn!("Moving node {} from {status:?} to Deleting", node.id);
+            NodeStatus::Deleting
+        }
+
+        _ => return Ok(()),
+    };
+
+    node.node_status = next_status;
+    let node = node.update(write).await?;
+
+    let node = api::Node::from_model(node, write)
+        .await
+        .map_err(|err| Error::GrpcHost(Box::new(err)))?;
+    let updated_by = common::EntityUpdate::from_resource(&authz, write).await?;
+    let msg = api::NodeMessage::updated(node, updated_by);
+    write.mqtt(msg);
+
+    Ok(())
+}
+
+impl api::Command {
+    pub async fn from_model(model: &Command, conn: &mut Conn<'_>) -> Result<Self, Error> {
         use crate::models::command::CommandType::*;
 
-        // Extract the node id from the model, if there is one.
-        let node_id = || model.node_id.ok_or(Error::MissingNodeId);
-
-        // Closure to construct an api::Command from the data that we need to have.
-        let node_cmd = |command, node_id| -> Result<api::Command, Error> {
-            Ok(api::Command {
-                id: model.id.to_string(),
-                response: model.response.clone(),
-                exit_code: model.exit_status,
-                acked_at: model.acked_at.map(NanosUtc::from).map(Into::into),
-                command: Some(command::Command::Node(api::NodeCommand {
-                    node_id,
-                    host_id: model.host_id.to_string(),
-                    command: Some(command),
-                    api_command_id: model.id.to_string(),
-                    created_at: Some(NanosUtc::from(model.created_at).into()),
-                })),
-            })
-        };
-
-        // Construct an api::Command with the node id extracted from the `node.node_id` field.
-        // Only `DeleteNode` does not use this method.
-        let node_cmd_default_id = |command| node_cmd(command, node_id()?.to_string());
-
-        let host_cmd = |host_id| {
-            Ok(api::Command {
-                id: model.id.to_string(),
-                response: model.response.clone(),
-                exit_code: model.exit_status,
-                acked_at: model.acked_at.map(NanosUtc::from).map(Into::into),
-                command: Some(command::Command::Host(api::HostCommand { host_id })),
-            })
-        };
-
         match model.cmd {
-            RestartNode => node_cmd_default_id(Command::Restart(api::NodeRestart {})),
-            KillNode => node_cmd_default_id(Command::Stop(api::NodeStop {})),
-            ShutdownNode => node_cmd_default_id(Command::Stop(api::NodeStop {})),
-            UpdateNode => {
-                let node = Node::find_by_id(node_id()?, conn).await?;
-                let cmd = Command::Update(api::NodeUpdate {
-                    rules: Self::rules(&node)?,
-                });
-                node_cmd_default_id(cmd)
+            CreateNode => create_node(model, conn).await,
+            GetNodeVersion => get_node_version(model),
+            UpdateNode => update_node(model, conn).await,
+            UpgradeNode => upgrade_node(model, conn).await,
+            RestartNode => restart_node(model),
+            ShutdownNode | KillNode => stop_node(model),
+            DeleteNode => delete_node(model),
+
+            GetBVSVersion | UpdateBVS | RestartBVS | RemoveBVS | CreateBVS | StopBVS => {
+                host_command(model)
             }
-            UpgradeNode => {
-                let node = Node::find_by_id(node_id()?, conn).await?;
-                let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
-                let mut image = api::ContainerImage {
-                    protocol: blockchain.name,
-                    node_version: node.version.as_ref().to_lowercase(),
-                    node_type: 0, // We use the setter to set this field for type-safety
-                };
-                image.set_node_type(node.node_type.into());
-                let cmd = Command::Upgrade(api::NodeUpgrade { image: Some(image) });
-                node_cmd_default_id(cmd)
-            }
+
             MigrateNode => Err(Error::NotImplemented),
-            GetNodeVersion => node_cmd_default_id(Command::InfoGet(api::NodeGet {})),
-
-            // The following should be HostCommands
-            CreateNode => {
-                let node = Node::find_by_id(node_id()?, conn).await?;
-                let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
-                let version =
-                    BlockchainVersion::find(blockchain.id, node.node_type, &node.version, conn)
-                        .await?;
-                let id_to_name_map = BlockchainProperty::id_to_name_map(version.id, conn).await?;
-                let mut image = api::ContainerImage {
-                    protocol: blockchain.name,
-                    node_version: node.version.as_ref().to_lowercase(),
-                    node_type: 0, // We use the setter to set this field for type-safety
-                };
-                image.set_node_type(node.node_type.into());
-                let properties = node
-                    .properties(conn)
-                    .await?
-                    .into_iter()
-                    .map(|p| (&id_to_name_map[&p.blockchain_property_id], p.value))
-                    .map(|(name, value)| api::Parameter::new(name, &value))
-                    .collect();
-                let mut node_create = api::NodeCreate {
-                    name: node.name.clone(),
-                    blockchain: node.blockchain_id.to_string(),
-                    image: Some(image),
-                    node_type: 0, // We use the setter to set this field for type-safety
-                    ip: node.ip_addr.clone(),
-                    gateway: node.ip_gateway.clone(),
-                    properties,
-                    rules: Self::rules(&node)?,
-                    network: node.network,
-                };
-                node_create.set_node_type(node.node_type.into());
-                let cmd = Command::Create(node_create);
-
-                node_cmd_default_id(cmd)
-            }
-            DeleteNode => {
-                let node_id = model.sub_cmd.clone().ok_or(Error::MissingNodeId)?;
-                let cmd = Command::Delete(api::NodeDelete {});
-                node_cmd(cmd, node_id)
-            }
-            GetBVSVersion => host_cmd(model.host_id.to_string()),
-            UpdateBVS => host_cmd(model.host_id.to_string()),
-            RestartBVS => host_cmd(model.host_id.to_string()),
-            RemoveBVS => host_cmd(model.host_id.to_string()),
-            CreateBVS => host_cmd(model.host_id.to_string()),
-            StopBVS => host_cmd(model.host_id.to_string()),
         }
-    }
-
-    pub fn rules(node: &Node) -> Result<Vec<api::Rule>, Error> {
-        fn firewall_rules(
-            // I'll leave the Vec for now, maybe we need it later
-            denied_or_allowed_ips: Vec<FilteredIpAddr>,
-            action: api::Action,
-        ) -> Result<Vec<api::Rule>, Error> {
-            let mut rules = vec![];
-            for ip in denied_or_allowed_ips {
-                // TODO: newtype validation
-                if !IpCidr::is_ip_cidr(&ip.ip) {
-                    return Err(Error::IpNotCidr);
-                }
-
-                rules.push(api::Rule {
-                    name: String::new(),
-                    action: action as i32,
-                    direction: api::Direction::In as i32,
-                    protocol: api::Protocol::Both as i32,
-                    ips: Some(ip.ip),
-                    ports: vec![],
-                });
-            }
-
-            Ok(rules)
-        }
-
-        let rules = firewall_rules(node.allow_ips()?, api::Action::Allow)?
-            .into_iter()
-            .chain(firewall_rules(node.deny_ips()?, api::Action::Deny)?)
-            .collect();
-        Ok(rules)
     }
 }
 
-impl api::CommandServiceUpdateRequest {
-    fn as_update(&self) -> Result<UpdateCommand<'_>, Error> {
-        Ok(UpdateCommand {
-            id: self.id.parse().map_err(Error::ParseId)?,
-            response: self.response.as_deref(),
-            exit_status: self.exit_code,
-            completed_at: self.exit_code.map(|_| chrono::Utc::now()),
+/// Create a new `api::HostCommand` from a `Command`.
+fn host_command(command: &Command) -> Result<api::Command, Error> {
+    let host_id = command.host_id.to_string();
+    let exit_code = command
+        .exit_code
+        .map(|code| api::CommandExitCode::from(code).into());
+    let retry_hint_seconds = command
+        .retry_hint_seconds
+        .map(|hint| hint.try_into().map_err(Error::RetryHint))
+        .transpose()?;
+
+    Ok(api::Command {
+        id: command.id.to_string(),
+        exit_code,
+        exit_message: command.exit_message.clone(),
+        retry_hint_seconds,
+        acked_at: command.acked_at.map(NanosUtc::from).map(Into::into),
+        command: Some(api::command::Command::Host(api::HostCommand { host_id })),
+    })
+}
+
+/// Create a new `api::NodeCommand` from a `Command`.
+fn node_command(
+    command: &Command,
+    node_id: NodeId,
+    node_cmd: api::node_command::Command,
+) -> Result<api::Command, Error> {
+    let exit_code = command
+        .exit_code
+        .map(|code| api::CommandExitCode::from(code).into());
+    let retry_hint_seconds = command
+        .retry_hint_seconds
+        .map(|hint| hint.try_into().map_err(Error::RetryHint))
+        .transpose()?;
+
+    Ok(api::Command {
+        id: command.id.to_string(),
+        exit_code,
+        exit_message: command.exit_message.clone(),
+        retry_hint_seconds,
+        acked_at: command.acked_at.map(NanosUtc::from).map(Into::into),
+        command: Some(api::command::Command::Node(api::NodeCommand {
+            node_id: node_id.to_string(),
+            host_id: command.host_id.to_string(),
+            command: Some(node_cmd),
+            api_command_id: command.id.to_string(),
+            created_at: Some(NanosUtc::from(command.created_at).into()),
+        })),
+    })
+}
+
+async fn create_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+    let node = Node::find_by_id(node_id, conn).await?;
+
+    let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
+    let version =
+        BlockchainVersion::find(blockchain.id, node.node_type, &node.version, conn).await?;
+
+    let id_to_names = BlockchainProperty::id_to_name_map(version.id, conn).await?;
+    let properties = node
+        .properties(conn)
+        .await?
+        .into_iter()
+        .map(|prop| {
+            let name = id_to_names
+                .get(&prop.blockchain_property_id)
+                .ok_or(Error::MissingBlockchainPropertyId)?;
+
+            Ok::<_, Error>(api::Parameter {
+                name: name.clone(),
+                value: prop.value,
+            })
         })
-    }
+        .collect::<Result<_, _>>()?;
+
+    let node_cmd = api::node_command::Command::Create(api::NodeCreate {
+        name: node.name.clone(),
+        blockchain: node.blockchain_id.to_string(),
+        image: Some(common::ImageIdentifier {
+            protocol: blockchain.name,
+            node_version: node.version.as_ref().to_lowercase(),
+            node_type: common::NodeType::from(node.node_type).into(),
+        }),
+        node_type: common::NodeType::from(node.node_type).into(),
+        ip: node.ip_addr.clone(),
+        gateway: node.ip_gateway.clone(),
+        properties,
+        rules: firewall_rules(&node)?,
+        network: node.network,
+    });
+
+    node_command(command, node_id, node_cmd)
 }
 
-impl api::Parameter {
-    fn new(name: &str, val: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            value: val.to_owned(),
+fn get_node_version(command: &Command) -> Result<api::Command, Error> {
+    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+    let node_cmd = api::node_command::Command::InfoGet(api::NodeGet {});
+    node_command(command, node_id, node_cmd)
+}
+
+async fn update_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+    let node = Node::find_by_id(node_id, conn).await?;
+    let node_cmd = api::node_command::Command::Update(api::NodeUpdate {
+        rules: firewall_rules(&node)?,
+    });
+    node_command(command, node_id, node_cmd)
+}
+
+async fn upgrade_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+    let node = Node::find_by_id(node_id, conn).await?;
+    let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
+
+    let node_cmd = api::node_command::Command::Upgrade(api::NodeUpgrade {
+        image: Some(common::ImageIdentifier {
+            protocol: blockchain.name,
+            node_version: node.version.as_ref().to_lowercase(),
+            node_type: common::NodeType::from(node.node_type).into(),
+        }),
+    });
+    node_command(command, node_id, node_cmd)
+}
+
+fn restart_node(command: &Command) -> Result<api::Command, Error> {
+    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+    let node_cmd = api::node_command::Command::Restart(api::NodeRestart {});
+    node_command(command, node_id, node_cmd)
+}
+
+fn stop_node(command: &Command) -> Result<api::Command, Error> {
+    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+    let node_cmd = api::node_command::Command::Stop(api::NodeStop {});
+    node_command(command, node_id, node_cmd)
+}
+
+fn delete_node(command: &Command) -> Result<api::Command, Error> {
+    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+    let node_cmd = api::node_command::Command::Delete(api::NodeDelete {});
+    node_command(command, node_id, node_cmd)
+}
+
+fn firewall_rules(node: &Node) -> Result<Vec<FirewallRule>, Error> {
+    let mut rules = vec![];
+
+    // TODO: newtype with cidr checks for FilteredIpAddr
+    for ip in node.allow_ips()? {
+        if !IpCidr::is_ip_cidr(&ip.ip) {
+            return Err(Error::IpNotCidr);
         }
+
+        rules.push(FirewallRule {
+            name: format!("allow: {}", ip.ip),
+            action: FirewallAction::Allow.into(),
+            direction: FirewallDirection::Inbound.into(),
+            protocol: Some(FirewallProtocol::Both.into()),
+            ips: Some(ip.ip),
+            ports: vec![],
+        });
     }
+
+    for ip in node.deny_ips()? {
+        if !IpCidr::is_ip_cidr(&ip.ip) {
+            return Err(Error::IpNotCidr);
+        }
+
+        rules.push(FirewallRule {
+            name: format!("deny: {}", ip.ip),
+            action: FirewallAction::Deny.into(),
+            direction: FirewallDirection::Inbound.into(),
+            protocol: Some(FirewallProtocol::Both.into()),
+            ips: Some(ip.ip),
+            ports: vec![],
+        });
+    }
+
+    Ok(rules)
 }
 
 #[cfg(test)]
@@ -364,6 +441,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_firewall_rules() {
         let (_ctx, db) = Context::with_mocked().await.unwrap();
-        api::Command::rules(&db.seed.node).unwrap();
+
+        firewall_rules(&db.seed.node).unwrap();
     }
 }

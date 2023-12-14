@@ -70,6 +70,7 @@ async fn blockjoy_admin_can_list_all_orgs() {
         offset: 0,
         limit: 10,
         search: None,
+        sort: vec![],
     };
 
     // user can list own org

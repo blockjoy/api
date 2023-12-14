@@ -2,8 +2,6 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::auth::endpoint::Endpoints;
-
 use super::{Perm, Role};
 
 /// Access determines what permissions are available to token `Claims`.
@@ -12,7 +10,6 @@ use super::{Perm, Role};
 pub enum Access {
     Roles(Roles),
     Perms(Perms),
-    Endpoints(Endpoints),
 }
 
 impl From<Roles> for Access {
@@ -24,12 +21,6 @@ impl From<Roles> for Access {
 impl From<Perms> for Access {
     fn from(perms: Perms) -> Self {
         Access::Perms(perms)
-    }
-}
-
-impl From<Endpoints> for Access {
-    fn from(endpoints: Endpoints) -> Self {
-        Access::Endpoints(endpoints)
     }
 }
 

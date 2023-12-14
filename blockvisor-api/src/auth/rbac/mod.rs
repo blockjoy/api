@@ -70,7 +70,11 @@ define_perms! {
 
     Blockchain => {
         Get,
+        GetImage,
+        GetPlugin,
+        GetRequirements,
         List,
+        ListImageVersions,
     }
 
     BlockchainAdmin => {
@@ -78,6 +82,12 @@ define_perms! {
         AddVersion,
         Get,
         List,
+    }
+
+    BlockchainArchive => {
+        GetDownload,
+        GetUpload,
+        PutDownload,
     }
 
     Bundle => {
@@ -92,15 +102,6 @@ define_perms! {
         Update,
         Pending,
         Ack,
-    }
-
-    Cookbook => {
-        RetrievePlugin,
-        RetrieveImage,
-        RetrieveKernel,
-        Requirements,
-        NetConfigurations,
-        ListBabelVersions,
     }
 
     Discovery => {
@@ -141,13 +142,13 @@ define_perms! {
         Revoke,
     }
 
+    Kernel => {
+        Retrieve,
+    }
+
     KeyFile => {
         Create,
         List,
-    }
-
-    Manifest => {
-        RetrieveDownload,
     }
 
     Metrics => {
@@ -156,6 +157,10 @@ define_perms! {
     }
 
     Mqtt => {
+        Acl,
+    }
+
+    MqttAdmin => {
         Acl,
     }
 

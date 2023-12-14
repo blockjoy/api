@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-// multiple paths lets Dockerfile.builder find them
+// multiple paths lets Dockerfile find them
 const PROTO_DIRS: &[&str] = &["./proto", "../proto"];
 
 fn main() -> Result<()> {

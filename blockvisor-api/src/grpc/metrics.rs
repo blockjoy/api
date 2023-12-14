@@ -246,10 +246,10 @@ impl api::NodeMetrics {
                 .map(i64::try_from)
                 .transpose()
                 .map_err(Error::BlockAge)?,
-            staking_status: Some(self.staking_status().into_model()),
+            staking_status: Some(self.staking_status().into()),
             consensus: self.consensus,
-            chain_status: Some(self.application_status().into_model()),
-            sync_status: Some(self.sync_status().into_model()),
+            node_status: Some(self.application_status().into()),
+            sync_status: Some(self.sync_status().into()),
             jobs: jobs
                 .map(serde_json::to_value)
                 .transpose()

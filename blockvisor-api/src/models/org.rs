@@ -1,7 +1,10 @@
+use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use diesel::dsl;
+use diesel::expression::expression_types::NotSelectable;
+use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
@@ -16,11 +19,11 @@ use crate::auth::rbac::OrgRole;
 use crate::auth::rbac::Role;
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
-use crate::util::SearchOperator;
+use crate::util::{SearchOperator, SortOrder};
 
 use super::rbac::RbacUser;
-use super::schema::{nodes, orgs, orgs_users, user_roles};
-use super::Paginate;
+use super::schema::{hosts, nodes, orgs, orgs_users, user_roles};
+use super::{Host, Node, Paginate};
 
 const PERSONAL_ORG_NAME: &str = "Personal";
 
@@ -34,8 +37,6 @@ pub enum Error {
     CreateOrgUser(diesel::result::Error),
     /// Failed to delete org `{0}`: {1}
     Delete(OrgId, diesel::result::Error),
-    /// Failed to filter orgs: {0}
-    Filter(diesel::result::Error),
     /// Failed to find org by id `{0}`: {1}
     FindById(OrgId, diesel::result::Error),
     /// Failed to find org by ids `{0:?}`: {1}
@@ -48,24 +49,24 @@ pub enum Error {
     FindPersonal(UserId, diesel::result::Error),
     /// Failed to check if org `{0}` has user `{1}`: {2}
     HasUser(OrgId, UserId, diesel::result::Error),
-    /// Failed to parse org limit as i64: {0}
-    Limit(std::num::TryFromIntError),
+    /// Failed to parse host count for org: {0}
+    HostCount(std::num::TryFromIntError),
+    /// Failed to get host counts for org: {0}
+    HostCounts(diesel::result::Error),
     /// Failed to find org memberships for user `{0}`: {1}
     Memberships(UserId, diesel::result::Error),
     /// Failed to parse node count for org: {0}
     NodeCount(std::num::TryFromIntError),
     /// Failed to get node counts for org: {0}
     NodeCounts(diesel::result::Error),
-    /// Failed to parse org offset as i64: {0}
-    Offset(std::num::TryFromIntError),
+    /// Org pagination: {0}
+    Paginate(#[from] crate::models::paginate::Error),
     /// Org model RBAC error: {0}
     Rbac(#[from] crate::models::rbac::Error),
     /// Failed to remove org user: {0}
     RemoveUser(diesel::result::Error),
     /// Failed to reset token: {0}
     ResetToken(diesel::result::Error),
-    /// Failed to parse org total as i64: {0}
-    Total(std::num::TryFromIntError),
     /// Failed to update org: {0}
     Update(diesel::result::Error),
 }
@@ -119,63 +120,6 @@ impl Org {
             .get_results(conn)
             .await
             .map_err(|err| Error::FindByIds(org_ids, err))
-    }
-
-    pub async fn filter(filter: OrgFilter, conn: &mut Conn<'_>) -> Result<(u64, Vec<Self>), Error> {
-        let OrgFilter {
-            member_id,
-            personal,
-            offset,
-            limit,
-            search,
-        } = filter;
-        let mut query = orgs::table.left_join(user_roles::table).into_boxed();
-
-        // search fields
-        if let Some(search) = search {
-            let OrgSearch { operator, id, name } = search;
-            match operator {
-                SearchOperator::Or => {
-                    if let Some(id) = id {
-                        query = query.filter(super::text(orgs::id).like(id));
-                    }
-                    if let Some(name) = name {
-                        query = query.or_filter(super::lower(orgs::name).like(name));
-                    }
-                }
-                SearchOperator::And => {
-                    if let Some(id) = id {
-                        query = query.filter(super::text(orgs::id).like(id));
-                    }
-                    if let Some(name) = name {
-                        query = query.filter(super::lower(orgs::name).like(name));
-                    }
-                }
-            }
-        }
-
-        if let Some(member_id) = member_id {
-            query = query.filter(user_roles::user_id.eq(member_id));
-        }
-        if let Some(personal) = personal {
-            query = query.filter(orgs::is_personal.eq(personal));
-        }
-
-        let limit = i64::try_from(limit).map_err(Error::Limit)?;
-        let offset = i64::try_from(offset).map_err(Error::Offset)?;
-        let (total, orgs) = query
-            .filter(orgs::deleted_at.is_null())
-            .order_by(orgs::created_at.desc())
-            .select(Self::as_select())
-            .distinct()
-            .paginate(limit, offset)
-            .get_results_counted(conn)
-            .await
-            .map_err(Error::Filter)?;
-
-        let total = u64::try_from(total).map_err(Error::Total)?;
-
-        Ok((total, orgs))
     }
 
     pub async fn find_personal(user_id: UserId, conn: &mut Conn<'_>) -> Result<Org, Error> {
@@ -247,11 +191,29 @@ impl Org {
             .map_err(|err| Error::Delete(org_id, err))
     }
 
+    pub async fn host_counts(
+        org_ids: &HashSet<OrgId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<HashMap<OrgId, u64>, Error> {
+        let counts: Vec<(OrgId, i64)> = Host::not_deleted()
+            .filter(hosts::org_id.eq_any(org_ids))
+            .group_by(hosts::org_id)
+            .select((hosts::org_id, dsl::count(hosts::id)))
+            .get_results(conn)
+            .await
+            .map_err(Error::HostCounts)?;
+
+        counts
+            .into_iter()
+            .map(|(id, count)| Ok((id, count.try_into().map_err(Error::HostCount)?)))
+            .collect()
+    }
+
     pub async fn node_counts(
         org_ids: &HashSet<OrgId>,
         conn: &mut Conn<'_>,
     ) -> Result<HashMap<OrgId, u64>, Error> {
-        let counts: Vec<(OrgId, i64)> = nodes::table
+        let counts: Vec<(OrgId, i64)> = Node::not_deleted()
             .filter(nodes::org_id.eq_any(org_ids))
             .group_by(nodes::org_id)
             .select((nodes::org_id, dsl::count(nodes::id)))
@@ -276,18 +238,109 @@ impl AsRef<Org> for Org {
     }
 }
 
+pub struct OrgSearch {
+    pub operator: SearchOperator,
+    pub id: Option<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum OrgSort {
+    Name(SortOrder),
+    CreatedAt(SortOrder),
+    UpdatedAt(SortOrder),
+}
+
+impl OrgSort {
+    fn into_expr<T>(self) -> Box<dyn BoxableExpression<T, Pg, SqlType = NotSelectable>>
+    where
+        orgs::name: SelectableExpression<T>,
+        orgs::created_at: SelectableExpression<T>,
+        orgs::updated_at: SelectableExpression<T>,
+    {
+        use OrgSort::*;
+        use SortOrder::*;
+
+        match self {
+            Name(Asc) => Box::new(orgs::name.asc()),
+            Name(Desc) => Box::new(orgs::name.desc()),
+
+            CreatedAt(Asc) => Box::new(orgs::created_at.asc()),
+            CreatedAt(Desc) => Box::new(orgs::created_at.desc()),
+
+            UpdatedAt(Asc) => Box::new(orgs::updated_at.asc()),
+            UpdatedAt(Desc) => Box::new(orgs::updated_at.desc()),
+        }
+    }
+}
+
 pub struct OrgFilter {
     pub member_id: Option<UserId>,
     pub personal: Option<bool>,
     pub offset: u64,
     pub limit: u64,
     pub search: Option<OrgSearch>,
+    pub sort: VecDeque<OrgSort>,
 }
 
-pub struct OrgSearch {
-    pub operator: SearchOperator,
-    pub id: Option<String>,
-    pub name: Option<String>,
+impl OrgFilter {
+    pub async fn query(mut self, conn: &mut Conn<'_>) -> Result<(Vec<Org>, u64), Error> {
+        let mut query = orgs::table.left_join(user_roles::table).into_boxed();
+
+        if let Some(search) = self.search {
+            match search.operator {
+                SearchOperator::Or => {
+                    if let Some(id) = search.id {
+                        query = query.filter(super::text(orgs::id).like(id));
+                    }
+                    if let Some(name) = search.name {
+                        query = query.or_filter(super::lower(orgs::name).like(name));
+                    }
+                }
+                SearchOperator::And => {
+                    if let Some(id) = search.id {
+                        query = query.filter(super::text(orgs::id).like(id));
+                    }
+                    if let Some(name) = search.name {
+                        query = query.filter(super::lower(orgs::name).like(name));
+                    }
+                }
+            }
+        }
+
+        if let Some(member_id) = self.member_id {
+            query = query.filter(user_roles::user_id.eq(member_id));
+        }
+
+        if let Some(personal) = self.personal {
+            query = query.filter(orgs::is_personal.eq(personal));
+        }
+
+        if let Some(sort) = self.sort.pop_front() {
+            query = query.order_by(sort.into_expr());
+        } else {
+            query = query.order_by(orgs::created_at.desc());
+        }
+
+        while let Some(sort) = self.sort.pop_front() {
+            query = query.then_order_by(sort.into_expr());
+        }
+
+        query
+            .filter(orgs::deleted_at.is_null())
+            .select(Org::as_select())
+            .distinct()
+            .paginate(self.limit, self.offset)?
+            .count_results(conn)
+            .await
+            .map_err(Into::into)
+    }
+}
+
+pub struct OrgFiltered {
+    pub orgs: Vec<Org>,
+    pub count: u64,
+    pub sort: Vec<OrgSort>,
 }
 
 #[derive(Debug, Insertable)]

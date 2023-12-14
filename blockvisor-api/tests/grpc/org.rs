@@ -118,6 +118,7 @@ async fn member_count_works() {
         offset: 0,
         limit: 10,
         search: None,
+        sort: vec![],
     };
     let resp = test.send_admin(Service::list, req).await.unwrap();
     let org_resp = resp

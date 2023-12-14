@@ -1,5 +1,5 @@
 use blockvisor_api::database::seed::{BLOCKCHAIN_ID, BLOCKCHAIN_NODE_TYPE, BLOCKCHAIN_VERSION};
-use blockvisor_api::grpc::api;
+use blockvisor_api::grpc::{api, common};
 use blockvisor_api::models::NodeType;
 use tonic::transport::Channel;
 use uuid::Uuid;
@@ -59,7 +59,7 @@ async fn add_blockchain_node_type() {
     let test = TestServer::new().await;
     let request = |node_type: NodeType| api::BlockchainServiceAddNodeTypeRequest {
         id: BLOCKCHAIN_ID.to_string(),
-        node_type: api::NodeType::from(node_type).into(),
+        node_type: common::NodeType::from(node_type).into(),
         description: None,
     };
 
@@ -81,7 +81,7 @@ async fn add_blockchain_version() {
         id: BLOCKCHAIN_ID.to_string(),
         version: version.to_string(),
         description: None,
-        node_type: api::NodeType::from(node_type).into(),
+        node_type: common::NodeType::from(node_type).into(),
         properties: vec![],
     };
 

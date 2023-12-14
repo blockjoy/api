@@ -75,9 +75,9 @@ pub struct NodeLog {
     pub node_id: NodeId,
     pub event: NodeLogEvent,
     pub blockchain_name: String,
-    pub node_type: NodeType,
     pub version: String,
     pub created_at: DateTime<Utc>,
+    pub node_type: NodeType,
 }
 
 impl NodeLog {

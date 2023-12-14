@@ -5,11 +5,11 @@ use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 
-use crate::auth::rbac::CookbookPerm;
+use crate::auth::rbac::KernelPerm;
 use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction};
 use crate::grpc::api::kernel_service_server::KernelService;
-use crate::grpc::{api, Grpc};
+use crate::grpc::{api, common, Grpc};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -17,12 +17,12 @@ pub enum Error {
     Auth(#[from] crate::auth::Error),
     /// Claims check failed: {0}
     Claims(#[from] crate::auth::claims::Error),
-    /// Cookbook failed: {0}
-    Cookbook(#[from] crate::cookbook::Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
-    /// Missing cookbook id.
+    /// Missing image identifier.
     MissingId,
+    /// Storage failed: {0}
+    Storage(#[from] crate::storage::Error),
 }
 
 impl From<Error> for Status {
@@ -30,7 +30,7 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            Cookbook(_) | Diesel(_) => Status::internal("Internal error."),
+            Diesel(_) | Storage(_) => Status::internal("Internal error."),
             MissingId => Status::invalid_argument("id"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
@@ -64,13 +64,15 @@ async fn retrieve_kernel_(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::KernelServiceRetrieveResponse, Error> {
-    read.auth_all(&meta, CookbookPerm::RetrieveKernel).await?;
+    read.auth_all(&meta, KernelPerm::Retrieve).await?;
 
     let id = req.id.ok_or(Error::MissingId)?;
-    let url = read.ctx.cookbook.download_kernel(&id.version).await?;
+    let url = read.ctx.storage.download_kernel(&id.version).await?;
 
     Ok(api::KernelServiceRetrieveResponse {
-        location: Some(api::ArchiveLocation { url }),
+        location: Some(common::ArchiveLocation {
+            url: url.to_string(),
+        }),
     })
 }
 
@@ -79,7 +81,7 @@ async fn list_kernel_versions(
     _meta: MetadataMap,
     read: ReadConn<'_, '_>,
 ) -> Result<api::KernelServiceListKernelVersionsResponse, Error> {
-    let identifiers = read.ctx.cookbook.list_kernels().await?;
+    let identifiers = read.ctx.storage.list_kernels().await?;
 
     Ok(api::KernelServiceListKernelVersionsResponse { identifiers })
 }

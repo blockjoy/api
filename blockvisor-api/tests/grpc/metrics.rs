@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use blockvisor_api::grpc::api;
-use blockvisor_api::models::node::{Node, NodeChainStatus, NodeStakingStatus, NodeSyncStatus};
+use blockvisor_api::models::node::{Node, NodeStatus, StakingStatus, SyncStatus};
 use blockvisor_api::models::Host;
 use tonic::transport::Channel;
 
@@ -48,10 +48,10 @@ async fn responds_ok_for_write_node() {
     let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
     assert_eq!(node.block_height, Some(10));
     assert_eq!(node.block_age, Some(5));
-    assert_eq!(node.staking_status, Some(NodeStakingStatus::Validating));
+    assert_eq!(node.staking_status, Some(StakingStatus::Validating));
     assert_eq!(node.consensus, Some(false));
-    assert_eq!(node.chain_status, NodeChainStatus::Electing);
-    assert_eq!(node.sync_status, NodeSyncStatus::Synced);
+    assert_eq!(node.node_status, NodeStatus::Electing);
+    assert_eq!(node.sync_status, SyncStatus::Synced);
     let job = node.jobs().unwrap().pop().unwrap();
     let progress = job.progress.unwrap();
     assert_eq!(progress.total, Some(10));
@@ -152,10 +152,10 @@ async fn single_failure_doesnt_abort_all_updates() {
     let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
     assert_eq!(node.block_height, Some(10));
     assert_eq!(node.block_age, Some(5));
-    assert_eq!(node.staking_status, Some(NodeStakingStatus::Validating));
+    assert_eq!(node.staking_status, Some(StakingStatus::Validating));
     assert_eq!(node.consensus, Some(false));
-    assert_eq!(node.chain_status, NodeChainStatus::Electing);
-    assert_eq!(node.sync_status, NodeSyncStatus::Synced);
+    assert_eq!(node.node_status, NodeStatus::Electing);
+    assert_eq!(node.sync_status, SyncStatus::Synced);
     let job = node.jobs().unwrap().pop().unwrap();
     let progress = job.progress.unwrap();
     assert_eq!(progress.total, Some(10));

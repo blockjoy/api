@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+use std::str::FromStr;
 use std::time::Duration;
 
 use derive_more::{Deref, FromStr};
@@ -13,6 +15,11 @@ const JWT_SECRET_VAR: &str = "JWT_SECRET";
 const JWT_SECRET_ENTRY: &str = "token.secret.jwt";
 const REFRESH_SECRET_VAR: &str = "REFRESH_SECRET";
 const REFRESH_SECRET_ENTRY: &str = "token.secret.refresh";
+
+const JWT_FALLBACK_SECRET_VAR: &str = "JWT_SECRET_FALLBACK";
+const JWT_FALLBACK_SECRET_ENTRY: &str = "token.secret.jwt_fallback";
+const REFRESH_FALLBACK_SECRET_VAR: &str = "REFRESH_SECRET_FALLBACK";
+const REFRESH_FALLBACK_SECRET_ENTRY: &str = "token.secret.refresh_fallback";
 
 // TODO: delete _MINS consts when the env vars are no longer in use
 const TOKEN_EXPIRE_VAR: &str = "TOKEN_EXPIRE";
@@ -92,11 +99,39 @@ pub struct JwtSecret(Redacted<String>);
 #[deref(forward)]
 pub struct RefreshSecret(Redacted<String>);
 
+#[derive(Debug, Deref, Deserialize, Default)]
+#[deref(forward)]
+pub struct JwtSecrets(Redacted<Vec<String>>);
+
+impl FromStr for JwtSecrets {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let secrets = s.split(',').map(str::trim).map(str::to_owned).collect();
+        Ok(Self(Redacted(secrets)))
+    }
+}
+
+#[derive(Debug, Deref, Deserialize, Default)]
+#[deref(forward)]
+pub struct RefreshSecrets(Redacted<Vec<String>>);
+
+impl FromStr for RefreshSecrets {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let secrets = s.split(',').map(str::trim).map(str::to_owned).collect();
+        Ok(Self(Redacted(secrets)))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SecretConfig {
     pub jwt: JwtSecret,
     pub refresh: RefreshSecret,
+    pub jwt_fallback: JwtSecrets,
+    pub refresh_fallback: RefreshSecrets,
 }
 
 impl TryFrom<&Provider> for SecretConfig {
@@ -109,8 +144,19 @@ impl TryFrom<&Provider> for SecretConfig {
         let refresh = provider
             .read(REFRESH_SECRET_VAR, REFRESH_SECRET_ENTRY)
             .map_err(SecretError::ParseRefresh)?;
+        let jwt_fallback = provider
+            .read_or_default(JWT_FALLBACK_SECRET_VAR, JWT_FALLBACK_SECRET_ENTRY)
+            .map_err(SecretError::ParseJwt)?;
+        let refresh_fallback = provider
+            .read_or_default(REFRESH_FALLBACK_SECRET_VAR, REFRESH_FALLBACK_SECRET_ENTRY)
+            .map_err(SecretError::ParseRefresh)?;
 
-        Ok(SecretConfig { jwt, refresh })
+        Ok(SecretConfig {
+            jwt,
+            refresh,
+            jwt_fallback,
+            refresh_fallback,
+        })
     }
 }
 

@@ -7,6 +7,8 @@ use crate::grpc::common;
 pub enum Error {
     /// Unknown SearchOperator.
     UnknownSearchOperator,
+    /// Unknown SortOrder.
+    UnknownSortOrder,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -15,14 +17,32 @@ pub enum SearchOperator {
     And,
 }
 
-impl TryInto<SearchOperator> for common::SearchOperator {
+impl TryFrom<common::SearchOperator> for SearchOperator {
     type Error = Error;
 
-    fn try_into(self) -> Result<SearchOperator, Self::Error> {
-        match self {
-            Self::Unspecified => Err(Error::UnknownSearchOperator),
-            Self::Or => Ok(SearchOperator::Or),
-            Self::And => Ok(SearchOperator::And),
+    fn try_from(operator: common::SearchOperator) -> Result<Self, Self::Error> {
+        match operator {
+            common::SearchOperator::Unspecified => Err(Error::UnknownSearchOperator),
+            common::SearchOperator::Or => Ok(SearchOperator::Or),
+            common::SearchOperator::And => Ok(SearchOperator::And),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum SortOrder {
+    Asc,
+    Desc,
+}
+
+impl TryFrom<common::SortOrder> for SortOrder {
+    type Error = Error;
+
+    fn try_from(order: common::SortOrder) -> Result<Self, Self::Error> {
+        match order {
+            common::SortOrder::Unspecified => Err(Error::UnknownSortOrder),
+            common::SortOrder::Ascending => Ok(SortOrder::Asc),
+            common::SortOrder::Descending => Ok(SortOrder::Desc),
         }
     }
 }

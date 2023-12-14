@@ -2,37 +2,39 @@
 
 use tracing::error;
 
-use crate::database::Conn;
+use crate::database::WriteConn;
+use crate::grpc::api;
 use crate::models::blockchain::Blockchain;
-use crate::models::command::{Command, CommandType};
-use crate::models::node::{NewNodeLog, Node, NodeLogEvent};
+use crate::models::command::{Command, CommandType, NewCommand};
+use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeStatus};
+
+type Result = std::result::Result<(), ()>;
 
 /// Some endpoints require some additional action from us when we recieve a
 /// success message back from blockvisord.
 ///
 /// For now this is limited to creating a `node_logs` entry when `CreateNode`
 /// has succeeded, but this may expand over time.
-pub(super) async fn register(succeeded_cmd: &Command, conn: &mut Conn<'_>) {
-    if succeeded_cmd.cmd == CommandType::CreateNode {
-        create_node_success(succeeded_cmd, conn).await;
-    }
+pub(super) async fn register(succeeded_cmd: &Command, write: &mut WriteConn<'_, '_>) {
+    let _ = match succeeded_cmd.cmd {
+        CommandType::CreateNode => create_node_success(succeeded_cmd, write).await,
+        CommandType::DeleteNode => delete_node_success(succeeded_cmd, write).await,
+        _ => return,
+    };
 }
 
-/// In case of a successful node deployment, we are expected to write
-/// `node_logs` entry to the database. The `event` we pass in is `Succeeded`.
-async fn create_node_success(succeeded_cmd: &Command, conn: &mut Conn<'_>) {
-    let Some(node_id) = succeeded_cmd.node_id else {
-        error!("`CreateNode` command has no node id!");
-        return;
-    };
-    let Ok(node) = Node::find_by_id(node_id, conn).await else {
-        error!("Could not get node for node_id {node_id}");
-        return;
-    };
-    let Ok(blockchain) = Blockchain::find_by_id(node.blockchain_id, conn).await else {
-        error!("Could not get blockchain for node {node_id}");
-        return;
-    };
+/// In case of a successful node deployment, we are expected to write `node_logs` entry to the
+/// database. The `event` we pass in is `Succeeded`. Afterwards, we will start the node.
+async fn create_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, '_>) -> Result {
+    let node_id = succeeded_cmd
+        .node_id
+        .ok_or_else(|| error!("`CreateNode` command has no node id!"))?;
+    let node = Node::find_by_id(node_id, write)
+        .await
+        .map_err(|err| error!("Could not get node for node_id {node_id}: {err}"))?;
+    let blockchain = Blockchain::find_by_id(node.blockchain_id, write)
+        .await
+        .map_err(|err| error!("Could not get blockchain for node {node_id}: {err}"))?;
 
     let new_log = NewNodeLog {
         host_id: node.host_id,
@@ -40,8 +42,37 @@ async fn create_node_success(succeeded_cmd: &Command, conn: &mut Conn<'_>) {
         event: NodeLogEvent::CreateSucceeded,
         blockchain_name: &blockchain.name,
         node_type: node.node_type,
-        version: node.version,
+        version: node.version.clone(),
         created_at: chrono::Utc::now(),
     };
-    let _ = new_log.create(conn).await;
+    let _ = new_log.create(write).await;
+
+    let start_notif = NewCommand::node(&node, CommandType::RestartNode)
+        .create(write)
+        .await
+        .map_err(|err| error!("Could not insert new command into database: {err}"))?;
+    let start_cmd = api::Command::from_model(&start_notif, write)
+        .await
+        .map_err(|err| error!("Could not serialize new command to gRPC message: {err}"))?;
+    write.mqtt(start_cmd);
+    Ok(())
+}
+
+async fn delete_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, '_>) -> Result {
+    let command_id = succeeded_cmd.id;
+    let mut node = succeeded_cmd
+        .node(write)
+        .await
+        .map_err(|err| error!("Can't query node for command {command_id}: {err}!"))?
+        .ok_or_else(|| error!("`DeleteNode` command {command_id} has no node!"))?;
+    let node_id = node.id;
+    node.node_status = NodeStatus::Deleted;
+    let node = node
+        .update(write)
+        .await
+        .map_err(|err| error!("Failed to delete node {node_id} for command {command_id}: {err}"))?;
+    Node::delete(node.id, write)
+        .await
+        .map_err(|err| error!("Failed to delete node {node_id} for command {command_id}: {err}"))?;
+    Ok(())
 }

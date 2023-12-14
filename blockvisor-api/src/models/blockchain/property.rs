@@ -11,7 +11,7 @@ use tonic::Status;
 use uuid::Uuid;
 
 use crate::database::Conn;
-use crate::grpc::api;
+use crate::grpc::{api, common};
 use crate::models::schema::{blockchain_properties, sql_types};
 
 use super::{BlockchainId, BlockchainNodeTypeId, BlockchainVersion, BlockchainVersionId};
@@ -30,8 +30,6 @@ pub enum Error {
     ByVersionIds(HashSet<BlockchainVersionId>, diesel::result::Error),
     /// Failed to create map from blockchain property id to name: {0}
     IdToName(diesel::result::Error),
-    /// Unknown api::UiType: {0}
-    UnknownUiType(prost::DecodeError),
     /// No UiType.
     UnspecifiedUiType,
 }
@@ -134,7 +132,7 @@ impl From<BlockchainProperty> for api::BlockchainProperty {
             name: property.name,
             display_name: property.display_name,
             default: property.default,
-            ui_type: api::UiType::from(property.ui_type).into(),
+            ui_type: common::UiType::from(property.ui_type).into(),
             required: property.required,
         }
     }
@@ -159,9 +157,7 @@ impl NewProperty {
         version: &BlockchainVersion,
         property: api::BlockchainProperty,
     ) -> Result<Self, Error> {
-        let ui_type = api::UiType::try_from(property.ui_type)
-            .map_err(Error::UnknownUiType)
-            .and_then(TryInto::try_into)?;
+        let ui_type = UiType::try_from(property.ui_type())?;
 
         Ok(NewProperty {
             blockchain_id: version.blockchain_id,
@@ -197,27 +193,27 @@ pub enum UiType {
     FileUpload,
 }
 
-impl From<UiType> for api::UiType {
+impl From<UiType> for common::UiType {
     fn from(ui_type: UiType) -> Self {
         match ui_type {
-            UiType::Switch => api::UiType::Switch,
-            UiType::Password => api::UiType::Password,
-            UiType::Text => api::UiType::Text,
-            UiType::FileUpload => api::UiType::FileUpload,
+            UiType::Switch => common::UiType::Switch,
+            UiType::Password => common::UiType::Password,
+            UiType::Text => common::UiType::Text,
+            UiType::FileUpload => common::UiType::FileUpload,
         }
     }
 }
 
-impl TryFrom<api::UiType> for UiType {
+impl TryFrom<common::UiType> for UiType {
     type Error = Error;
 
-    fn try_from(api: api::UiType) -> Result<Self, Self::Error> {
-        match api {
-            api::UiType::Unspecified => Err(Error::UnspecifiedUiType),
-            api::UiType::Switch => Ok(UiType::Switch),
-            api::UiType::Password => Ok(UiType::Password),
-            api::UiType::Text => Ok(UiType::Text),
-            api::UiType::FileUpload => Ok(UiType::FileUpload),
+    fn try_from(ui_type: common::UiType) -> Result<Self, Self::Error> {
+        match ui_type {
+            common::UiType::Unspecified => Err(Error::UnspecifiedUiType),
+            common::UiType::Switch => Ok(UiType::Switch),
+            common::UiType::Password => Ok(UiType::Password),
+            common::UiType::Text => Ok(UiType::Text),
+            common::UiType::FileUpload => Ok(UiType::FileUpload),
         }
     }
 }

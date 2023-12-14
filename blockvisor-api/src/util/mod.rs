@@ -1,5 +1,5 @@
 pub mod search;
-pub use search::SearchOperator;
+pub use search::{SearchOperator, SortOrder};
 
 pub mod timestamp;
 pub use timestamp::{NanosUtc, SecondsUtc};
