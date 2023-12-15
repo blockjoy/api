@@ -89,7 +89,7 @@ impl Blockchain {
             .map_err(Error::FindAll)
     }
 
-    pub async fn find_by_id(id: BlockchainId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: BlockchainId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         blockchains::table
             .find(id)
             .get_result(conn)
@@ -97,7 +97,7 @@ impl Blockchain {
             .map_err(|err| Error::FindId(id, err))
     }
 
-    pub async fn find_by_ids(
+    pub async fn by_ids(
         ids: HashSet<BlockchainId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
@@ -109,7 +109,7 @@ impl Blockchain {
             .map_err(|err| Error::FindIds(ids, err))
     }
 
-    pub async fn find_by_name(blockchain: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_name(blockchain: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
         blockchains::table
             .filter(super::lower(blockchains::name).eq(super::lower(blockchain)))
             .first(conn)

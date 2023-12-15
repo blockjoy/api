@@ -63,7 +63,7 @@ pub struct Validated(ApiKey);
 
 impl Validated {
     pub async fn from_token(token: &ApiToken, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let api_key = ApiKey::find_by_id(token.key_id, conn)
+        let api_key = ApiKey::by_id(token.key_id, conn)
             .await
             .map_err(Error::FindKeyId)?;
 

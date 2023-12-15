@@ -162,7 +162,7 @@ pub struct HostRequirements {
 }
 
 impl Host {
-    pub async fn find_by_id(id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         hosts::table
             .find(id)
             .get_result(conn)
@@ -170,10 +170,7 @@ impl Host {
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn find_by_ids(
-        ids: HashSet<HostId>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
+    pub async fn by_ids(ids: HashSet<HostId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         hosts::table
             .filter(hosts::id.eq_any(ids.iter()))
             .get_results(conn)
@@ -195,7 +192,7 @@ impl Host {
         Ok(ids.into_iter().collect())
     }
 
-    pub async fn find_by_name(name: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_name(name: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
         Self::not_deleted()
             .filter(hosts::name.eq(name))
             .get_result(conn)
@@ -300,7 +297,7 @@ impl Host {
             .map_err(Error::HostCandidates)?;
         let host_ids = hosts.into_iter().map(|h| h.host_id).collect();
 
-        Self::find_by_ids(host_ids, conn).await
+        Self::by_ids(host_ids, conn).await
     }
 
     pub async fn node_counts(

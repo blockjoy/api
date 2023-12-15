@@ -85,7 +85,7 @@ async fn can_confirm_unconfirmed_user() {
 
     let mut conn = test.conn().await;
     User::confirm(user.id, &mut conn).await.unwrap();
-    let user = User::find_by_id(user.id, &mut conn).await.unwrap();
+    let user = User::by_id(user.id, &mut conn).await.unwrap();
 
     user.confirmed_at.unwrap();
 }
@@ -112,7 +112,7 @@ async fn can_check_if_user_confirmed() {
 
     let mut conn = test.conn().await;
     User::confirm(user.id, &mut conn).await.unwrap();
-    let user = User::find_by_id(user.id, &mut conn).await.unwrap();
+    let user = User::by_id(user.id, &mut conn).await.unwrap();
 
     assert!(user.confirmed_at.is_some());
     assert!(User::is_confirmed(user.id, &mut conn).await.unwrap());

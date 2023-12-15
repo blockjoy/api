@@ -250,7 +250,7 @@ async fn get(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::NodeServiceGetResponse, Error> {
     let node_id = req.id.parse().map_err(Error::ParseId)?;
-    let node = Node::find_by_id(node_id, &mut read).await?;
+    let node = Node::by_id(node_id, &mut read).await?;
 
     read.auth_or_all(&meta, NodeAdminPerm::Get, NodePerm::Get, node_id)
         .await?;
@@ -286,7 +286,7 @@ async fn create(
 ) -> Result<api::NodeServiceCreateResponse, Error> {
     // The host_id is either determined by the scheduler, or an optional host_id.
     let (host, authz) = if let Some(host_id) = req.host_id()? {
-        let host = Host::find_by_id(host_id, &mut write).await?;
+        let host = Host::by_id(host_id, &mut write).await?;
         let authz = write
             .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, host_id)
             .await?;
@@ -300,7 +300,7 @@ async fn create(
         .blockchain_id
         .parse()
         .map_err(Error::ParseBlockchainId)?;
-    let blockchain = Blockchain::find_by_id(blockchain_id, &mut write).await?;
+    let blockchain = Blockchain::by_id(blockchain_id, &mut write).await?;
 
     let node_type = req.node_type().into();
     let image = ImageId::new(&blockchain.name, node_type, req.version.clone().into());
@@ -348,7 +348,7 @@ async fn update_config(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateConfigResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    Node::find_by_id(node_id, &mut write).await?;
+    Node::by_id(node_id, &mut write).await?;
 
     let authz = write
         .auth_or_all(
@@ -381,7 +381,7 @@ async fn update_status(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateStatusResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    Node::find_by_id(node_id, &mut write).await?;
+    Node::by_id(node_id, &mut write).await?;
 
     let authz = write
         .auth_or_all(
@@ -408,7 +408,7 @@ async fn delete(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceDeleteResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    let mut node = Node::find_by_id(node_id, &mut write).await?;
+    let mut node = Node::by_id(node_id, &mut write).await?;
 
     let authz = write
         .auth_or_all(&meta, NodeAdminPerm::Delete, NodePerm::Delete, node_id)
@@ -446,7 +446,7 @@ async fn report(
     let authz = write
         .auth_or_all(&meta, NodeAdminPerm::Report, NodePerm::Report, node_id)
         .await?;
-    let node = Node::find_by_id(node_id, &mut write).await?;
+    let node = Node::by_id(node_id, &mut write).await?;
 
     let resource = authz.resource();
     let report = node.report(resource, req.message, &mut write).await?;
@@ -462,7 +462,7 @@ async fn start(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceStartResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    let node = Node::find_by_id(node_id, &mut write).await?;
+    let node = Node::by_id(node_id, &mut write).await?;
 
     write
         .auth_or_all(&meta, NodeAdminPerm::Start, NodePerm::Start, node_id)
@@ -484,7 +484,7 @@ async fn stop(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceStopResponse, Error> {
     let node_id = req.id.parse().map_err(Error::ParseId)?;
-    let node = Node::find_by_id(node_id, &mut write).await?;
+    let node = Node::by_id(node_id, &mut write).await?;
 
     write
         .auth_or_all(&meta, NodeAdminPerm::Stop, NodePerm::Stop, node_id)
@@ -506,7 +506,7 @@ async fn restart(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceRestartResponse, Error> {
     let node_id = req.id.parse().map_err(Error::ParseId)?;
-    let node = Node::find_by_id(node_id, &mut write).await?;
+    let node = Node::by_id(node_id, &mut write).await?;
 
     write
         .auth_or_all(&meta, NodeAdminPerm::Restart, NodePerm::Restart, node_id)
@@ -527,7 +527,7 @@ impl api::Node {
     /// `database_name` in the ui representation, but it is not in the node model. Therefore we
     /// perform a seperate query to the blockchains table.
     pub async fn from_model(node: Node, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
+        let blockchain = Blockchain::by_id(node.blockchain_id, conn).await?;
 
         // We need to get both the node properties and the blockchain properties to construct the
         // final dto. First we query both, and then we zip them together.
@@ -548,16 +548,16 @@ impl api::Node {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let host = Host::find_by_id(node.host_id, conn).await?;
-        let org = Org::find_by_id(node.org_id, conn).await?;
+        let host = Host::by_id(node.host_id, conn).await?;
+        let org = Org::by_id(node.org_id, conn).await?;
         let region = node.region(conn).await?;
-        let reports = NodeReport::find_by_node(node.id, conn).await?;
+        let reports = NodeReport::by_node(node.id, conn).await?;
         let user_ids = reports
             .iter()
             .filter_map(NodeReport::user_id)
             .chain(node.created_by_user())
             .collect();
-        let users = User::find_by_ids(user_ids, conn)
+        let users = User::by_ids(user_ids, conn)
             .await?
             .to_map_keep_last(|u| (u.id, u));
 
@@ -585,7 +585,7 @@ impl api::Node {
             .collect();
 
         let blockchain_ids = nodes.iter().map(|n| n.blockchain_id).collect();
-        let blockchains = Blockchain::find_by_ids(blockchain_ids, conn)
+        let blockchains = Blockchain::by_ids(blockchain_ids, conn)
             .await?
             .to_map_keep_last(|b| (b.id, b));
 
@@ -600,12 +600,12 @@ impl api::Node {
         });
 
         let org_ids = nodes.iter().map(|n| n.org_id).collect();
-        let orgs = Org::find_by_ids(org_ids, conn)
+        let orgs = Org::by_ids(org_ids, conn)
             .await?
             .to_map_keep_last(|org| (org.id, org));
 
         let host_ids = nodes.iter().map(|n| n.host_id).collect();
-        let hosts = Host::find_by_ids(host_ids, conn)
+        let hosts = Host::by_ids(host_ids, conn)
             .await?
             .to_map_keep_last(|host| (host.id, host));
 
@@ -614,7 +614,7 @@ impl api::Node {
             .await?
             .to_map_keep_last(|region| (region.id, region));
 
-        let mut reports = NodeReport::find_by_nodes(&node_ids, conn)
+        let mut reports = NodeReport::by_nodes(&node_ids, conn)
             .await?
             .to_map_keep_all(|report| (report.node_id, report));
 
@@ -623,7 +623,7 @@ impl api::Node {
             .filter_map(Node::created_by_user)
             .chain(reports.values().flatten().filter_map(NodeReport::user_id))
             .collect();
-        let users = User::find_by_ids(user_ids, conn)
+        let users = User::by_ids(user_ids, conn)
             .await?
             .to_map_keep_last(|user| (user.id, user));
 

@@ -66,7 +66,7 @@ pub struct Subscription {
 }
 
 impl Subscription {
-    pub async fn find_by_id(id: SubscriptionId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: SubscriptionId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         subscriptions::table
             .find(id)
             .get_result(conn)
@@ -74,7 +74,7 @@ impl Subscription {
             .map_err(Error::FindById)
     }
 
-    pub async fn find_by_org(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Option<Self>, Error> {
+    pub async fn by_org(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Option<Self>, Error> {
         let result = subscriptions::table
             .filter(subscriptions::org_id.eq(org_id))
             .get_result(conn)
@@ -87,7 +87,7 @@ impl Subscription {
         }
     }
 
-    pub async fn find_by_user(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_user(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         subscriptions::table
             .filter(subscriptions::user_id.eq(user_id))
             .get_results(conn)
@@ -95,10 +95,7 @@ impl Subscription {
             .map_err(Error::FindByUser)
     }
 
-    pub async fn find_by_external_id(
-        external_id: &str,
-        conn: &mut Conn<'_>,
-    ) -> Result<Self, Error> {
+    pub async fn by_external_id(external_id: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
         subscriptions::table
             .filter(subscriptions::external_id.eq(external_id))
             .get_result(conn)

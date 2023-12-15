@@ -206,7 +206,7 @@ impl Claims {
         host_id: HostId,
         conn: &mut Conn<'_>,
     ) -> Result<Option<Granted>, Error> {
-        let host = Host::find_by_id(host_id, conn).await?;
+        let host = Host::by_id(host_id, conn).await?;
 
         match self.resource() {
             Resource::User(id) => Ok(Some(Granted(
@@ -226,7 +226,7 @@ impl Claims {
         node_id: NodeId,
         conn: &mut Conn<'_>,
     ) -> Result<Option<Granted>, Error> {
-        let node = Node::find_by_id(node_id, conn).await?;
+        let node = Node::by_id(node_id, conn).await?;
 
         match self.resource() {
             Resource::User(id) => Ok(Some(Granted(

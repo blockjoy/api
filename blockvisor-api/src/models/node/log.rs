@@ -115,7 +115,7 @@ impl NodeLog {
             *counts.entry(deployment.host_id).or_insert(0) += 1;
         }
         let host_ids = counts.keys().copied().collect();
-        let hosts = Host::find_by_ids(host_ids, conn).await?;
+        let hosts = Host::by_ids(host_ids, conn).await?;
         let hosts = hosts
             .into_iter()
             .map(|h @ Host { id, .. }| (h, counts[&id]))

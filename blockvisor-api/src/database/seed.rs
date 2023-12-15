@@ -112,7 +112,7 @@ async fn create_orgs(conn: &mut Conn<'_>) -> Org {
         .await
         .unwrap();
 
-    Org::find_by_id(org_id, conn).await.unwrap()
+    Org::by_id(org_id, conn).await.unwrap()
 }
 
 async fn create_users(org: &Org, conn: &mut Conn<'_>) -> User {
@@ -148,7 +148,7 @@ async fn create_users(org: &Org, conn: &mut Conn<'_>) -> User {
     org.add_admin(admin.id, conn).await.unwrap();
     org.add_member(member.id, conn).await.unwrap();
 
-    User::find_by_id(admin.id, conn).await.unwrap()
+    User::by_id(admin.id, conn).await.unwrap()
 }
 
 async fn create_region(conn: &mut Conn<'_>) -> Region {
@@ -208,7 +208,7 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
     };
     host2.create(conn).await.unwrap();
 
-    Host::find_by_id(host1.id, conn).await.unwrap()
+    Host::by_id(host1.id, conn).await.unwrap()
 }
 
 async fn create_ip_addresses(host: &Host, conn: &mut Conn<'_>) -> (String, String) {
@@ -284,7 +284,7 @@ async fn create_nodes(
 
     NodeProperty::bulk_create(properties, conn).await.unwrap();
 
-    Node::find_by_id(node_id, conn).await.unwrap()
+    Node::by_id(node_id, conn).await.unwrap()
 }
 
 async fn setup_rbac(conn: &mut Conn<'_>) {

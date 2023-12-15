@@ -123,7 +123,7 @@ async fn update(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::CommandServiceUpdateResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
-    let command = Command::find_by_id(id, &mut write).await?;
+    let command = Command::by_id(id, &mut write).await?;
     write
         .auth(&meta, CommandPerm::Update, command.host_id)
         .await?;
@@ -151,7 +151,7 @@ async fn ack(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::CommandServiceAckResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
-    let command = Command::find_by_id(id, &mut write).await?;
+    let command = Command::by_id(id, &mut write).await?;
 
     let resource: Resource = command.node_id.map_or(command.host_id.into(), Into::into);
     let authz = write.auth(&meta, CommandPerm::Ack, resource).await?;
@@ -177,7 +177,7 @@ async fn pending(
     let host_id = req.host_id.parse().map_err(Error::ParseHostId)?;
 
     read.auth(&meta, CommandPerm::Pending, host_id).await?;
-    Host::find_by_id(host_id, &mut read).await?;
+    Host::by_id(host_id, &mut read).await?;
 
     let pending = Command::find_pending_by_host(host_id, &mut read).await?;
     let mut commands = Vec::with_capacity(pending.len());
@@ -305,9 +305,9 @@ fn node_command(
 
 async fn create_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
-    let node = Node::find_by_id(node_id, conn).await?;
+    let node = Node::by_id(node_id, conn).await?;
 
-    let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
+    let blockchain = Blockchain::by_id(node.blockchain_id, conn).await?;
     let version =
         BlockchainVersion::find(blockchain.id, node.node_type, &node.version, conn).await?;
 
@@ -355,7 +355,7 @@ fn get_node_version(command: &Command) -> Result<api::Command, Error> {
 
 async fn update_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
-    let node = Node::find_by_id(node_id, conn).await?;
+    let node = Node::by_id(node_id, conn).await?;
     let node_cmd = api::node_command::Command::Update(api::NodeUpdate {
         rules: firewall_rules(&node)?,
     });
@@ -364,8 +364,8 @@ async fn update_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Comm
 
 async fn upgrade_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
-    let node = Node::find_by_id(node_id, conn).await?;
-    let blockchain = Blockchain::find_by_id(node.blockchain_id, conn).await?;
+    let node = Node::by_id(node_id, conn).await?;
+    let blockchain = Blockchain::by_id(node.blockchain_id, conn).await?;
 
     let node_cmd = api::node_command::Command::Upgrade(api::NodeUpgrade {
         image: Some(common::ImageIdentifier {

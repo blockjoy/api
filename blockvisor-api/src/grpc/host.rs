@@ -255,7 +255,7 @@ async fn get(
         .auth_or_all(&meta, HostAdminPerm::Get, HostPerm::Get, id)
         .await?;
 
-    let host = Host::find_by_id(id, &mut read).await?;
+    let host = Host::by_id(id, &mut read).await?;
     let host = api::Host::from_host(host, Some(&authz), &mut read).await?;
 
     Ok(api::HostServiceGetResponse { host: Some(host) })
@@ -307,7 +307,7 @@ async fn delete(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Delete, id).await?;
 
-    if !Node::find_by_host(id, &mut write).await?.is_empty() {
+    if !Node::by_host(id, &mut write).await?.is_empty() {
         return Err(Error::HasNodes);
     }
     Host::delete(id, &mut write).await?;
@@ -323,7 +323,7 @@ async fn start(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Start, id).await?;
 
-    let host = Host::find_by_id(id, &mut write).await?;
+    let host = Host::by_id(id, &mut write).await?;
     let command = NewCommand::host(&host, CommandType::RestartBVS)
         .create(&mut write)
         .await?;
@@ -341,7 +341,7 @@ async fn stop(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Stop, id).await?;
 
-    let host = Host::find_by_id(id, &mut write).await?;
+    let host = Host::by_id(id, &mut write).await?;
     let command = NewCommand::host(&host, CommandType::StopBVS)
         .create(&mut write)
         .await?;
@@ -359,7 +359,7 @@ async fn restart(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Restart, id).await?;
 
-    let host = Host::find_by_id(id, &mut write).await?;
+    let host = Host::by_id(id, &mut write).await?;
     let command = NewCommand::host(&host, CommandType::RestartBVS)
         .create(&mut write)
         .await?;
@@ -381,7 +381,7 @@ async fn regions(
         .blockchain_id
         .parse()
         .map_err(Error::ParseBlockchainId)?;
-    let blockchain = Blockchain::find_by_id(blockchain_id, &mut read).await?;
+    let blockchain = Blockchain::by_id(blockchain_id, &mut read).await?;
 
     let node_type = req.node_type().into();
     let host_type = req.host_type().into_model();
@@ -495,7 +495,7 @@ impl Lookup {
         let nodes = Host::node_counts(&host_ids, conn).await?;
 
         let org_ids = hosts.iter().map(|h| h.as_ref().org_id).collect();
-        let orgs = Org::find_by_ids(org_ids, conn)
+        let orgs = Org::by_ids(org_ids, conn)
             .await?
             .to_map_keep_last(|org| (org.id, org));
 
@@ -504,7 +504,7 @@ impl Lookup {
             .await?
             .to_map_keep_last(|region| (region.id, region));
 
-        let ip_addresses = IpAddress::find_by_hosts(host_ids, conn)
+        let ip_addresses = IpAddress::by_hosts(host_ids, conn)
             .await?
             .into_iter()
             .filter_map(|ip| ip.host_id.map(|host_id| (host_id, ip)))

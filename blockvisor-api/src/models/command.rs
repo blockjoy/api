@@ -114,7 +114,7 @@ pub struct Command {
 }
 
 impl Command {
-    pub async fn find_by_id(id: CommandId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: CommandId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         commands::table
             .find(id)
             .get_result(conn)
@@ -143,14 +143,12 @@ impl Command {
     }
 
     pub async fn host(&self, conn: &mut Conn<'_>) -> Result<Host, Error> {
-        Host::find_by_id(self.host_id, conn)
-            .await
-            .map_err(Error::Host)
+        Host::by_id(self.host_id, conn).await.map_err(Error::Host)
     }
 
     pub async fn node(&self, conn: &mut Conn<'_>) -> Result<Option<Node>, Error> {
         match self.node_id {
-            Some(node_id) => Ok(Some(Node::find_by_id(node_id, conn).await?)),
+            Some(node_id) => Ok(Some(Node::by_id(node_id, conn).await?)),
             None => Ok(None),
         }
     }

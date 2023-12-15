@@ -143,7 +143,7 @@ async fn get(
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
     read.auth(&meta, SubscriptionPerm::Get, org_id).await?;
 
-    let sub = Subscription::find_by_org(org_id, &mut read).await?;
+    let sub = Subscription::by_org(org_id, &mut read).await?;
 
     Ok(api::SubscriptionServiceGetResponse {
         subscription: sub.map(api::Subscription::from_model),
@@ -159,7 +159,7 @@ async fn list(
     let user_id = user_id.parse().map_err(Error::ParseUserId)?;
     read.auth(&meta, SubscriptionPerm::List, user_id).await?;
 
-    let subscriptions = Subscription::find_by_user(user_id, &mut read)
+    let subscriptions = Subscription::by_user(user_id, &mut read)
         .await?
         .into_iter()
         .map(api::Subscription::from_model)
@@ -187,7 +187,7 @@ async fn delete(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceDeleteResponse, Error> {
     let sub_id = req.id.parse().map_err(Error::ParseId)?;
-    let sub = Subscription::find_by_id(sub_id, &mut write).await?;
+    let sub = Subscription::by_id(sub_id, &mut write).await?;
 
     write
         .auth(&meta, SubscriptionPerm::Delete, sub.org_id)

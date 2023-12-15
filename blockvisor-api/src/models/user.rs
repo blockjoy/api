@@ -119,7 +119,7 @@ pub struct User {
 }
 
 impl User {
-    pub async fn find_by_id(id: UserId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: UserId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         User::not_deleted()
             .find(id)
             .get_result(conn)
@@ -131,7 +131,7 @@ impl User {
         users::table.get_results(conn).await.map_err(Error::FindAll)
     }
 
-    pub async fn find_by_ids(
+    pub async fn by_ids(
         user_ids: HashSet<UserId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
@@ -142,7 +142,7 @@ impl User {
             .map_err(|err| Error::FindByIds(user_ids, err))
     }
 
-    pub async fn find_by_email(email: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_email(email: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
         Self::not_deleted()
             .filter(super::lower(users::email).eq(&email.trim().to_lowercase()))
             .get_result(conn)
@@ -195,7 +195,7 @@ impl User {
 
     /// Check if user can be found by email, is confirmed and has provided a valid password
     pub async fn login(email: &str, password: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let user = match Self::find_by_email(email, conn).await {
+        let user = match Self::by_email(email, conn).await {
             Ok(user) => Ok(user),
             Err(Error::FindByEmail(_, NotFound)) => Err(Error::LoginEmail),
             Err(err) => Err(err),

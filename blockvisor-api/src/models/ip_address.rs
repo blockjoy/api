@@ -176,7 +176,7 @@ impl IpAddress {
             .map_err(Error::Assigned)
     }
 
-    pub async fn find_by_ip(ip: IpAddr, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_ip(ip: IpAddr, conn: &mut Conn<'_>) -> Result<Self, Error> {
         let ip_network = IpNetwork::new(ip, 32).map_err(Error::NewIpNetwork)?;
         ip_addresses::table
             .filter(ip_addresses::ip.eq(ip_network))
@@ -185,7 +185,7 @@ impl IpAddress {
             .map_err(|err| Error::FindByIp(ip, err))
     }
 
-    pub async fn find_by_hosts(
+    pub async fn by_hosts(
         host_ids: HashSet<HostId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {

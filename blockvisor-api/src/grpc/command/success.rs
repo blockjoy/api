@@ -29,10 +29,10 @@ async fn create_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, 
     let node_id = succeeded_cmd
         .node_id
         .ok_or_else(|| error!("`CreateNode` command has no node id!"))?;
-    let node = Node::find_by_id(node_id, write)
+    let node = Node::by_id(node_id, write)
         .await
         .map_err(|err| error!("Could not get node for node_id {node_id}: {err}"))?;
-    let blockchain = Blockchain::find_by_id(node.blockchain_id, write)
+    let blockchain = Blockchain::by_id(node.blockchain_id, write)
         .await
         .map_err(|err| error!("Could not get blockchain for node {node_id}: {err}"))?;
 

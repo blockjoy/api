@@ -167,7 +167,7 @@ async fn node(
 
     // Query all the nodes from the database. We need the info from the `node.jobs` field to perform
     // a patch-sort-of-update on that field.
-    let nodes = Node::find_by_ids(node_ids.clone(), &mut write).await?;
+    let nodes = Node::by_ids(node_ids.clone(), &mut write).await?;
     // Now we can create the UpdateNodeMetrics models using our existing, queried nodes.
     let nodes_map = nodes.iter().to_map_keep_last(|n| (n.id, n));
 

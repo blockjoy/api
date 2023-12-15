@@ -433,7 +433,7 @@ impl common::EntityUpdate {
     {
         let entry = ResourceEntry::from(resource.into());
         let user = if entry.resource_type == ResourceType::User {
-            Some(User::find_by_id((*entry.resource_id).into(), conn).await?)
+            Some(User::by_id((*entry.resource_id).into(), conn).await?)
         } else {
             None
         };

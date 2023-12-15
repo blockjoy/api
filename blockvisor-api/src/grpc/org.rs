@@ -170,7 +170,7 @@ async fn create(
 ) -> Result<api::OrgServiceCreateResponse, Error> {
     let authz = write.auth_all(&meta, OrgPerm::Create).await?;
     let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
-    let user = User::find_by_id(user_id, &mut write).await?;
+    let user = User::by_id(user_id, &mut write).await?;
 
     let new_org = NewOrg {
         name: &req.name,
@@ -195,7 +195,7 @@ async fn get(
     read.auth_or_all(&meta, OrgAdminPerm::Get, OrgPerm::Get, org_id)
         .await?;
 
-    let org = Org::find_by_id(org_id, &mut read).await?;
+    let org = Org::by_id(org_id, &mut read).await?;
     let org = api::Org::from_model(&org, &mut read).await?;
 
     Ok(api::OrgServiceGetResponse { org: Some(org) })
@@ -249,7 +249,7 @@ async fn delete(
     let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
     let authz = write.auth(&meta, OrgPerm::Delete, org_id).await?;
 
-    let org = Org::find_by_id(org_id, &mut write).await?;
+    let org = Org::by_id(org_id, &mut write).await?;
     if org.is_personal {
         return Err(Error::DeletePersonal);
     }
@@ -257,7 +257,7 @@ async fn delete(
     debug!("Deleting org: {org_id}");
     org.delete(&mut write).await?;
 
-    let invitations = Invitation::find_by_org_id(org.id, &mut write).await?;
+    let invitations = Invitation::by_org_id(org.id, &mut write).await?;
     let invitation_ids = invitations.into_iter().map(|i| i.id).collect();
     Invitation::bulk_delete(invitation_ids, &mut write).await?;
 
@@ -277,7 +277,7 @@ async fn remove_member(
     let authz = write.auth(&meta, OrgPerm::RemoveMember, org_id).await?;
 
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
-    let user = User::find_by_id(user_id, &mut write).await?;
+    let user = User::by_id(user_id, &mut write).await?;
 
     if let Some(self_id) = authz.resource().user() {
         if user_id == self_id && !authz.has_perm(OrgPerm::RemoveSelf) {
@@ -285,7 +285,7 @@ async fn remove_member(
         }
     }
 
-    let org = Org::find_by_id(org_id, &mut write).await?;
+    let org = Org::by_id(org_id, &mut write).await?;
     if org.is_personal {
         return Err(Error::DeletePersonal);
     }
@@ -365,7 +365,7 @@ impl api::Org {
             .values()
             .flat_map(|ou| ou.user_roles.keys().copied())
             .collect();
-        let users = User::find_by_ids(user_ids, conn)
+        let users = User::by_ids(user_ids, conn)
             .await?
             .to_map_keep_last(|u| (u.id, u));
 

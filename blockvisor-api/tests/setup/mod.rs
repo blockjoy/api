@@ -114,7 +114,7 @@ impl TestServer {
     pub async fn unconfirmed_user(&self) -> User {
         let email = seed::UNCONFIRMED_EMAIL;
         let mut conn = self.conn().await;
-        User::find_by_email(email, &mut conn).await.unwrap()
+        User::by_email(email, &mut conn).await.unwrap()
     }
 
     pub fn host_claims(&self) -> Claims {
@@ -135,18 +135,18 @@ impl TestServer {
 
     pub async fn host1(&self) -> Host {
         let mut conn = self.conn().await;
-        Host::find_by_name(seed::HOST_1, &mut conn).await.unwrap()
+        Host::by_name(seed::HOST_1, &mut conn).await.unwrap()
     }
 
     pub async fn host2(&self) -> Host {
         let mut conn = self.conn().await;
-        Host::find_by_name(seed::HOST_2, &mut conn).await.unwrap()
+        Host::by_name(seed::HOST_2, &mut conn).await.unwrap()
     }
 
     pub async fn org(&self) -> Org {
         let mut conn = self.conn().await;
         let org_id = seed::ORG_ID.parse().unwrap();
-        Org::find_by_id(org_id, &mut conn).await.unwrap()
+        Org::by_id(org_id, &mut conn).await.unwrap()
     }
 
     pub async fn rng(&mut self) -> OsRng {

@@ -76,7 +76,7 @@ pub struct Invitation {
 }
 
 impl Invitation {
-    pub async fn find_by_id(id: InvitationId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: InvitationId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         invitations::table
             .find(id)
             .get_result(conn)
@@ -84,7 +84,7 @@ impl Invitation {
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn find_by_org_id(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_org_id(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         invitations::table
             .filter(invitations::org_id.eq(org_id))
             .get_results(conn)

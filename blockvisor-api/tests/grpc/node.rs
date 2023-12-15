@@ -35,7 +35,7 @@ async fn can_create_node_with_dns() {
     let resp = test.send_admin(Service::create, req).await.unwrap();
 
     let node_id = resp.node.unwrap().id.parse().unwrap();
-    let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
+    let node = Node::by_id(node_id, &mut conn).await.unwrap();
     assert!(!node.dns_record_id.is_empty());
 }
 
@@ -63,7 +63,7 @@ async fn responds_ok_for_update_config() {
         .unwrap();
 
     let mut conn = test.conn().await;
-    let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
+    let node = Node::by_id(node_id, &mut conn).await.unwrap();
 
     // Some assertions that the update actually worked
     assert!(node.self_update);

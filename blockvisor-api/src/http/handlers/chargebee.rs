@@ -133,8 +133,8 @@ async fn subscription_cancelled(
     mut write: WriteConn<'_, '_>,
 ) -> Result<&'static str, Error> {
     let id = callback.content.subscription.id;
-    let subscription = Subscription::find_by_external_id(&id, &mut write).await?;
-    let nodes = Node::find_by_org(subscription.org_id, &mut write).await?;
+    let subscription = Subscription::by_external_id(&id, &mut write).await?;
+    let nodes = Node::by_org(subscription.org_id, &mut write).await?;
 
     for node in nodes {
         delete_node(&node, &mut write).await?;

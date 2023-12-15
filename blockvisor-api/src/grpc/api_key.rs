@@ -136,7 +136,7 @@ async fn list(
     let authz = read.auth_all(&meta, ApiKeyPerm::List).await?;
     let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
-    let keys = ApiKey::find_by_user(user_id, &mut read).await?;
+    let keys = ApiKey::by_user(user_id, &mut read).await?;
     let api_keys = keys.into_iter().map(api::ListApiKey::from_model).collect();
 
     Ok(api::ApiKeyServiceListResponse { api_keys })
@@ -148,7 +148,7 @@ async fn update(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceUpdateResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
-    let existing = ApiKey::find_by_id(key_id, &mut write).await?;
+    let existing = ApiKey::by_id(key_id, &mut write).await?;
 
     let entry = ResourceEntry::from(&existing);
     write.auth(&meta, ApiKeyPerm::Update, entry).await?;
@@ -185,7 +185,7 @@ async fn regenerate(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceRegenerateResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
-    let existing = ApiKey::find_by_id(key_id, &mut write).await?;
+    let existing = ApiKey::by_id(key_id, &mut write).await?;
     let entry = ResourceEntry::from(&existing);
 
     write.auth(&meta, ApiKeyPerm::Regenerate, entry).await?;
@@ -205,7 +205,7 @@ async fn delete(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceDeleteResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
-    let existing = ApiKey::find_by_id(key_id, &mut write).await?;
+    let existing = ApiKey::by_id(key_id, &mut write).await?;
     let entry = ResourceEntry::from(&existing);
 
     write.auth(&meta, ApiKeyPerm::Delete, entry).await?;

@@ -64,7 +64,7 @@ pub struct ApiKey {
 }
 
 impl ApiKey {
-    pub async fn find_by_id(key_id: KeyId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(key_id: KeyId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         api_keys::table
             .find(key_id)
             .get_result(conn)
@@ -72,7 +72,7 @@ impl ApiKey {
             .map_err(Error::FindById)
     }
 
-    pub async fn find_by_user(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_user(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         api_keys::table
             .filter(api_keys::user_id.eq(user_id))
             .get_results(conn)
@@ -169,7 +169,7 @@ impl NewApiKey {
         key_id: KeyId,
         write: &mut WriteConn<'_, '_>,
     ) -> Result<Created, Error> {
-        let existing = ApiKey::find_by_id(key_id, write).await?;
+        let existing = ApiKey::by_id(key_id, write).await?;
         let new_secret = {
             let mut rng = write.ctx.rng.lock().await;
             Secret::generate(&mut *rng)

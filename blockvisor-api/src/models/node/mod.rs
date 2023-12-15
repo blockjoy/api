@@ -180,7 +180,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub async fn find_by_id(id: NodeId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: NodeId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         nodes::table
             .find(id)
             .get_result(conn)
@@ -188,10 +188,7 @@ impl Node {
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn find_by_ids(
-        ids: HashSet<NodeId>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
+    pub async fn by_ids(ids: HashSet<NodeId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         nodes::table
             .filter(nodes::id.eq_any(ids.iter()))
             .get_results(conn)
@@ -199,7 +196,7 @@ impl Node {
             .map_err(|err| Error::FindByIds(ids, err))
     }
 
-    pub async fn find_by_org(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_org(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         Self::not_deleted()
             .filter(nodes::org_id.eq(org_id))
             .get_results(conn)
@@ -207,7 +204,7 @@ impl Node {
             .map_err(|err| Error::FindByOrgId(org_id, err))
     }
 
-    pub async fn find_by_host(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_host(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         Self::not_deleted()
             .filter(nodes::host_id.eq(host_id))
             .get_results(conn)
@@ -261,7 +258,7 @@ impl Node {
     }
 
     pub async fn delete(id: NodeId, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
-        let node = Self::find_by_id(id, write).await?;
+        let node = Self::by_id(id, write).await?;
 
         diesel::update(nodes::table.find(id))
             .set(nodes::deleted_at.eq(Utc::now()))
@@ -270,7 +267,7 @@ impl Node {
             .map_err(|err| Error::Delete(id, err))?;
 
         let ip_addr = node.ip_addr.parse().map_err(Error::ParseIpAddr)?;
-        let ip = IpAddress::find_by_ip(ip_addr, write).await?;
+        let ip = IpAddress::by_ip(ip_addr, write).await?;
 
         IpAddress::unassign(ip.id, node.host_id, write).await?;
 
@@ -288,7 +285,7 @@ impl Node {
 
     /// Finds the next possible host for this node to be tried on.
     pub async fn find_host(&self, write: &mut WriteConn<'_, '_>) -> Result<Host, Error> {
-        let chain = Blockchain::find_by_id(self.blockchain_id, write).await?;
+        let chain = Blockchain::by_id(self.blockchain_id, write).await?;
 
         let image = ImageId::new(chain.name, self.node_type, self.version.clone());
         let meta = write.ctx.storage.rhai_metadata(&image).await?;
@@ -305,7 +302,7 @@ impl Node {
                 };
                 Host::host_candidates(reqs, Some(2), write).await?
             }
-            None => vec![Host::find_by_id(self.host_id, write).await?],
+            None => vec![Host::by_id(self.host_id, write).await?],
         };
 
         // We now have a list of host candidates for our nodes. Now the only thing left to do is to
@@ -612,7 +609,7 @@ impl NewNode {
             .await
             .map_err(Error::AssignIpAddr)?;
 
-        let blockchain = Blockchain::find_by_id(self.blockchain_id, write).await?;
+        let blockchain = Blockchain::by_id(self.blockchain_id, write).await?;
         let dns_record = write.ctx.dns.create(&self.name, host_ip.ip()).await?;
 
         let image = ImageId::new(blockchain.name, self.node_type, self.version.clone());
@@ -646,7 +643,7 @@ impl NewNode {
         scheduler: NodeScheduler,
         write: &mut WriteConn<'_, '_>,
     ) -> Result<Host, Error> {
-        let chain = Blockchain::find_by_id(self.blockchain_id, write).await?;
+        let chain = Blockchain::by_id(self.blockchain_id, write).await?;
 
         let image = ImageId::new(chain.name, self.node_type, self.version.clone());
         let metadata = write.ctx.storage.rhai_metadata(&image).await?;

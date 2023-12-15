@@ -213,10 +213,10 @@ async fn refresh(
     // Verify that the resource still exists.
     let resource = claims.resource();
     let resource_id: ResourceId = match resource {
-        Resource::User(id) => User::find_by_id(id, &mut write).await.map(|_| id.into())?,
-        Resource::Org(id) => Org::find_by_id(id, &mut write).await.map(|_| id.into())?,
-        Resource::Host(id) => Host::find_by_id(id, &mut write).await.map(|_| id.into())?,
-        Resource::Node(id) => Node::find_by_id(id, &mut write).await.map(|_| id.into())?,
+        Resource::User(id) => User::by_id(id, &mut write).await.map(|_| id.into())?,
+        Resource::Org(id) => Org::by_id(id, &mut write).await.map(|_| id.into())?,
+        Resource::Host(id) => Host::by_id(id, &mut write).await.map(|_| id.into())?,
+        Resource::Node(id) => Node::by_id(id, &mut write).await.map(|_| id.into())?,
     };
 
     if resource_id != refresh.resource_id() {
@@ -255,7 +255,7 @@ async fn reset_password(
     // are not going to return an error. This hides whether or not a user is registered with
     // us to the caller of the api, because this info may be sensitive and this endpoint is not
     // protected by any authentication.
-    match User::find_by_email(&req.email, &mut write).await {
+    match User::by_email(&req.email, &mut write).await {
         Ok(user) => {
             if let Err(err) = write.ctx.email.reset_password(&user).await {
                 warn!("Failed to reset password: {err}");
@@ -275,7 +275,7 @@ async fn update_password(
     let authz = write.auth_all(&meta, AuthPerm::UpdatePassword).await?;
     let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
-    let user = User::find_by_id(user_id, &mut write).await?;
+    let user = User::by_id(user_id, &mut write).await?;
     user.update_password(&req.password, &mut write).await?;
 
     write.ctx.email.update_password(&user).await?;
@@ -293,7 +293,7 @@ async fn update_ui_password(
         .auth(&meta, AuthPerm::UpdateUiPassword, user_id)
         .await?;
 
-    let user = User::find_by_id(user_id, &mut write).await?;
+    let user = User::by_id(user_id, &mut write).await?;
     user.verify_password(&req.old_password)?;
     user.update_password(&req.new_password, &mut write).await?;
 

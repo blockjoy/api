@@ -178,7 +178,7 @@ async fn get(
     read.auth_or_all(&meta, UserAdminPerm::Get, UserPerm::Get, user_id)
         .await?;
 
-    let user = User::find_by_id(user_id, &mut read).await?;
+    let user = User::by_id(user_id, &mut read).await?;
 
     Ok(api::UserServiceGetResponse {
         user: Some(api::User::from_model(user)),
@@ -242,7 +242,7 @@ async fn get_billing(
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
     read.auth(&meta, UserBillingPerm::Get, user_id).await?;
 
-    let user = User::find_by_id(user_id, &mut read).await?;
+    let user = User::by_id(user_id, &mut read).await?;
 
     Ok(api::UserServiceGetBillingResponse {
         billing_id: user.billing_id,
@@ -257,7 +257,7 @@ async fn update_billing(
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
     write.auth(&meta, UserBillingPerm::Update, user_id).await?;
 
-    let mut user = User::find_by_id(user_id, &mut write).await?;
+    let mut user = User::by_id(user_id, &mut write).await?;
     user.billing_id = req.billing_id;
     user.update(&mut write).await?;
 
@@ -274,7 +274,7 @@ async fn delete_billing(
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
     write.auth(&meta, UserBillingPerm::Delete, user_id).await?;
 
-    let user = User::find_by_id(user_id, &mut write).await?;
+    let user = User::by_id(user_id, &mut write).await?;
     user.delete_billing(&mut write).await?;
 
     Ok(api::UserServiceDeleteBillingResponse {})

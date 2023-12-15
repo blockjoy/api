@@ -28,7 +28,7 @@ async fn responds_ok_for_update() {
 
     let node_id = test.seed().node.id;
     let cmd = create_command(&test, node_id, CommandType::CreateNode).await;
-    let host = Host::find_by_id(cmd.host_id, &mut conn).await.unwrap();
+    let host = Host::by_id(cmd.host_id, &mut conn).await.unwrap();
 
     let claims = test.host_claims_for(host.id);
     let jwt = test.cipher().jwt.encode(&claims).unwrap();
@@ -42,7 +42,7 @@ async fn responds_ok_for_update() {
 
     test.send_with(Service::update, req, &jwt).await.unwrap();
 
-    let cmd = Command::find_by_id(cmd.id, &mut conn).await.unwrap();
+    let cmd = Command::by_id(cmd.id, &mut conn).await.unwrap();
 
     assert_eq!(cmd.exit_message.unwrap(), "hugo boss");
     assert_eq!(cmd.exit_code.unwrap(), ExitCode::ServiceBroken);
@@ -74,7 +74,7 @@ async fn responds_ok_for_pending() {
     update.update(&mut conn).await.unwrap();
 
     let cmd = create_command(&test, node_id, CommandType::CreateNode).await;
-    let host = Host::find_by_id(cmd.host_id, &mut conn).await.unwrap();
+    let host = Host::by_id(cmd.host_id, &mut conn).await.unwrap();
 
     let claims = test.host_claims_for(host.id);
     let jwt = test.cipher().jwt.encode(&claims).unwrap();

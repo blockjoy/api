@@ -75,8 +75,8 @@ async fn recover_created(
     let mut vec = vec![];
 
     let node_id = failed_cmd.node_id.ok_or(Error::CreateNodeId)?;
-    let mut node = Node::find_by_id(node_id, write).await?;
-    let blockchain = Blockchain::find_by_id(node.blockchain_id, write).await?;
+    let mut node = Node::by_id(node_id, write).await?;
+    let blockchain = Blockchain::by_id(node.blockchain_id, write).await?;
 
     // 1. We make a note in the node_logs table that creating our node failed. This may
     //    be unexpected, but we abort here when we fail to create that log. This is because the logs

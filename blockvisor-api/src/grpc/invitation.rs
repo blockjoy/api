@@ -160,17 +160,17 @@ async fn create(
 
     let invitor = match authz.resource() {
         Resource::User(user_id) => {
-            let user = User::find_by_id(user_id, &mut write).await?;
+            let user = User::by_id(user_id, &mut write).await?;
             Ok(format!("{} ({})", user.name(), user.email))
         }
         Resource::Org(org_id) => {
-            let org = Org::find_by_id(org_id, &mut write).await?;
+            let org = Org::by_id(org_id, &mut write).await?;
             Ok(format!("Org: {}", org.name))
         }
         _ => Err(Error::ClaimsNotUserOrOrg),
     }?;
 
-    match User::find_by_email(&req.invitee_email, &mut write).await {
+    match User::by_email(&req.invitee_email, &mut write).await {
         Ok(invitee) => {
             if Org::has_user(org_id, invitee.id, &mut write).await? {
                 return Err(Error::AlreadyMember);
@@ -201,7 +201,7 @@ async fn create(
         Err(err) => return Err(err.into()),
     }
 
-    let org = Org::find_by_id(invitation.org_id, &mut write).await?;
+    let org = Org::by_id(invitation.org_id, &mut write).await?;
     let invitation = api::Invitation::from_model(invitation, &org, &mut write).await?;
 
     let created = api::OrgMessage::invitation_created(invitation.clone(), &org);
@@ -225,7 +225,7 @@ async fn list(
     } else if let Some(invited_by) = &req.invited_by {
         invited_by.try_into().map_err(Error::ParseInvitedBy)?
     } else if let Some(email) = &req.invitee_email {
-        User::find_by_email(email, &mut read)
+        User::by_email(email, &mut read)
             .await
             .map(|user| user.id.into())?
     } else {
@@ -247,17 +247,17 @@ async fn accept(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceAcceptResponse, Error> {
     let id = req.invitation_id.parse().map_err(Error::ParseId)?;
-    let invitation = Invitation::find_by_id(id, &mut write).await?;
+    let invitation = Invitation::by_id(id, &mut write).await?;
 
     // First validate claims for all resources, then apply additional constraints.
     let authz = write.auth_all(&meta, InvitationPerm::Accept).await?;
     let user = match authz.resource() {
-        Resource::User(user_id) => Ok(User::find_by_id(user_id, &mut write).await?),
+        Resource::User(user_id) => Ok(User::by_id(user_id, &mut write).await?),
 
         Resource::Org(org_id) if org_id != invitation.org_id => Err(Error::WrongOrg),
         Resource::Org(_) => {
             let email = authz.get_data("email").ok_or(Error::MissingEmail)?;
-            Ok(User::find_by_email(email, &mut write).await?)
+            Ok(User::by_email(email, &mut write).await?)
         }
 
         Resource::Host(_) => Err(Error::HostClaims),
@@ -275,8 +275,8 @@ async fn accept(
     let invitation = invitation.accept(&mut write).await?;
 
     // Only registered users can accept an invitation
-    let user = User::find_by_email(&invitation.invitee_email, &mut write).await?;
-    let org = Org::find_by_id(invitation.org_id, &mut write).await?;
+    let user = User::by_email(&invitation.invitee_email, &mut write).await?;
+    let org = Org::by_id(invitation.org_id, &mut write).await?;
     org.add_member(user.id, &mut write).await?;
 
     let invitation = api::Invitation::from_model(invitation, &org, &mut write).await?;
@@ -292,12 +292,12 @@ async fn decline(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceDeclineResponse, Error> {
     let id = req.invitation_id.parse().map_err(Error::ParseId)?;
-    let invitation = Invitation::find_by_id(id, &mut write).await?;
+    let invitation = Invitation::by_id(id, &mut write).await?;
 
     // First validate claims for all resources, then apply additional constraints.
     let authz = write.auth_all(&meta, InvitationPerm::Decline).await?;
     let email = match authz.resource() {
-        Resource::User(user_id) => User::find_by_id(user_id, &mut write)
+        Resource::User(user_id) => User::by_id(user_id, &mut write)
             .await
             .map(|user| user.email)
             .map_err(Into::into),
@@ -320,7 +320,7 @@ async fn decline(
         return Err(Error::AlreadyDeclined);
     }
 
-    let org = Org::find_by_id(invitation.org_id, &mut write).await?;
+    let org = Org::by_id(invitation.org_id, &mut write).await?;
     let invitation = invitation.decline(&mut write).await?;
     let invitation = api::Invitation::from_model(invitation, &org, &mut write).await?;
 
@@ -336,7 +336,7 @@ async fn revoke(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceRevokeResponse, Error> {
     let id = req.invitation_id.parse().map_err(Error::ParseId)?;
-    let invitation = Invitation::find_by_id(id, &mut write).await?;
+    let invitation = Invitation::by_id(id, &mut write).await?;
 
     let authz = write
         .auth(&meta, InvitationPerm::Revoke, invitation.org_id)
@@ -351,7 +351,7 @@ async fn revoke(
 
     invitation.revoke(&mut write).await?;
 
-    let org = Org::find_by_id(invitation.org_id, &mut write).await?;
+    let org = Org::by_id(invitation.org_id, &mut write).await?;
     let invitation = api::Invitation::from_model(invitation, &org, &mut write).await?;
     let declined = api::OrgMessage::invitation_declined(invitation, &org);
     write.mqtt(declined);
@@ -362,7 +362,7 @@ async fn revoke(
 impl api::Invitation {
     async fn from_models(models: Vec<Invitation>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         let org_ids = models.iter().map(|i| i.org_id).collect();
-        let orgs = Org::find_by_ids(org_ids, conn)
+        let orgs = Org::by_ids(org_ids, conn)
             .await?
             .to_map_keep_last(|o| (o.id, o));
 
@@ -390,7 +390,7 @@ impl api::Invitation {
 
         let invited_by = match invitation.invited_by_resource {
             ResourceType::User => {
-                let user = User::find_by_id((*invitation.invited_by).into(), conn).await?;
+                let user = User::by_id((*invitation.invited_by).into(), conn).await?;
                 Some(common::EntityUpdate::from_user(&user))
             }
             ResourceType::Org => Some(common::EntityUpdate::from_org(

@@ -45,7 +45,7 @@ async fn responds_ok_for_write_node() {
     test.send_with(Service::node, req, &jwt).await.unwrap();
 
     let mut conn = test.conn().await;
-    let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
+    let node = Node::by_id(node_id, &mut conn).await.unwrap();
     assert_eq!(node.block_height, Some(10));
     assert_eq!(node.block_age, Some(5));
     assert_eq!(node.staking_status, Some(StakingStatus::Validating));
@@ -93,7 +93,7 @@ async fn responds_ok_for_write_host() {
     test.send_with(Service::host, req, &jwt).await.unwrap();
 
     let mut conn = test.conn().await;
-    let host = Host::find_by_id(host_id, &mut conn).await.unwrap();
+    let host = Host::by_id(host_id, &mut conn).await.unwrap();
     assert_eq!(host.used_cpu, Some(201));
     assert_eq!(host.used_memory, Some(1123123123123));
     assert_eq!(host.used_disk_space, Some(3123213123));
@@ -149,7 +149,7 @@ async fn single_failure_doesnt_abort_all_updates() {
     test.send_with(Service::node, req, &jwt).await.unwrap_err();
 
     let mut conn = test.conn().await;
-    let node = Node::find_by_id(node_id, &mut conn).await.unwrap();
+    let node = Node::by_id(node_id, &mut conn).await.unwrap();
     assert_eq!(node.block_height, Some(10));
     assert_eq!(node.block_age, Some(5));
     assert_eq!(node.staking_status, Some(StakingStatus::Validating));

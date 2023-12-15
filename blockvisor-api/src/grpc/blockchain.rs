@@ -209,7 +209,7 @@ async fn get(
     }?;
 
     let id = req.id.parse().map_err(Error::ParseId)?;
-    let blockchain = Blockchain::find_by_id(id, &mut read).await?;
+    let blockchain = Blockchain::by_id(id, &mut read).await?;
     let mut networks = blockchain_networks([&blockchain], &read.ctx.storage, &mut read).await?;
 
     let node_stats = if let Some(id) = req.org_id {
@@ -372,7 +372,7 @@ async fn add_version(
         .await?;
 
     let id = req.id.parse().map_err(Error::ParseId)?;
-    let blockchain = Blockchain::find_by_id(id, &mut write).await?;
+    let blockchain = Blockchain::by_id(id, &mut write).await?;
     let node_type = NodeType::from(req.node_type());
     let node_version = NodeVersion::new(&req.version)?;
     let new_version =

@@ -104,7 +104,7 @@ pub struct Org {
 }
 
 impl Org {
-    pub async fn find_by_id(id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         Org::not_deleted()
             .find(id)
             .get_result(conn)
@@ -112,10 +112,7 @@ impl Org {
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn find_by_ids(
-        org_ids: HashSet<OrgId>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
+    pub async fn by_ids(org_ids: HashSet<OrgId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         orgs::table
             .filter(orgs::id.eq_any(org_ids.iter()))
             .get_results(conn)

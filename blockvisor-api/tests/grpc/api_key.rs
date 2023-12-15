@@ -112,9 +112,7 @@ async fn user_can_update_scope() {
 
     // resource is now org
     let conn = &mut test.conn().await;
-    let key = ApiKey::find_by_id(key_id.parse().unwrap(), conn)
-        .await
-        .unwrap();
+    let key = ApiKey::by_id(key_id.parse().unwrap(), conn).await.unwrap();
     assert_eq!(NanosUtc::from(key.updated_at.unwrap()), updated_at);
     assert_eq!(key.resource, ResourceType::Org);
     assert_eq!(*key.resource_id, *org_id);
@@ -192,9 +190,7 @@ async fn user_can_manage_org_with_api_key() {
 
     // add key2.token as org member
     let conn = &mut test.conn().await;
-    let org = Org::find_by_id(org_id.parse().unwrap(), conn)
-        .await
-        .unwrap();
+    let org = Org::by_id(org_id.parse().unwrap(), conn).await.unwrap();
     org.add_member(key2.user_id, conn).await.unwrap();
 
     // key2.token can now get org_id
