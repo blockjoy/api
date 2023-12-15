@@ -614,7 +614,7 @@ impl api::Node {
             .await?
             .to_map_keep_last(|region| (region.id, region));
 
-        let mut reports = NodeReport::by_nodes(&node_ids, conn)
+        let mut reports = NodeReport::by_node_ids(&node_ids, conn)
             .await?
             .to_map_keep_all(|report| (report.node_id, report));
 

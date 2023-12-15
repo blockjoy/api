@@ -70,7 +70,7 @@ impl NodeReport {
             .map_err(|err| Error::FindByNode(node_id, err))
     }
 
-    pub async fn by_nodes(
+    pub async fn by_node_ids(
         node_ids: &HashSet<NodeId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {

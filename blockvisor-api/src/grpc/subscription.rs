@@ -143,7 +143,7 @@ async fn get(
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
     read.auth(&meta, SubscriptionPerm::Get, org_id).await?;
 
-    let sub = Subscription::by_org(org_id, &mut read).await?;
+    let sub = Subscription::by_org_id(org_id, &mut read).await?;
 
     Ok(api::SubscriptionServiceGetResponse {
         subscription: sub.map(api::Subscription::from_model),
@@ -159,7 +159,7 @@ async fn list(
     let user_id = user_id.parse().map_err(Error::ParseUserId)?;
     read.auth(&meta, SubscriptionPerm::List, user_id).await?;
 
-    let subscriptions = Subscription::by_user(user_id, &mut read)
+    let subscriptions = Subscription::by_user_id(user_id, &mut read)
         .await?
         .into_iter()
         .map(api::Subscription::from_model)

@@ -72,7 +72,7 @@ impl ApiKey {
             .map_err(Error::FindById)
     }
 
-    pub async fn by_user(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_user_id(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         api_keys::table
             .filter(api_keys::user_id.eq(user_id))
             .get_results(conn)

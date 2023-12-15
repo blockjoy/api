@@ -14,7 +14,7 @@ use crate::database::Conn;
 use crate::models::schema::{node_logs, sql_types};
 use crate::models::Host;
 
-use super::{Node, NodeType, NodeVersion};
+use super::{NodeType, NodeVersion};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -81,9 +81,9 @@ pub struct NodeLog {
 }
 
 impl NodeLog {
-    pub async fn by_node(node: &Node, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_node_id(node_id: NodeId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         node_logs::table
-            .filter(node_logs::node_id.eq(node.id))
+            .filter(node_logs::node_id.eq(node_id))
             .get_results(conn)
             .await
             .map_err(Error::ByNode)
@@ -91,13 +91,13 @@ impl NodeLog {
 
     /// Finds all deployments belonging to the provided node, that were created after the provided
     /// date.
-    pub async fn by_node_since(
-        node: &Node,
+    pub async fn by_node_id_since(
+        node_id: NodeId,
         since: DateTime<Utc>,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
         node_logs::table
-            .filter(node_logs::node_id.eq(node.id))
+            .filter(node_logs::node_id.eq(node_id))
             .filter(node_logs::created_at.gt(since))
             .get_result(conn)
             .await

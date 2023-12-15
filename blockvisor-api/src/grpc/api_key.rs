@@ -136,7 +136,7 @@ async fn list(
     let authz = read.auth_all(&meta, ApiKeyPerm::List).await?;
     let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
-    let keys = ApiKey::by_user(user_id, &mut read).await?;
+    let keys = ApiKey::by_user_id(user_id, &mut read).await?;
     let api_keys = keys.into_iter().map(api::ListApiKey::from_model).collect();
 
     Ok(api::ApiKeyServiceListResponse { api_keys })

@@ -185,7 +185,7 @@ impl IpAddress {
             .map_err(|err| Error::FindByIp(ip, err))
     }
 
-    pub async fn by_hosts(
+    pub async fn by_host_ids(
         host_ids: HashSet<HostId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {

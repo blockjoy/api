@@ -196,7 +196,7 @@ impl Node {
             .map_err(|err| Error::FindByIds(ids, err))
     }
 
-    pub async fn by_org(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_org_id(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         Self::not_deleted()
             .filter(nodes::org_id.eq(org_id))
             .get_results(conn)
@@ -204,7 +204,7 @@ impl Node {
             .map_err(|err| Error::FindByOrgId(org_id, err))
     }
 
-    pub async fn by_host(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_host_id(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         Self::not_deleted()
             .filter(nodes::host_id.eq(host_id))
             .get_results(conn)
@@ -307,7 +307,7 @@ impl Node {
 
         // We now have a list of host candidates for our nodes. Now the only thing left to do is to
         // make a decision about where to place the node.
-        let deployments = NodeLog::by_node(self, write).await?;
+        let deployments = NodeLog::by_node_id(self.id, write).await?;
         let hosts_tried = NodeLog::hosts_tried(&deployments, write).await?;
         let best = match (hosts_tried.as_slice(), candidates.len()) {
             // If there are 0 hosts to try, we return an error.

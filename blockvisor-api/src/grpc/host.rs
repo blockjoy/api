@@ -307,7 +307,7 @@ async fn delete(
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
     write.auth(&meta, HostPerm::Delete, id).await?;
 
-    if !Node::by_host(id, &mut write).await?.is_empty() {
+    if !Node::by_host_id(id, &mut write).await?.is_empty() {
         return Err(Error::HasNodes);
     }
     Host::delete(id, &mut write).await?;
@@ -504,7 +504,7 @@ impl Lookup {
             .await?
             .to_map_keep_last(|region| (region.id, region));
 
-        let ip_addresses = IpAddress::by_hosts(host_ids, conn)
+        let ip_addresses = IpAddress::by_host_ids(host_ids, conn)
             .await?
             .into_iter()
             .filter_map(|ip| ip.host_id.map(|host_id| (host_id, ip)))

@@ -74,7 +74,7 @@ impl Subscription {
             .map_err(Error::FindById)
     }
 
-    pub async fn by_org(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Option<Self>, Error> {
+    pub async fn by_org_id(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Option<Self>, Error> {
         let result = subscriptions::table
             .filter(subscriptions::org_id.eq(org_id))
             .get_result(conn)
@@ -87,7 +87,7 @@ impl Subscription {
         }
     }
 
-    pub async fn by_user(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_user_id(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         subscriptions::table
             .filter(subscriptions::user_id.eq(user_id))
             .get_results(conn)
