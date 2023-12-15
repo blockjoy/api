@@ -12,10 +12,7 @@ use diesel_async::methods::LoadQuery;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use displaydoc::Display;
 use thiserror::Error;
-
-pub trait Paginate: Sized {
-    fn paginate(self, limit: u64, offset: u64) -> Result<Paginated<Self>, Error>;
-}
+use tonic::Status;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -27,6 +24,22 @@ pub enum Error {
     Offset(std::num::TryFromIntError),
     /// Failed to run paginated query: {0}
     Query(diesel::result::Error),
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        use Error::*;
+        match err {
+            Limit(_) => Status::invalid_argument("limit"),
+            Offset(_) => Status::invalid_argument("offset"),
+            Query(diesel::result::Error::NotFound) => Status::not_found("Not found."),
+            Query(_) | Count(_) => Status::internal("Internal error."),
+        }
+    }
+}
+
+pub trait Paginate: Sized {
+    fn paginate(self, limit: u64, offset: u64) -> Result<Paginated<Self>, Error>;
 }
 
 impl<Q> Paginate for Q {

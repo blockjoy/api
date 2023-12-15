@@ -123,7 +123,6 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
-        use super::paginate::Error::*;
         use Error::*;
         match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
@@ -132,9 +131,7 @@ impl From<Error> for Status {
             | FindByIds(_, NotFound)
             | UpgradeableByType(_, _, NotFound) => Status::not_found("Not found."),
             NoMatchingHost => Status::resource_exhausted("No matching host."),
-            Paginate(Count(_)) => Status::internal("Internal error."),
-            Paginate(Limit(_)) => Status::invalid_argument("limit"),
-            Paginate(Offset(_)) => Status::invalid_argument("offset"),
+            Paginate(err) => err.into(),
             _ => Status::internal("Internal error."),
         }
     }
