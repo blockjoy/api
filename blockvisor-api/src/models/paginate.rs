@@ -14,6 +14,28 @@ use displaydoc::Display;
 use thiserror::Error;
 use tonic::Status;
 
+pub trait Paginate: Sized {
+    fn paginate(self, limit: u64, offset: u64) -> Result<Paginated<Self>, Error>;
+}
+
+impl<Q> Paginate for Q {
+    fn paginate(self, limit: u64, offset: u64) -> Result<Paginated<Self>, Error> {
+        let (limit, empty) = match i64::try_from(limit).map_err(Error::Limit)? {
+            // at least 1 row is needed for the correct count,
+            0 => (1, true),
+            n => (n, false),
+        };
+        let offset = i64::try_from(offset).map_err(Error::Offset)?;
+
+        Ok(Paginated {
+            query: self,
+            limit,
+            offset,
+            empty,
+        })
+    }
+}
+
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// Failed to parse row count as u64: {0}
@@ -35,28 +57,6 @@ impl From<Error> for Status {
             Query(diesel::result::Error::NotFound) => Status::not_found("Not found."),
             Query(_) | Count(_) => Status::internal("Internal error."),
         }
-    }
-}
-
-pub trait Paginate: Sized {
-    fn paginate(self, limit: u64, offset: u64) -> Result<Paginated<Self>, Error>;
-}
-
-impl<Q> Paginate for Q {
-    fn paginate(self, limit: u64, offset: u64) -> Result<Paginated<Self>, Error> {
-        let (limit, empty) = match i64::try_from(limit).map_err(Error::Limit)? {
-            // at least 1 row is needed for the correct count,
-            0 => (1, true),
-            n => (n, false),
-        };
-        let offset = i64::try_from(offset).map_err(Error::Offset)?;
-
-        Ok(Paginated {
-            query: self,
-            limit,
-            offset,
-            empty,
-        })
     }
 }
 
