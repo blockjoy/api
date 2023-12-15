@@ -74,6 +74,7 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
+        use super::paginate::Error::*;
         use Error::*;
         match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
@@ -85,6 +86,9 @@ impl From<Error> for Status {
                 Status::invalid_argument("billing_amount")
             }
             ParseIp(_) => Status::invalid_argument("ip_addr"),
+            Paginate(Count(_)) => Status::internal("Internal error."),
+            Paginate(Limit(_)) => Status::invalid_argument("limit"),
+            Paginate(Offset(_)) => Status::invalid_argument("offset"),
             IpAddress(err) => err.into(),
             Region(err) => err.into(),
             _ => Status::internal("Internal error."),

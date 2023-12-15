@@ -73,6 +73,7 @@ pub enum Error {
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
+        use super::paginate::Error::*;
         use Error::*;
         match err {
             Create(DatabaseError(UniqueViolation, _))
@@ -86,6 +87,9 @@ impl From<Error> for Status {
             | FindPersonal(_, NotFound)
             | RemoveUser(NotFound) => Status::not_found("Not found."),
             FindOrgUserByToken(_) => Status::permission_denied("Invalid token."),
+            Paginate(Count(_)) => Status::internal("Internal error."),
+            Paginate(Limit(_)) => Status::invalid_argument("limit"),
+            Paginate(Offset(_)) => Status::invalid_argument("offset"),
             Rbac(err) => err.into(),
             _ => Status::internal("Internal error."),
         }
