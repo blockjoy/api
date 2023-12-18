@@ -292,7 +292,6 @@ diesel::table! {
         vcpu_count -> Int8,
         mem_size_bytes -> Int8,
         disk_size_bytes -> Int8,
-        host_name -> Text,
         network -> Text,
         created_by -> Nullable<Uuid>,
         #[max_length = 50]

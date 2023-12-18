@@ -1,0 +1,1 @@
+ALTER TABLE nodes ADD COLUMN host_name TEXT NOT NULL DEFAULT '<fixme>';

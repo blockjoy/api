@@ -127,7 +127,7 @@ async fn recover_created(
             Err(err) => return Err(Error::CancelationLog(err)),
         }
     };
-    let ip = IpAddress::next_for_host(node.host_id, write)
+    let ip = IpAddress::next_for_host(host.id, write)
         .await
         .map_err(Error::FindIp)?;
     node.ip_addr = ip.ip().to_string();

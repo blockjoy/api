@@ -39,6 +39,7 @@ use crate::auth::resource::{
     HostId, NodeId, OrgId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
 };
 use crate::database::{Conn, WriteConn};
+use crate::models::schema::hosts;
 use crate::storage::image::ImageId;
 use crate::util::{SearchOperator, SortOrder};
 
@@ -137,7 +138,7 @@ impl From<Error> for Status {
     }
 }
 
-#[derive(Clone, Debug, Queryable, AsChangeset)]
+#[derive(Clone, Debug, Queryable, AsChangeset, Selectable)]
 pub struct Node {
     pub id: NodeId,
     pub org_id: OrgId,
@@ -159,7 +160,6 @@ pub struct Node {
     pub vcpu_count: i64,
     pub mem_size_bytes: i64,
     pub disk_size_bytes: i64,
-    pub host_name: String,
     pub network: String,
     pub created_by: Option<ResourceId>,
     pub dns_record_id: String,
@@ -426,7 +426,7 @@ impl NodeSort {
     fn into_expr<T>(self) -> Box<dyn BoxableExpression<T, Pg, SqlType = NotSelectable>>
     where
         nodes::name: SelectableExpression<T>,
-        nodes::host_name: SelectableExpression<T>,
+        hosts::name: SelectableExpression<T>,
         nodes::created_at: SelectableExpression<T>,
         nodes::updated_at: SelectableExpression<T>,
         nodes::node_type: SelectableExpression<T>,
@@ -442,8 +442,8 @@ impl NodeSort {
             NodeName(Asc) => Box::new(nodes::name.asc()),
             NodeName(Desc) => Box::new(nodes::name.desc()),
 
-            HostName(Asc) => Box::new(nodes::host_name.asc()),
-            HostName(Desc) => Box::new(nodes::host_name.desc()),
+            HostName(Asc) => Box::new(hosts::name.asc()),
+            HostName(Desc) => Box::new(hosts::name.desc()),
 
             CreatedAt(Asc) => Box::new(nodes::created_at.asc()),
             CreatedAt(Desc) => Box::new(nodes::created_at.desc()),
@@ -484,7 +484,7 @@ pub struct NodeFilter {
 
 impl NodeFilter {
     pub async fn query(mut self, conn: &mut Conn<'_>) -> Result<(Vec<Node>, u64), Error> {
-        let mut query = nodes::table.into_boxed();
+        let mut query = nodes::table.inner_join(hosts::table).into_boxed();
 
         if let Some(search) = self.search {
             match search.operator {
@@ -549,6 +549,7 @@ impl NodeFilter {
         }
 
         query
+            .select(Node::as_select())
             .paginate(self.limit, self.offset)?
             .count_results(conn)
             .await
@@ -625,7 +626,6 @@ impl NewNode {
                 nodes::host_id.eq(host.id),
                 nodes::ip_gateway.eq(ip_gateway),
                 nodes::ip_addr.eq(node_id.ip().to_string()),
-                nodes::host_name.eq(&host.name),
                 nodes::dns_record_id.eq(dns_record.id),
                 nodes::data_directory_mountpoint.eq(data_directory_mountpoint),
             ))

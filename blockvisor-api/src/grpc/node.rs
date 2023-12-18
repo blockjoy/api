@@ -702,7 +702,7 @@ impl api::Node {
             id: node.id.to_string(),
             org_id: node.org_id.to_string(),
             host_id: node.host_id.to_string(),
-            host_name: node.host_name,
+            host_name: host.name.clone(),
             blockchain_id: node.blockchain_id.to_string(),
             name: node.name,
             address: node.address,
