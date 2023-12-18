@@ -266,10 +266,7 @@ impl Node {
             .await
             .map_err(|err| Error::Delete(id, err))?;
 
-        let ip_addr = node.ip_addr.parse().map_err(Error::ParseIpAddr)?;
-        let ip = IpAddress::by_ip(ip_addr, write).await?;
-
-        IpAddress::unassign(ip.id, node.host_id, write).await?;
+        node.ip(write).await?.unassign(write).await?;
 
         // Delete all pending commands for this node: there are not useable anymore
         super::Command::delete_pending(node.id, write)
@@ -354,6 +351,12 @@ impl Node {
 
     pub fn deny_ips(&self) -> Result<Vec<FilteredIpAddr>, Error> {
         Self::filtered_ip_addrs(self.deny_ips.clone())
+    }
+
+    pub async fn ip(&self, conn: &mut Conn<'_>) -> Result<IpAddress, Error> {
+        let ip_addr = self.ip_addr.parse().map_err(Error::ParseIpAddr)?;
+        let ip = IpAddress::by_ip(ip_addr, conn).await?;
+        Ok(ip)
     }
 
     fn filtered_ip_addrs(value: serde_json::Value) -> Result<Vec<FilteredIpAddr>, Error> {
@@ -602,15 +605,13 @@ impl NewNode {
         };
 
         let ip_gateway = host.ip_gateway.ip().to_string();
-        let host_ip = IpAddress::next_for_host(host.id, write)
+        let node_id = IpAddress::next_for_host(host.id, write)
             .await
             .map_err(Error::NextHostIp)?;
-        IpAddress::assign(host_ip.id, host.id, write)
-            .await
-            .map_err(Error::AssignIpAddr)?;
+        node_id.assign(write).await.map_err(Error::AssignIpAddr)?;
 
         let blockchain = Blockchain::by_id(self.blockchain_id, write).await?;
-        let dns_record = write.ctx.dns.create(&self.name, host_ip.ip()).await?;
+        let dns_record = write.ctx.dns.create(&self.name, node_id.ip()).await?;
 
         let image = ImageId::new(blockchain.name, self.node_type, self.version.clone());
         let meta = write.ctx.storage.rhai_metadata(&image).await?;
@@ -623,7 +624,7 @@ impl NewNode {
                 self,
                 nodes::host_id.eq(host.id),
                 nodes::ip_gateway.eq(ip_gateway),
-                nodes::ip_addr.eq(host_ip.ip().to_string()),
+                nodes::ip_addr.eq(node_id.ip().to_string()),
                 nodes::host_name.eq(&host.name),
                 nodes::dns_record_id.eq(dns_record.id),
                 nodes::data_directory_mountpoint.eq(data_directory_mountpoint),

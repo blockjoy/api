@@ -9,7 +9,7 @@ use crate::database::WriteConn;
 use crate::grpc::api;
 use crate::models::command::NewCommand;
 use crate::models::node::{NewNodeLog, NodeLogEvent};
-use crate::models::{Blockchain, Command, CommandType, Node};
+use crate::models::{Blockchain, Command, CommandType, IpAddress, Node};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -25,6 +25,12 @@ pub enum Error {
     Node(#[from] crate::models::node::Error),
     /// Command recovery failed to update node: {0}
     UpdateNode(crate::models::node::Error),
+    /// Unassigning an ip address failed: {0}
+    UnassignIp(crate::models::ip_address::Error),
+    /// Assigning an ip address failed: {0}
+    AssignIp(crate::models::ip_address::Error),
+    /// Finding an ip address failed: {0}
+    FindIp(crate::models::ip_address::Error),
 }
 
 impl From<Error> for Status {
@@ -36,6 +42,7 @@ impl From<Error> for Status {
             Blockchain(err) => err.into(),
             CancelationLog(err) | DeploymentLog(err) => err.into(),
             Node(err) | UpdateNode(err) => err.into(),
+            UnassignIp(err) | AssignIp(err) | FindIp(err) => err.into(),
         }
     }
 }
@@ -95,6 +102,12 @@ async fn recover_created(
         return Err(Error::DeploymentLog(err));
     };
 
+    // We unassign the current ip address since we're going to be switching hosts.
+    node.ip(write)
+        .await?
+        .unassign(write)
+        .await
+        .map_err(Error::UnassignIp)?;
     // 2. We now find the host that is next in line, and assign our node to that host.
     let Ok(host) = node.find_host(write).await else {
         // We were unable to find a new host. This may happen because the system is out of resources
@@ -114,8 +127,14 @@ async fn recover_created(
             Err(err) => return Err(Error::CancelationLog(err)),
         }
     };
+    let ip = IpAddress::next_for_host(node.host_id, write)
+        .await
+        .map_err(Error::FindIp)?;
+    node.ip_addr = ip.ip().to_string();
+    node.ip_gateway = host.ip_gateway.ip().to_string();
     node.host_id = host.id;
     let node = node.update(write).await.map_err(Error::UpdateNode)?;
+    ip.assign(write).await.map_err(Error::AssignIp)?;
 
     // 3. We notify blockvisor of our retry via an MQTT message.
     if let Ok(cmd) = NewCommand::node(&node, CommandType::CreateNode)

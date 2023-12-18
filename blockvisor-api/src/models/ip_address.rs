@@ -125,37 +125,25 @@ impl IpAddress {
             .await
             .map_err(Error::NextForHost)?;
 
-        Self::assign(ip.id, host_id, conn).await
+        ip.assign(conn).await
     }
 
     /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
-    pub async fn assign(
-        id: uuid::Uuid,
-        host_id: HostId,
-        conn: &mut Conn<'_>,
-    ) -> Result<Self, Error> {
-        let fields = UpdateIpAddress {
-            id,
-            host_id: Some(host_id),
-            is_assigned: Some(true),
-        };
-
-        fields.update(conn).await
+    pub async fn assign(&self, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        diesel::update(ip_addresses::table.find(self.id))
+            .set(ip_addresses::is_assigned.eq(true))
+            .get_result(conn)
+            .await
+            .map_err(Error::Update)
     }
 
     /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
-    pub async fn unassign(
-        id: uuid::Uuid,
-        host_id: HostId,
-        conn: &mut Conn<'_>,
-    ) -> Result<Self, Error> {
-        let fields = UpdateIpAddress {
-            id,
-            host_id: Some(host_id),
-            is_assigned: Some(false),
-        };
-
-        fields.update(conn).await
+    pub async fn unassign(&self, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        diesel::update(ip_addresses::table.find(self.id))
+            .set(ip_addresses::is_assigned.eq(false))
+            .get_result(conn)
+            .await
+            .map_err(Error::Update)
     }
 
     pub fn in_range(ip: IpAddr, from: IpAddr, to: IpAddr) -> bool {
