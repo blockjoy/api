@@ -210,7 +210,7 @@ impl NewCommand {
     }
 
     pub const fn node(node: &Node, cmd: CommandType) -> Result<Self, Error> {
-        if !cmd.host_command() {
+        if !cmd.node_command() {
             return Err(Error::HostCommandWithNodeId);
         }
         Ok(NewCommand {
