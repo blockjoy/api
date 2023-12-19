@@ -48,6 +48,7 @@ async fn create_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, 
     let _ = new_log.create(write).await;
 
     let start_notif = NewCommand::node(&node, CommandType::RestartNode)
+        .map_err(|err| error!("Command error: {err}"))?
         .create(write)
         .await
         .map_err(|err| error!("Could not insert new command into database: {err}"))?;

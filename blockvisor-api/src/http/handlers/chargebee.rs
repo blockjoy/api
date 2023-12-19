@@ -145,11 +145,7 @@ async fn subscription_cancelled(
 
 async fn delete_node(node: &Node, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
     // Send delete node command
-    let new_command = NewCommand {
-        host_id: node.host_id,
-        cmd: CommandType::DeleteNode,
-        node_id: Some(node.id),
-    };
+    let new_command = NewCommand::node(node, CommandType::DeleteNode)?;
     let cmd = new_command.create(write).await?;
     let cmd = api::Command::from_model(&cmd, write).await?;
 

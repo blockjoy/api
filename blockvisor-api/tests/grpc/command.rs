@@ -3,6 +3,7 @@ use blockvisor_api::grpc::api;
 use blockvisor_api::models::command::{Command, CommandType, ExitCode, NewCommand};
 use blockvisor_api::models::host::Host;
 use blockvisor_api::models::node::UpdateNode;
+use blockvisor_api::models::Node;
 use tonic::transport::Channel;
 
 use crate::setup::helper::traits::SocketRpc;
@@ -12,12 +13,8 @@ type Service = api::command_service_client::CommandServiceClient<Channel>;
 
 async fn create_command(test: &TestServer, node_id: NodeId, cmd_type: CommandType) -> Command {
     let mut conn = test.conn().await;
-    let new_cmd = NewCommand {
-        host_id: test.seed().host.id,
-        cmd: cmd_type,
-        node_id: Some(node_id),
-    };
-
+    let node = Node::by_id(node_id, &mut conn).await.unwrap();
+    let new_cmd = NewCommand::node(&node, cmd_type).unwrap();
     new_cmd.create(&mut conn).await.unwrap()
 }
 

@@ -43,6 +43,10 @@ pub enum Error {
     RetryHint(std::num::TryFromIntError),
     /// Failed to update command: {0}
     Update(diesel::result::Error),
+    /// Attempt to create a command meant for a node without specificying a node id.
+    NodeCommandWithoutNodeId,
+    /// Attempt to create a command meant for a host while also specificying a node id.
+    HostCommandWithNodeId,
 }
 
 impl From<Error> for Status {
@@ -80,6 +84,24 @@ pub enum CommandType {
     RestartBVS,
     RemoveBVS,
     StopBVS,
+}
+
+impl CommandType {
+    /// Returns true if this command is directed at the host.
+    pub const fn host_command(self) -> bool {
+        use CommandType::*;
+
+        match self {
+            CreateNode | RestartNode | KillNode | ShutdownNode | DeleteNode | UpdateNode
+            | MigrateNode | UpgradeNode | GetNodeVersion => false,
+            GetBVSVersion | CreateBVS | UpdateBVS | RestartBVS | RemoveBVS | StopBVS => true,
+        }
+    }
+
+    /// Returns true if this command is directed at a specific node on the host.
+    pub const fn node_command(self) -> bool {
+        !self.host_command()
+    }
 }
 
 #[derive(
@@ -170,26 +192,32 @@ impl Command {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = commands)]
 pub struct NewCommand {
-    pub host_id: HostId,
-    pub cmd: CommandType,
-    pub node_id: Option<NodeId>,
+    host_id: HostId,
+    cmd: CommandType,
+    node_id: Option<NodeId>,
 }
 
 impl NewCommand {
-    pub const fn host(host: &Host, cmd: CommandType) -> Self {
-        NewCommand {
+    pub const fn host(host: &Host, cmd: CommandType) -> Result<Self, Error> {
+        if !cmd.host_command() {
+            return Err(Error::NodeCommandWithoutNodeId);
+        }
+        Ok(NewCommand {
             host_id: host.id,
             cmd,
             node_id: None,
-        }
+        })
     }
 
-    pub const fn node(node: &Node, cmd: CommandType) -> Self {
-        NewCommand {
+    pub const fn node(node: &Node, cmd: CommandType) -> Result<Self, Error> {
+        if !cmd.host_command() {
+            return Err(Error::HostCommandWithNodeId);
+        }
+        Ok(NewCommand {
             host_id: node.host_id,
             cmd,
             node_id: Some(node.id),
-        }
+        })
     }
 
     pub async fn create(self, conn: &mut Conn<'_>) -> Result<Command, Error> {

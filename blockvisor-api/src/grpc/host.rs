@@ -324,7 +324,7 @@ async fn start(
     write.auth(&meta, HostPerm::Start, id).await?;
 
     let host = Host::by_id(id, &mut write).await?;
-    let command = NewCommand::host(&host, CommandType::RestartBVS)
+    let command = NewCommand::host(&host, CommandType::RestartBVS)?
         .create(&mut write)
         .await?;
     let message = api::Command::from_model(&command, &mut write).await?;
@@ -342,7 +342,7 @@ async fn stop(
     write.auth(&meta, HostPerm::Stop, id).await?;
 
     let host = Host::by_id(id, &mut write).await?;
-    let command = NewCommand::host(&host, CommandType::StopBVS)
+    let command = NewCommand::host(&host, CommandType::StopBVS)?
         .create(&mut write)
         .await?;
     let message = api::Command::from_model(&command, &mut write).await?;
@@ -360,7 +360,7 @@ async fn restart(
     write.auth(&meta, HostPerm::Restart, id).await?;
 
     let host = Host::by_id(id, &mut write).await?;
-    let command = NewCommand::host(&host, CommandType::RestartBVS)
+    let command = NewCommand::host(&host, CommandType::RestartBVS)?
         .create(&mut write)
         .await?;
     let message = api::Command::from_model(&command, &mut write).await?;

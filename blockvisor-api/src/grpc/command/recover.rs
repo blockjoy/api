@@ -17,6 +17,8 @@ pub enum Error {
     Blockchain(#[from] crate::models::blockchain::Error),
     /// Failed to create cancelation log: {0}
     CancelationLog(crate::models::node::log::Error),
+    /// Command error: {0}
+    Command(#[from] crate::models::command::Error),
     /// CreateNode command has no node id.
     CreateNodeId,
     /// Failed to create deployment log: {0}
@@ -41,6 +43,7 @@ impl From<Error> for Status {
             CreateNodeId => Status::invalid_argument("node_id"),
             Blockchain(err) => err.into(),
             CancelationLog(err) | DeploymentLog(err) => err.into(),
+            Command(err) => err.into(),
             Node(err) | UpdateNode(err) => err.into(),
             UnassignIp(err) | AssignIp(err) | FindIp(err) => err.into(),
         }
@@ -137,7 +140,7 @@ async fn recover_created(
     ip.assign(write).await.map_err(Error::AssignIp)?;
 
     // 3. We notify blockvisor of our retry via an MQTT message.
-    if let Ok(cmd) = NewCommand::node(&node, CommandType::CreateNode)
+    if let Ok(cmd) = NewCommand::node(&node, CommandType::CreateNode)?
         .create(write)
         .await
     {
@@ -150,7 +153,7 @@ async fn recover_created(
     }
 
     // we also start the node.
-    if let Ok(cmd) = NewCommand::node(&node, CommandType::RestartNode)
+    if let Ok(cmd) = NewCommand::node(&node, CommandType::RestartNode)?
         .create(write)
         .await
     {

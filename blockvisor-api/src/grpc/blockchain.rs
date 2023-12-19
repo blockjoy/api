@@ -423,11 +423,7 @@ fn upgrade_node<'b, 'n>(
         return Ok(None);
     }
 
-    let command = NewCommand {
-        host_id: node.host_id,
-        cmd: CommandType::UpgradeNode,
-        node_id: Some(node.id),
-    };
+    let command = NewCommand::node(node, CommandType::UpgradeNode)?;
 
     let log = NewNodeLog {
         host_id: node.host_id,
