@@ -143,6 +143,7 @@ pub struct Host {
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
     pub vmm_mountpoint: Option<String>,
     pub deleted_at: Option<DateTime<Utc>>,
+    pub managed_by: ManagedBy,
 }
 
 impl AsRef<Host> for Host {
@@ -266,7 +267,8 @@ impl Host {
             FROM
                 hosts
             WHERE
-                deleted_at IS NULL
+                deleted_at IS NULL AND
+                managed_by = 'automatic'
         ) AS resouces
         WHERE
             -- These are our hard filters, we do not want any nodes that cannot satisfy the
@@ -528,6 +530,7 @@ pub struct NewHost<'a> {
     pub host_type: HostType,
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
     pub vmm_mountpoint: Option<&'a str>,
+    pub managed_by: ManagedBy,
 }
 
 impl NewHost<'_> {
@@ -661,4 +664,11 @@ impl From<api::HostConnectionStatus> for ConnectionStatus {
             api::HostConnectionStatus::Online => ConnectionStatus::Online,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
+#[ExistingTypePath = "sql_types::EnumManagedBy"]
+pub enum ManagedBy {
+    Automatic,
+    Manual,
 }

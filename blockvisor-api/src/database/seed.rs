@@ -8,7 +8,7 @@ use crate::auth::rbac::BlockjoyRole;
 use crate::auth::resource::{NodeId, OrgId};
 use crate::grpc::common;
 use crate::models::blockchain::BlockchainId;
-use crate::models::host::{ConnectionStatus, Host, HostType, MonthlyCostUsd, NewHost};
+use crate::models::host::{ConnectionStatus, Host, HostType, ManagedBy, MonthlyCostUsd, NewHost};
 use crate::models::ip_address::NewIpAddressRange;
 use crate::models::node::{Node, NodeProperty, NodeStatus, NodeType, ResourceAffinity};
 use crate::models::rbac::RbacUser;
@@ -183,6 +183,7 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         host_type: HostType::Cloud,
         monthly_cost_in_usd: Some(MonthlyCostUsd::from_proto(&billing).unwrap()),
         vmm_mountpoint: None,
+        managed_by: ManagedBy::Automatic,
     };
     let host1 = host1.create(conn).await.unwrap();
 
@@ -205,6 +206,7 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         host_type: HostType::Cloud,
         monthly_cost_in_usd: None,
         vmm_mountpoint: None,
+        managed_by: ManagedBy::Automatic,
     };
     host2.create(conn).await.unwrap();
 

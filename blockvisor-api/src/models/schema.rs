@@ -26,6 +26,10 @@ pub mod sql_types {
     pub struct EnumHostType;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_managed_by"))]
+    pub struct EnumManagedBy;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_node_log_event"))]
     pub struct EnumNodeLogEvent;
 
@@ -159,6 +163,7 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::EnumConnStatus;
     use super::sql_types::EnumHostType;
+    use super::sql_types::EnumManagedBy;
 
     hosts (id) {
         id -> Uuid,
@@ -191,6 +196,7 @@ diesel::table! {
         monthly_cost_in_usd -> Nullable<Int8>,
         vmm_mountpoint -> Nullable<Text>,
         deleted_at -> Nullable<Timestamptz>,
+        managed_by -> EnumManagedBy,
     }
 }
 

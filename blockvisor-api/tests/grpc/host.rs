@@ -24,6 +24,7 @@ async fn responds_unauthenticated_without_token_for_update() {
         region: None,
         billing_amount: None,
         total_disk_space: None,
+        managed_by: None,
     };
     let status = test.send(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
@@ -44,6 +45,7 @@ async fn responds_permission_denied_with_token_ownership_for_update() {
         region: None,
         billing_amount: None,
         total_disk_space: None,
+        managed_by: None,
     };
 
     let status = test
@@ -67,6 +69,7 @@ async fn responds_permission_denied_with_user_token_for_update() {
         region: None,
         billing_amount: None,
         total_disk_space: None,
+        managed_by: None,
     };
 
     let status = test.send_admin(Service::update, req).await.unwrap_err();
@@ -105,6 +108,7 @@ async fn responds_ok_for_create() {
         region: Some("europe-2-birmingham".to_string()),
         billing_amount: None,
         vmm_mountpoint: Some("/a/path/to/the/data/treasure".to_string()),
+        managed_by: Some(api::ManagedBy::Automatic.into()),
     };
     test.send(Service::create, req).await.unwrap();
 }
@@ -123,6 +127,7 @@ async fn responds_ok_for_update() {
         region: None,
         billing_amount: None,
         total_disk_space: None,
+        managed_by: None,
     };
 
     test.send_with(Service::update, req, &jwt).await.unwrap();

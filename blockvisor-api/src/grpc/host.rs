@@ -15,8 +15,8 @@ use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::command::NewCommand;
 use crate::models::host::{
-    ConnectionStatus, Host, HostFilter, HostSearch, HostSort, HostType, MonthlyCostUsd, NewHost,
-    UpdateHost,
+    ConnectionStatus, Host, HostFilter, HostSearch, HostSort, HostType, ManagedBy, MonthlyCostUsd,
+    NewHost, UpdateHost,
 };
 use crate::models::{Blockchain, CommandType, IpAddress, Node, Org, OrgUser, Region, RegionId};
 use crate::storage::image::ImageId;
@@ -47,6 +47,8 @@ pub enum Error {
     HasNodes,
     /// Host model error: {0}
     Host(#[from] crate::models::host::Error),
+    /// Invalid value for ManagedBy enum: {0}.
+    InvalidManagedBy(i32),
     /// Host model error: {0}
     IpAddress(#[from] crate::models::ip_address::Error),
     /// Host JWT failure: {0}
@@ -107,6 +109,7 @@ impl From<Error> for Status {
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
+            InvalidManagedBy(_) => Status::invalid_argument("managed_by"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Blockchain(err) => err.into(),
@@ -471,6 +474,7 @@ impl api::Host {
             ip_addresses: api::HostIpAddress::from_models(
                 lookup.ip_addresses.get(&host.id).unwrap_or(&empty),
             ),
+            managed_by: api::ManagedBy::from_model(host.managed_by).into(),
         })
     }
 }
@@ -572,6 +576,10 @@ impl api::HostServiceCreateRequest {
                 .map(MonthlyCostUsd::from_proto)
                 .transpose()?,
             vmm_mountpoint: self.vmm_mountpoint.as_deref(),
+            managed_by: self
+                .managed_by()
+                .into_model()
+                .ok_or(Error::InvalidManagedBy(self.managed_by.unwrap_or(0)))?,
         })
     }
 }
@@ -657,6 +665,23 @@ impl api::HostType {
             api::HostType::Unspecified => None,
             api::HostType::Cloud => Some(HostType::Cloud),
             api::HostType::Private => Some(HostType::Private),
+        }
+    }
+}
+
+impl api::ManagedBy {
+    const fn from_model(model: ManagedBy) -> Self {
+        match model {
+            ManagedBy::Automatic => Self::Automatic,
+            ManagedBy::Manual => Self::Manual,
+        }
+    }
+
+    const fn into_model(self) -> Option<ManagedBy> {
+        match self {
+            Self::Unspecified => None,
+            Self::Automatic => Some(ManagedBy::Automatic),
+            Self::Manual => Some(ManagedBy::Manual),
         }
     }
 }
