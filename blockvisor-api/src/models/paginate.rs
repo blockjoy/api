@@ -71,6 +71,8 @@ pub struct Paginated<Q> {
 impl<Q> Paginated<Q> {
     // manual async to restrict Future to `'_` (instead of Future::Output)
     #[allow(clippy::manual_async_fn)]
+    // we cannot use slice::first with RunQueryDsl in scope
+    #[allow(clippy::get_first)]
     pub fn count_results<T>(
         self,
         conn: &mut AsyncPgConnection,
