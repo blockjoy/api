@@ -30,9 +30,9 @@ pub trait Client: Send + Sync {
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to create presigned download URL for key `{0}`: {1}
+    /// Failed to create presigned download URL for key `{0}`: {1:?}
     DownloadUrl(String, SdkError<GetObjectError>),
-    /// Failed to list path `{0}`: {1}
+    /// Failed to list path `{0}`: {1:?}
     ListPath(String, SdkError<ListObjectsV2Error>),
     /// Failed to parse URL from PresignedRequest: {0}
     ParseRequestUrl(url::ParseError),
@@ -40,12 +40,12 @@ pub enum Error {
     PresigningConfig(PresigningConfigError),
     /// Failed to query key `{0}:{1}`: {2}
     QueryKey(String, String, ByteStreamError),
-    /// Failed to read key `{0}:{1}`: {2}
+    /// Failed to read key `{0}:{1}`: {2:?}
     ReadKey(String, String, SdkError<GetObjectError>),
     #[cfg(any(test, feature = "integration-test"))]
     /// Unexpected error: {0}
     Unexpected(&'static str),
-    /// Failed to create presigned download URL for key `{0}`: {1}
+    /// Failed to create presigned download URL for key `{0}`: {1:?}
     UploadUrl(String, SdkError<PutObjectError>),
     /// Failed to write key `{0}:{1}`: {2:?}
     WriteKey(String, String, SdkError<PutObjectError>),

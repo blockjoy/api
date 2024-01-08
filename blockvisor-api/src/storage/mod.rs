@@ -52,7 +52,7 @@ pub enum Error {
     ParseUtf8(std::string::FromUtf8Error),
     /// Failed to create PresigningConfig: {0}
     PresigningConfig(PresigningConfigError),
-    /// Failed to create PresignedRequest for key `{0}`: {1}
+    /// Failed to create PresignedRequest for key `{0}`: {1:?}
     PresignedRequest(String, SdkError<PutObjectError>),
     /// Failed to serialize DownloadManifest: {0}
     SerializeManifest(serde_json::Error),
