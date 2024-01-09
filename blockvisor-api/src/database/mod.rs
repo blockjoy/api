@@ -33,14 +33,14 @@ use crate::mqtt::Message;
 
 pub const MIGRATIONS: EmbeddedMigrations = diesel_migrations::embed_migrations!();
 
-#[tonic::async_trait]
+// NOTE: the return type here is `impl Future blabla` because we want this trait to be async and
+// and also have `pub` visibility.
 pub trait Database {
     /// Return a new connection to the database.
-    async fn conn(&self) -> Result<Conn<'_>, Error>;
+    fn conn(&self) -> impl std::future::Future<Output = Result<Conn<'_>, Error>>;
 }
 
-#[tonic::async_trait]
-pub trait Transaction {
+pub(crate) trait Transaction {
     /// Run a non-transactional closure to read from the database.
     ///
     /// Note that the function parameter constraints are not strictly necessary
@@ -94,7 +94,6 @@ pub struct ReadConn<'c, 't> {
     pub ctx: &'t Context,
 }
 
-#[tonic::async_trait]
 impl<'c, 't> Authorize for ReadConn<'c, 't> {
     async fn authorize(
         &mut self,
@@ -124,7 +123,6 @@ pub struct WriteConn<'c, 't> {
     pub mqtt_tx: UnboundedSender<Message>,
 }
 
-#[tonic::async_trait]
 impl<'c, 't> Authorize for WriteConn<'c, 't> {
     async fn authorize(
         &mut self,
@@ -180,21 +178,18 @@ impl Pool {
     }
 }
 
-#[tonic::async_trait]
 impl Database for Pool {
     async fn conn(&self) -> Result<Conn<'_>, Error> {
         self.get().await.map(Conn).map_err(Error::PoolConnection)
     }
 }
 
-#[tonic::async_trait]
 impl Database for Context {
     async fn conn(&self) -> Result<Conn<'_>, Error> {
         self.pool.conn().await
     }
 }
 
-#[tonic::async_trait]
 impl<C> Transaction for C
 where
     C: AsRef<Context> + Send + Sync,
@@ -440,7 +435,6 @@ pub mod tests {
         }
     }
 
-    #[tonic::async_trait]
     impl Database for TestDb {
         async fn conn(&self) -> Result<Conn<'_>, Error> {
             self.pool.conn().await

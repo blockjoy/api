@@ -33,7 +33,6 @@ grpc_clients! [
     user => User
 ];
 
-#[tonic::async_trait]
 pub trait SocketRpc {
     fn input_socket(&self) -> Arc<TempPath>;
 

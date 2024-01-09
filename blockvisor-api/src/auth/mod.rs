@@ -21,8 +21,7 @@ use self::token::api_key::Validated;
 use self::token::refresh::{self, Refresh, RequestCookie};
 use self::token::{Cipher, RequestToken};
 
-#[tonic::async_trait]
-pub trait Authorize {
+pub(crate) trait Authorize {
     /// Authorize request token for some `perms` and `resources`.
     ///
     /// This is the entry point for the authorization process which the other
