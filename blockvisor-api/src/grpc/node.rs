@@ -11,7 +11,9 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::auth::rbac::{NodeAdminPerm, NodePerm};
-use crate::auth::resource::{HostId, NodeId, Resource, ResourceEntry, UserId};
+use crate::auth::resource::{
+    HostId, NodeId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
+};
 use crate::auth::Authorize;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::blockchain::{BlockchainProperty, BlockchainPropertyId, BlockchainVersion};
@@ -105,6 +107,8 @@ pub enum Error {
     SyncTotal(std::num::TryFromIntError),
     /// The requested sort field is unknown.
     UnknownSortField,
+    /// Attempt to update status by {1} {2} of node `{0}`, which doesn't exist.
+    UpdateStatusMissingNode(NodeId, ResourceType, ResourceId),
     /// Node user error: {0}
     User(#[from] crate::models::user::Error),
 }
@@ -134,6 +138,7 @@ impl From<Error> for Status {
             SyncCurrent(_) => Status::invalid_argument("data_sync_progress_current"),
             SyncTotal(_) => Status::invalid_argument("data_sync_progress_total"),
             UnknownSortField => Status::invalid_argument("sort.field"),
+            UpdateStatusMissingNode(_, _, _) => Status::not_found("No such node"),
             Auth(err) => err.into(),
             Blockchain(err) => err.into(),
             BlockchainProperty(err) => err.into(),
@@ -381,7 +386,15 @@ async fn update_status(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateStatusResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    Node::by_id(node_id, &mut write).await?;
+    if let Err(e) = Node::by_id(node_id, &mut write).await {
+        let token: RequestToken = meta.try_into().map_err(Error::ParseRequestToken)?;
+        let claims = todo!();
+        return Err(Error::UpdateStatusMissingNode(
+            node_id,
+            claims.resource,
+            claims.resource_id,
+        ));
+    }
 
     let authz = write
         .auth_or_all(
