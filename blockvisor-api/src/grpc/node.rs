@@ -202,7 +202,7 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceUpdateStatusRequest>,
     ) -> Result<Response<api::NodeServiceUpdateStatusResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_status(self, req, meta, write).scope_boxed())
+        self.write(|write| update_status(req, meta, write).scope_boxed())
             .await
     }
 
