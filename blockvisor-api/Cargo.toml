@@ -70,7 +70,7 @@ tokio-postgres = "0.7.8"
 tokio-postgres-rustls = "0.10.0"
 tokio-stream = { version = "0.1.14", features = ["net"] }
 toml = "0.8.1"
-tonic = { version = "0.10.1", features = ["tls-roots"] }
+tonic = { version = "0.10.1", features = ["tls-roots", "gzip"] }
 tower = { version = "0.4.13", features = ["tokio", "tracing", "util"] }
 tower-http = { version = "0.4.1", features = ["cors", "trace", "compression-gzip", "auth"] }
 tracing = "0.1.37"
