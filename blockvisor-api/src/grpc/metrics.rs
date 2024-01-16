@@ -178,7 +178,7 @@ async fn node(
         .map(|(node, update)| update.as_metrics_update(node))
         .collect::<Result<_, _>>()?;
     let nodes = UpdateNodeMetrics::update_metrics(updates, &mut write).await?;
-    let nodes = api::Node::from_models(nodes, &mut write).await?;
+    let nodes = api::Node::from_models(nodes, &authz, &mut write).await?;
 
     let updated_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
     api::NodeMessage::updated_many(nodes, &updated_by)

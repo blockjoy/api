@@ -302,6 +302,7 @@ impl api::NodeMessage {
 mod tests {
     use uuid::Uuid;
 
+    use crate::auth::rbac::access::tests::view_authz;
     use crate::config::Context;
     use crate::models::{Command, CommandType};
 
@@ -319,11 +320,10 @@ mod tests {
     #[tokio::test]
     async fn test_send_command() {
         let (ctx, db) = Context::with_mocked().await.unwrap();
-
         let command = Command {
             id: Uuid::new_v4().into(),
             host_id: db.seed.host.id,
-            cmd: CommandType::CreateNode,
+            cmd: CommandType::DeleteNode,
             exit_message: None,
             created_at: chrono::Utc::now(),
             completed_at: None,
@@ -332,9 +332,8 @@ mod tests {
             retry_hint_seconds: None,
             exit_code: None,
         };
-        let mut conn = db.conn().await;
 
-        let command = api::Command::from_model(&command, &mut conn).await.unwrap();
+        let command = crate::grpc::command::delete_node(&command).unwrap();
         ctx.notifier.send(command).await.unwrap();
     }
 
@@ -366,10 +365,11 @@ mod tests {
         let (ctx, db) = Context::with_mocked().await.unwrap();
         let mut conn = db.conn().await;
 
+        let authz = view_authz(&ctx, db.seed.node.id, &mut conn).await;
         let node = db.seed.node.clone();
         let user = db.seed.user.clone();
 
-        let api_node = api::Node::from_model(node.clone(), &mut conn)
+        let api_node = api::Node::from_model(node.clone(), &authz, &mut conn)
             .await
             .unwrap();
         let resource = user_update(&user);

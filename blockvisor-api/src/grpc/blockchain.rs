@@ -11,7 +11,7 @@ use tracing::{error, warn};
 
 use crate::auth::rbac::{BlockchainAdminPerm, BlockchainPerm};
 use crate::auth::resource::NodeId;
-use crate::auth::Authorize;
+use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::blockchain::{
     Blockchain, BlockchainId, BlockchainNodeType, BlockchainNodeTypeId, BlockchainProperty,
@@ -46,16 +46,12 @@ pub enum Error {
     CommandGrpc(#[from] crate::grpc::command::Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
-    /// Missing blockchain id. This should not happen.
-    MissingId,
     /// Missing image identifier.
     MissingImageId,
     /// Missing `api::Blockchain` model output. This should not happen.
     MissingModel,
     /// Missing BlockchainVersionId in networks. This should not happen.
     MissingNetworksVersion,
-    /// Missing blockchain node type. This should not happen.
-    MissingNodeType,
     /// Blockchain node error: {0}
     Node(#[from] crate::models::node::Error),
     /// Unable to cast node count from i64 to u64: {0}
@@ -94,10 +90,8 @@ impl From<Error> for Status {
         error!("{err}");
         match err {
             Diesel(_)
-            | MissingId
             | MissingModel
             | MissingNetworksVersion
-            | MissingNodeType
             | NodeCount(_)
             | NodeCountActive(_)
             | NodeCountSyncing(_)
@@ -209,8 +203,9 @@ async fn get(
     }?;
 
     let id = req.id.parse().map_err(Error::ParseId)?;
-    let blockchain = Blockchain::by_id(id, &mut read).await?;
-    let mut networks = blockchain_networks([&blockchain], &read.ctx.storage, &mut read).await?;
+    let blockchain = Blockchain::by_id(id, &authz, &mut read).await?;
+    let mut networks =
+        blockchain_networks([&blockchain], &read.ctx.storage, &authz, &mut read).await?;
 
     let node_stats = if let Some(id) = req.org_id {
         let org_id = id.parse().map_err(Error::ParseOrgId)?;
@@ -221,7 +216,8 @@ async fn get(
     let node_stats = node_stats.map(|stats| stats.to_map_keep_last(|ns| (ns.blockchain_id, ns)));
 
     let blockchain =
-        api::Blockchain::from_model(blockchain, &mut networks, node_stats, &mut read).await?;
+        api::Blockchain::from_model(blockchain, &mut networks, node_stats, &authz, &mut read)
+            .await?;
 
     Ok(api::BlockchainServiceGetResponse {
         blockchain: Some(blockchain),
@@ -297,9 +293,10 @@ async fn list(
         Err(err) => Err(err),
     }?;
 
-    let blockchains = Blockchain::find_all(&mut read).await?;
+    let blockchains = Blockchain::find_all(&authz, &mut read).await?;
     let blockchain_refs = blockchains.iter().collect::<Vec<_>>();
-    let mut networks = blockchain_networks(blockchain_refs, &read.ctx.storage, &mut read).await?;
+    let mut networks =
+        blockchain_networks(blockchain_refs, &read.ctx.storage, &authz, &mut read).await?;
 
     let node_stats = if let Some(id) = req.org_id {
         let org_id = id.parse().map_err(Error::ParseOrgId)?;
@@ -310,7 +307,8 @@ async fn list(
     let node_stats = node_stats.map(|stats| stats.to_map_keep_last(|ns| (ns.blockchain_id, ns)));
 
     let blockchains =
-        api::Blockchain::from_models(blockchains, &mut networks, node_stats, &mut read).await?;
+        api::Blockchain::from_models(blockchains, &mut networks, node_stats, &authz, &mut read)
+            .await?;
 
     Ok(api::BlockchainServiceListResponse { blockchains })
 }
@@ -343,9 +341,7 @@ async fn add_node_type(
 
     let id = req.id.parse().map_err(Error::ParseId)?;
     let node_type = NodeType::from(req.node_type());
-    let node_types = BlockchainNodeType::by_blockchain_id(id, &mut write).await?;
-    let node_types: HashSet<_> = node_types.iter().map(|nt| nt.node_type).collect();
-    if node_types.contains(&node_type) {
+    if BlockchainNodeType::exists(id, node_type, &mut write).await? {
         return Err(Error::NodeTypeExists);
     }
 
@@ -367,17 +363,25 @@ async fn add_version(
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::BlockchainServiceAddVersionResponse, Error> {
-    write
+    let authz = write
         .auth_all(&meta, BlockchainAdminPerm::AddVersion)
         .await?;
 
     let id = req.id.parse().map_err(Error::ParseId)?;
-    let blockchain = Blockchain::by_id(id, &mut write).await?;
+    let blockchain = Blockchain::by_id(id, &authz, &mut write).await?;
     let node_type = NodeType::from(req.node_type());
     let node_version = NodeVersion::new(&req.version)?;
-    let new_version =
-        NewVersion::new(id, node_type, &node_version, req.description, &mut write).await?;
-    let version = new_version.create(&mut write).await?;
+    let version = NewVersion::new(
+        id,
+        node_type,
+        &node_version,
+        req.description,
+        &authz,
+        &mut write,
+    )
+    .await?
+    .create(&mut write)
+    .await?;
 
     let image = ImageId::new(&blockchain.name, node_type, node_version.clone());
     let (_, networks) = storage_networks(&write.ctx.storage, &image, version.id).await?;
@@ -462,6 +466,7 @@ fn upgrade_command(node_id: NodeId, command: &Command, image: ImageId) -> api::C
 async fn blockchain_networks<'b, B>(
     blockchains: B,
     storage: &Storage,
+    authz: &AuthZ,
     conn: &mut Conn<'_>,
 ) -> Result<HashMap<BlockchainVersionId, Vec<common::NetworkConfig>>, Error>
 where
@@ -470,21 +475,20 @@ where
     let chain_ids: HashSet<_> = blockchains.as_ref().iter().map(|b| b.id).collect();
     let chain_map = blockchains.as_ref().iter().to_map_keep_last(|b| (b.id, b));
 
-    let node_types = BlockchainNodeType::by_blockchain_ids(chain_ids.clone(), conn).await?;
+    let node_types = BlockchainNodeType::by_blockchain_ids(chain_ids.clone(), authz, conn).await?;
     let node_types = node_types.to_map_keep_last(|nt| (nt.id, nt));
 
     let versions = BlockchainVersion::by_blockchain_ids(chain_ids, conn).await?;
     let version_ids = versions
         .iter()
-        .map(|row| {
-            let blockchain = chain_map.get(&row.blockchain_id).ok_or(Error::MissingId)?;
-            let node_type = node_types
-                .get(&row.blockchain_node_type_id)
-                .ok_or(Error::MissingNodeType)?
-                .node_type;
-            let node_version = NodeVersion::new(&row.version)?;
-            let image = ImageId::new(&blockchain.name, node_type, node_version);
-            Ok((row.id, image))
+        .filter_map(|row| {
+            let blockchain = chain_map.get(&row.blockchain_id)?;
+            let node_type = node_types.get(&row.blockchain_node_type_id)?.node_type;
+            let image_result = NodeVersion::new(&row.version)
+                .map_err(Into::into)
+                .map(|version| ImageId::new(&blockchain.name, node_type, version))
+                .map(|image| (row.id, image));
+            Some(image_result)
         })
         .collect::<Result<Vec<_>, Error>>()?;
 
@@ -535,11 +539,12 @@ impl api::Blockchain {
         models: Vec<Blockchain>,
         networks: &mut HashMap<BlockchainVersionId, Vec<common::NetworkConfig>>,
         node_stats: Option<HashMap<BlockchainId, NodeStats>>,
+        authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         let ids: HashSet<_> = models.iter().map(|blockchain| blockchain.id).collect();
 
-        let node_types = BlockchainNodeType::by_blockchain_ids(ids.clone(), conn).await?;
+        let node_types = BlockchainNodeType::by_blockchain_ids(ids.clone(), authz, conn).await?;
         let mut node_types = node_types.to_map_keep_all(|nt| (nt.blockchain_id, nt));
 
         let versions = BlockchainVersion::by_blockchain_ids(ids.clone(), conn).await?;
@@ -574,6 +579,7 @@ impl api::Blockchain {
                     created_at: Some(NanosUtc::from(model.created_at).into()),
                     updated_at: Some(NanosUtc::from(model.updated_at).into()),
                     stats,
+                    visibility: api::BlockchainVisibility::from(model.visibility).into(),
                 })
             })
             .collect()
@@ -583,11 +589,13 @@ impl api::Blockchain {
         blockchain: Blockchain,
         networks: &mut HashMap<BlockchainVersionId, Vec<common::NetworkConfig>>,
         node_stats: Option<HashMap<BlockchainId, NodeStats>>,
+        authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
-        let mut blockchains = Self::from_models(vec![blockchain], networks, node_stats, conn)
-            .await?
-            .into_iter();
+        let mut blockchains =
+            Self::from_models(vec![blockchain], networks, node_stats, authz, conn)
+                .await?
+                .into_iter();
 
         match (blockchains.next(), blockchains.next()) {
             (Some(blockchain), None) => Ok(blockchain),
@@ -625,6 +633,7 @@ impl api::BlockchainNodeType {
             description: node_type.description,
             created_at: Some(NanosUtc::from(node_type.created_at).into()),
             updated_at: Some(NanosUtc::from(node_type.updated_at).into()),
+            visibility: api::BlockchainVisibility::from(node_type.visibility).into(),
         }
     }
 }

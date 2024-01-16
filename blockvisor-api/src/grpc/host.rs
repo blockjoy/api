@@ -326,13 +326,13 @@ async fn start(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceStartResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    write.auth(&meta, HostPerm::Start, id).await?;
+    let authz = write.auth(&meta, HostPerm::Start, id).await?;
 
     let host = Host::by_id(id, &mut write).await?;
     let command = NewCommand::host(&host, CommandType::RestartBVS)?
         .create(&mut write)
         .await?;
-    let message = api::Command::from_model(&command, &mut write).await?;
+    let message = api::Command::from_model(&command, &authz, &mut write).await?;
     write.mqtt(message);
 
     Ok(api::HostServiceStartResponse {})
@@ -344,13 +344,13 @@ async fn stop(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceStopResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    write.auth(&meta, HostPerm::Stop, id).await?;
+    let authz = write.auth(&meta, HostPerm::Stop, id).await?;
 
     let host = Host::by_id(id, &mut write).await?;
     let command = NewCommand::host(&host, CommandType::StopBVS)?
         .create(&mut write)
         .await?;
-    let message = api::Command::from_model(&command, &mut write).await?;
+    let message = api::Command::from_model(&command, &authz, &mut write).await?;
     write.mqtt(message);
 
     Ok(api::HostServiceStopResponse {})
@@ -362,13 +362,13 @@ async fn restart(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceRestartResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    write.auth(&meta, HostPerm::Restart, id).await?;
+    let authz = write.auth(&meta, HostPerm::Restart, id).await?;
 
     let host = Host::by_id(id, &mut write).await?;
     let command = NewCommand::host(&host, CommandType::RestartBVS)?
         .create(&mut write)
         .await?;
-    let message = api::Command::from_model(&command, &mut write).await?;
+    let message = api::Command::from_model(&command, &authz, &mut write).await?;
     write.mqtt(message);
 
     Ok(api::HostServiceRestartResponse {})
@@ -380,13 +380,13 @@ async fn regions(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceRegionsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    read.auth(&meta, HostPerm::Regions, org_id).await?;
+    let authz = read.auth(&meta, HostPerm::Regions, org_id).await?;
 
     let blockchain_id = req
         .blockchain_id
         .parse()
         .map_err(Error::ParseBlockchainId)?;
-    let blockchain = Blockchain::by_id(blockchain_id, &mut read).await?;
+    let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut read).await?;
 
     let node_type = req.node_type().into();
     let host_type = req.host_type().into_model();

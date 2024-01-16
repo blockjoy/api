@@ -9,7 +9,7 @@ use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 
 use blockvisor_api::auth::claims::{Claims, Expirable};
-use blockvisor_api::auth::rbac::{ApiKeyRole, Roles};
+use blockvisor_api::auth::rbac::{ApiKeyRole, Roles, ViewRole};
 use blockvisor_api::auth::resource::{HostId, ResourceEntry};
 use blockvisor_api::auth::token::jwt::Jwt;
 use blockvisor_api::auth::token::refresh::{Encoded, Refresh};
@@ -122,7 +122,11 @@ impl TestServer {
     }
 
     pub fn host_claims_for(&self, host_id: HostId) -> Claims {
-        let roles: Roles = [ApiKeyRole::Host, ApiKeyRole::Node].into();
+        let roles = Roles::Many(hashset! {
+            ApiKeyRole::Host.into(),
+            ApiKeyRole::Node.into(),
+            ViewRole::DeveloperPreview.into(),
+        });
         let resource = ResourceEntry::new_host(host_id).into();
         let expirable = Expirable::from_now(chrono::Duration::minutes(15));
         Claims::new(resource, expirable, roles.into())

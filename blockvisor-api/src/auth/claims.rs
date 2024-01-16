@@ -160,7 +160,7 @@ impl Claims {
         conn: &mut Conn<'_>,
     ) -> Result<Option<Granted>, Error> {
         match resource {
-            Resource::User(id) => self.ensure_user(id, conn).await,
+            Resource::User(id) => self.ensure_user(id).map(|()| None),
             Resource::Org(id) => self.ensure_org(id, conn).await,
             Resource::Host(id) => self.ensure_host(id, conn).await,
             Resource::Node(id) => self.ensure_node(id, conn).await,
@@ -168,17 +168,9 @@ impl Claims {
     }
 
     /// Ensure that `Claims` can access the target `UserId`.
-    ///
-    /// Returns any additional permissions granted during authorization.
-    pub async fn ensure_user(
-        &self,
-        user_id: UserId,
-        conn: &mut Conn<'_>,
-    ) -> Result<Option<Granted>, Error> {
+    pub fn ensure_user(&self, user_id: UserId) -> Result<(), Error> {
         match self.resource() {
-            Resource::User(id) if id == user_id => {
-                Ok(RbacUser::admin_perms(id, conn).await?.map(Granted))
-            }
+            Resource::User(id) if id == user_id => Ok(()),
             _ => Err(Error::EnsureUser),
         }
     }
@@ -245,15 +237,30 @@ impl Claims {
 pub struct Granted(HashSet<Perm>);
 
 impl Granted {
-    /// Returns all permissions granted based on `Access` claims.
+    /// All permissions granted for roles that don't depend on the org.
+    ///
+    /// Optionally accepts an input set of permissions already granted.
+    pub async fn all_orgs(
+        user_id: UserId,
+        granted: Option<Granted>,
+        conn: &mut Conn<'_>,
+    ) -> Result<Self, Error> {
+        let mut granted = granted.unwrap_or_default();
+        let perms = RbacUser::perms_for_non_org_roles(user_id, conn).await?;
+
+        granted.join(&perms);
+        Ok(granted)
+    }
+
+    /// All permissions granted based on `Access` claims.
     ///
     /// Optionally accepts an input set of permissions already granted.
     pub async fn from_access(
         access: &Access,
-        initial: Option<Granted>,
+        granted: Option<Granted>,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
-        let mut granted = initial.unwrap_or_default();
+        let mut granted = granted.unwrap_or_default();
 
         match access {
             Access::Perms(Perms::One(perm)) => granted.push(*perm),
@@ -268,11 +275,6 @@ impl Granted {
         }
 
         Ok(granted)
-    }
-
-    /// Returns permissions granted based on blockjoy admin role membership.
-    pub async fn from_admin(user_id: UserId, conn: &mut Conn<'_>) -> Result<Option<Self>, Error> {
-        Ok(RbacUser::admin_perms(user_id, conn).await?.map(Self))
     }
 
     pub async fn for_org(

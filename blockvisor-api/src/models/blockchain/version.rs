@@ -12,6 +12,7 @@ use thiserror::Error;
 use tonic::Status;
 use uuid::Uuid;
 
+use crate::auth::AuthZ;
 use crate::database::Conn;
 use crate::models::node::{NodeType, NodeVersion};
 use crate::models::schema::{blockchain_node_types, blockchain_versions};
@@ -121,6 +122,7 @@ impl NewVersion {
         node_type: NodeType,
         version: &NodeVersion,
         description: Option<String>,
+        authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
         match BlockchainVersion::find(blockchain_id, node_type, version, conn).await {
@@ -130,7 +132,7 @@ impl NewVersion {
         }?;
 
         let blockchain_node_type =
-            BlockchainNodeType::by_node_type(blockchain_id, node_type, conn).await?;
+            BlockchainNodeType::by_node_type(blockchain_id, node_type, authz, conn).await?;
         let blockchain_node_type_id = blockchain_node_type.id;
 
         Ok(NewVersion {

@@ -174,15 +174,24 @@ impl Auth {
         resources: Option<Resources>,
         conn: &mut Conn<'_>,
     ) -> Result<AuthZ, Error> {
-        let initial = if let Some(resources) = resources {
+        // first ensure that claims can access the requested resource
+        let granted = if let Some(resources) = resources {
             claims.ensure_resources(resources, conn).await?
-        } else if let Some(user_id) = claims.resource().user() {
-            Granted::from_admin(user_id, conn).await?
         } else {
             None
         };
 
-        let granted = Granted::from_access(&claims.access, initial, conn).await?;
+        // then grant permissions from the access claims
+        let granted = Granted::from_access(&claims.access, granted, conn).await?;
+
+        // then grant permissions for non-org roles
+        let granted = if let Some(user_id) = claims.resource().user() {
+            Granted::all_orgs(user_id, Some(granted), conn).await?
+        } else {
+            granted
+        };
+
+        // finally check that the requested permissions exist
         match perms {
             Perms::One(perm) => granted.ensure_perm(perm, &claims)?,
             Perms::Many(perms) => granted.ensure_perms(perms, &claims)?,

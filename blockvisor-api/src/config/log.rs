@@ -196,5 +196,7 @@ pub fn test_log(filter: &str) {
 
 #[cfg(any(test, feature = "integration-test"))]
 pub fn test_debug() {
-    test_log("debug,blockvisor_api::config::provider=info,tower_http=off");
+    test_log(
+        "debug,blockvisor_api::config::provider=info,h2=info,tokio_postgres=info,tower_http=off",
+    );
 }

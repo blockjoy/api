@@ -2,6 +2,7 @@
 
 use tracing::error;
 
+use crate::auth::AuthZ;
 use crate::database::WriteConn;
 use crate::grpc::api;
 use crate::models::blockchain::Blockchain;
@@ -15,9 +16,13 @@ type Result = std::result::Result<(), ()>;
 ///
 /// For now this is limited to creating a `node_logs` entry when `CreateNode`
 /// has succeeded, but this may expand over time.
-pub(super) async fn register(succeeded_cmd: &Command, write: &mut WriteConn<'_, '_>) {
+pub(super) async fn register(
+    succeeded_cmd: &Command,
+    authz: &AuthZ,
+    write: &mut WriteConn<'_, '_>,
+) {
     let _ = match succeeded_cmd.cmd {
-        CommandType::CreateNode => create_node_success(succeeded_cmd, write).await,
+        CommandType::CreateNode => create_node_success(succeeded_cmd, authz, write).await,
         CommandType::DeleteNode => delete_node_success(succeeded_cmd, write).await,
         _ => return,
     };
@@ -25,14 +30,18 @@ pub(super) async fn register(succeeded_cmd: &Command, write: &mut WriteConn<'_, 
 
 /// In case of a successful node deployment, we are expected to write `node_logs` entry to the
 /// database. The `event` we pass in is `Succeeded`. Afterwards, we will start the node.
-async fn create_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, '_>) -> Result {
+async fn create_node_success(
+    succeeded_cmd: &Command,
+    authz: &AuthZ,
+    write: &mut WriteConn<'_, '_>,
+) -> Result {
     let node_id = succeeded_cmd
         .node_id
         .ok_or_else(|| error!("`CreateNode` command has no node id!"))?;
     let node = Node::by_id(node_id, write)
         .await
         .map_err(|err| error!("Could not get node for node_id {node_id}: {err}"))?;
-    let blockchain = Blockchain::by_id(node.blockchain_id, write)
+    let blockchain = Blockchain::by_id(node.blockchain_id, authz, write)
         .await
         .map_err(|err| error!("Could not get blockchain for node {node_id}: {err}"))?;
 
@@ -52,7 +61,7 @@ async fn create_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, 
         .create(write)
         .await
         .map_err(|err| error!("Could not insert new command into database: {err}"))?;
-    let start_cmd = api::Command::from_model(&start_notif, write)
+    let start_cmd = api::Command::from_model(&start_notif, authz, write)
         .await
         .map_err(|err| error!("Could not serialize new command to gRPC message: {err}"))?;
     write.mqtt(start_cmd);

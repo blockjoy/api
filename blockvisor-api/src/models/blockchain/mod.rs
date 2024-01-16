@@ -15,6 +15,7 @@ use diesel::dsl::{count, not};
 use diesel::prelude::*;
 use diesel::result::Error::NotFound;
 use diesel_async::RunQueryDsl;
+use diesel_derive_enum::DbEnum;
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
@@ -25,7 +26,9 @@ use crate::auth::rbac::{BlockchainAdminPerm, BlockchainPerm};
 use crate::auth::resource::OrgId;
 use crate::auth::AuthZ;
 use crate::database::Conn;
+use crate::grpc::api;
 use crate::models::node::{ContainerStatus, NodeStatus, SyncStatus};
+use crate::models::schema::sql_types;
 
 use super::schema::{blockchains, nodes};
 use super::Node;
@@ -78,19 +81,26 @@ pub struct Blockchain {
     pub version: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub visibility: Visibility,
 }
 
 impl Blockchain {
-    pub async fn find_all(conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn find_all(authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         blockchains::table
+            .filter(blockchains::visibility.eq_any(Visibility::from(authz).iter()))
             .order_by(super::lower(blockchains::name))
             .get_results(conn)
             .await
             .map_err(Error::FindAll)
     }
 
-    pub async fn by_id(id: BlockchainId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(
+        id: BlockchainId,
+        authz: &AuthZ,
+        conn: &mut Conn<'_>,
+    ) -> Result<Self, Error> {
         blockchains::table
+            .filter(blockchains::visibility.eq_any(Visibility::from(authz).iter()))
             .find(id)
             .get_result(conn)
             .await
@@ -99,19 +109,26 @@ impl Blockchain {
 
     pub async fn by_ids(
         ids: HashSet<BlockchainId>,
+        authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         blockchains::table
             .filter(blockchains::id.eq_any(ids.iter()))
+            .filter(blockchains::visibility.eq_any(Visibility::from(authz).iter()))
             .order_by(super::lower(blockchains::name))
             .get_results(conn)
             .await
             .map_err(|err| Error::FindIds(ids, err))
     }
 
-    pub async fn by_name(blockchain: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_name(
+        blockchain: &str,
+        authz: &AuthZ,
+        conn: &mut Conn<'_>,
+    ) -> Result<Self, Error> {
         blockchains::table
             .filter(super::lower(blockchains::name).eq(super::lower(blockchain)))
+            .filter(blockchains::visibility.eq_any(Visibility::from(authz).iter()))
             .first(conn)
             .await
             .map_err(|err| Error::FindByName(blockchain.to_lowercase(), err))
@@ -198,5 +215,50 @@ impl NodeStats {
             .await
             .map(Some)
             .map_err(|err| Error::NodeStatsForOrg(org_id, err))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
+#[ExistingTypePath = "sql_types::EnumBlockchainVisibility"]
+pub enum Visibility {
+    Private,
+    Public,
+    Development,
+}
+
+impl Visibility {
+    fn from(authz: &AuthZ) -> Vec<Self> {
+        let mut visibility = vec![];
+        authz
+            .has_perm(BlockchainAdminPerm::ViewPrivate)
+            .then(|| visibility.push(Visibility::Private));
+        authz
+            .has_perm(BlockchainPerm::ViewPublic)
+            .then(|| visibility.push(Visibility::Public));
+        authz
+            .has_perm(BlockchainPerm::ViewDevelopment)
+            .then(|| visibility.push(Visibility::Development));
+        visibility
+    }
+}
+
+impl From<api::BlockchainVisibility> for Option<Visibility> {
+    fn from(visibility: api::BlockchainVisibility) -> Self {
+        match visibility {
+            api::BlockchainVisibility::Unspecified => None,
+            api::BlockchainVisibility::Private => Some(Visibility::Private),
+            api::BlockchainVisibility::Public => Some(Visibility::Public),
+            api::BlockchainVisibility::Development => Some(Visibility::Development),
+        }
+    }
+}
+
+impl From<Visibility> for api::BlockchainVisibility {
+    fn from(visibility: Visibility) -> Self {
+        match visibility {
+            Visibility::Private => api::BlockchainVisibility::Private,
+            Visibility::Public => api::BlockchainVisibility::Public,
+            Visibility::Development => api::BlockchainVisibility::Development,
+        }
     }
 }

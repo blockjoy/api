@@ -40,6 +40,10 @@ define_roles! {
         Owner,
         Personal,
     }
+
+    View => {
+        DeveloperPreview,
+    }
 }
 
 define_perms! {
@@ -75,6 +79,8 @@ define_perms! {
         GetRequirements,
         List,
         ListImageVersions,
+        ViewDevelopment,
+        ViewPublic,
     }
 
     BlockchainAdmin => {
@@ -82,6 +88,7 @@ define_perms! {
         AddVersion,
         Get,
         List,
+        ViewPrivate,
     }
 
     BlockchainArchive => {

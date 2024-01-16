@@ -124,14 +124,14 @@ async fn update(
 ) -> Result<api::CommandServiceUpdateResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
     let command = Command::by_id(id, &mut write).await?;
-    write
+    let authz = write
         .auth(&meta, CommandPerm::Update, command.host_id)
         .await?;
 
     let updated = UpdateCommand::from_request(req)?.update(&mut write).await?;
     match updated.exit_code {
-        Some(ExitCode::Ok) => success::register(&updated, &mut write).await,
-        Some(_) => recover::recover(&updated, &mut write)
+        Some(ExitCode::Ok) => success::register(&updated, &authz, &mut write).await,
+        Some(_) => recover::recover(&updated, &authz, &mut write)
             .await
             .unwrap_or_default()
             .into_iter()
@@ -139,7 +139,7 @@ async fn update(
         None => (),
     };
 
-    let cmd = api::Command::from_model(&updated, &mut write).await?;
+    let cmd = api::Command::from_model(&updated, &authz, &mut write).await?;
     write.mqtt(cmd.clone());
 
     Ok(api::CommandServiceUpdateResponse { command: Some(cmd) })
@@ -163,7 +163,7 @@ async fn ack(
     }
 
     if let Some(node) = command.node(&mut write).await? {
-        ack_node_transition(node, &command, authz, &mut write).await?;
+        ack_node_transition(node, &command, &authz, &mut write).await?;
     }
 
     Ok(api::CommandServiceAckResponse {})
@@ -175,14 +175,13 @@ async fn pending(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::CommandServicePendingResponse, Error> {
     let host_id = req.host_id.parse().map_err(Error::ParseHostId)?;
-
-    read.auth(&meta, CommandPerm::Pending, host_id).await?;
+    let authz = read.auth(&meta, CommandPerm::Pending, host_id).await?;
     Host::by_id(host_id, &mut read).await?;
 
     let pending = Command::find_pending_by_host(host_id, &mut read).await?;
     let mut commands = Vec::with_capacity(pending.len());
     for command in pending {
-        commands.push(api::Command::from_model(&command, &mut read).await?);
+        commands.push(api::Command::from_model(&command, &authz, &mut read).await?);
     }
 
     Ok(api::CommandServicePendingResponse { commands })
@@ -192,7 +191,7 @@ async fn pending(
 async fn ack_node_transition(
     mut node: Node,
     command: &Command,
-    authz: AuthZ,
+    authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
 ) -> Result<(), Error> {
     let next_status = match (command.cmd, node.node_status) {
@@ -220,10 +219,10 @@ async fn ack_node_transition(
     node.node_status = next_status;
     let node = node.update(write).await?;
 
-    let node = api::Node::from_model(node, write)
+    let node = api::Node::from_model(node, authz, write)
         .await
         .map_err(|err| Error::GrpcHost(Box::new(err)))?;
-    let updated_by = common::EntityUpdate::from_resource(&authz, write).await?;
+    let updated_by = common::EntityUpdate::from_resource(authz, write).await?;
     let msg = api::NodeMessage::updated(node, updated_by);
     write.mqtt(msg);
 
@@ -231,14 +230,18 @@ async fn ack_node_transition(
 }
 
 impl api::Command {
-    pub async fn from_model(model: &Command, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn from_model(
+        model: &Command,
+        authz: &AuthZ,
+        conn: &mut Conn<'_>,
+    ) -> Result<Self, Error> {
         use crate::models::command::CommandType::*;
 
         match model.cmd {
-            CreateNode => create_node(model, conn).await,
+            CreateNode => create_node(model, authz, conn).await,
             GetNodeVersion => get_node_version(model),
             UpdateNode => update_node(model, conn).await,
-            UpgradeNode => upgrade_node(model, conn).await,
+            UpgradeNode => upgrade_node(model, authz, conn).await,
             RestartNode => restart_node(model),
             ShutdownNode | KillNode => stop_node(model),
             DeleteNode => delete_node(model),
@@ -303,11 +306,15 @@ fn node_command(
     })
 }
 
-async fn create_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+async fn create_node(
+    command: &Command,
+    authz: &AuthZ,
+    conn: &mut Conn<'_>,
+) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
     let node = Node::by_id(node_id, conn).await?;
 
-    let blockchain = Blockchain::by_id(node.blockchain_id, conn).await?;
+    let blockchain = Blockchain::by_id(node.blockchain_id, authz, conn).await?;
     let version =
         BlockchainVersion::find(blockchain.id, node.node_type, &node.version, conn).await?;
 
@@ -362,10 +369,14 @@ async fn update_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Comm
     node_command(command, node_id, node_cmd)
 }
 
-async fn upgrade_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+async fn upgrade_node(
+    command: &Command,
+    authz: &AuthZ,
+    conn: &mut Conn<'_>,
+) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
     let node = Node::by_id(node_id, conn).await?;
-    let blockchain = Blockchain::by_id(node.blockchain_id, conn).await?;
+    let blockchain = Blockchain::by_id(node.blockchain_id, authz, conn).await?;
 
     let node_cmd = api::node_command::Command::Upgrade(api::NodeUpgrade {
         image: Some(common::ImageIdentifier {
@@ -389,7 +400,7 @@ fn stop_node(command: &Command) -> Result<api::Command, Error> {
     node_command(command, node_id, node_cmd)
 }
 
-fn delete_node(command: &Command) -> Result<api::Command, Error> {
+pub fn delete_node(command: &Command) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
     let node_cmd = api::node_command::Command::Delete(api::NodeDelete {});
     node_command(command, node_id, node_cmd)

@@ -35,6 +35,7 @@ use std::sync::Arc;
 
 use axum::Extension;
 use derive_more::Deref;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::server::Router;
 use tonic::transport::Server;
 use tower::layer::util::{Identity, Stack};
@@ -98,22 +99,80 @@ pub fn server(context: &Arc<Context>) -> Router<CorsServer> {
     Server::builder()
         .layer(middleware)
         .concurrency_limit_per_connection(context.config.grpc.request_concurrency_limit)
-        .add_service(ApiKeyServiceServer::new(grpc.clone()))
-        .add_service(AuthServiceServer::new(grpc.clone()))
-        .add_service(BlockchainServiceServer::new(grpc.clone()))
+        .add_service(
+            ApiKeyServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            AuthServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            BlockchainServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
         .add_service(
             BlockchainArchiveServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip)
                 .max_decoding_message_size(MAX_ARCHIVE_MESSAGE_SIZE),
         )
-        .add_service(BundleServiceServer::new(grpc.clone()))
-        .add_service(CommandServiceServer::new(grpc.clone()))
-        .add_service(DiscoveryServiceServer::new(grpc.clone()))
-        .add_service(HostServiceServer::new(grpc.clone()))
-        .add_service(InvitationServiceServer::new(grpc.clone()))
-        .add_service(KernelServiceServer::new(grpc.clone()))
-        .add_service(MetricsServiceServer::new(grpc.clone()))
-        .add_service(NodeServiceServer::new(grpc.clone()))
-        .add_service(OrgServiceServer::new(grpc.clone()))
-        .add_service(SubscriptionServiceServer::new(grpc.clone()))
-        .add_service(UserServiceServer::new(grpc))
+        .add_service(
+            BundleServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            CommandServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            DiscoveryServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            HostServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            InvitationServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            KernelServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            MetricsServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            NodeServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            OrgServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            SubscriptionServiceServer::new(grpc.clone())
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
+        .add_service(
+            UserServiceServer::new(grpc)
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
+        )
 }

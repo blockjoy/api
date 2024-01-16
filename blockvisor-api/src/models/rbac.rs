@@ -13,6 +13,7 @@ use tonic::Status;
 
 use crate::auth::rbac::BlockjoyRole;
 use crate::auth::rbac::OrgRole;
+use crate::auth::rbac::ViewRole;
 use crate::auth::rbac::{Perm, Role};
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
@@ -35,8 +36,8 @@ pub enum Error {
     FindPermsForRoles(diesel::result::Error),
     /// Failed to find user roles for org ids `{0:?}`: `{1}`
     FindUserRolesForOrgIds(HashSet<OrgId>, diesel::result::Error),
-    /// Failed to check if User `{0}` is a blockjoy admin: {1}
-    IsBlockjoyAdmin(UserId, diesel::result::Error),
+    /// Failed to check if User `{0}` has Role `{1}`: {2}
+    HasRole(UserId, Role, diesel::result::Error),
     /// Failed to link Role `{0}` to Perm `{1}`: {2}
     LinkRolePerm(Role, Perm, diesel::result::Error),
     /// Failed to link User `{0}` and Org `{1}` to Role `{2}`: {3}
@@ -263,7 +264,7 @@ impl RbacPerm {
 
     /// Find all role permissions for a user and org.
     ///
-    /// Also includes admin perms if the user is a blockjoy admin.
+    /// Also includes non org-specific role permissions.
     pub async fn for_org(
         user_id: UserId,
         org_id: OrgId,
@@ -272,10 +273,7 @@ impl RbacPerm {
         let roles = RbacUser::org_roles(user_id, org_id, conn).await?;
         let mut perms = RbacPerm::for_roles(&roles, conn).await?;
 
-        if let Some(admin) = RbacUser::admin_perms(user_id, conn).await? {
-            perms.extend(admin);
-        }
-
+        perms.extend(RbacUser::perms_for_non_org_roles(user_id, conn).await?);
         Ok(perms)
     }
 }
@@ -316,29 +314,42 @@ impl RbacUser {
             .map_err(|err| Error::FindOrgOwners(org_id, err))
     }
 
-    /// Predicate to determine whether the user is a blockjoy admin.
-    ///
-    /// Note that there is no `org_id` filter as the role applies to all orgs.
-    pub async fn is_blockjoy_admin(user_id: UserId, conn: &mut Conn<'_>) -> Result<bool, Error> {
+    /// The set of user permissions for roles that are not org-specific.
+    pub async fn perms_for_non_org_roles(
+        user_id: UserId,
+        conn: &mut Conn<'_>,
+    ) -> Result<HashSet<Perm>, Error> {
+        let mut perms = hashset! {};
+
+        if Self::has_non_org_role(user_id, BlockjoyRole::Admin, conn).await? {
+            perms.extend(&RbacPerm::for_role(BlockjoyRole::Admin, conn).await?);
+        }
+
+        if Self::has_non_org_role(user_id, ViewRole::DeveloperPreview, conn).await? {
+            perms.extend(&RbacPerm::for_role(ViewRole::DeveloperPreview, conn).await?);
+        }
+
+        Ok(perms)
+    }
+
+    /// Predicate to determine whether the user has some non org-specific role.
+    pub async fn has_non_org_role<R>(
+        user_id: UserId,
+        role: R,
+        conn: &mut Conn<'_>,
+    ) -> Result<bool, Error>
+    where
+        R: Into<Role> + Send,
+    {
+        let role = role.into();
         let query = user_roles::table
             .filter(user_roles::user_id.eq(user_id))
-            .filter(user_roles::role.eq(Role::from(BlockjoyRole::Admin).to_string()));
+            .filter(user_roles::role.eq(role.to_string()));
 
         diesel::select(dsl::exists(query))
             .get_result(conn)
             .await
-            .map_err(|err| Error::IsBlockjoyAdmin(user_id, err))
-    }
-
-    pub async fn admin_perms(
-        user_id: UserId,
-        conn: &mut Conn<'_>,
-    ) -> Result<Option<HashSet<Perm>>, Error> {
-        if Self::is_blockjoy_admin(user_id, conn).await? {
-            Ok(Some(RbacPerm::for_role(BlockjoyRole::Admin, conn).await?))
-        } else {
-            Ok(None)
-        }
+            .map_err(|err| Error::HasRole(user_id, role, err))
     }
 
     pub async fn link_role<R>(

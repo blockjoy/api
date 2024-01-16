@@ -47,11 +47,15 @@ async fn responds_not_found_for_get_deleted() {
 #[tokio::test]
 async fn can_list_blockchains() {
     let test = TestServer::new().await;
-    let org_id = test.org().await.id.to_string();
-    let req = api::BlockchainServiceListRequest {
-        org_id: Some(org_id),
-    };
-    test.send_admin(Service::list, req).await.unwrap();
+
+    let req = api::BlockchainServiceListRequest { org_id: None };
+    let resp = test.send_member(Service::list, req).await.unwrap();
+    assert_eq!(resp.blockchains.len(), 0);
+
+    let req = api::BlockchainServiceListRequest { org_id: None };
+    let resp = test.send_admin(Service::list, req).await.unwrap();
+    assert_eq!(resp.blockchains.len(), 1);
+    assert_eq!(resp.blockchains[0].node_types.len(), 1);
 }
 
 #[tokio::test]

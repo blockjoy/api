@@ -6,6 +6,10 @@ pub mod sql_types {
     pub struct BlockchainPropertyUiType;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_blockchain_visibility"))]
+    pub struct EnumBlockchainVisibility;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_command_exit_code"))]
     pub struct EnumCommandExitCode;
 
@@ -86,6 +90,7 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::EnumNodeType;
+    use super::sql_types::EnumBlockchainVisibility;
 
     blockchain_node_types (id) {
         id -> Uuid,
@@ -94,6 +99,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         node_type -> EnumNodeType,
+        visibility -> EnumBlockchainVisibility,
     }
 }
 
@@ -128,6 +134,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::EnumBlockchainVisibility;
+
     blockchains (id) {
         id -> Uuid,
         name -> Text,
@@ -137,6 +146,7 @@ diesel::table! {
         version -> Nullable<Text>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        visibility -> EnumBlockchainVisibility,
     }
 }
 

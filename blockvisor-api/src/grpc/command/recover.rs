@@ -5,6 +5,7 @@ use thiserror::Error;
 use tonic::Status;
 use tracing::error;
 
+use crate::auth::AuthZ;
 use crate::database::WriteConn;
 use crate::grpc::api;
 use crate::models::command::NewCommand;
@@ -57,10 +58,11 @@ impl From<Error> for Status {
 /// ignore and continue.
 pub(super) async fn recover(
     failed_cmd: &Command,
+    authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
 ) -> Result<Vec<api::Command>, Error> {
     if failed_cmd.cmd == CommandType::CreateNode {
-        recover_created(failed_cmd, write).await
+        recover_created(failed_cmd, authz, write).await
     } else {
         Ok(vec![])
     }
@@ -80,13 +82,14 @@ pub(super) async fn recover(
 ///    MQTT message to the front end.
 async fn recover_created(
     failed_cmd: &Command,
+    authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
 ) -> Result<Vec<api::Command>, Error> {
     let mut vec = vec![];
 
     let node_id = failed_cmd.node_id.ok_or(Error::CreateNodeId)?;
     let mut node = Node::by_id(node_id, write).await?;
-    let blockchain = Blockchain::by_id(node.blockchain_id, write).await?;
+    let blockchain = Blockchain::by_id(node.blockchain_id, authz, write).await?;
 
     // 1. We make a note in the node_logs table that creating our node failed. This may
     //    be unexpected, but we abort here when we fail to create that log. This is because the logs
@@ -112,7 +115,7 @@ async fn recover_created(
         .await
         .map_err(Error::UnassignIp)?;
     // 2. We now find the host that is next in line, and assign our node to that host.
-    let Ok(host) = node.find_host(write).await else {
+    let Ok(host) = node.find_host(authz, write).await else {
         // We were unable to find a new host. This may happen because the system is out of resources
         // or because we have retried to many times. Either way we have to log that this retry was
         // canceled.
@@ -144,7 +147,7 @@ async fn recover_created(
         .create(write)
         .await
     {
-        let result = api::Command::from_model(&cmd, write).await;
+        let result = api::Command::from_model(&cmd, authz, write).await;
         result.map_or_else(|_| {
             error!("Could not convert node create command to gRPC repr while recovering. Command: {:?}", cmd);
         }, |command| vec.push(command));
@@ -157,7 +160,7 @@ async fn recover_created(
         .create(write)
         .await
     {
-        let result = api::Command::from_model(&cmd, write).await;
+        let result = api::Command::from_model(&cmd, authz, write).await;
         result.map_or_else(|_| {
             error!("Could not convert node start command to gRPC repr while recovering. Command {:?}", cmd);
         }, |command| vec.push(command));

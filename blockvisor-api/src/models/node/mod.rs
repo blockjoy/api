@@ -38,6 +38,7 @@ use tracing::warn;
 use crate::auth::resource::{
     HostId, NodeId, OrgId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
 };
+use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
 use crate::models::schema::hosts;
 use crate::storage::image::ImageId;
@@ -281,8 +282,12 @@ impl Node {
     }
 
     /// Finds the next possible host for this node to be tried on.
-    pub async fn find_host(&self, write: &mut WriteConn<'_, '_>) -> Result<Host, Error> {
-        let chain = Blockchain::by_id(self.blockchain_id, write).await?;
+    pub async fn find_host(
+        &self,
+        authz: &AuthZ,
+        write: &mut WriteConn<'_, '_>,
+    ) -> Result<Host, Error> {
+        let chain = Blockchain::by_id(self.blockchain_id, authz, write).await?;
 
         let image = ImageId::new(chain.name, self.node_type, self.version.clone());
         let meta = write.ctx.storage.rhai_metadata(&image).await?;
@@ -593,6 +598,7 @@ impl NewNode {
     pub async fn create(
         self,
         host: Option<Host>,
+        authz: &AuthZ,
         mut write: &mut WriteConn<'_, '_>,
     ) -> Result<Node, Error> {
         let host = if let Some(host) = host {
@@ -602,7 +608,7 @@ impl NewNode {
                 .scheduler(write)
                 .await?
                 .ok_or(Error::NoHostOrScheduler)?;
-            self.find_host(scheduler, write).await?
+            self.find_host(scheduler, authz, write).await?
         };
 
         let ip_gateway = host.ip_gateway.ip().to_string();
@@ -611,7 +617,7 @@ impl NewNode {
             .map_err(Error::NextHostIp)?;
         node_id.assign(write).await.map_err(Error::AssignIpAddr)?;
 
-        let blockchain = Blockchain::by_id(self.blockchain_id, write).await?;
+        let blockchain = Blockchain::by_id(self.blockchain_id, authz, write).await?;
         let dns_record = write.ctx.dns.create(&self.name, node_id.ip()).await?;
 
         let image = ImageId::new(blockchain.name, self.node_type, self.version.clone());
@@ -642,9 +648,10 @@ impl NewNode {
     pub async fn find_host(
         &self,
         scheduler: NodeScheduler,
+        authz: &AuthZ,
         write: &mut WriteConn<'_, '_>,
     ) -> Result<Host, Error> {
-        let chain = Blockchain::by_id(self.blockchain_id, write).await?;
+        let chain = Blockchain::by_id(self.blockchain_id, authz, write).await?;
 
         let image = ImageId::new(chain.name, self.node_type, self.version.clone());
         let metadata = write.ctx.storage.rhai_metadata(&image).await?;
@@ -749,6 +756,7 @@ mod tests {
     use tokio::sync::mpsc;
     use uuid::Uuid;
 
+    use crate::auth::rbac::access::tests::view_authz;
     use crate::config::Context;
 
     use super::*;
@@ -798,9 +806,10 @@ mod tests {
             mqtt_tx,
         };
 
+        let authz = view_authz(&ctx, db.seed.node.id, &mut write).await;
         let host = db.seed.host.clone();
         let host_id = db.seed.host.id;
-        req.create(Some(host), &mut write).await.unwrap();
+        req.create(Some(host), &authz, &mut write).await.unwrap();
 
         let filter = NodeFilter {
             status: vec![NodeStatus::Ingesting],

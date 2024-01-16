@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
 use derive_more::{Deref, Display, From, FromStr};
+use diesel::dsl;
 use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
@@ -12,11 +13,12 @@ use thiserror::Error;
 use tonic::Status;
 use uuid::Uuid;
 
+use crate::auth::AuthZ;
 use crate::database::Conn;
 use crate::models::schema::blockchain_node_types;
 use crate::models::NodeType;
 
-use super::BlockchainId;
+use super::{BlockchainId, Visibility};
 
 #[derive(Debug, DisplayDoc, Error)]
 pub enum Error {
@@ -30,6 +32,8 @@ pub enum Error {
     FindByIds(HashSet<BlockchainId>, diesel::result::Error),
     /// Failed to find blockchain node type by id `{0}` and node_type `{1}`: {2}
     FindByNodeType(BlockchainId, NodeType, diesel::result::Error),
+    /// Failed to check if node_type `{1}` exists for blockchain id `{0}`: {2}
+    NodeTypeExists(BlockchainId, NodeType, diesel::result::Error),
 }
 
 impl From<Error> for Status {
@@ -60,15 +64,18 @@ pub struct BlockchainNodeType {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub node_type: NodeType,
+    pub visibility: Visibility,
 }
 
 impl BlockchainNodeType {
     pub async fn by_blockchain_id(
         blockchain_id: BlockchainId,
+        authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         blockchain_node_types::table
             .filter(blockchain_node_types::blockchain_id.eq(blockchain_id))
+            .filter(blockchain_node_types::visibility.eq_any(Visibility::from(authz).iter()))
             .get_results(conn)
             .await
             .map_err(|err| Error::FindById(blockchain_id, err))
@@ -76,10 +83,12 @@ impl BlockchainNodeType {
 
     pub async fn by_blockchain_ids(
         blockchain_ids: HashSet<BlockchainId>,
+        authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         blockchain_node_types::table
             .filter(blockchain_node_types::blockchain_id.eq_any(blockchain_ids.iter()))
+            .filter(blockchain_node_types::visibility.eq_any(Visibility::from(authz).iter()))
             .get_results(conn)
             .await
             .map_err(|err| Error::FindByIds(blockchain_ids, err))
@@ -88,22 +97,31 @@ impl BlockchainNodeType {
     pub async fn by_node_type(
         blockchain_id: BlockchainId,
         node_type: NodeType,
+        authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
         blockchain_node_types::table
             .filter(blockchain_node_types::blockchain_id.eq(blockchain_id))
             .filter(blockchain_node_types::node_type.eq(node_type))
+            .filter(blockchain_node_types::visibility.eq_any(Visibility::from(authz).iter()))
             .get_result(conn)
             .await
             .map_err(|err| Error::FindByNodeType(blockchain_id, node_type, err))
     }
 
-    pub async fn node_types(
+    pub async fn exists(
         blockchain_id: BlockchainId,
+        node_type: NodeType,
         conn: &mut Conn<'_>,
-    ) -> Result<HashSet<NodeType>, Error> {
-        let rows = Self::by_blockchain_id(blockchain_id, conn).await?;
-        Ok(rows.into_iter().map(|row| row.node_type).collect())
+    ) -> Result<bool, Error> {
+        let query = blockchain_node_types::table
+            .filter(blockchain_node_types::blockchain_id.eq(blockchain_id))
+            .filter(blockchain_node_types::node_type.eq(node_type));
+
+        diesel::select(dsl::exists(query))
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::NodeTypeExists(blockchain_id, node_type, err))
     }
 }
 
