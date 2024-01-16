@@ -387,7 +387,6 @@ async fn update_config(
 }
 
 async fn update_status(
-    grpc: &Grpc,
     req: api::NodeServiceUpdateStatusRequest,
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
@@ -395,7 +394,7 @@ async fn update_status(
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
     if Node::by_id(node_id, &mut write).await.is_err() {
         let token = (&meta).try_into()?;
-        let claims = grpc.auth.claims(&token, &mut write).await?;
+        let claims = write.ctx.auth.claims(&token, &mut write).await?;
         return Err(Error::UpdateStatusMissingNode(
             node_id,
             claims.resource_entry.resource_type,
