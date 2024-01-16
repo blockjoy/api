@@ -37,6 +37,8 @@ pub enum Error {
     AllowIps(serde_json::Error),
     /// Auth check failed: {0}
     Auth(#[from] crate::auth::Error),
+    /// Auth token parsing failed: {0}
+    AuthToken(#[from] crate::auth::token::Error),
     /// Node blockchain error: {0}
     Blockchain(#[from] crate::models::blockchain::Error),
     /// Node blockchain property error: {0}
@@ -140,6 +142,7 @@ impl From<Error> for Status {
             UnknownSortField => Status::invalid_argument("sort.field"),
             UpdateStatusMissingNode(_, _, _) => Status::not_found("No such node"),
             Auth(err) => err.into(),
+            AuthToken(err) => err.into(),
             Blockchain(err) => err.into(),
             BlockchainProperty(err) => err.into(),
             BlockchainVersion(err) => err.into(),
@@ -199,7 +202,7 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceUpdateStatusRequest>,
     ) -> Result<Response<api::NodeServiceUpdateStatusResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_status(req, meta, write).scope_boxed())
+        self.write(|write| update_status(self, req, meta, write).scope_boxed())
             .await
     }
 
@@ -381,18 +384,19 @@ async fn update_config(
 }
 
 async fn update_status(
+    grpc: &Grpc,
     req: api::NodeServiceUpdateStatusRequest,
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateStatusResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    if let Err(e) = Node::by_id(node_id, &mut write).await {
-        let token: RequestToken = meta.try_into().map_err(Error::ParseRequestToken)?;
-        let claims = todo!();
+    if Node::by_id(node_id, &mut write).await.is_err() {
+        let token = (&meta).try_into()?;
+        let claims = grpc.auth.claims(&token, &mut write).await?;
         return Err(Error::UpdateStatusMissingNode(
             node_id,
-            claims.resource,
-            claims.resource_id,
+            claims.resource_entry.resource_type,
+            claims.resource_entry.resource_id,
         ));
     }
 

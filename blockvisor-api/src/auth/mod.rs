@@ -153,15 +153,18 @@ impl Auth {
         resources: Option<Resources>,
         conn: &mut Conn<'_>,
     ) -> Result<AuthZ, Error> {
-        let claims = match token {
+        let claims = self.claims(token, conn).await?;
+        self.authorize_claims(claims, perms, resources, conn).await
+    }
+
+    pub async fn claims(&self, token: &RequestToken, conn: &mut Conn<'_>) -> Result<Claims, Error> {
+        match token {
             RequestToken::Bearer(token) => self.cipher.jwt.decode(token).map_err(Error::DecodeJwt),
             RequestToken::ApiKey(token) => Validated::from_token(token, conn)
                 .await
                 .map_err(Error::ValidateApiKey)
                 .map(|v| v.claims(self.token_expires)),
-        }?;
-
-        self.authorize_claims(claims, perms, resources, conn).await
+        }
     }
 
     pub async fn authorize_claims(
