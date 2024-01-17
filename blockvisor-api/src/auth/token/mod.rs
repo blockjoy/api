@@ -35,9 +35,9 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             AuthHeaderPrefix | ParseAuthHeader(_) | ParseKeyId(_) | ParseSecret(_) => {
-                Status::permission_denied("Bad auth header.")
+                Status::unauthenticated("Bad auth header.")
             }
-            MissingAuthHeader => Status::permission_denied("Missing auth header."),
+            MissingAuthHeader => Status::unauthenticated("Missing auth header."),
         }
     }
 }

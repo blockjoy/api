@@ -53,7 +53,7 @@ impl PartialEq for ApiErrors {
 
 #[derive(Debug, Eq, Serialize, Deserialize)]
 pub struct ApiError {
-    pub code: u16,
+    pub code: u32,
     pub message: String,
     #[serde(flatten)]
     pub other: HashMap<String, serde_json::Value>,

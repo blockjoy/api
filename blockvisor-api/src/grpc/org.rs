@@ -225,7 +225,9 @@ async fn update(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceUpdateResponse, Error> {
     let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
-    let authz = write.auth(&meta, OrgPerm::Update, org_id).await?;
+    let authz = write
+        .auth_or_all(&meta, OrgAdminPerm::Update, OrgPerm::Update, org_id)
+        .await?;
 
     let update = UpdateOrg {
         id: org_id,

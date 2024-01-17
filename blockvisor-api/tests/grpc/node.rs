@@ -165,7 +165,7 @@ async fn responds_ok_with_valid_data_for_create_schedule() {
         allow_ips: vec![],
         deny_ips: vec![],
     };
-    test.send_admin(Service::create, req).await.unwrap();
+    test.send_root(Service::create, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -191,7 +191,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         allow_ips: vec![],
         deny_ips: vec![],
     };
-    let status = test.send_admin(Service::create, req).await.unwrap_err();
+    let status = test.send_root(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");
     validate_command(&test).await;
 }

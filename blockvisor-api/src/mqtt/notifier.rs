@@ -137,6 +137,7 @@ impl<'u> TryFrom<api::HostStatus> for UpdateHost<'u> {
             ip_range_to: None,
             ip_gateway: None,
             region_id: None,
+            managed_by: None,
         })
     }
 }
@@ -152,7 +153,7 @@ mod tests {
     #[tokio::test]
     async fn can_subscribe_with_valid_credentials() {
         let context = Context::from_default_toml().await.unwrap();
-        let options = context.config.mqtt.options();
+        let options = context.config.mqtt.options().unwrap();
 
         let result = Notifier::new(options, context.pool.clone()).await;
         assert!(result.is_ok());
@@ -167,7 +168,7 @@ mod tests {
         let mqtt = Arc::get_mut(&mut config.mqtt).unwrap();
         mqtt.username = "wrong".to_string();
 
-        let result = Notifier::new(mqtt.options(), context.pool.clone()).await;
+        let result = Notifier::new(mqtt.options().unwrap(), context.pool.clone()).await;
         assert!(result.is_err());
     }
 }

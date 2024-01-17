@@ -1,12 +1,14 @@
 ### Build container
 FROM rust:alpine as build
 
-RUN apk update && apk add \
-  protobuf \
-  protobuf-dev \
-  protoc \
-  libc-dev \
-  libpq-dev
+RUN echo "nameserver 1.1.1.1" > /etc/resolv.conf && \
+  apk update && \
+  apk add \
+    protobuf \
+    protobuf-dev \
+    protoc \
+    libc-dev \
+    libpq-dev
 
 ENV RUSTFLAGS -Ctarget-feature=-crt-static
 

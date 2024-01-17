@@ -4,7 +4,7 @@ use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use uuid::Uuid;
 
-use crate::auth::rbac::BlockjoyRole;
+use crate::auth::rbac::{BlockjoyRole, ViewRole};
 use crate::auth::resource::{NodeId, OrgId};
 use crate::grpc::common;
 use crate::models::blockchain::BlockchainId;
@@ -32,6 +32,8 @@ pub const HOST_2: &str = "Host-2";
 
 pub const BLOCKCHAIN_ID: &str = "ab5d8cfc-77b1-4265-9fee-ba71ba9de092";
 pub const BLOCKCHAIN_NAME: &str = "Ethereum";
+pub const BLOCKCHAIN_TICKER: &str = "ETH";
+pub const BLOCKCHAIN_VISIBILITY: &str = "development";
 pub const BLOCKCHAIN_NODE_TYPE: &str = "validator";
 pub const BLOCKCHAIN_NODE_TYPE_ID: &str = "fb56b151-443b-491a-a2a5-50fc12343a91";
 pub const BLOCKCHAIN_VERSION: &str = "3.3.0";
@@ -80,8 +82,8 @@ impl Seed {
 
 async fn create_blockchains(conn: &mut Conn<'_>) -> Blockchain {
     let queries = [
-        format!("INSERT INTO blockchains (id, name) VALUES ('{BLOCKCHAIN_ID}','{BLOCKCHAIN_NAME}');"),
-        format!("INSERT INTO blockchain_node_types (id, blockchain_id, node_type) VALUES ('{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NODE_TYPE}');"),
+        format!("INSERT INTO blockchains (id, name, visibility, ticker) VALUES ('{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NAME}', '{BLOCKCHAIN_VISIBILITY}', '{BLOCKCHAIN_TICKER}');"),
+        format!("INSERT INTO blockchain_node_types (id, blockchain_id, node_type, visibility) VALUES ('{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NODE_TYPE}', '{BLOCKCHAIN_VISIBILITY}');"),
         format!("INSERT INTO blockchain_versions (id, blockchain_id, blockchain_node_type_id, version) VALUES ('{BLOCKCHAIN_VERSION_ID}', '{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION}');"),
         format!("INSERT INTO blockchain_properties VALUES ('{BLOCKCHAIN_PROPERTY_KEYSTORE}', '{BLOCKCHAIN_ID}', 'keystore-file', NULL, 'file_upload', FALSE, FALSE, '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION_ID}', 'Keystore file contents');"),
         format!("INSERT INTO blockchain_properties VALUES ('{BLOCKCHAIN_PROPERTY_SELF_HOSTED}', '{BLOCKCHAIN_ID}', 'self-hosted', NULL, 'switch', FALSE, FALSE, '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION_ID}', 'Is this noderoni self hosted?');"),
@@ -142,6 +144,12 @@ async fn create_users(org: &Org, conn: &mut Conn<'_>) -> User {
     User::confirm(member.id, conn).await.unwrap();
 
     RbacUser::link_role(root.id, org.id, BlockjoyRole::Admin, conn)
+        .await
+        .unwrap();
+    RbacUser::link_role(root.id, org.id, ViewRole::DeveloperPreview, conn)
+        .await
+        .unwrap();
+    RbacUser::link_role(admin.id, org.id, ViewRole::DeveloperPreview, conn)
         .await
         .unwrap();
 
@@ -297,12 +305,14 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         insert into role_permissions (role, permission)
         values
         ('blockjoy-admin', 'auth-admin-list-permissions'),
-        ('blockjoy-admin', 'blockchain-admin-get'),
-        ('blockjoy-admin', 'blockchain-admin-list'),
         ('blockjoy-admin', 'blockchain-admin-add-node-type'),
         ('blockjoy-admin', 'blockchain-admin-add-version'),
+        ('blockjoy-admin', 'blockchain-admin-get'),
+        ('blockjoy-admin', 'blockchain-admin-list'),
+        ('blockjoy-admin', 'blockchain-admin-view-private'),
         ('blockjoy-admin', 'host-admin-get'),
         ('blockjoy-admin', 'host-admin-list'),
+        ('blockjoy-admin', 'host-admin-update'),
         ('blockjoy-admin', 'mqtt-admin-acl'),
         ('blockjoy-admin', 'node-admin-create'),
         ('blockjoy-admin', 'node-admin-delete'),
@@ -316,6 +326,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'node-admin-update-status'),
         ('blockjoy-admin', 'org-admin-get'),
         ('blockjoy-admin', 'org-admin-list'),
+        ('blockjoy-admin', 'org-admin-update'),
         ('blockjoy-admin', 'user-admin-filter'),
         ('blockjoy-admin', 'user-admin-get'),
         ('blockjoy-admin', 'user-admin-update');
@@ -419,6 +430,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-login', 'babel-notify'),
         ('grpc-login', 'blockchain-get'),
         ('grpc-login', 'blockchain-list'),
+        ('grpc-login', 'blockchain-view-public'),
         ('grpc-login', 'bundle-list-bundle-versions'),
         ('grpc-login', 'bundle-retrieve'),
         ('grpc-login', 'command-ack'),
@@ -434,7 +446,6 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-login', 'metrics-host'),
         ('grpc-login', 'metrics-node'),
         ('grpc-login', 'mqtt-acl'),
-        ('grpc-login', 'node-create'),
         ('grpc-login', 'node-report'),
         ('grpc-login', 'org-create'),
         ('grpc-login', 'org-get'),
@@ -456,15 +467,16 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         values
         ('grpc-new-host', 'auth-refresh'),
         ('grpc-new-host', 'babel-notify'),
+        ('grpc-new-host', 'blockchain-archive-get-download'),
+        ('grpc-new-host', 'blockchain-archive-get-upload'),
+        ('grpc-new-host', 'blockchain-archive-put-download'),
         ('grpc-new-host', 'blockchain-get'),
         ('grpc-new-host', 'blockchain-get-image'),
         ('grpc-new-host', 'blockchain-get-plugin'),
         ('grpc-new-host', 'blockchain-get-requirements'),
         ('grpc-new-host', 'blockchain-list'),
         ('grpc-new-host', 'blockchain-list-image-versions'),
-        ('grpc-new-host', 'blockchain-archive-get-download'),
-        ('grpc-new-host', 'blockchain-archive-get-upload'),
-        ('grpc-new-host', 'blockchain-archive-put-download'),
+        ('grpc-new-host', 'blockchain-view-public'),
         ('grpc-new-host', 'bundle-list-bundle-versions'),
         ('grpc-new-host', 'bundle-retrieve'),
         ('grpc-new-host', 'command-ack'),
@@ -554,7 +566,6 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-personal', 'host-stop'),
         ('org-personal', 'host-provision-create'),
         ('org-personal', 'host-provision-get'),
-        ('org-personal', 'node-create'),
         ('org-personal', 'node-delete'),
         ('org-personal', 'node-get'),
         ('org-personal', 'node-list'),
@@ -573,6 +584,11 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-personal', 'subscription-delete'),
         ('org-personal', 'subscription-get'),
         ('org-personal', 'subscription-update');
+        ",
+        "
+        insert into role_permissions (role, permission)
+        values
+        ('view-developer-preview', 'blockchain-view-development');
         ",
     ];
 

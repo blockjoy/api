@@ -37,14 +37,14 @@ async fn fails_with_valid_credentials_for_unconfirmed_user_login() {
 }
 
 #[tokio::test]
-async fn fails_with_invalid_credentials_for_login() {
+async fn unauthenticated_with_invalid_credentials_for_login() {
     let test = TestServer::new().await;
     let bogus = api::AuthServiceLoginRequest {
         email: "foo@bar.com".to_string(),
         password: "eafe12345".to_string(),
     };
     let status = test.send(Service::login, bogus).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    assert_eq!(status.code(), tonic::Code::Unauthenticated);
 }
 
 #[tokio::test]
@@ -99,7 +99,7 @@ async fn ok_with_valid_password_for_update_ui_password() {
 }
 
 #[tokio::test]
-async fn fails_with_invalid_old_password_for_update_ui_password() {
+async fn unauthenticated_with_invalid_old_password_for_update_ui_password() {
     let test = TestServer::new().await;
     let req = api::AuthServiceUpdateUiPasswordRequest {
         user_id: test.seed().user.id.to_string(),
@@ -110,7 +110,7 @@ async fn fails_with_invalid_old_password_for_update_ui_password() {
         .send_admin(Service::update_ui_password, req)
         .await
         .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    assert_eq!(status.code(), tonic::Code::Unauthenticated);
 }
 
 #[tokio::test]

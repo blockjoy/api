@@ -94,9 +94,7 @@ impl From<Error> for Status {
             | FindByIds(_, NotFound) => Status::not_found("Not found."),
             AlreadyConfirmed => Status::failed_precondition("Already confirmed."),
             NotConfirmed => Status::failed_precondition("User is not confirmed."),
-            LoginEmail | VerifyPassword(_) => {
-                Status::permission_denied("Invalid email or password.")
-            }
+            LoginEmail | VerifyPassword(_) => Status::unauthenticated("Invalid email or password."),
             Paginate(err) => err.into(),
             Org(err) => err.into(),
             Rbac(err) => err.into(),

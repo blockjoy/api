@@ -21,6 +21,9 @@ use self::token::api_key::Validated;
 use self::token::refresh::{self, Refresh, RequestCookie};
 use self::token::{Cipher, RequestToken};
 
+/// The exact string for clients to match on to handle expired tokens.
+const TOKEN_EXPIRED: &str = "TOKEN_EXPIRED";
+
 pub(crate) trait Authorize {
     /// Authorize request token for some `perms` and `resources`.
     ///
@@ -103,7 +106,7 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             Database(_) => Status::internal("Internal error."),
-            DecodeJwt(token::jwt::Error::TokenExpired) => Status::unauthenticated("Token expired."),
+            DecodeJwt(token::jwt::Error::TokenExpired) => Status::unauthenticated(TOKEN_EXPIRED),
             DecodeJwt(_) => Status::permission_denied("Invalid JWT token."),
             DecodeRefresh(_) | RefreshHeader(_) => {
                 Status::permission_denied("Invalid refresh token.")
@@ -149,15 +152,18 @@ impl Auth {
         resources: Option<Resources>,
         conn: &mut Conn<'_>,
     ) -> Result<AuthZ, Error> {
-        let claims = match token {
+        let claims = self.claims(token, conn).await?;
+        self.authorize_claims(claims, perms, resources, conn).await
+    }
+
+    pub async fn claims(&self, token: &RequestToken, conn: &mut Conn<'_>) -> Result<Claims, Error> {
+        match token {
             RequestToken::Bearer(token) => self.cipher.jwt.decode(token).map_err(Error::DecodeJwt),
             RequestToken::ApiKey(token) => Validated::from_token(token, conn)
                 .await
                 .map_err(Error::ValidateApiKey)
                 .map(|v| v.claims(self.token_expires)),
-        }?;
-
-        self.authorize_claims(claims, perms, resources, conn).await
+        }
     }
 
     pub async fn authorize_claims(
@@ -167,15 +173,24 @@ impl Auth {
         resources: Option<Resources>,
         conn: &mut Conn<'_>,
     ) -> Result<AuthZ, Error> {
-        let initial = if let Some(resources) = resources {
+        // first ensure that claims can access the requested resource
+        let granted = if let Some(resources) = resources {
             claims.ensure_resources(resources, conn).await?
-        } else if let Some(user_id) = claims.resource().user() {
-            Granted::from_admin(user_id, conn).await?
         } else {
             None
         };
 
-        let granted = Granted::from_access(&claims.access, initial, conn).await?;
+        // then grant permissions from the access claims
+        let granted = Granted::from_access(&claims.access, granted, conn).await?;
+
+        // then grant permissions for non-org roles
+        let granted = if let Some(user_id) = claims.resource().user() {
+            Granted::all_orgs(user_id, Some(granted), conn).await?
+        } else {
+            granted
+        };
+
+        // finally check that the requested permissions exist
         match perms {
             Perms::One(perm) => granted.ensure_perm(perm, &claims)?,
             Perms::Many(perms) => granted.ensure_perms(perms, &claims)?,

@@ -60,6 +60,8 @@ pub enum Error {
     NodeCount(std::num::TryFromIntError),
     /// Failed to get node counts for host: {0}
     NodeCounts(diesel::result::Error),
+    /// Nothing to update.
+    NoUpdate,
     /// Host pagination: {0}
     Paginate(#[from] crate::models::paginate::Error),
     /// Failed to parse host ip address: {0}
@@ -84,6 +86,7 @@ impl From<Error> for Status {
             BillingAmountMissingAmount | BillingAmountCurrency(_) | BillingAmountPeriod(_) => {
                 Status::invalid_argument("billing_amount")
             }
+            NoUpdate => Status::failed_precondition("Nothing to update."),
             ParseIp(_) => Status::invalid_argument("ip_addr"),
             Paginate(err) => err.into(),
             IpAddress(err) => err.into(),
@@ -572,15 +575,37 @@ pub struct UpdateHost<'a> {
     pub ip_range_to: Option<IpNetwork>,
     pub ip_gateway: Option<IpNetwork>,
     pub region_id: Option<RegionId>,
+    pub managed_by: Option<ManagedBy>,
 }
 
 impl UpdateHost<'_> {
     pub async fn update(self, conn: &mut Conn<'_>) -> Result<Host, Error> {
+        if !self.has_some() {
+            return Err(Error::NoUpdate);
+        }
+
         diesel::update(Host::not_deleted().find(self.id))
             .set(self)
             .get_result(conn)
             .await
             .map_err(Error::Update)
+    }
+
+    const fn has_some(&self) -> bool {
+        self.name.is_some()
+            || self.version.is_some()
+            || self.cpu_count.is_some()
+            || self.mem_size_bytes.is_some()
+            || self.disk_size_bytes.is_some()
+            || self.os.is_some()
+            || self.os_version.is_some()
+            || self.ip_addr.is_some()
+            || self.status.is_some()
+            || self.ip_range_from.is_some()
+            || self.ip_range_to.is_some()
+            || self.ip_gateway.is_some()
+            || self.region_id.is_some()
+            || self.managed_by.is_some()
     }
 }
 
@@ -671,4 +696,14 @@ impl From<api::HostConnectionStatus> for ConnectionStatus {
 pub enum ManagedBy {
     Automatic,
     Manual,
+}
+
+impl From<api::ManagedBy> for Option<ManagedBy> {
+    fn from(managed_by: api::ManagedBy) -> Self {
+        match managed_by {
+            api::ManagedBy::Unspecified => None,
+            api::ManagedBy::Automatic => Some(ManagedBy::Automatic),
+            api::ManagedBy::Manual => Some(ManagedBy::Manual),
+        }
+    }
 }

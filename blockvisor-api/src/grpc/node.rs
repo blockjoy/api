@@ -11,13 +11,15 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::auth::rbac::{NodeAdminPerm, NodePerm};
-use crate::auth::resource::{HostId, NodeId, Resource, ResourceEntry, UserId};
-use crate::auth::Authorize;
+use crate::auth::resource::{
+    HostId, NodeId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
+};
+use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::blockchain::{BlockchainProperty, BlockchainPropertyId, BlockchainVersion};
 use crate::models::command::NewCommand;
 use crate::models::node::{
-    ContainerStatus, FilteredIpAddr, NewNode, Node, NodeFilter, NodeJob, NodeJobProgress,
+    self, ContainerStatus, FilteredIpAddr, NewNode, Node, NodeFilter, NodeJob, NodeJobProgress,
     NodeJobStatus, NodeProperty, NodeReport, NodeScheduler, NodeSearch, NodeSort, NodeStatus,
     NodeType, StakingStatus, SyncStatus, UpdateNode,
 };
@@ -35,6 +37,8 @@ pub enum Error {
     AllowIps(serde_json::Error),
     /// Auth check failed: {0}
     Auth(#[from] crate::auth::Error),
+    /// Auth token parsing failed: {0}
+    AuthToken(#[from] crate::auth::token::Error),
     /// Node blockchain error: {0}
     Blockchain(#[from] crate::models::blockchain::Error),
     /// Node blockchain property error: {0}
@@ -105,6 +109,8 @@ pub enum Error {
     SyncTotal(std::num::TryFromIntError),
     /// The requested sort field is unknown.
     UnknownSortField,
+    /// Attempt to update status by {1} {2} of node `{0}`, which doesn't exist.
+    UpdateStatusMissingNode(NodeId, ResourceType, ResourceId),
     /// Node user error: {0}
     User(#[from] crate::models::user::Error),
 }
@@ -134,7 +140,9 @@ impl From<Error> for Status {
             SyncCurrent(_) => Status::invalid_argument("data_sync_progress_current"),
             SyncTotal(_) => Status::invalid_argument("data_sync_progress_total"),
             UnknownSortField => Status::invalid_argument("sort.field"),
+            UpdateStatusMissingNode(_, _, _) => Status::not_found("No such node"),
             Auth(err) => err.into(),
+            AuthToken(err) => err.into(),
             Blockchain(err) => err.into(),
             BlockchainProperty(err) => err.into(),
             BlockchainVersion(err) => err.into(),
@@ -252,11 +260,12 @@ async fn get(
     let node_id = req.id.parse().map_err(Error::ParseId)?;
     let node = Node::by_id(node_id, &mut read).await?;
 
-    read.auth_or_all(&meta, NodeAdminPerm::Get, NodePerm::Get, node_id)
+    let authz = read
+        .auth_or_all(&meta, NodeAdminPerm::Get, NodePerm::Get, node_id)
         .await?;
 
     Ok(api::NodeServiceGetResponse {
-        node: Some(api::Node::from_model(node, &mut read).await?),
+        node: Some(api::Node::from_model(node, &authz, &mut read).await?),
     })
 }
 
@@ -266,7 +275,7 @@ async fn list(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::NodeServiceListResponse, Error> {
     let filter = req.into_filter()?;
-    if let Some(org_id) = filter.org_id {
+    let authz = if let Some(org_id) = filter.org_id {
         read.auth_or_all(&meta, NodeAdminPerm::List, NodePerm::List, org_id)
             .await?
     } else {
@@ -274,7 +283,7 @@ async fn list(
     };
 
     let (nodes, node_count) = filter.query(&mut read).await?;
-    let nodes = api::Node::from_models(nodes, &mut read).await?;
+    let nodes = api::Node::from_models(nodes, &authz, &mut read).await?;
 
     Ok(api::NodeServiceListResponse { nodes, node_count })
 }
@@ -291,6 +300,8 @@ async fn create(
             .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, host_id)
             .await?;
         (Some(host), authz)
+    } else if let Ok(authz) = write.auth_all(&meta, NodeAdminPerm::Create).await {
+        (None, authz)
     } else {
         let authz = write.auth_all(&meta, NodePerm::Create).await?;
         (None, authz)
@@ -300,7 +311,7 @@ async fn create(
         .blockchain_id
         .parse()
         .map_err(Error::ParseBlockchainId)?;
-    let blockchain = Blockchain::by_id(blockchain_id, &mut write).await?;
+    let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write).await?;
 
     let node_type = req.node_type().into();
     let image = ImageId::new(&blockchain.name, node_type, req.version.clone().into());
@@ -310,7 +321,7 @@ async fn create(
     let requirements = write.ctx.storage.rhai_metadata(&image).await?.requirements;
     let created_by = authz.resource();
     let new_node = req.as_new(requirements, created_by, &mut write).await?;
-    let node = new_node.create(host, &mut write).await?;
+    let node = new_node.create(host, &authz, &mut write).await?;
 
     // The user sends in the properties in a key-value style, that is,
     // { property name: property value }. We want to store this as
@@ -328,8 +339,8 @@ async fn create(
     let create_notif = NewCommand::node(&node, CommandType::CreateNode)?
         .create(&mut write)
         .await?;
-    let create_cmd = api::Command::from_model(&create_notif, &mut write).await?;
-    let node_api = api::Node::from_model(node, &mut write).await?;
+    let create_cmd = api::Command::from_model(&create_notif, &authz, &mut write).await?;
+    let node_api = api::Node::from_model(node, &authz, &mut write).await?;
 
     let created_by = common::EntityUpdate::from_resource(created_by, &mut write).await?;
     let created = api::NodeMessage::created(node_api.clone(), created_by);
@@ -363,9 +374,9 @@ async fn update_config(
     let updated = NewCommand::node(&node, CommandType::UpdateNode)?
         .create(&mut write)
         .await?;
-    let cmd = api::Command::from_model(&updated, &mut write).await?;
+    let cmd = api::Command::from_model(&updated, &authz, &mut write).await?;
 
-    let node = api::Node::from_model(node, &mut write).await?;
+    let node = api::Node::from_model(node, &authz, &mut write).await?;
     let updated_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
     let updated = api::NodeMessage::updated(node, updated_by);
 
@@ -381,7 +392,19 @@ async fn update_status(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateStatusResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    Node::by_id(node_id, &mut write).await?;
+    match Node::by_id(node_id, &mut write).await {
+        Err(node::Error::FindById(_, diesel::result::Error::NotFound)) => {
+            let token = (&meta).try_into()?;
+            let claims = write.ctx.auth.claims(&token, &mut write).await?;
+            return Err(Error::UpdateStatusMissingNode(
+                node_id,
+                claims.resource_entry.resource_type,
+                claims.resource_entry.resource_id,
+            ));
+        }
+        Err(e) => return Err(e.into()),
+        Ok(_) => {}
+    }
 
     let authz = write
         .auth_or_all(
@@ -393,7 +416,7 @@ async fn update_status(
         .await?;
 
     let node = req.as_update()?.update(&mut write).await?;
-    let node = api::Node::from_model(node, &mut write).await?;
+    let node = api::Node::from_model(node, &authz, &mut write).await?;
 
     let updated_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
     let updated = api::NodeMessage::updated(node, updated_by);
@@ -421,7 +444,7 @@ async fn delete(
     // Send delete node command
     let new_command = NewCommand::node(&node, CommandType::DeleteNode)?;
     let cmd = new_command.create(&mut write).await?;
-    let cmd = api::Command::from_model(&cmd, &mut write).await?;
+    let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
 
     let deleted_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
     let deleted = api::NodeMessage::deleted(&node, Some(deleted_by));
@@ -460,14 +483,14 @@ async fn start(
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
     let node = Node::by_id(node_id, &mut write).await?;
 
-    write
+    let authz = write
         .auth_or_all(&meta, NodeAdminPerm::Start, NodePerm::Start, node_id)
         .await?;
 
     let cmd = NewCommand::node(&node, CommandType::RestartNode)?
         .create(&mut write)
         .await?;
-    let cmd = api::Command::from_model(&cmd, &mut write).await?;
+    let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
 
     write.mqtt(cmd);
 
@@ -482,14 +505,14 @@ async fn stop(
     let node_id = req.id.parse().map_err(Error::ParseId)?;
     let node = Node::by_id(node_id, &mut write).await?;
 
-    write
+    let authz = write
         .auth_or_all(&meta, NodeAdminPerm::Stop, NodePerm::Stop, node_id)
         .await?;
 
     let cmd = NewCommand::node(&node, CommandType::KillNode)?
         .create(&mut write)
         .await?;
-    let cmd = api::Command::from_model(&cmd, &mut write).await?;
+    let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
 
     write.mqtt(cmd);
 
@@ -504,14 +527,14 @@ async fn restart(
     let node_id = req.id.parse().map_err(Error::ParseId)?;
     let node = Node::by_id(node_id, &mut write).await?;
 
-    write
+    let authz = write
         .auth_or_all(&meta, NodeAdminPerm::Restart, NodePerm::Restart, node_id)
         .await?;
 
     let cmd = NewCommand::node(&node, CommandType::RestartNode)?
         .create(&mut write)
         .await?;
-    let cmd = api::Command::from_model(&cmd, &mut write).await?;
+    let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
 
     write.mqtt(cmd);
 
@@ -522,8 +545,8 @@ impl api::Node {
     /// This function is used to create a ui node from a database node. We want to include the
     /// `database_name` in the ui representation, but it is not in the node model. Therefore we
     /// perform a seperate query to the blockchains table.
-    pub async fn from_model(node: Node, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let blockchain = Blockchain::by_id(node.blockchain_id, conn).await?;
+    pub async fn from_model(node: Node, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        let blockchain = Blockchain::by_id(node.blockchain_id, authz, conn).await?;
 
         // We need to get both the node properties and the blockchain properties to construct the
         // final dto. First we query both, and then we zip them together.
@@ -572,7 +595,11 @@ impl api::Node {
     /// This function is used to create many ui nodes from many database nodes. The same
     /// justification as above applies. Note that this function does not simply defer to the
     /// function above, but rather it performs 1 query for n nodes. We like it this way :)
-    pub async fn from_models(nodes: Vec<Node>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn from_models(
+        nodes: Vec<Node>,
+        authz: &AuthZ,
+        conn: &mut Conn<'_>,
+    ) -> Result<Vec<Self>, Error> {
         let node_ids = nodes.iter().map(|n| n.id).collect();
         let node_props = NodeProperty::by_node_ids(&node_ids, conn).await?;
         let property_ids = node_props
@@ -581,7 +608,7 @@ impl api::Node {
             .collect();
 
         let blockchain_ids = nodes.iter().map(|n| n.blockchain_id).collect();
-        let blockchains = Blockchain::by_ids(blockchain_ids, conn)
+        let blockchains = Blockchain::by_ids(blockchain_ids, authz, conn)
             .await?
             .to_map_keep_last(|b| (b.id, b));
 

@@ -13,7 +13,7 @@ type Service = api::host_service_client::HostServiceClient<Channel>;
 type OrgService = api::org_service_client::OrgServiceClient<Channel>;
 
 #[tokio::test]
-async fn fails_without_token_for_update() {
+async fn unauthenticated_without_token_for_update() {
     let test = TestServer::new().await;
     let req = api::HostServiceUpdateRequest {
         id: test.seed().host.id.to_string(),
@@ -27,7 +27,7 @@ async fn fails_without_token_for_update() {
         managed_by: None,
     };
     let status = test.send(Service::update, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    assert_eq!(status.code(), tonic::Code::Unauthenticated);
 }
 
 #[tokio::test]
@@ -180,13 +180,13 @@ async fn ok_for_start_stop_restart() {
 }
 
 #[tokio::test]
-async fn fails_without_token_for_delete() {
+async fn unauthenticated_without_token_for_delete() {
     let test = TestServer::new().await;
     let req = api::HostServiceDeleteRequest {
         id: test.seed().host.id.to_string(),
     };
     let status = test.send(Service::delete, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    assert_eq!(status.code(), tonic::Code::Unauthenticated);
 }
 
 #[tokio::test]
@@ -232,6 +232,7 @@ async fn can_update_host_info() {
         ip_addr: None,
         status: None,
         region_id: None,
+        managed_by: None,
     };
     let mut conn = test.conn().await;
     let update = update_host.update(&mut conn).await.unwrap();

@@ -66,7 +66,7 @@ impl From<Error> for Status {
                 Status::permission_denied("Access denied.")
             }
             Diesel(_) | Email(_) => Status::internal("Internal error."),
-            NotBearer => Status::permission_denied("Not bearer."),
+            NotBearer => Status::unauthenticated("Not bearer."),
             NoRefresh => Status::invalid_argument("No refresh token."),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseUserId(_) => Status::invalid_argument("user_id"),

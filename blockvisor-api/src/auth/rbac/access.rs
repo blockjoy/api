@@ -59,12 +59,40 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use crate::auth::claims::Claims;
     use crate::auth::rbac::{
-        ApiKeyPerm, ApiKeyRole, BlockjoyRole, GrpcRole, HostPerm, HostProvisionPerm,
+        ApiKeyPerm, ApiKeyRole, BlockchainAdminPerm, BlockchainPerm, BlockjoyRole, GrpcRole,
+        HostPerm, HostProvisionPerm,
     };
+    use crate::auth::resource::Resource;
+    use crate::auth::AuthZ;
+    use crate::config::Context;
+    use crate::database::Conn;
 
     use super::*;
+
+    pub fn view_perms() -> Perms {
+        Perms::Many(hashset! {
+            BlockchainAdminPerm::ViewPrivate.into(),
+            BlockchainPerm::ViewPublic.into(),
+            BlockchainPerm::ViewDevelopment.into(),
+        })
+    }
+
+    pub async fn view_authz<R>(ctx: &Context, resource: R, conn: &mut Conn<'_>) -> AuthZ
+    where
+        R: Into<Resource> + Send,
+    {
+        let resource = resource.into();
+        let expires = chrono::Duration::minutes(15);
+        let access = Access::Perms(view_perms());
+        let claims = Claims::from_now(expires, resource, access);
+        ctx.auth
+            .authorize_claims(claims, view_perms(), Some(resource.into()), conn)
+            .await
+            .unwrap()
+    }
 
     #[derive(Serialize, Deserialize)]
     struct TestRoles {

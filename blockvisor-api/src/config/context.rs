@@ -36,6 +36,8 @@ pub enum Error {
     MissingPool,
     /// Builder is missing Storage.
     MissingStorage,
+    /// Failed to create MQTT options: {0}
+    Mqtt(#[from] super::mqtt::Error),
     /// Failed to create Notifier: {0}
     Notifier(crate::mqtt::notifier::Error),
     /// Failed to create database Pool: {0}
@@ -74,7 +76,7 @@ impl Context {
         let dns = Cloudflare::new(config.cloudflare.clone()).map_err(Error::Cloudflare)?;
         let email = Email::new(&config, auth.cipher.clone()).map_err(Error::Email)?;
         let pool = Pool::new(&config.database).await.map_err(Error::Pool)?;
-        let notifier = Notifier::new(config.mqtt.options(), pool.clone())
+        let notifier = Notifier::new(config.mqtt.options()?, pool.clone())
             .await
             .map_err(Error::Notifier)?;
         let storage = Storage::new_s3(&config.storage);
@@ -103,7 +105,7 @@ impl Context {
         let dns = MockCloudflare::new(&mut rng).await;
         let email = Email::new_mocked(&config, auth.cipher.clone()).map_err(Error::Email)?;
         let pool = db.pool();
-        let notifier = Notifier::new(config.mqtt.options(), pool.clone())
+        let notifier = Notifier::new(config.mqtt.options()?, pool.clone())
             .await
             .map_err(Error::Notifier)?;
         let storage = TestStorage::new().await.new_mock();

@@ -46,8 +46,12 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            EmptyCookieRefresh | MissingCookieHeader | MissingCookieExpires
-            | MissingCookieRefresh => Status::permission_denied("Invalid refresh cookie."),
+            EmptyCookieRefresh | MissingCookieExpires => {
+                Status::unauthenticated("Invalid refresh cookie.")
+            }
+            MissingCookieHeader | MissingCookieRefresh => {
+                Status::unauthenticated("Missing refresh cookie.")
+            }
             _ => Status::internal("Internal error."),
         }
     }

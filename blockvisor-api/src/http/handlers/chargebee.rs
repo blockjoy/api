@@ -17,7 +17,7 @@ use tracing::{debug, error};
 
 use crate::config::Context;
 use crate::database::{Transaction, WriteConn};
-use crate::grpc::api;
+use crate::grpc::{api, command};
 use crate::http::response::{bad_params, failed, not_found, ok_custom};
 use crate::models::command::NewCommand;
 use crate::models::{CommandType, Node, Subscription};
@@ -144,15 +144,11 @@ async fn subscription_cancelled(
 }
 
 async fn delete_node(node: &Node, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
-    // Send delete node command
     let new_command = NewCommand::node(node, CommandType::DeleteNode)?;
     let cmd = new_command.create(write).await?;
-    let cmd = api::Command::from_model(&cmd, write).await?;
 
-    let deleted = api::NodeMessage::deleted(node, None);
-
-    write.mqtt(cmd);
-    write.mqtt(deleted);
+    write.mqtt(command::delete_node(&cmd)?);
+    write.mqtt(api::NodeMessage::deleted(node, None));
 
     Ok(())
 }
