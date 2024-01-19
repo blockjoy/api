@@ -14,7 +14,7 @@ use crate::grpc::api::blockchain_archive_service_server::BlockchainArchiveServic
 use crate::grpc::{api, Grpc};
 use crate::storage::image::ImageId;
 
-const DEFAULT_EXPIRES: u32 = 60 * 60 * 24;
+const DEFAULT_EXPIRES: u32 = 60 * 60 * 24 * 7; // 7d
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
