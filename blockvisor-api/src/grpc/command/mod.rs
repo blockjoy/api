@@ -18,7 +18,7 @@ use crate::grpc::common::{FirewallAction, FirewallDirection, FirewallProtocol, F
 use crate::grpc::{api, common, Grpc};
 use crate::models::blockchain::{Blockchain, BlockchainProperty, BlockchainVersion};
 use crate::models::command::{ExitCode, UpdateCommand};
-use crate::models::node::NodeStatus;
+use crate::models::node::{NodeStatus, UpdateNode};
 use crate::models::{Command, CommandType, Host, Node};
 use crate::util::NanosUtc;
 
@@ -189,7 +189,7 @@ async fn pending(
 
 /// Apply state transition after acknowledging a node command.
 async fn ack_node_transition(
-    mut node: Node,
+    node: Node,
     command: &Command,
     authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
@@ -216,8 +216,11 @@ async fn ack_node_transition(
         _ => return Ok(()),
     };
 
-    node.node_status = next_status;
-    let node = node.update(write).await?;
+    let update = UpdateNode {
+        node_status: Some(next_status),
+        ..Default::default()
+    };
+    let node = node.update(update, write).await?;
 
     let node = api::Node::from_model(node, authz, write)
         .await

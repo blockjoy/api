@@ -246,11 +246,12 @@ diesel::table! {
         host_id -> Uuid,
         node_id -> Uuid,
         event -> EnumNodeLogEvent,
-        blockchain_name -> Text,
         #[max_length = 32]
         version -> Varchar,
         created_at -> Timestamptz,
         node_type -> EnumNodeType,
+        org_id -> Uuid,
+        blockchain_id -> Uuid,
     }
 }
 
@@ -442,6 +443,8 @@ diesel::joinable!(hosts -> users (created_by));
 diesel::joinable!(invitations -> orgs (org_id));
 diesel::joinable!(invitations -> users (invited_by));
 diesel::joinable!(ip_addresses -> hosts (host_id));
+diesel::joinable!(node_logs -> blockchains (blockchain_id));
+diesel::joinable!(node_logs -> orgs (org_id));
 diesel::joinable!(node_properties -> blockchain_properties (blockchain_property_id));
 diesel::joinable!(node_properties -> nodes (node_id));
 diesel::joinable!(node_reports -> nodes (node_id));

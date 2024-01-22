@@ -19,7 +19,7 @@ use crate::models::blockchain::{
     NodeStats,
 };
 use crate::models::command::NewCommand;
-use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeType, NodeVersion};
+use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeType, NodeVersion, UpdateNode};
 use crate::models::{Command, CommandType};
 use crate::storage::image::ImageId;
 use crate::storage::Storage;
@@ -394,11 +394,14 @@ async fn add_version(
     NewProperty::bulk_create(properties, &mut write).await?;
 
     let nodes = Node::upgradeable_by_type(id, node_type, &mut write).await?;
-    for mut node in nodes {
-        let upgrade = upgrade_node(&node, &node_version, &blockchain.name)?;
+    for node in nodes {
+        let upgrade = upgrade_node(&node, &node_version, &blockchain)?;
         if let Some((new_command, new_log)) = upgrade {
-            node.version = node_version.clone();
-            let node = node.update(&mut write).await?;
+            let update = UpdateNode {
+                version: Some(&node_version),
+                ..Default::default()
+            };
+            let node = node.update(update, &mut write).await?;
 
             new_log.create(&mut write).await?;
             let command = new_command.create(&mut write).await?;
@@ -418,11 +421,11 @@ async fn add_version(
     })
 }
 
-fn upgrade_node<'b, 'n>(
-    node: &'n Node,
-    node_version: &'n NodeVersion,
-    blockchain_name: &'b str,
-) -> Result<Option<(NewCommand, NewNodeLog<'b>)>, Error> {
+fn upgrade_node(
+    node: &Node,
+    node_version: &NodeVersion,
+    blockchain: &Blockchain,
+) -> Result<Option<(NewCommand, NewNodeLog)>, Error> {
     if node_version.semver()? <= node.version.semver()? {
         return Ok(None);
     }
@@ -433,10 +436,11 @@ fn upgrade_node<'b, 'n>(
         host_id: node.host_id,
         node_id: node.id,
         event: NodeLogEvent::Upgraded,
-        blockchain_name,
+        blockchain_id: blockchain.id,
         node_type: node.node_type,
         version: node_version.clone(),
         created_at: Utc::now(),
+        org_id: node.org_id,
     };
 
     Ok(Some((command, log)))

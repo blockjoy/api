@@ -9,10 +9,10 @@ use thiserror::Error;
 use tonic::Status;
 use uuid::Uuid;
 
-use crate::auth::resource::{HostId, NodeId};
+use crate::auth::resource::{HostId, NodeId, OrgId};
 use crate::database::Conn;
 use crate::models::schema::{node_logs, sql_types};
-use crate::models::Host;
+use crate::models::{BlockchainId, Host};
 
 use super::{NodeType, NodeVersion};
 
@@ -56,6 +56,8 @@ pub enum NodeLogEvent {
     /// This variant is used to note that we aborted from creating the node, because the failure we
     /// ran into was endemic.
     Canceled,
+    /// This node was transferred to another org.
+    TransferredToOrg,
     /// Log that an `UpgradeNode` message has been sent to blockvisord. This
     /// should be followed by `UpgradeSucceeded` or `UpgradeFailed` afterwards.
     Upgraded,
@@ -74,10 +76,11 @@ pub struct NodeLog {
     pub host_id: HostId,
     pub node_id: NodeId,
     pub event: NodeLogEvent,
-    pub blockchain_name: String,
     pub version: String,
     pub created_at: DateTime<Utc>,
     pub node_type: NodeType,
+    pub org_id: OrgId,
+    pub blockchain_id: BlockchainId,
 }
 
 impl NodeLog {
@@ -128,17 +131,18 @@ impl NodeLog {
 
 #[derive(Insertable)]
 #[diesel(table_name = node_logs)]
-pub struct NewNodeLog<'a> {
+pub struct NewNodeLog {
     pub host_id: HostId,
     pub node_id: NodeId,
     pub event: NodeLogEvent,
-    pub blockchain_name: &'a str,
-    pub node_type: NodeType,
     pub version: NodeVersion,
+    pub node_type: NodeType,
     pub created_at: DateTime<Utc>,
+    pub org_id: OrgId,
+    pub blockchain_id: BlockchainId,
 }
 
-impl NewNodeLog<'_> {
+impl NewNodeLog {
     pub async fn create(self, conn: &mut Conn<'_>) -> Result<NodeLog, Error> {
         diesel::insert_into(node_logs::table)
             .values(self)

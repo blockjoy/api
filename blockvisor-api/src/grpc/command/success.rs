@@ -7,7 +7,7 @@ use crate::database::WriteConn;
 use crate::grpc::api;
 use crate::models::blockchain::Blockchain;
 use crate::models::command::{Command, CommandType, NewCommand};
-use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeStatus};
+use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeStatus, UpdateNode};
 
 type Result = std::result::Result<(), ()>;
 
@@ -49,10 +49,11 @@ async fn create_node_success(
         host_id: node.host_id,
         node_id,
         event: NodeLogEvent::CreateSucceeded,
-        blockchain_name: &blockchain.name,
+        blockchain_id: blockchain.id,
         node_type: node.node_type,
         version: node.version.clone(),
         created_at: chrono::Utc::now(),
+        org_id: node.org_id,
     };
     let _ = new_log.create(write).await;
 
@@ -70,15 +71,18 @@ async fn create_node_success(
 
 async fn delete_node_success(succeeded_cmd: &Command, write: &mut WriteConn<'_, '_>) -> Result {
     let command_id = succeeded_cmd.id;
-    let mut node = succeeded_cmd
+    let node = succeeded_cmd
         .node(write)
         .await
         .map_err(|err| error!("Can't query node for command {command_id}: {err}!"))?
         .ok_or_else(|| error!("`DeleteNode` command {command_id} has no node!"))?;
     let node_id = node.id;
-    node.node_status = NodeStatus::Deleted;
+    let update = UpdateNode {
+        node_status: Some(NodeStatus::Deleted),
+        ..Default::default()
+    };
     let node = node
-        .update(write)
+        .update(update, write)
         .await
         .map_err(|err| error!("Failed to delete node {node_id} for command {command_id}: {err}"))?;
     Node::delete(node.id, write)

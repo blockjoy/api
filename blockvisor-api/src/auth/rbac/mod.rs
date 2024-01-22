@@ -196,6 +196,7 @@ define_perms! {
         Stop,
         UpdateConfig,
         UpdateStatus,
+        Transfer,
     }
 
     Org => {

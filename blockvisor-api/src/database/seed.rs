@@ -324,6 +324,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'node-admin-stop'),
         ('blockjoy-admin', 'node-admin-update-config'),
         ('blockjoy-admin', 'node-admin-update-status'),
+        ('blockjoy-admin', 'node-admin-transfer'),
         ('blockjoy-admin', 'org-admin-get'),
         ('blockjoy-admin', 'org-admin-list'),
         ('blockjoy-admin', 'org-admin-update'),

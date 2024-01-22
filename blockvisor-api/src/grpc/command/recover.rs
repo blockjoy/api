@@ -9,7 +9,7 @@ use crate::auth::AuthZ;
 use crate::database::WriteConn;
 use crate::grpc::api;
 use crate::models::command::NewCommand;
-use crate::models::node::{NewNodeLog, NodeLogEvent};
+use crate::models::node::{NewNodeLog, NodeLogEvent, UpdateNode};
 use crate::models::{Blockchain, Command, CommandType, IpAddress, Node};
 
 #[derive(Debug, Display, Error)]
@@ -88,7 +88,7 @@ async fn recover_created(
     let mut vec = vec![];
 
     let node_id = failed_cmd.node_id.ok_or(Error::CreateNodeId)?;
-    let mut node = Node::by_id(node_id, write).await?;
+    let node = Node::by_id(node_id, write).await?;
     let blockchain = Blockchain::by_id(node.blockchain_id, authz, write).await?;
 
     // 1. We make a note in the node_logs table that creating our node failed. This may
@@ -99,10 +99,11 @@ async fn recover_created(
         host_id: node.host_id,
         node_id,
         event: NodeLogEvent::CreateFailed,
-        blockchain_name: &blockchain.name,
+        blockchain_id: blockchain.id,
         node_type: node.node_type,
         version: node.version.clone(),
         created_at: chrono::Utc::now(),
+        org_id: node.org_id,
     };
     if let Err(err) = new_log.create(write).await {
         return Err(Error::DeploymentLog(err));
@@ -123,10 +124,11 @@ async fn recover_created(
             host_id: node.host_id,
             node_id,
             event: NodeLogEvent::Canceled,
-            blockchain_name: &blockchain.name,
+            blockchain_id: blockchain.id,
             node_type: node.node_type,
             version: node.version,
             created_at: chrono::Utc::now(),
+            org_id: node.org_id,
         };
         match new_log.create(write).await {
             Ok(_) => return Ok(vec![]),
@@ -136,10 +138,18 @@ async fn recover_created(
     let ip = IpAddress::next_for_host(host.id, write)
         .await
         .map_err(Error::FindIp)?;
-    node.ip_addr = ip.ip().to_string();
-    node.ip_gateway = host.ip_gateway.ip().to_string();
-    node.host_id = host.id;
-    let node = node.update(write).await.map_err(Error::UpdateNode)?;
+    let ip_addr = ip.ip().to_string();
+    let ip_gateway = host.ip_gateway.ip().to_string();
+    let update = UpdateNode {
+        ip_addr: Some(&ip_addr),
+        ip_gateway: Some(&ip_gateway),
+        host_id: Some(host.id),
+        ..Default::default()
+    };
+    let node = node
+        .update(update, write)
+        .await
+        .map_err(Error::UpdateNode)?;
     ip.assign(write).await.map_err(Error::AssignIp)?;
 
     // 3. We notify blockvisor of our retry via an MQTT message.

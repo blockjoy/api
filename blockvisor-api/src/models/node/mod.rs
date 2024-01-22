@@ -247,15 +247,28 @@ impl Node {
             .map_err(Error::NodeProperty)
     }
 
-    pub async fn update(mut self, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let id = self.id;
-        self.updated_at = Utc::now();
+    pub async fn update(&self, update: UpdateNode<'_>, conn: &mut Conn<'_>) -> Result<Node, Error> {
+        if let Some(new_org_id) = update.org_id {
+            if new_org_id != self.org_id {
+                let new_node_log = NewNodeLog {
+                    host_id: self.host_id,
+                    node_id: self.id,
+                    event: NodeLogEvent::TransferredToOrg,
+                    blockchain_id: self.blockchain_id,
+                    node_type: self.node_type,
+                    version: self.version.clone(),
+                    created_at: Utc::now(),
+                    org_id: new_org_id,
+                };
+                new_node_log.create(conn).await?;
+            }
+        }
 
-        diesel::update(nodes::table.find(id))
-            .set(self)
+        diesel::update(nodes::table.find(self.id))
+            .set((update, nodes::updated_at.eq(Utc::now())))
             .get_result(conn)
             .await
-            .map_err(|err| Error::UpdateById(id, err))
+            .map_err(Error::Update)
     }
 
     pub async fn delete(id: NodeId, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
@@ -687,13 +700,15 @@ impl NewNode {
     }
 }
 
-#[derive(Debug, AsChangeset)]
+#[derive(Debug, Default, AsChangeset)]
 #[diesel(table_name = nodes)]
 pub struct UpdateNode<'a> {
-    pub id: NodeId,
+    pub org_id: Option<OrgId>,
+    pub host_id: Option<HostId>,
     pub name: Option<&'a str>,
     pub version: Option<&'a str>,
     pub ip_addr: Option<&'a str>,
+    pub ip_gateway: Option<&'a str>,
     pub block_height: Option<i64>,
     pub node_data: Option<serde_json::Value>,
     pub node_status: Option<NodeStatus>,
@@ -704,16 +719,6 @@ pub struct UpdateNode<'a> {
     pub address: Option<&'a str>,
     pub allow_ips: Option<serde_json::Value>,
     pub deny_ips: Option<serde_json::Value>,
-}
-
-impl UpdateNode<'_> {
-    pub async fn update(&self, conn: &mut Conn<'_>) -> Result<Node, Error> {
-        diesel::update(nodes::table.find(self.id))
-            .set((self, nodes::updated_at.eq(Utc::now())))
-            .get_result(conn)
-            .await
-            .map_err(Error::Update)
-    }
 }
 
 /// Update node columns related to metrics.

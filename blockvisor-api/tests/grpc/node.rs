@@ -56,6 +56,7 @@ async fn responds_ok_for_update_config() {
             ip: "127.0.0.2".to_string(),
             description: Some("wow so denied".to_string()),
         }],
+        org_id: None,
     };
 
     test.send_with(Service::update_config, req, &jwt)
@@ -204,6 +205,7 @@ async fn responds_ok_with_valid_data_for_update_config() {
         self_update: Some(false),
         allow_ips: vec![],
         deny_ips: vec![],
+        org_id: None,
     };
     test.send_admin(Service::update_config, req).await.unwrap();
     validate_command(&test).await;

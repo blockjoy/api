@@ -52,11 +52,14 @@ async fn responds_ok_for_pending() {
     let mut conn = test.conn().await;
 
     let node_id = test.seed().node.id;
+    let node = Node::by_id(node_id, &mut conn).await.unwrap();
     let update = UpdateNode {
-        id: node_id,
+        org_id: None,
+        host_id: None,
         name: None,
         version: None,
         ip_addr: Some("123.123.123.123"),
+        ip_gateway: None,
         block_height: None,
         node_data: None,
         node_status: None,
@@ -68,7 +71,7 @@ async fn responds_ok_for_pending() {
         allow_ips: None,
         deny_ips: None,
     };
-    update.update(&mut conn).await.unwrap();
+    node.update(update, &mut conn).await.unwrap();
 
     let cmd = create_command(&test, node_id, CommandType::CreateNode).await;
     let host = Host::by_id(cmd.host_id, &mut conn).await.unwrap();

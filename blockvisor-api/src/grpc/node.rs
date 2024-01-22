@@ -359,18 +359,23 @@ async fn update_config(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateConfigResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    Node::by_id(node_id, &mut write).await?;
+    let node = Node::by_id(node_id, &mut write).await?;
 
-    let authz = write
-        .auth_or_all(
-            &meta,
-            NodeAdminPerm::UpdateConfig,
-            NodePerm::UpdateConfig,
-            node_id,
-        )
-        .await?;
+    let authz = if req.org_id.is_some() {
+        let perms = [NodeAdminPerm::UpdateConfig, NodeAdminPerm::Transfer];
+        write.auth_all(&meta, perms).await?
+    } else {
+        write
+            .auth_or_all(
+                &meta,
+                NodeAdminPerm::UpdateConfig,
+                NodePerm::UpdateConfig,
+                node_id,
+            )
+            .await?
+    };
 
-    let node = req.as_update()?.update(&mut write).await?;
+    let node = node.update(req.as_update()?, &mut write).await?;
     let updated = NewCommand::node(&node, CommandType::UpdateNode)?
         .create(&mut write)
         .await?;
@@ -392,7 +397,7 @@ async fn update_status(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateStatusResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    match Node::by_id(node_id, &mut write).await {
+    let node = match Node::by_id(node_id, &mut write).await {
         Err(node::Error::FindById(_, diesel::result::Error::NotFound)) => {
             let token = (&meta).try_into()?;
             let claims = write.ctx.auth.claims(&token, &mut write).await?;
@@ -403,8 +408,8 @@ async fn update_status(
             ));
         }
         Err(e) => return Err(e.into()),
-        Ok(_) => {}
-    }
+        Ok(node) => node,
+    };
 
     let authz = write
         .auth_or_all(
@@ -415,7 +420,7 @@ async fn update_status(
         )
         .await?;
 
-    let node = req.as_update()?.update(&mut write).await?;
+    let node = node.update(req.as_update()?, &mut write).await?;
     let node = api::Node::from_model(node, &authz, &mut write).await?;
 
     let updated_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
@@ -431,14 +436,17 @@ async fn delete(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceDeleteResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    let mut node = Node::by_id(node_id, &mut write).await?;
+    let node = Node::by_id(node_id, &mut write).await?;
 
     let authz = write
         .auth_or_all(&meta, NodeAdminPerm::Delete, NodePerm::Delete, node_id)
         .await?;
 
-    node.node_status = NodeStatus::DeletePending;
-    let node = node.update(&mut write).await?;
+    let update = UpdateNode {
+        node_status: Some(NodeStatus::DeletePending),
+        ..Default::default()
+    };
+    let node = node.update(update, &mut write).await?;
     Node::delete(node.id, &mut write).await?;
 
     // Send delete node command
@@ -966,10 +974,17 @@ impl api::NodeServiceUpdateConfigRequest {
             .collect();
 
         Ok(UpdateNode {
-            id: self.id.parse().map_err(Error::ParseId)?,
+            org_id: self
+                .org_id
+                .as_deref()
+                .map(str::parse)
+                .transpose()
+                .map_err(Error::ParseOrgId)?,
+            host_id: None,
             name: None,
             version: None,
             ip_addr: None,
+            ip_gateway: None,
             block_height: None,
             node_data: None,
             node_status: None,
@@ -987,10 +1002,12 @@ impl api::NodeServiceUpdateConfigRequest {
 impl api::NodeServiceUpdateStatusRequest {
     pub fn as_update(&self) -> Result<UpdateNode<'_>, Error> {
         Ok(UpdateNode {
-            id: self.id.parse().map_err(Error::ParseId)?,
+            org_id: None,
+            host_id: None,
             name: None,
             version: self.version.as_deref(),
             ip_addr: None,
+            ip_gateway: None,
             block_height: None,
             node_data: None,
             node_status: None,
