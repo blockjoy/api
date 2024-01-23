@@ -106,9 +106,14 @@ define_perms! {
     Command => {
         Create,
         Get,
+        List,
         Update,
         Pending,
         Ack,
+    }
+
+    CommandAdmin => {
+        List,
     }
 
     Discovery => {

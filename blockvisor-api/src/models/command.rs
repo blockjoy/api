@@ -31,6 +31,8 @@ pub enum Error {
     DeleteHostPending(diesel::result::Error),
     /// Failed to delete pending node commands: {0}
     DeleteNodePending(diesel::result::Error),
+    /// Failed to filter commands: {0}
+    Filter(diesel::result::Error),
     /// Failed to find command by id `{0}`: {1}
     FindById(CommandId, diesel::result::Error),
     /// Failed to check for pending host commands: {0}
@@ -159,6 +161,22 @@ impl Command {
             .get_results(conn)
             .await
             .map_err(Error::HostPending)
+    }
+
+    pub async fn filter(filter: CommandFilter, conn: &mut Conn<'_>) -> Result<Vec<Command>, Error> {
+        let mut query = commands::table.into_boxed();
+
+        if let Some(host_id) = filter.host_id {
+            query = query.filter(commands::host_id.eq(host_id));
+        }
+        if let Some(node_id) = filter.node_id {
+            query = query.filter(commands::node_id.eq(node_id));
+        }
+        if let Some(exit_code) = filter.exit_code {
+            query = query.filter(commands::exit_code.eq(exit_code));
+        }
+
+        query.get_results(conn).await.map_err(Error::Filter)
     }
 
     pub async fn delete_host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<(), Error> {
@@ -320,4 +338,10 @@ impl From<ExitCode> for api::CommandExitCode {
             ExitCode::NotSupported => api::CommandExitCode::NotSupported,
         }
     }
+}
+
+pub struct CommandFilter {
+    pub node_id: Option<NodeId>,
+    pub host_id: Option<HostId>,
+    pub exit_code: Option<ExitCode>,
 }
