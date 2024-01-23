@@ -3,9 +3,10 @@
 use displaydoc::Display;
 use thiserror::Error;
 use tonic::Status;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::auth::AuthZ;
+use crate::cloudflare;
 use crate::database::WriteConn;
 use crate::grpc::api;
 use crate::models::command::NewCommand;
@@ -18,6 +19,8 @@ pub enum Error {
     Blockchain(#[from] crate::models::blockchain::Error),
     /// Failed to create cancelation log: {0}
     CancelationLog(crate::models::node::log::Error),
+    /// Failed to create dns record for node: {0}
+    Cloudflare(cloudflare::Error),
     /// Command error: {0}
     Command(#[from] crate::models::command::Error),
     /// CreateNode command has no node id.
@@ -44,6 +47,7 @@ impl From<Error> for Status {
             CreateNodeId => Status::invalid_argument("node_id"),
             Blockchain(err) => err.into(),
             CancelationLog(err) | DeploymentLog(err) => err.into(),
+            Cloudflare(_) => Status::internal("Internal error."),
             Command(err) => err.into(),
             Node(err) | UpdateNode(err) => err.into(),
             UnassignIp(err) | AssignIp(err) | FindIp(err) => err.into(),
@@ -109,12 +113,16 @@ async fn recover_created(
         return Err(Error::DeploymentLog(err));
     };
 
-    // We unassign the current ip address since we're going to be switching hosts.
+    // We unassign the current ip address and dns record since we're going to be switching hosts.
     node.ip(write)
         .await?
         .unassign(write)
         .await
         .map_err(Error::UnassignIp)?;
+    if let Err(err) = write.ctx.dns.delete(&node.dns_record_id).await {
+        warn!("Failed to remove node dns: {err}");
+    }
+
     // 2. We now find the host that is next in line, and assign our node to that host.
     let Ok(host) = node.find_host(authz, write).await else {
         // We were unable to find a new host. This may happen because the system is out of resources
@@ -150,6 +158,12 @@ async fn recover_created(
         .update(update, write)
         .await
         .map_err(Error::UpdateNode)?;
+    write
+        .ctx
+        .dns
+        .create(&node.name, ip.ip())
+        .await
+        .map_err(Error::Cloudflare)?;
     ip.assign(write).await.map_err(Error::AssignIp)?;
 
     // 3. We notify blockvisor of our retry via an MQTT message.

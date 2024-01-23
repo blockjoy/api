@@ -624,13 +624,13 @@ impl NewNode {
         };
 
         let ip_gateway = host.ip_gateway.ip().to_string();
-        let node_id = IpAddress::next_for_host(host.id, write)
+        let node_ip = IpAddress::next_for_host(host.id, write)
             .await
             .map_err(Error::NextHostIp)?;
-        node_id.assign(write).await.map_err(Error::AssignIpAddr)?;
+        node_ip.assign(write).await.map_err(Error::AssignIpAddr)?;
 
         let blockchain = Blockchain::by_id(self.blockchain_id, authz, write).await?;
-        let dns_record = write.ctx.dns.create(&self.name, node_id.ip()).await?;
+        let dns_record = write.ctx.dns.create(&self.name, node_ip.ip()).await?;
 
         let image = ImageId::new(blockchain.name, self.node_type, self.version.clone());
         let meta = write.ctx.storage.rhai_metadata(&image).await?;
@@ -643,7 +643,7 @@ impl NewNode {
                 self,
                 nodes::host_id.eq(host.id),
                 nodes::ip_gateway.eq(ip_gateway),
-                nodes::ip_addr.eq(node_id.ip().to_string()),
+                nodes::ip_addr.eq(node_ip.ip().to_string()),
                 nodes::dns_record_id.eq(dns_record.id),
                 nodes::data_directory_mountpoint.eq(data_directory_mountpoint),
             ))
