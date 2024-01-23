@@ -9,7 +9,7 @@ use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::{error, warn};
 
-use crate::auth::rbac::CommandPerm;
+use crate::auth::rbac::{CommandAdminPerm, CommandPerm};
 use crate::auth::resource::{NodeId, Resource};
 use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
@@ -17,7 +17,7 @@ use crate::grpc::api::command_service_server::CommandService;
 use crate::grpc::common::{FirewallAction, FirewallDirection, FirewallProtocol, FirewallRule};
 use crate::grpc::{api, common, Grpc};
 use crate::models::blockchain::{Blockchain, BlockchainProperty, BlockchainVersion};
-use crate::models::command::{ExitCode, UpdateCommand};
+use crate::models::command::{CommandFilter, ExitCode, UpdateCommand};
 use crate::models::node::{NodeStatus, UpdateNode};
 use crate::models::{Command, CommandType, Host, Node};
 use crate::util::NanosUtc;
@@ -52,8 +52,12 @@ pub enum Error {
     Node(#[from] crate::models::node::Error),
     /// Not implemented.
     NotImplemented,
+    /// Failed to parse ExitCode.
+    ParseExitCode,
     /// Failed to parse HostId: {0}
     ParseHostId(uuid::Error),
+    /// Failed to parse NodeId: {0}
+    ParseNodeId(uuid::Error),
     /// Failed to parse CommandId: {0}
     ParseId(uuid::Error),
     /// Unable to cast retry hint from u64 to i64: {0}
@@ -68,6 +72,8 @@ impl From<Error> for Status {
         error!("{err}");
         match err {
             MissingNodeId => Status::invalid_argument("command.node_id"),
+            ParseExitCode => Status::invalid_argument("exit_code"),
+            ParseNodeId(_) => Status::invalid_argument("node_id"),
             ParseHostId(_) => Status::invalid_argument("host_id"),
             ParseId(_) => Status::invalid_argument("id"),
             RetryHint(_) => Status::invalid_argument("retry_hint_seconds"),
@@ -125,13 +131,27 @@ impl CommandService for Grpc {
     }
 }
 
-#[allow(clippy::unused_async)]
 async fn list(
-    _req: api::CommandServiceListRequest,
-    _meta: MetadataMap,
-    mut _read: ReadConn<'_, '_>,
+    req: api::CommandServiceListRequest,
+    meta: MetadataMap,
+    mut read: ReadConn<'_, '_>,
 ) -> Result<api::CommandServiceListResponse, Error> {
-    Err(Error::NotImplemented)
+    let filter = req.as_filter()?;
+    let authz = if let Some(node_id) = filter.node_id {
+        read.auth_or_all(&meta, CommandAdminPerm::List, CommandPerm::List, node_id)
+            .await?
+    } else if let Some(host_id) = filter.host_id {
+        read.auth_or_all(&meta, CommandAdminPerm::List, CommandPerm::List, host_id)
+            .await?
+    } else {
+        read.auth_all(&meta, CommandAdminPerm::List).await?
+    };
+    let models = Command::filter(req.as_filter()?, &mut read).await?;
+    let mut commands = Vec::with_capacity(models.len());
+    for command in models {
+        commands.push(api::Command::from_model(&command, &authz, &mut read).await?);
+    }
+    Ok(api::CommandServiceListResponse { commands })
 }
 
 async fn update(
@@ -267,6 +287,44 @@ impl api::Command {
             CommandType::NodeUpgrade => node_upgrade(model, authz, conn).await,
             CommandType::NodeUpdate => node_update(model, conn).await,
             CommandType::NodeDelete => node_delete(model),
+        }
+    }
+}
+
+impl api::CommandServiceListRequest {
+    fn as_filter(&self) -> Result<CommandFilter, Error> {
+        Ok(CommandFilter {
+            node_id: self
+                .node_id
+                .as_deref()
+                .map(|id| id.parse().map_err(Error::ParseNodeId))
+                .transpose()?,
+            host_id: self
+                .host_id
+                .as_deref()
+                .map(|id| id.parse().map_err(Error::ParseHostId))
+                .transpose()?,
+            exit_code: self
+                .exit_code
+                .map(|code| api::CommandExitCode::try_from(code).map_err(|_| Error::ParseExitCode))
+                .transpose()?
+                .map(|code| code.into_model().ok_or(Error::ParseExitCode))
+                .transpose()?,
+        })
+    }
+}
+
+impl api::CommandExitCode {
+    const fn into_model(self) -> Option<ExitCode> {
+        match self {
+            api::CommandExitCode::Unspecified => None,
+            api::CommandExitCode::Ok => Some(ExitCode::Ok),
+            api::CommandExitCode::InternalError => Some(ExitCode::InternalError),
+            api::CommandExitCode::NodeNotFound => Some(ExitCode::NodeNotFound),
+            api::CommandExitCode::BlockingJobRunning => Some(ExitCode::BlockingJobRunning),
+            api::CommandExitCode::ServiceNotReady => Some(ExitCode::ServiceNotReady),
+            api::CommandExitCode::ServiceBroken => Some(ExitCode::ServiceBroken),
+            api::CommandExitCode::NotSupported => Some(ExitCode::NotSupported),
         }
     }
 }
