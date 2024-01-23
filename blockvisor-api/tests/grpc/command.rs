@@ -24,7 +24,7 @@ async fn responds_ok_for_update() {
     let mut conn = test.conn().await;
 
     let node_id = test.seed().node.id;
-    let cmd = create_command(&test, node_id, CommandType::CreateNode).await;
+    let cmd = create_command(&test, node_id, CommandType::NodeCreate).await;
     let host = Host::by_id(cmd.host_id, &mut conn).await.unwrap();
 
     let claims = test.host_claims_for(host.id);
@@ -73,7 +73,7 @@ async fn responds_ok_for_pending() {
     };
     node.update(update, &mut conn).await.unwrap();
 
-    let cmd = create_command(&test, node_id, CommandType::CreateNode).await;
+    let cmd = create_command(&test, node_id, CommandType::NodeCreate).await;
     let host = Host::by_id(cmd.host_id, &mut conn).await.unwrap();
 
     let claims = test.host_claims_for(host.id);

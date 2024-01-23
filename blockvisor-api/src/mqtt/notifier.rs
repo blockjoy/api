@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use displaydoc::Display;
@@ -9,7 +10,10 @@ use tracing::{trace, warn};
 
 use crate::database::{Database, Pool};
 use crate::grpc::api;
+use crate::grpc::command::host_pending;
+use crate::models::command::NewCommand;
 use crate::models::host::{ConnectionStatus, UpdateHost};
+use crate::models::{Command, CommandType};
 
 use super::{Client, Message, CLIENT_CAPACITY, CLIENT_QOS};
 
@@ -17,6 +21,10 @@ use super::{Client, Message, CLIENT_CAPACITY, CLIENT_QOS};
 pub enum Error {
     /// MQTT client error: {0}
     Client(#[from] crate::mqtt::Error),
+    /// MQTT Command error: {0}
+    Command(#[from] crate::models::command::Error),
+    /// MQTT GRPC Command error: {0}
+    GrpcCommand(#[from] crate::grpc::command::Error),
     /// Failed to parse HostId from MQTT HostStatus: {0}
     ParseHostId(uuid::Error),
     /// Failed to parse HostStatus: {0}
@@ -37,7 +45,7 @@ pub struct Notifier {
 }
 
 impl Notifier {
-    pub async fn new(options: MqttOptions, pool: Pool) -> Result<Self, Error> {
+    pub async fn new(options: MqttOptions, pool: Pool) -> Result<Arc<Self>, Error> {
         let (client, mut event_loop) = AsyncClient::new(options, CLIENT_CAPACITY);
 
         client
@@ -54,13 +62,19 @@ impl Notifier {
             };
         }
 
+        let client = Client::new(client);
+        let notifier = Arc::new(Self { client });
+        let mqtt = notifier.clone();
+
         // then continue polling in the background and warn on errors
         tokio::spawn(async move {
             let pool = pool;
+            let mqtt = mqtt;
+
             loop {
                 match event_loop.poll().await {
                     Ok(Event::Incoming(Packet::Publish(packet))) => {
-                        if let Err(err) = handle_packet(packet, &pool).await {
+                        if let Err(err) = mqtt.handle_packet(packet, &pool).await {
                             warn!("Failed to handle MQTT host event: {err}");
                         }
                     }
@@ -73,9 +87,7 @@ impl Notifier {
             }
         });
 
-        let client = Client::new(client);
-
-        Ok(Self { client })
+        Ok(notifier)
     }
 
     pub async fn send<M>(&self, message: M) -> Result<(), Error>
@@ -103,42 +115,29 @@ impl Notifier {
 
         Ok(())
     }
-}
 
-async fn handle_packet(packet: Publish, pool: &Pool) -> Result<(), Error> {
-    let status = api::HostStatus::decode(&*packet.payload).map_err(Error::ParseHostStatus)?;
-    let mut conn = pool.conn().await.map_err(Error::PoolConnection)?;
+    async fn handle_packet(&self, packet: Publish, pool: &Pool) -> Result<(), Error> {
+        let status = api::HostStatus::decode(&*packet.payload).map_err(Error::ParseHostStatus)?;
+        let mut conn = pool.conn().await.map_err(Error::PoolConnection)?;
 
-    UpdateHost::try_from(status)?
-        .update(&mut conn)
-        .await
-        .map(|_host| ())
-        .map_err(Error::UpdateHostStatus)
-}
+        let host_id = status.host_id.parse().map_err(Error::ParseHostId)?;
+        let conn_status = ConnectionStatus::from(status.connection_status());
 
-impl<'u> TryFrom<api::HostStatus> for UpdateHost<'u> {
-    type Error = Error;
+        UpdateHost::new(host_id)
+            .with_status(conn_status)
+            .update(&mut conn)
+            .await
+            .map_err(Error::UpdateHostStatus)?;
 
-    fn try_from(status: api::HostStatus) -> Result<Self, Self::Error> {
-        let id = status.host_id.parse().map_err(Error::ParseHostId)?;
+        if conn_status == ConnectionStatus::Online
+            && Command::has_host_pending(host_id, &mut conn).await?
+        {
+            let pending = NewCommand::host(host_id, CommandType::HostPending)?;
+            let command = pending.create(&mut conn).await?;
+            self.send(host_pending(&command)?).await?;
+        }
 
-        Ok(UpdateHost {
-            id,
-            status: Some(ConnectionStatus::from(status.connection_status())),
-            name: None,
-            version: None,
-            cpu_count: None,
-            mem_size_bytes: None,
-            disk_size_bytes: None,
-            os: None,
-            os_version: None,
-            ip_addr: None,
-            ip_range_from: None,
-            ip_range_to: None,
-            ip_gateway: None,
-            region_id: None,
-            managed_by: None,
-        })
+        Ok(())
     }
 }
 

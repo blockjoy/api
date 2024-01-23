@@ -21,9 +21,9 @@ pub(super) async fn register(
     authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
 ) {
-    let _ = match succeeded_cmd.cmd {
-        CommandType::CreateNode => create_node_success(succeeded_cmd, authz, write).await,
-        CommandType::DeleteNode => delete_node_success(succeeded_cmd, write).await,
+    let _ = match succeeded_cmd.command_type {
+        CommandType::NodeCreate => create_node_success(succeeded_cmd, authz, write).await,
+        CommandType::NodeDelete => delete_node_success(succeeded_cmd, write).await,
         _ => return,
     };
 }
@@ -57,7 +57,7 @@ async fn create_node_success(
     };
     let _ = new_log.create(write).await;
 
-    let start_notif = NewCommand::node(&node, CommandType::RestartNode)
+    let start_notif = NewCommand::node(&node, CommandType::NodeRestart)
         .map_err(|err| error!("Command error: {err}"))?
         .create(write)
         .await

@@ -323,7 +323,6 @@ mod tests {
         let command = Command {
             id: Uuid::new_v4().into(),
             host_id: db.seed.host.id,
-            cmd: CommandType::DeleteNode,
             exit_message: None,
             created_at: chrono::Utc::now(),
             completed_at: None,
@@ -331,9 +330,10 @@ mod tests {
             acked_at: None,
             retry_hint_seconds: None,
             exit_code: None,
+            command_type: CommandType::NodeDelete,
         };
 
-        let command = crate::grpc::command::delete_node(&command).unwrap();
+        let command = crate::grpc::command::node_delete(&command).unwrap();
         ctx.notifier.send(command).await.unwrap();
     }
 

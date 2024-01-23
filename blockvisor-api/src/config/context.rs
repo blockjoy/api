@@ -131,7 +131,7 @@ pub struct Builder {
     config: Option<Config>,
     dns: Option<Box<dyn Dns + Send + Sync + 'static>>,
     email: Option<Email>,
-    notifier: Option<Notifier>,
+    notifier: Option<Arc<Notifier>>,
     pool: Option<Pool>,
     rng: Option<OsRng>,
     storage: Option<Storage>,
@@ -144,7 +144,7 @@ impl Builder {
             config: self.config.ok_or(Error::MissingConfig).map(Arc::new)?,
             dns: self.dns.ok_or(Error::MissingDns).map(Arc::new)?,
             email: self.email.ok_or(Error::MissingEmail).map(Arc::new)?,
-            notifier: self.notifier.ok_or(Error::MissingNotifier).map(Arc::new)?,
+            notifier: self.notifier.ok_or(Error::MissingNotifier)?,
             pool: self.pool.ok_or(Error::MissingPool)?,
             rng: Arc::new(Mutex::new(self.rng.unwrap_or_default())),
             storage: self.storage.ok_or(Error::MissingStorage).map(Arc::new)?,
@@ -179,7 +179,7 @@ impl Builder {
     }
 
     #[must_use]
-    pub fn notifier(mut self, notifier: Notifier) -> Self {
+    pub fn notifier(mut self, notifier: Arc<Notifier>) -> Self {
         self.notifier = Some(notifier);
         self
     }

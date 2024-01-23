@@ -47,7 +47,7 @@ use crate::util::{SearchOperator, SortOrder};
 use super::blockchain::{Blockchain, BlockchainId};
 use super::host::{Host, HostRequirements, HostType};
 use super::schema::nodes;
-use super::{IpAddress, Paginate, Region, RegionId};
+use super::{Command, IpAddress, Paginate, Region, RegionId};
 
 type NotDeleted = dsl::Filter<nodes::table, dsl::IsNull<nodes::deleted_at>>;
 
@@ -63,7 +63,7 @@ pub enum Error {
     AssignIpAddr(#[from] super::ip_address::Error),
     /// Blockchain error for node: {0}
     Blockchain(#[from] super::blockchain::Error),
-    /// Command error: {0}
+    /// Node Command error: {0}
     Command(Box<super::command::Error>),
     /// Node Cloudflare error: {0}
     Cloudflare(#[from] crate::cloudflare::Error),
@@ -282,8 +282,7 @@ impl Node {
 
         node.ip(write).await?.unassign(write).await?;
 
-        // Delete all pending commands for this node: there are not useable anymore
-        super::Command::delete_pending(node.id, write)
+        Command::delete_node_pending(node.id, write)
             .await
             .map_err(|err| Error::Command(Box::new(err)))?;
 

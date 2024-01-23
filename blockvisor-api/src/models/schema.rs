@@ -14,16 +14,16 @@ pub mod sql_types {
     pub struct EnumCommandExitCode;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "enum_command_type"))]
+    pub struct EnumCommandType;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_conn_status"))]
     pub struct EnumConnStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_container_status"))]
     pub struct EnumContainerStatus;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "enum_host_cmd"))]
-    pub struct EnumHostCmd;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "enum_host_type"))]
@@ -153,13 +153,12 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::EnumHostCmd;
     use super::sql_types::EnumCommandExitCode;
+    use super::sql_types::EnumCommandType;
 
     commands (id) {
         id -> Uuid,
         host_id -> Uuid,
-        cmd -> EnumHostCmd,
         exit_message -> Nullable<Text>,
         created_at -> Timestamptz,
         completed_at -> Nullable<Timestamptz>,
@@ -167,6 +166,7 @@ diesel::table! {
         acked_at -> Nullable<Timestamptz>,
         retry_hint_seconds -> Nullable<Int8>,
         exit_code -> Nullable<EnumCommandExitCode>,
+        command_type -> EnumCommandType,
     }
 }
 

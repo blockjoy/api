@@ -301,9 +301,9 @@ async fn validate_command(test: &TestServer) {
         .filter(
             schema::commands::node_id
                 .is_null()
-                .and(schema::commands::cmd.ne(CommandType::DeleteNode))
-                .or(schema::commands::cmd
-                    .eq(CommandType::DeleteNode)
+                .and(schema::commands::command_type.ne(CommandType::NodeDelete))
+                .or(schema::commands::command_type
+                    .eq(CommandType::NodeDelete)
                     .and(schema::commands::node_id.is_null())),
         )
         .load::<Command>(&mut conn)

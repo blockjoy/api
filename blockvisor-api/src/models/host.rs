@@ -27,7 +27,7 @@ use super::blockchain::{Blockchain, BlockchainId};
 use super::ip_address::NewIpAddressRange;
 use super::node::{NodeScheduler, NodeType, ResourceAffinity};
 use super::schema::{hosts, nodes, sql_types};
-use super::Node;
+use super::{Command, Node};
 use super::{Paginate, Region, RegionId};
 
 type NotDeleted = dsl::Filter<hosts::table, dsl::IsNull<hosts::deleted_at>>;
@@ -40,6 +40,8 @@ pub enum Error {
     BillingAmountCurrency(i32),
     /// Unsupported BillingAmount Period: {0:?}
     BillingAmountPeriod(i32),
+    /// Host Command error: {0}
+    Command(Box<super::command::Error>),
     /// Failed to create host: {0}
     Create(diesel::result::Error),
     /// Failed to delete host id `{0}`: {1}
@@ -204,12 +206,18 @@ impl Host {
             .map_err(|err| Error::FindByName(name.into(), err))
     }
 
-    pub async fn delete(id: HostId, conn: &mut Conn<'_>) -> Result<usize, Error> {
+    pub async fn delete(id: HostId, conn: &mut Conn<'_>) -> Result<(), Error> {
         diesel::update(Self::not_deleted().find(id))
             .set(hosts::deleted_at.eq(Utc::now()))
             .execute(conn)
             .await
-            .map_err(|err| Error::Delete(id, err))
+            .map_err(|err| Error::Delete(id, err))?;
+
+        Command::delete_host_pending(id, conn)
+            .await
+            .map_err(|err| Error::Command(Box::new(err)))?;
+
+        Ok(())
     }
 
     /// This function returns a list of up to 2 possible hosts that the node may be scheduled on.
@@ -558,7 +566,7 @@ impl NewHost<'_> {
     }
 }
 
-#[derive(Debug, Clone, AsChangeset)]
+#[derive(Clone, Debug, PartialEq, Eq, AsChangeset)]
 #[diesel(table_name = hosts)]
 pub struct UpdateHost<'a> {
     pub id: HostId,
@@ -579,8 +587,34 @@ pub struct UpdateHost<'a> {
 }
 
 impl UpdateHost<'_> {
+    pub const fn new(id: HostId) -> Self {
+        UpdateHost {
+            id,
+            name: None,
+            version: None,
+            cpu_count: None,
+            mem_size_bytes: None,
+            disk_size_bytes: None,
+            os: None,
+            os_version: None,
+            ip_addr: None,
+            status: None,
+            ip_range_from: None,
+            ip_range_to: None,
+            ip_gateway: None,
+            region_id: None,
+            managed_by: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_status(mut self, status: ConnectionStatus) -> Self {
+        self.status = Some(status);
+        self
+    }
+
     pub async fn update(self, conn: &mut Conn<'_>) -> Result<Host, Error> {
-        if !self.has_some() {
+        if self == Self::new(self.id) {
             return Err(Error::NoUpdate);
         }
 
@@ -589,23 +623,6 @@ impl UpdateHost<'_> {
             .get_result(conn)
             .await
             .map_err(Error::Update)
-    }
-
-    const fn has_some(&self) -> bool {
-        self.name.is_some()
-            || self.version.is_some()
-            || self.cpu_count.is_some()
-            || self.mem_size_bytes.is_some()
-            || self.disk_size_bytes.is_some()
-            || self.os.is_some()
-            || self.os_version.is_some()
-            || self.ip_addr.is_some()
-            || self.status.is_some()
-            || self.ip_range_from.is_some()
-            || self.ip_range_to.is_some()
-            || self.ip_gateway.is_some()
-            || self.region_id.is_some()
-            || self.managed_by.is_some()
     }
 }
 

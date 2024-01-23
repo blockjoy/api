@@ -89,6 +89,14 @@ impl From<Error> for Status {
 
 #[tonic::async_trait]
 impl CommandService for Grpc {
+    async fn list(
+        &self,
+        req: Request<api::CommandServiceListRequest>,
+    ) -> Result<Response<api::CommandServiceListResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| list(req, meta, read).scope_boxed()).await
+    }
+
     async fn update(
         &self,
         req: Request<api::CommandServiceUpdateRequest>,
@@ -115,6 +123,15 @@ impl CommandService for Grpc {
         self.read(|read| pending(req, meta, read).scope_boxed())
             .await
     }
+}
+
+#[allow(clippy::unused_async)]
+async fn list(
+    _req: api::CommandServiceListRequest,
+    _meta: MetadataMap,
+    mut _read: ReadConn<'_, '_>,
+) -> Result<api::CommandServiceListResponse, Error> {
+    Err(Error::NotImplemented)
 }
 
 async fn update(
@@ -178,7 +195,7 @@ async fn pending(
     let authz = read.auth(&meta, CommandPerm::Pending, host_id).await?;
     Host::by_id(host_id, &mut read).await?;
 
-    let pending = Command::find_pending_by_host(host_id, &mut read).await?;
+    let pending = Command::host_pending(host_id, &mut read).await?;
     let mut commands = Vec::with_capacity(pending.len());
     for command in pending {
         commands.push(api::Command::from_model(&command, &authz, &mut read).await?);
@@ -194,21 +211,21 @@ async fn ack_node_transition(
     authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
 ) -> Result<(), Error> {
-    let next_status = match (command.cmd, node.node_status) {
-        (CommandType::CreateNode, NodeStatus::ProvisioningPending) => NodeStatus::Provisioning,
-        (CommandType::CreateNode, status) => {
+    let next_status = match (command.command_type, node.node_status) {
+        (CommandType::NodeCreate, NodeStatus::ProvisioningPending) => NodeStatus::Provisioning,
+        (CommandType::NodeCreate, status) => {
             warn!("Moving node {} from {status:?} to Provisioning", node.id);
             NodeStatus::Provisioning
         }
 
-        (CommandType::UpdateNode, NodeStatus::UpdatePending) => NodeStatus::Updating,
-        (CommandType::UpdateNode, status) => {
+        (CommandType::NodeUpdate, NodeStatus::UpdatePending) => NodeStatus::Updating,
+        (CommandType::NodeUpdate, status) => {
             warn!("Moving node {} from {status:?} to Updating", node.id);
             NodeStatus::Updating
         }
 
-        (CommandType::DeleteNode, NodeStatus::DeletePending) => NodeStatus::Deleting,
-        (CommandType::DeleteNode, status) => {
+        (CommandType::NodeDelete, NodeStatus::DeletePending) => NodeStatus::Deleting,
+        (CommandType::NodeDelete, status) => {
             warn!("Moving node {} from {status:?} to Deleting", node.id);
             NodeStatus::Deleting
         }
@@ -238,29 +255,27 @@ impl api::Command {
         authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
-        use crate::models::command::CommandType::*;
-
-        match model.cmd {
-            CreateNode => create_node(model, authz, conn).await,
-            GetNodeVersion => get_node_version(model),
-            UpdateNode => update_node(model, conn).await,
-            UpgradeNode => upgrade_node(model, authz, conn).await,
-            RestartNode => restart_node(model),
-            ShutdownNode | KillNode => stop_node(model),
-            DeleteNode => delete_node(model),
-
-            GetBVSVersion | UpdateBVS | RestartBVS | RemoveBVS | CreateBVS | StopBVS => {
-                host_command(model)
-            }
-
-            MigrateNode => Err(Error::NotImplemented),
+        match model.command_type {
+            CommandType::HostStart => host_start(model),
+            CommandType::HostStop => host_stop(model),
+            CommandType::HostRestart => host_restart(model),
+            CommandType::HostPending => host_pending(model),
+            CommandType::NodeCreate => node_create(model, authz, conn).await,
+            CommandType::NodeStart => node_start(model),
+            CommandType::NodeStop => node_stop(model),
+            CommandType::NodeRestart => node_restart(model),
+            CommandType::NodeUpgrade => node_upgrade(model, authz, conn).await,
+            CommandType::NodeUpdate => node_update(model, conn).await,
+            CommandType::NodeDelete => node_delete(model),
         }
     }
 }
 
 /// Create a new `api::HostCommand` from a `Command`.
-fn host_command(command: &Command) -> Result<api::Command, Error> {
-    let host_id = command.host_id.to_string();
+fn host_command(
+    command: &Command,
+    host_cmd: api::host_command::Command,
+) -> Result<api::Command, Error> {
     let exit_code = command
         .exit_code
         .map(|code| api::CommandExitCode::from(code).into());
@@ -274,9 +289,33 @@ fn host_command(command: &Command) -> Result<api::Command, Error> {
         exit_code,
         exit_message: command.exit_message.clone(),
         retry_hint_seconds,
+        created_at: Some(NanosUtc::from(command.created_at).into()),
         acked_at: command.acked_at.map(NanosUtc::from).map(Into::into),
-        command: Some(api::command::Command::Host(api::HostCommand { host_id })),
+        command: Some(api::command::Command::Host(api::HostCommand {
+            host_id: command.host_id.to_string(),
+            command: Some(host_cmd),
+        })),
     })
+}
+
+fn host_start(command: &Command) -> Result<api::Command, Error> {
+    let host_cmd = api::host_command::Command::Start(api::HostStart {});
+    host_command(command, host_cmd)
+}
+
+fn host_stop(command: &Command) -> Result<api::Command, Error> {
+    let host_cmd = api::host_command::Command::Stop(api::HostStop {});
+    host_command(command, host_cmd)
+}
+
+fn host_restart(command: &Command) -> Result<api::Command, Error> {
+    let host_cmd = api::host_command::Command::Restart(api::HostRestart {});
+    host_command(command, host_cmd)
+}
+
+pub fn host_pending(command: &Command) -> Result<api::Command, Error> {
+    let host_cmd = api::host_command::Command::Pending(api::HostPending {});
+    host_command(command, host_cmd)
 }
 
 /// Create a new `api::NodeCommand` from a `Command`.
@@ -298,18 +337,17 @@ fn node_command(
         exit_code,
         exit_message: command.exit_message.clone(),
         retry_hint_seconds,
+        created_at: Some(NanosUtc::from(command.created_at).into()),
         acked_at: command.acked_at.map(NanosUtc::from).map(Into::into),
         command: Some(api::command::Command::Node(api::NodeCommand {
-            node_id: node_id.to_string(),
             host_id: command.host_id.to_string(),
+            node_id: node_id.to_string(),
             command: Some(node_cmd),
-            api_command_id: command.id.to_string(),
-            created_at: Some(NanosUtc::from(command.created_at).into()),
         })),
     })
 }
 
-async fn create_node(
+async fn node_create(
     command: &Command,
     authz: &AuthZ,
     conn: &mut Conn<'_>,
@@ -357,22 +395,25 @@ async fn create_node(
     node_command(command, node_id, node_cmd)
 }
 
-fn get_node_version(command: &Command) -> Result<api::Command, Error> {
+fn node_start(command: &Command) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
-    let node_cmd = api::node_command::Command::InfoGet(api::NodeGet {});
+    let node_cmd = api::node_command::Command::Start(api::NodeStart {});
     node_command(command, node_id, node_cmd)
 }
 
-async fn update_node(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+fn node_stop(command: &Command) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
-    let node = Node::by_id(node_id, conn).await?;
-    let node_cmd = api::node_command::Command::Update(api::NodeUpdate {
-        rules: firewall_rules(&node)?,
-    });
+    let node_cmd = api::node_command::Command::Stop(api::NodeStop {});
     node_command(command, node_id, node_cmd)
 }
 
-async fn upgrade_node(
+fn node_restart(command: &Command) -> Result<api::Command, Error> {
+    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+    let node_cmd = api::node_command::Command::Restart(api::NodeRestart {});
+    node_command(command, node_id, node_cmd)
+}
+
+async fn node_upgrade(
     command: &Command,
     authz: &AuthZ,
     conn: &mut Conn<'_>,
@@ -391,19 +432,16 @@ async fn upgrade_node(
     node_command(command, node_id, node_cmd)
 }
 
-fn restart_node(command: &Command) -> Result<api::Command, Error> {
+async fn node_update(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
-    let node_cmd = api::node_command::Command::Restart(api::NodeRestart {});
+    let node = Node::by_id(node_id, conn).await?;
+    let node_cmd = api::node_command::Command::Update(api::NodeUpdate {
+        rules: firewall_rules(&node)?,
+    });
     node_command(command, node_id, node_cmd)
 }
 
-fn stop_node(command: &Command) -> Result<api::Command, Error> {
-    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
-    let node_cmd = api::node_command::Command::Stop(api::NodeStop {});
-    node_command(command, node_id, node_cmd)
-}
-
-pub fn delete_node(command: &Command) -> Result<api::Command, Error> {
+pub fn node_delete(command: &Command) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
     let node_cmd = api::node_command::Command::Delete(api::NodeDelete {});
     node_command(command, node_id, node_cmd)

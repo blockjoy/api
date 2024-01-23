@@ -27,14 +27,18 @@ pub enum Error {
     Ack(diesel::result::Error),
     /// Failed to create new command: {0}
     Create(diesel::result::Error),
-    /// Failed to delete pending commands: {0}
-    DeletePending(diesel::result::Error),
+    /// Failed to delete pending host commands: {0}
+    DeleteHostPending(diesel::result::Error),
+    /// Failed to delete pending node commands: {0}
+    DeleteNodePending(diesel::result::Error),
     /// Failed to find command by id `{0}`: {1}
     FindById(CommandId, diesel::result::Error),
-    /// Failed to find pending commands: {0}
-    FindPending(diesel::result::Error),
+    /// Failed to check for pending host commands: {0}
+    HasHostPending(diesel::result::Error),
     /// Command Host error: {0}
     Host(#[from] super::host::Error),
+    /// Failed to find pending host commands: {0}
+    HostPending(diesel::result::Error),
     /// Command Node error: {0}
     Node(#[from] super::node::Error),
     /// Failed to parse CommandId: {0}
@@ -54,9 +58,11 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
-            DeletePending(NotFound) | FindById(_, NotFound) | FindPending(NotFound) => {
-                Status::not_found("Not found.")
-            }
+            DeleteHostPending(NotFound)
+            | DeleteNodePending(NotFound)
+            | FindById(_, NotFound)
+            | HasHostPending(NotFound)
+            | HostPending(NotFound) => Status::not_found("Not found."),
             ParseId(_) => Status::invalid_argument("id"),
             RetryHint(_) => Status::invalid_argument("retry_hint_seconds"),
             Host(err) => err.into(),
@@ -67,40 +73,33 @@ impl From<Error> for Status {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "sql_types::EnumHostCmd"]
+#[ExistingTypePath = "sql_types::EnumCommandType"]
 pub enum CommandType {
-    CreateNode,
-    RestartNode,
-    KillNode,
-    ShutdownNode,
-    DeleteNode,
-    UpdateNode,
-    MigrateNode,
-    UpgradeNode,
-    GetNodeVersion,
-    GetBVSVersion,
-    CreateBVS,
-    UpdateBVS,
-    RestartBVS,
-    RemoveBVS,
-    StopBVS,
+    HostStart,
+    HostStop,
+    HostRestart,
+    HostPending,
+    NodeCreate,
+    NodeStart,
+    NodeStop,
+    NodeRestart,
+    NodeUpgrade,
+    NodeUpdate,
+    NodeDelete,
 }
 
 impl CommandType {
-    /// Returns true if this command is directed at the host.
-    pub const fn host_command(self) -> bool {
+    const fn is_host(self) -> bool {
         use CommandType::*;
-
-        match self {
-            CreateNode | RestartNode | KillNode | ShutdownNode | DeleteNode | UpdateNode
-            | MigrateNode | UpgradeNode | GetNodeVersion => false,
-            GetBVSVersion | CreateBVS | UpdateBVS | RestartBVS | RemoveBVS | StopBVS => true,
-        }
+        matches!(self, HostStart | HostStop | HostRestart | HostPending)
     }
 
-    /// Returns true if this command is directed at a specific node on the host.
-    pub const fn node_command(self) -> bool {
-        !self.host_command()
+    const fn is_node(self) -> bool {
+        use CommandType::*;
+        matches!(
+            self,
+            NodeCreate | NodeStart | NodeStop | NodeRestart | NodeUpgrade | NodeUpdate | NodeDelete
+        )
     }
 }
 
@@ -125,7 +124,6 @@ pub struct CommandId(Uuid);
 pub struct Command {
     pub id: CommandId,
     pub host_id: HostId,
-    pub cmd: CommandType,
     pub exit_message: Option<String>,
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
@@ -133,6 +131,7 @@ pub struct Command {
     pub acked_at: Option<DateTime<Utc>>,
     pub retry_hint_seconds: Option<i64>,
     pub exit_code: Option<ExitCode>,
+    pub command_type: CommandType,
 }
 
 impl Command {
@@ -144,24 +143,42 @@ impl Command {
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn find_pending_by_host(
-        host_id: HostId,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Command>, Error> {
+    pub async fn has_host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<bool, Error> {
+        let pending = Self::pending().filter(commands::host_id.eq(host_id));
+
+        diesel::select(dsl::exists(pending))
+            .get_result(conn)
+            .await
+            .map_err(Error::HasHostPending)
+    }
+
+    pub async fn host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Command>, Error> {
         Self::pending()
             .filter(commands::host_id.eq(host_id))
             .order_by(commands::created_at.asc())
             .get_results(conn)
             .await
-            .map_err(Error::FindPending)
+            .map_err(Error::HostPending)
     }
 
-    pub async fn delete_pending(node_id: NodeId, conn: &mut Conn<'_>) -> Result<(), Error> {
-        diesel::delete(Self::pending().filter(commands::node_id.eq(node_id)))
+    pub async fn delete_host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<(), Error> {
+        let pending = Self::pending().filter(commands::host_id.eq(host_id));
+
+        diesel::delete(pending)
             .execute(conn)
             .await
             .map(|_| ())
-            .map_err(Error::DeletePending)
+            .map_err(Error::DeleteHostPending)
+    }
+
+    pub async fn delete_node_pending(node_id: NodeId, conn: &mut Conn<'_>) -> Result<(), Error> {
+        let pending = Self::pending().filter(commands::node_id.eq(node_id));
+
+        diesel::delete(pending)
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .map_err(Error::DeleteNodePending)
     }
 
     pub async fn host(&self, conn: &mut Conn<'_>) -> Result<Host, Error> {
@@ -193,30 +210,32 @@ impl Command {
 #[diesel(table_name = commands)]
 pub struct NewCommand {
     host_id: HostId,
-    cmd: CommandType,
     node_id: Option<NodeId>,
+    command_type: CommandType,
 }
 
 impl NewCommand {
-    pub const fn host(host: &Host, cmd: CommandType) -> Result<Self, Error> {
-        if !cmd.host_command() {
+    pub const fn host(host_id: HostId, command_type: CommandType) -> Result<Self, Error> {
+        if !command_type.is_host() {
             return Err(Error::NodeCommandWithoutNodeId);
         }
+
         Ok(NewCommand {
-            host_id: host.id,
-            cmd,
+            host_id,
             node_id: None,
+            command_type,
         })
     }
 
-    pub const fn node(node: &Node, cmd: CommandType) -> Result<Self, Error> {
-        if !cmd.node_command() {
+    pub const fn node(node: &Node, command_type: CommandType) -> Result<Self, Error> {
+        if !command_type.is_node() {
             return Err(Error::HostCommandWithNodeId);
         }
+
         Ok(NewCommand {
             host_id: node.host_id,
-            cmd,
             node_id: Some(node.id),
+            command_type,
         })
     }
 

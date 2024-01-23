@@ -61,7 +61,7 @@ pub(super) async fn recover(
     authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
 ) -> Result<Vec<api::Command>, Error> {
-    if failed_cmd.cmd == CommandType::CreateNode {
+    if failed_cmd.command_type == CommandType::NodeCreate {
         recover_created(failed_cmd, authz, write).await
     } else {
         Ok(vec![])
@@ -153,7 +153,7 @@ async fn recover_created(
     ip.assign(write).await.map_err(Error::AssignIp)?;
 
     // 3. We notify blockvisor of our retry via an MQTT message.
-    if let Ok(cmd) = NewCommand::node(&node, CommandType::CreateNode)?
+    if let Ok(cmd) = NewCommand::node(&node, CommandType::NodeCreate)?
         .create(write)
         .await
     {
@@ -166,7 +166,7 @@ async fn recover_created(
     }
 
     // we also start the node.
-    if let Ok(cmd) = NewCommand::node(&node, CommandType::RestartNode)?
+    if let Ok(cmd) = NewCommand::node(&node, CommandType::NodeRestart)?
         .create(write)
         .await
     {

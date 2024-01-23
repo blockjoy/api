@@ -430,7 +430,7 @@ fn upgrade_node(
         return Ok(None);
     }
 
-    let command = NewCommand::node(node, CommandType::UpgradeNode)?;
+    let command = NewCommand::node(node, CommandType::NodeUpgrade)?;
 
     let log = NewNodeLog {
         host_id: node.host_id,
@@ -453,6 +453,7 @@ fn upgrade_command(node_id: NodeId, command: &Command, image: ImageId) -> api::C
         exit_code: None,
         exit_message: None,
         retry_hint_seconds: None,
+        created_at: Some(NanosUtc::from(command.created_at).into()),
         acked_at: None,
         command: Some(api::command::Command::Node(api::NodeCommand {
             node_id: node_id.to_string(),
@@ -460,8 +461,6 @@ fn upgrade_command(node_id: NodeId, command: &Command, image: ImageId) -> api::C
             command: Some(api::node_command::Command::Upgrade(api::NodeUpgrade {
                 image: Some(image.into()),
             })),
-            api_command_id: command.id.to_string(),
-            created_at: Some(NanosUtc::from(command.created_at).into()),
         })),
     }
 }

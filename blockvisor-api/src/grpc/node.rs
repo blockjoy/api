@@ -336,7 +336,7 @@ async fn create(
     let properties = req.properties(&node, &name_to_id_map)?;
     NodeProperty::bulk_create(properties, &mut write).await?;
 
-    let create_notif = NewCommand::node(&node, CommandType::CreateNode)?
+    let create_notif = NewCommand::node(&node, CommandType::NodeCreate)?
         .create(&mut write)
         .await?;
     let create_cmd = api::Command::from_model(&create_notif, &authz, &mut write).await?;
@@ -376,7 +376,7 @@ async fn update_config(
     };
 
     let node = node.update(req.as_update()?, &mut write).await?;
-    let updated = NewCommand::node(&node, CommandType::UpdateNode)?
+    let updated = NewCommand::node(&node, CommandType::NodeUpdate)?
         .create(&mut write)
         .await?;
     let cmd = api::Command::from_model(&updated, &authz, &mut write).await?;
@@ -450,7 +450,7 @@ async fn delete(
     Node::delete(node.id, &mut write).await?;
 
     // Send delete node command
-    let new_command = NewCommand::node(&node, CommandType::DeleteNode)?;
+    let new_command = NewCommand::node(&node, CommandType::NodeDelete)?;
     let cmd = new_command.create(&mut write).await?;
     let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
 
@@ -495,7 +495,7 @@ async fn start(
         .auth_or_all(&meta, NodeAdminPerm::Start, NodePerm::Start, node_id)
         .await?;
 
-    let cmd = NewCommand::node(&node, CommandType::RestartNode)?
+    let cmd = NewCommand::node(&node, CommandType::NodeRestart)?
         .create(&mut write)
         .await?;
     let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
@@ -517,7 +517,7 @@ async fn stop(
         .auth_or_all(&meta, NodeAdminPerm::Stop, NodePerm::Stop, node_id)
         .await?;
 
-    let cmd = NewCommand::node(&node, CommandType::KillNode)?
+    let cmd = NewCommand::node(&node, CommandType::NodeStop)?
         .create(&mut write)
         .await?;
     let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
@@ -539,7 +539,7 @@ async fn restart(
         .auth_or_all(&meta, NodeAdminPerm::Restart, NodePerm::Restart, node_id)
         .await?;
 
-    let cmd = NewCommand::node(&node, CommandType::RestartNode)?
+    let cmd = NewCommand::node(&node, CommandType::NodeRestart)?
         .create(&mut write)
         .await?;
     let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;

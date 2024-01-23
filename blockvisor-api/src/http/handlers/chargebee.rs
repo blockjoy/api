@@ -144,10 +144,10 @@ async fn subscription_cancelled(
 }
 
 async fn delete_node(node: &Node, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
-    let new_command = NewCommand::node(node, CommandType::DeleteNode)?;
+    let new_command = NewCommand::node(node, CommandType::NodeDelete)?;
     let cmd = new_command.create(write).await?;
 
-    write.mqtt(command::delete_node(&cmd)?);
+    write.mqtt(command::node_delete(&cmd)?);
     write.mqtt(api::NodeMessage::deleted(node, None));
 
     Ok(())
