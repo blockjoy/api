@@ -176,7 +176,11 @@ impl Command {
             query = query.filter(commands::exit_code.eq(exit_code));
         }
 
-        query.get_results(conn).await.map_err(Error::Filter)
+        query
+            .order_by(commands::created_at.desc())
+            .get_results(conn)
+            .await
+            .map_err(Error::Filter)
     }
 
     pub async fn delete_host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<(), Error> {
