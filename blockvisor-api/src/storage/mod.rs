@@ -213,10 +213,22 @@ impl Storage {
             }
         };
 
+        let gb_to_download = manifest
+            .chunks
+            .iter()
+            .fold(0, |total, chunk| total + chunk.size)
+            / 1_000_000_000;
+        // with expected download speed at least 33MB/s,
+        // download of 1GB should not take more than 30s,
+        // but be generous and give at least 1h
+        let expiration = std::cmp::max(
+            self.expiration,
+            Duration::from_secs(3600 + 30 * gb_to_download),
+        );
         for chunk in &mut manifest.chunks {
             let url = self
                 .client
-                .download_url(&self.bucket.archive, &chunk.key, self.expiration)
+                .download_url(&self.bucket.archive, &chunk.key, expiration)
                 .await?;
             chunk.url = Some(url);
         }
