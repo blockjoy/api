@@ -817,7 +817,7 @@ impl api::NodeServiceCreateRequest {
         Ok(NewNode {
             id: Uuid::new_v4().into(),
             org_id: self.org_id.parse().map_err(Error::ParseOrgId)?,
-            name: Petnames::large()
+            name: Petnames::small()
                 .generate_one(3, "_")
                 .ok_or(Error::GeneratePetnames)?,
             version: self.version.clone().into(),
