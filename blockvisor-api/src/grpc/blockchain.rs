@@ -16,7 +16,7 @@ use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::blockchain::{
     Blockchain, BlockchainId, BlockchainNodeType, BlockchainNodeTypeId, BlockchainProperty,
     BlockchainVersion, BlockchainVersionId, NewBlockchainNodeType, NewProperty, NewVersion,
-    NodeStats,
+    NodeStats, Visibility,
 };
 use crate::models::command::NewCommand;
 use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeType, NodeVersion, UpdateNode};
@@ -169,6 +169,15 @@ impl BlockchainService for Grpc {
     ) -> Result<Response<api::BlockchainServiceListImageVersionsResponse>, Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list_image_versions(req, meta, read).scope_boxed())
+            .await
+    }
+
+    async fn update(
+        &self,
+        req: Request<api::BlockchainServiceUpdateRequest>,
+    ) -> Result<Response<api::BlockchainServiceUpdateResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| update(req, meta, write).scope_boxed())
             .await
     }
 
@@ -329,6 +338,26 @@ async fn list_image_versions(
     Ok(api::BlockchainServiceListImageVersionsResponse { identifiers })
 }
 
+async fn update(
+    req: api::BlockchainServiceUpdateRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::BlockchainServiceUpdateResponse, Error> {
+    let id = req.id.parse().map_err(Error::ParseId)?;
+    let mut blockchain = Blockchain::by_id(id, &mut write).await?;
+    let _ = write
+        .auth_or_all(
+            &meta,
+            BlockchainAdminPerm::Update,
+            BlockchainPerm::Update,
+            id,
+        )
+        .await?;
+    blockchain.visibility = req.visibility;
+
+    Ok(api::BlockchainServiceUpdateResponse { blockchain })
+}
+
 /// Add a new `NodeType` to an existing blockchain.
 async fn add_node_type(
     req: api::BlockchainServiceAddNodeTypeRequest,
@@ -350,6 +379,30 @@ async fn add_node_type(
         .await?;
 
     Ok(api::BlockchainServiceAddNodeTypeResponse {})
+}
+
+/// Update an existing `node_type`.
+async fn update_node_type(
+    req: api::BlockchainServiceUpdateNodeTypeRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::BlockchainServiceUpdateNodeTypeResponse, Error> {
+    let authz = write
+        .auth_all(&meta, BlockchainAdminPerm::UpdateNodeType)
+        .await?;
+    let id = req.id.parse().map_err(Error::ParseId)?;
+    let mut node_type = BlockchainNodeType::by_id(id, &authz, &mut write).await?;
+    if let Some(visibility) = req.visibility {
+        node_type.visibility = api::BlockchainVisibility::try_from(visibility)?.into_model();
+    }
+    node_type.update(&mut write).await?;
+
+    let versions = BlockchainVersion::by_node_type_id(node_type.id, &mut write).await?;
+    Ok(api::BlockchainServiceUpdateNodeTypeResponse {
+        blockchain_node_type: api::BlockchainNodeType::from_model(
+            node_type, versions, networks, properties,
+        ),
+    })
 }
 
 /// Add a new blockchain version for some existing `node_type`.

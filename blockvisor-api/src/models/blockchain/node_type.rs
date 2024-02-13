@@ -32,6 +32,8 @@ pub enum Error {
     FindByIds(HashSet<BlockchainId>, diesel::result::Error),
     /// Failed to find blockchain node type by id `{0}` and node_type `{1}`: {2}
     FindByNodeType(BlockchainId, NodeType, diesel::result::Error),
+    /// Failed to find blockchain node type by id `{0}`: {1}
+    FindByNodeTypeId(BlockchainNodeTypeId, diesel::result::Error),
     /// Failed to check if node_type `{1}` exists for blockchain id `{0}`: {2}
     NodeTypeExists(BlockchainId, NodeType, diesel::result::Error),
 }
@@ -44,9 +46,10 @@ impl From<Error> for Status {
             | Create(DatabaseError(UniqueViolation, _)) => {
                 Status::already_exists("Already exists.")
             }
-            FindById(_, NotFound) | FindByIds(_, NotFound) | FindByNodeType(_, _, NotFound) => {
-                Status::not_found("Not found.")
-            }
+            FindById(_, NotFound)
+            | FindByIds(_, NotFound)
+            | FindByNodeType(_, _, NotFound)
+            | FindByNodeTypeId(_, NotFound) => Status::not_found("Not found."),
             _ => Status::internal("Internal error."),
         }
     }
@@ -68,6 +71,19 @@ pub struct BlockchainNodeType {
 }
 
 impl BlockchainNodeType {
+    pub async fn by_id(
+        id: BlockchainNodeTypeId,
+        authz: &AuthZ,
+        conn: &mut Conn<'_>,
+    ) -> Result<Self, Error> {
+        blockchain_node_types::table
+            .filter(blockchain_node_types::id.eq(id))
+            .filter(blockchain_node_types::visibility.eq_any(Visibility::from(authz).iter()))
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::FindByNodeTypeId(id, err))
+    }
+
     pub async fn by_blockchain_id(
         blockchain_id: BlockchainId,
         authz: &AuthZ,

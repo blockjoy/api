@@ -79,6 +79,8 @@ define_perms! {
         GetRequirements,
         List,
         ListImageVersions,
+        Update,
+        UpdateNodeType,
         ViewDevelopment,
         ViewPublic,
     }
@@ -88,6 +90,8 @@ define_perms! {
         AddVersion,
         Get,
         List,
+        Update,
+        UpdateNodeType,
         ViewPrivate,
     }
 
