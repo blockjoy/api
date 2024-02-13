@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use displaydoc::Display;
-use sendgrid::{Destination, Mail, SGClient};
+use sendgrid::v3;
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
@@ -23,7 +23,7 @@ const FROM_NAME: &str = "BlockJoy";
 
 #[tonic::async_trait]
 pub trait Sender {
-    async fn send_mail(&self, mail: Mail<'_>) -> Result<(), Error>;
+    async fn send_mail(&self, mail: v3::Message) -> Result<(), Error>;
 }
 
 #[derive(Debug, Display, Error)]
@@ -46,7 +46,7 @@ pub struct Email {
 
 impl Email {
     pub fn new(config: &Config, cipher: Arc<Cipher>) -> Result<Self, Error> {
-        let sender = Box::new(SGClient::new(&*config.email.sendgrid_api_key));
+        let sender = Box::new(v3::Sender::new(config.email.sendgrid_api_key.clone()));
         let templates = Templates::new(&config.email.template_dir)?;
         let base_url = config.email.ui_base_url.clone();
         let expires = config.token.expire;
@@ -159,7 +159,10 @@ impl Email {
     /// they can use to authenticate themselves to reset their password.
     pub async fn reset_password(&self, user: &User) -> Result<(), Error> {
         let expires = self.expires.password_reset;
-        let claims = Claims::from_now(expires, user.id, EmailRole::ResetPassword);
+        let mut claims = Claims::from_now(expires, user.id, EmailRole::ResetPassword);
+        claims.data = Some(hashmap! {
+            "email".to_string() => user.email.clone(),
+        });
         let token = self.cipher.jwt.encode(&claims).map_err(Error::EncodeJwt)?;
 
         let base = &self.base_url;
@@ -184,28 +187,40 @@ impl Email {
         let lang = recipient.preferred_language.unwrap_or(Language::En);
         let template = self.templates.render(kind, lang, context)?;
 
-        let mail = Mail {
-            to: vec![Destination {
-                address: recipient.email,
-                name: &name,
-            }],
-            from: FROM_EMAIL,
-            subject: kind.subject(),
-            html: &template.html,
-            text: &template.text,
-            from_name: FROM_NAME,
-            // date: &Utc::now().to_rfc2822(),
-            ..Default::default()
-        };
+        let mail = v3::Message::new(v3::Email::new(recipient.email).set_name(name))
+            .set_from(v3::Email::new(FROM_EMAIL).set_name(FROM_NAME))
+            .set_subject(kind.subject())
+            .add_content(
+                v3::Content::new()
+                    .set_content_type("application/html")
+                    .set_value(template.html),
+            )
+            .add_content(
+                v3::Content::new()
+                    .set_content_type("application/text")
+                    .set_value(template.text),
+            )
+            .set_tracking_settings(Self::tracking_settings());
 
         self.sender.send_mail(mail).await
+    }
+
+    const fn tracking_settings() -> v3::TrackingSettings {
+        v3::TrackingSettings {
+            click_tracking: Some(v3::ClickTrackingSetting {
+                enable: Some(false),
+                enable_text: Some(false),
+            }),
+            open_tracking: None,
+            subscription_tracking: None,
+        }
     }
 }
 
 #[tonic::async_trait]
-impl Sender for SGClient {
-    async fn send_mail(&self, mail: Mail<'_>) -> Result<(), Error> {
-        self.send(mail).await.map(|_| ()).map_err(Error::SendMail)
+impl Sender for v3::Sender {
+    async fn send_mail(&self, mail: v3::Message) -> Result<(), Error> {
+        self.send(&mail).await.map(|_| ()).map_err(Error::SendMail)
     }
 }
 
@@ -243,8 +258,8 @@ pub mod tests {
 
     #[tonic::async_trait]
     impl Sender for MockEmail {
-        async fn send_mail(&self, mail: Mail<'_>) -> Result<(), Error> {
-            debug!("Mocked email: {:?}", mail);
+        async fn send_mail(&self, _mail: v3::Message) -> Result<(), Error> {
+            debug!("Mocked email");
             Ok(())
         }
     }
