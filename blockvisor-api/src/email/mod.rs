@@ -167,7 +167,7 @@ impl Email {
 
         let base = &self.base_url;
         let context = hashmap! {
-            "link" => format!("{base}/password_reset?token={}", *token)
+            "link" => format!("{base}/password-reset?token={}", *token)
         };
 
         self.send(Kind::ResetPassword, user, Some(context)).await
