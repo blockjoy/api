@@ -777,6 +777,7 @@ impl api::Node {
                     }
                 })
                 .collect(),
+            note: node.note,
         })
     }
 }
@@ -997,6 +998,7 @@ impl api::NodeServiceUpdateConfigRequest {
             address: None,
             allow_ips: Some(serde_json::to_value(allow_ips).map_err(Error::AllowIps)?),
             deny_ips: Some(serde_json::to_value(deny_ips).map_err(Error::DenyIps)?),
+            note: self.note.as_deref(),
         })
     }
 }
@@ -1020,6 +1022,7 @@ impl api::NodeServiceUpdateStatusRequest {
             address: self.address.as_deref(),
             allow_ips: None,
             deny_ips: None,
+            note: None,
         })
     }
 }

@@ -184,6 +184,7 @@ pub struct Node {
     pub container_status: ContainerStatus,
     pub sync_status: SyncStatus,
     pub staking_status: Option<StakingStatus>,
+    pub note: Option<String>,
 }
 
 impl Node {
@@ -752,6 +753,7 @@ pub struct UpdateNode<'a> {
     pub address: Option<&'a str>,
     pub allow_ips: Option<serde_json::Value>,
     pub deny_ips: Option<serde_json::Value>,
+    pub note: Option<&'a str>,
 }
 
 /// Update node columns related to metrics.

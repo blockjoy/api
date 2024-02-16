@@ -329,6 +329,7 @@ diesel::table! {
         container_status -> EnumContainerStatus,
         sync_status -> EnumNodeSyncStatus,
         staking_status -> Nullable<EnumNodeStakingStatus>,
+        note -> Nullable<Text>,
     }
 }
 

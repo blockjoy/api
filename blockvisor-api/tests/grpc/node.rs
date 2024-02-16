@@ -57,6 +57,7 @@ async fn responds_ok_for_update_config() {
             description: Some("wow so denied".to_string()),
         }],
         org_id: None,
+        note: Some("milk, eggs, bread and copious snacks".to_string()),
     };
 
     test.send_with(Service::update_config, req, &jwt)
@@ -76,6 +77,12 @@ async fn responds_ok_for_update_config() {
     let denied = node.deny_ips().unwrap()[0].clone();
     assert_eq!(denied.ip, "127.0.0.2");
     assert_eq!(denied.description.unwrap(), "wow so denied");
+
+    assert_eq!(
+        node.note,
+        Some("milk, eggs, bread and copious snacks".to_string())
+    );
+
     validate_command(&test).await;
 }
 
@@ -206,6 +213,7 @@ async fn responds_ok_with_valid_data_for_update_config() {
         allow_ips: vec![],
         deny_ips: vec![],
         org_id: None,
+        note: None,
     };
     test.send_admin(Service::update_config, req).await.unwrap();
     validate_command(&test).await;
