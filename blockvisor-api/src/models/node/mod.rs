@@ -41,13 +41,12 @@ use crate::auth::resource::{
 };
 use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
-use crate::models::schema::hosts;
 use crate::storage::image::ImageId;
 use crate::util::{SearchOperator, SortOrder};
 
 use super::blockchain::{Blockchain, BlockchainId};
 use super::host::{Host, HostRequirements, HostType};
-use super::schema::nodes;
+use super::schema::{hosts, nodes, regions};
 use super::{Command, IpAddress, Org, Paginate, Region, RegionId};
 
 type NotDeleted = dsl::Filter<nodes::table, dsl::IsNull<nodes::deleted_at>>;
@@ -495,20 +494,28 @@ impl NodeSort {
 
 #[derive(Debug)]
 pub struct NodeFilter {
-    pub org_id: Option<OrgId>,
+    pub org_ids: Vec<OrgId>,
     pub offset: u64,
     pub limit: u64,
     pub status: Vec<NodeStatus>,
     pub node_types: Vec<NodeType>,
-    pub blockchains: Vec<BlockchainId>,
-    pub host_id: Option<HostId>,
+    pub blockchain_ids: Vec<BlockchainId>,
+    pub host_ids: Vec<HostId>,
+    pub user_ids: Vec<UserId>,
+    pub ip_addresses: Vec<String>,
+    pub versions: Vec<String>,
+    pub networks: Vec<String>,
+    pub regions: Vec<String>,
     pub search: Option<NodeSearch>,
     pub sort: VecDeque<NodeSort>,
 }
 
 impl NodeFilter {
     pub async fn query(mut self, conn: &mut Conn<'_>) -> Result<(Vec<Node>, u64), Error> {
-        let mut query = nodes::table.inner_join(hosts::table).into_boxed();
+        let mut query = nodes::table
+            .inner_join(hosts::table)
+            .left_join(regions::table)
+            .into_boxed();
 
         if let Some(search) = self.search {
             match search.operator {
@@ -537,12 +544,36 @@ impl NodeFilter {
             }
         }
 
-        if let Some(org_id) = self.org_id {
-            query = query.filter(nodes::org_id.eq(org_id));
+        if !self.org_ids.is_empty() {
+            query = query.filter(nodes::org_id.eq_any(self.org_ids));
         }
 
-        if !self.blockchains.is_empty() {
-            query = query.filter(nodes::blockchain_id.eq_any(self.blockchains));
+        if !self.host_ids.is_empty() {
+            query = query.filter(nodes::host_id.eq_any(self.host_ids));
+        }
+
+        if !self.user_ids.is_empty() {
+            query = query.filter(nodes::created_by.eq_any(self.user_ids));
+        }
+
+        if !self.blockchain_ids.is_empty() {
+            query = query.filter(nodes::blockchain_id.eq_any(self.blockchain_ids));
+        }
+
+        if !self.ip_addresses.is_empty() {
+            query = query.filter(nodes::ip_addr.eq_any(self.ip_addresses));
+        }
+
+        if !self.versions.is_empty() {
+            query = query.filter(nodes::version.eq_any(self.versions));
+        }
+
+        if !self.networks.is_empty() {
+            query = query.filter(nodes::network.eq_any(self.networks));
+        }
+
+        if !self.regions.is_empty() {
+            query = query.filter(regions::name.eq_any(self.regions));
         }
 
         // If the user requested a deleted status, we include deleted records with the response.
@@ -556,10 +587,6 @@ impl NodeFilter {
 
         if !self.node_types.is_empty() {
             query = query.filter(nodes::node_type.eq_any(self.node_types));
-        }
-
-        if let Some(host_id) = self.host_id {
-            query = query.filter(nodes::host_id.eq(host_id));
         }
 
         if let Some(sort) = self.sort.pop_front() {
@@ -849,13 +876,18 @@ mod tests {
         req.create(Some(host), &authz, &mut write).await.unwrap();
 
         let filter = NodeFilter {
+            org_ids: vec![org_id],
+            offset: 0,
+            limit: 10,
             status: vec![NodeStatus::Ingesting],
             node_types: vec![],
-            blockchains: vec![blockchain_id],
-            limit: 10,
-            offset: 0,
-            org_id: Some(org_id),
-            host_id: Some(host_id),
+            blockchain_ids: vec![blockchain_id],
+            host_ids: vec![host_id],
+            user_ids: vec![],
+            ip_addresses: vec![],
+            versions: vec![],
+            networks: vec![],
+            regions: vec![],
             search: None,
             sort: VecDeque::new(),
         };

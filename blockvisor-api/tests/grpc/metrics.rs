@@ -81,6 +81,7 @@ async fn responds_ok_for_write_host() {
         used_cpu: Some(201),
         used_memory: Some(1123123123123),
         used_disk_space: Some(3123213123),
+        used_ips: vec!["123.123.123.123".to_string()],
         load_one: Some(1.0),
         load_five: Some(1.0),
         load_fifteen: Some(1.0),

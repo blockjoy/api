@@ -273,11 +273,11 @@ async fn list(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::NodeServiceListResponse, Error> {
     let filter = req.into_filter()?;
-    let authz = if let Some(org_id) = filter.org_id {
-        read.auth_or_all(&meta, NodeAdminPerm::List, NodePerm::List, org_id)
-            .await?
-    } else {
+    let authz = if filter.org_ids.is_empty() {
         read.auth_all(&meta, NodeAdminPerm::List).await?
+    } else {
+        read.auth_or_all(&meta, NodeAdminPerm::List, NodePerm::List, &filter.org_ids)
+            .await?
     };
 
     let (nodes, node_count) = filter.query(&mut read).await?;
@@ -897,22 +897,28 @@ impl api::NodeServiceCreateRequest {
 
 impl api::NodeServiceListRequest {
     fn into_filter(self) -> Result<NodeFilter, Error> {
-        let org_id = self
-            .org_id
-            .as_ref()
+        let org_ids = self
+            .org_ids
+            .iter()
             .map(|id| id.parse().map_err(Error::ParseOrgId))
-            .transpose()?;
+            .collect::<Result<_, _>>()?;
         let status = self.statuses().map(NodeStatus::from).collect();
         let node_types = self.node_types().map(NodeType::from).collect();
-        let blockchains = self
+        let blockchain_ids = self
             .blockchain_ids
             .iter()
             .map(|id| id.parse().map_err(Error::ParseBlockchainId))
             .collect::<Result<_, _>>()?;
-        let host_id = self
-            .host_id
+        let host_ids = self
+            .host_ids
+            .iter()
             .map(|id| id.parse().map_err(Error::ParseHostId))
-            .transpose()?;
+            .collect::<Result<_, _>>()?;
+        let user_ids = self
+            .user_ids
+            .iter()
+            .map(|id| id.parse().map_err(Error::ParseHostId))
+            .collect::<Result<_, _>>()?;
         let search = self
             .search
             .map(|search| {
@@ -948,13 +954,18 @@ impl api::NodeServiceListRequest {
             .collect::<Result<_, _>>()?;
 
         Ok(NodeFilter {
-            org_id,
+            org_ids,
             offset: self.offset,
             limit: self.limit,
             status,
             node_types,
-            blockchains,
-            host_id,
+            blockchain_ids,
+            host_ids,
+            user_ids,
+            ip_addresses: self.ip_addresses,
+            versions: self.versions,
+            networks: self.networks,
+            regions: self.regions,
             search,
             sort,
         })
