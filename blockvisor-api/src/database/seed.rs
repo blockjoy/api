@@ -314,6 +314,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'host-admin-get'),
         ('blockjoy-admin', 'host-admin-list'),
         ('blockjoy-admin', 'host-admin-update'),
+        ('blockjoy-admin', 'host-admin-regions'),
         ('blockjoy-admin', 'mqtt-admin-acl'),
         ('blockjoy-admin', 'node-admin-create'),
         ('blockjoy-admin', 'node-admin-delete'),

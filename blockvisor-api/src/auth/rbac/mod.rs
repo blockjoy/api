@@ -136,6 +136,7 @@ define_perms! {
         Get,
         List,
         Update,
+        Regions,
     }
 
     HostBilling => {

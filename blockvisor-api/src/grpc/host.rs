@@ -394,7 +394,9 @@ async fn regions(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceRegionsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let authz = read.auth(&meta, HostPerm::Regions, org_id).await?;
+    let authz = read
+        .auth_or_all(&meta, HostAdminPerm::Regions, HostPerm::Regions, org_id)
+        .await?;
 
     let blockchain_id = req
         .blockchain_id
