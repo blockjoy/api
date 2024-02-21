@@ -70,6 +70,7 @@ async fn responds_ok_for_pending() {
         address: None,
         allow_ips: None,
         deny_ips: None,
+        note: None,
     };
     node.update(update, &mut conn).await.unwrap();
 
