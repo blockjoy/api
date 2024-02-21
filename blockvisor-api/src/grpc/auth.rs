@@ -310,10 +310,16 @@ async fn list_permissions(
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
 
-    let (admin_perm, perm) = (AuthAdminPerm::ListPermissions, AuthPerm::ListPermissions);
-    let authz = write.auth_or_all(&meta, admin_perm, perm, user_id).await?;
+    let (authz, ensure_member) = match write.auth_all(&meta, AuthAdminPerm::ListPermissions).await {
+        Ok(authz) => (authz, false),
+        Err(crate::auth::Error::Claims(_)) => {
+            let authz = write.auth_all(&meta, AuthPerm::ListPermissions).await?;
+            (authz, true)
+        }
+        Err(err) => return Err(err.into()),
+    };
 
-    let granted = Granted::for_org(user_id, org_id, &mut write).await?;
+    let granted = Granted::for_org(user_id, org_id, ensure_member, &mut write).await?;
     let granted = if req.include_token.unwrap_or_default() {
         Granted::from_access(&authz.claims.access, Some(granted), &mut write).await?
     } else {

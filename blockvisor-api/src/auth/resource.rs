@@ -326,6 +326,15 @@ where
     }
 }
 
+impl<T> From<&Vec<T>> for Resources
+where
+    T: Into<Resource> + Copy,
+{
+    fn from(items: &Vec<T>) -> Self {
+        Resources::Many(items.iter().map(|i| (*i).into()).collect())
+    }
+}
+
 /// A serializable representation of the resource type and id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceEntry {

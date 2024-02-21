@@ -184,7 +184,9 @@ impl Claims {
         conn: &mut Conn<'_>,
     ) -> Result<Option<Granted>, Error> {
         match self.resource() {
-            Resource::User(id) => Ok(Some(Granted(RbacPerm::for_org(id, org_id, conn).await?))),
+            Resource::User(id) => Ok(Some(Granted(
+                RbacPerm::for_org(id, org_id, true, conn).await?,
+            ))),
             Resource::Org(id) if id == org_id => Ok(None),
             _ => Err(Error::EnsureOrg),
         }
@@ -202,7 +204,7 @@ impl Claims {
 
         match self.resource() {
             Resource::User(id) => Ok(Some(Granted(
-                RbacPerm::for_org(id, host.org_id, conn).await?,
+                RbacPerm::for_org(id, host.org_id, true, conn).await?,
             ))),
             Resource::Org(id) if id == host.org_id => Ok(None),
             Resource::Host(id) if id == host_id => Ok(None),
@@ -222,7 +224,7 @@ impl Claims {
 
         match self.resource() {
             Resource::User(id) => Ok(Some(Granted(
-                RbacPerm::for_org(id, node.org_id, conn).await?,
+                RbacPerm::for_org(id, node.org_id, true, conn).await?,
             ))),
             Resource::Org(id) if id == node.org_id => Ok(None),
             Resource::Host(id) if id == node.host_id => Ok(None),
@@ -280,9 +282,10 @@ impl Granted {
     pub async fn for_org(
         user_id: UserId,
         org_id: OrgId,
+        ensure_member: bool,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
-        RbacPerm::for_org(user_id, org_id, conn)
+        RbacPerm::for_org(user_id, org_id, ensure_member, conn)
             .await
             .map(Self)
             .map_err(Into::into)

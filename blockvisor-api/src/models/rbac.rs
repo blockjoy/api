@@ -268,9 +268,10 @@ impl RbacPerm {
     pub async fn for_org(
         user_id: UserId,
         org_id: OrgId,
+        ensure_member: bool,
         conn: &mut Conn<'_>,
     ) -> Result<HashSet<Perm>, Error> {
-        let roles = RbacUser::org_roles(user_id, org_id, conn).await?;
+        let roles = RbacUser::org_roles(user_id, org_id, ensure_member, conn).await?;
         let mut perms = RbacPerm::for_roles(&roles, conn).await?;
 
         perms.extend(RbacUser::perms_for_non_org_roles(user_id, conn).await?);
@@ -284,6 +285,7 @@ impl RbacUser {
     pub async fn org_roles(
         user_id: UserId,
         org_id: OrgId,
+        ensure_member: bool,
         conn: &mut Conn<'_>,
     ) -> Result<HashSet<Role>, Error> {
         let roles: Vec<_> = user_roles::table
@@ -294,7 +296,7 @@ impl RbacUser {
             .await
             .map_err(|err| Error::FindOrgRoles(user_id, org_id, err))?;
 
-        if roles.is_empty() {
+        if ensure_member && roles.is_empty() {
             return Err(Error::UserNotInOrg(user_id, org_id));
         }
 
