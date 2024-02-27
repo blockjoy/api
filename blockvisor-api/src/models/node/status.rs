@@ -28,6 +28,9 @@ pub enum NodeStatus {
     Deleted,
     UpdatePending,
     Updating,
+    Initializing,
+    Downloading,
+    Uploading,
 }
 
 impl From<NodeStatus> for common::NodeStatus {
@@ -55,6 +58,9 @@ impl From<NodeStatus> for common::NodeStatus {
             NodeStatus::Deleted => Self::Deleted,
             NodeStatus::UpdatePending => Self::UpdatePending,
             NodeStatus::Updating => Self::Updating,
+            NodeStatus::Initializing => Self::Initializing,
+            NodeStatus::Downloading => Self::Downloading,
+            NodeStatus::Uploading => Self::Uploading,
         }
     }
 }
@@ -84,6 +90,9 @@ impl From<common::NodeStatus> for NodeStatus {
             common::NodeStatus::Deleted => NodeStatus::Deleted,
             common::NodeStatus::UpdatePending => NodeStatus::UpdatePending,
             common::NodeStatus::Updating => NodeStatus::Updating,
+            common::NodeStatus::Initializing => NodeStatus::Initializing,
+            common::NodeStatus::Downloading => NodeStatus::Downloading,
+            common::NodeStatus::Uploading => NodeStatus::Uploading,
         }
     }
 }
