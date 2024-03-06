@@ -291,7 +291,7 @@ async fn create(
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceCreateResponse, Error> {
-    let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
+    let org_id = dbg!(req.org_id.parse().map_err(Error::ParseOrgId))?;
 
     // The host_id is either determined by the scheduler, or an optional host_id.
     let (host, authz) = if let Some(host_id) = req.host_id()? {
@@ -307,52 +307,57 @@ async fn create(
         (None, authz)
     };
 
-    let blockchain_id = req
-        .blockchain_id
-        .parse()
-        .map_err(Error::ParseBlockchainId)?;
-    let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write).await?;
+    let blockchain_id = dbg!(req.blockchain_id.parse().map_err(Error::ParseBlockchainId))?;
+    let blockchain = dbg!(Blockchain::by_id(blockchain_id, &authz, &mut write).await)?;
 
-    let node_type = req.node_type().into();
-    let image = ImageId::new(&blockchain.name, node_type, req.version.clone().into());
-    let version =
-        BlockchainVersion::find(blockchain_id, node_type, &image.node_version, &mut write).await?;
+    let node_type = dbg!(req.node_type().into());
+    let image = dbg!(ImageId::new(
+        &blockchain.name,
+        node_type,
+        req.version.clone().into()
+    ));
+    let version = dbg!(
+        BlockchainVersion::find(blockchain_id, node_type, &image.node_version, &mut write).await
+    )?;
 
-    let requirements = write.ctx.storage.rhai_metadata(&image).await?.requirements;
-    let created_by = authz.resource();
-    let new_node = req
-        .as_new(requirements, org_id, created_by, &mut write)
-        .await?;
-    let node = new_node.create(host, &authz, &mut write).await?;
+    let requirements = dbg!(write.ctx.storage.rhai_metadata(&image).await)?.requirements;
+    let created_by = dbg!(authz.resource());
+    let new_node = dbg!(
+        req.as_new(requirements, org_id, created_by, &mut write)
+            .await
+    )?;
+    let node = dbg!(new_node.create(host, &authz, &mut write).await)?;
 
     // The user sends in the properties in a key-value style, that is,
     // { property name: property value }. We want to store this as
     // { property id: property value }. In order to map property names to property ids we can use
     // the id to name map, and then flip the keys and values to create an id to name map. Note that
     // this requires the names to be unique, but we expect this to be the case.
-    let name_to_id_map = BlockchainProperty::id_to_name_map(version.id, &mut write)
+    let name_to_id_map = dbg!(BlockchainProperty::id_to_name_map(version.id, &mut write)
         .await?
         .into_iter()
         .map(|(k, v)| (v, k))
-        .collect();
-    let properties = req.properties(&node, &name_to_id_map)?;
-    NodeProperty::bulk_create(properties, &mut write).await?;
+        .collect());
+    let properties = dbg!(req.properties(&node, &name_to_id_map))?;
+    dbg!(NodeProperty::bulk_create(properties, &mut write).await)?;
 
-    let create_notif = NewCommand::node(&node, CommandType::NodeCreate)?
-        .create(&mut write)
-        .await?;
-    let create_cmd = api::Command::from_model(&create_notif, &authz, &mut write).await?;
-    let node_api = api::Node::from_model(node, &authz, &mut write).await?;
+    let create_notif = dbg!(
+        NewCommand::node(&node, CommandType::NodeCreate)?
+            .create(&mut write)
+            .await
+    )?;
+    let create_cmd = dbg!(api::Command::from_model(&create_notif, &authz, &mut write).await)?;
+    let node_api = dbg!(api::Node::from_model(node, &authz, &mut write).await)?;
 
-    let created_by = common::EntityUpdate::from_resource(created_by, &mut write).await?;
-    let created = api::NodeMessage::created(node_api.clone(), created_by);
+    let created_by = dbg!(common::EntityUpdate::from_resource(created_by, &mut write).await)?;
+    let created = dbg!(api::NodeMessage::created(node_api.clone(), created_by));
 
     write.mqtt(create_cmd);
     write.mqtt(created);
 
-    Ok(api::NodeServiceCreateResponse {
+    Ok(dbg!(api::NodeServiceCreateResponse {
         node: Some(node_api),
-    })
+    }))
 }
 
 async fn update_config(
