@@ -184,6 +184,7 @@ pub struct Node {
     pub sync_status: SyncStatus,
     pub staking_status: Option<StakingStatus>,
     pub note: Option<String>,
+    pub url: String,
 }
 
 impl Node {
@@ -687,6 +688,7 @@ impl NewNode {
                     nodes::ip_addr.eq(&ip_addr),
                     nodes::dns_record_id.eq(&dns_id),
                     nodes::data_directory_mountpoint.eq(&data_directory_mountpoint),
+                    nodes::url.eq(&dns_record.name),
                 ))
                 .get_result(&mut write)
                 .await

@@ -285,10 +285,10 @@ diesel::table! {
     use super::sql_types::EnumNodeResourceAffinity;
     use super::sql_types::EnumResourceType;
     use super::sql_types::EnumNodeType;
-    use super::sql_types::EnumNodeStatus;
     use super::sql_types::EnumContainerStatus;
     use super::sql_types::EnumNodeSyncStatus;
     use super::sql_types::EnumNodeStakingStatus;
+    use super::sql_types::EnumNodeStatus;
 
     nodes (id) {
         id -> Uuid,
@@ -330,6 +330,7 @@ diesel::table! {
         sync_status -> EnumNodeSyncStatus,
         staking_status -> Nullable<EnumNodeStakingStatus>,
         note -> Nullable<Text>,
+        url -> Text,
     }
 }
 

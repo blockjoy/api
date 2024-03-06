@@ -782,6 +782,7 @@ impl api::Node {
                 })
                 .collect(),
             note: node.note,
+            url: node.url,
         })
     }
 }
