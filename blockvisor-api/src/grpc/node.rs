@@ -323,7 +323,7 @@ async fn create(
     let new_node = req
         .as_new(requirements, org_id, created_by, &mut write)
         .await?;
-    let node = dbg!(new_node.create(host, &authz, &mut write).await)?;
+    let node = new_node.create(host, &authz, &mut write).await?;
 
     // The user sends in the properties in a key-value style, that is,
     // { property name: property value }. We want to store this as

@@ -68,9 +68,7 @@ enum UrlError {
 impl deserialize::FromSql<sql_types::Text, pg::Pg> for Url {
     fn from_sql(value: pg::PgValue<'_>) -> deserialize::Result<Self> {
         let value: String = deserialize::FromSql::<sql_types::Text, pg::Pg>::from_sql(value)?;
-        Ok(Self(dbg!(value
-            .parse()
-            .map_err(|e| UrlError::Parse(e, value)))?))
+        Ok(Self(value.parse().map_err(|e| UrlError::Parse(e, value))?))
     }
 }
 
