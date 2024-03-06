@@ -59,10 +59,16 @@ sql_function!(fn text(version: sql_types::Uuid) -> sql_types::Text);
 #[diesel(sql_type = sql_types::Text)]
 pub struct Url(url::Url);
 
+#[derive(Debug, displaydoc::Display, thiserror::Error)]
+enum UrlError {
+    /// Failed to parse url: {0}
+    Parse(url::ParseError),
+}
+
 impl deserialize::FromSql<sql_types::Text, pg::Pg> for Url {
     fn from_sql(value: pg::PgValue<'_>) -> deserialize::Result<Self> {
         let value: String = deserialize::FromSql::<sql_types::Text, pg::Pg>::from_sql(value)?;
-        Ok(Self(value.parse()?))
+        Ok(Self(value.parse().map_err(UrlError::Parse)?))
     }
 }
 
