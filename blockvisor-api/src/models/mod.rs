@@ -61,14 +61,16 @@ pub struct Url(url::Url);
 
 #[derive(Debug, displaydoc::Display, thiserror::Error)]
 enum UrlError {
-    /// Failed to parse url: {0}
-    Parse(url::ParseError),
+    /// Failed to parse url `{1}`: {0}
+    Parse(url::ParseError, String),
 }
 
 impl deserialize::FromSql<sql_types::Text, pg::Pg> for Url {
     fn from_sql(value: pg::PgValue<'_>) -> deserialize::Result<Self> {
         let value: String = deserialize::FromSql::<sql_types::Text, pg::Pg>::from_sql(value)?;
-        Ok(Self(value.parse().map_err(UrlError::Parse)?))
+        Ok(Self(dbg!(value
+            .parse()
+            .map_err(|e| UrlError::Parse(e, value)))?))
     }
 }
 
