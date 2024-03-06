@@ -48,8 +48,27 @@ pub use token::Token;
 pub mod user;
 pub use user::User;
 
-use diesel::{sql_function, sql_types};
+use derive_more::Display;
+use diesel::{deserialize, expression, pg, serialize, sql_function, sql_types};
 
 sql_function!(fn lower(x: sql_types::Text) -> sql_types::Text);
 sql_function!(fn string_to_array(version: sql_types::Text, split: sql_types::Text) -> sql_types::Array<diesel::sql_types::Text>);
 sql_function!(fn text(version: sql_types::Uuid) -> sql_types::Text);
+
+#[derive(Debug, Clone, Display, expression::AsExpression, deserialize::FromSqlRow)]
+#[diesel(sql_type = sql_types::Text)]
+pub struct Url(url::Url);
+
+impl deserialize::FromSql<sql_types::Text, pg::Pg> for Url {
+    fn from_sql(value: pg::PgValue<'_>) -> deserialize::Result<Self> {
+        let value: String = deserialize::FromSql::<sql_types::Text, pg::Pg>::from_sql(value)?;
+        Ok(Self(value.parse()?))
+    }
+}
+
+impl serialize::ToSql<sql_types::Text, pg::Pg> for Url {
+    fn to_sql<'b>(&'b self, out: &mut serialize::Output<'b, '_, pg::Pg>) -> serialize::Result {
+        let value = self.to_string();
+        <String as serialize::ToSql<sql_types::Text, pg::Pg>>::to_sql(&value, &mut out.reborrow())
+    }
+}
