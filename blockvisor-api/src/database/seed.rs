@@ -272,7 +272,7 @@ async fn create_nodes(
             nodes::mem_size_bytes.eq(1024 * 1024 * 1024),
             nodes::scheduler_resource.eq(ResourceAffinity::LeastResources),
             nodes::version.eq("3.3.0"),
-            nodes::url.eq("bollocks-url-with-no-base.com"),
+            nodes::url.eq("https://bollocks-url.com"),
         ))
         .execute(conn)
         .await
