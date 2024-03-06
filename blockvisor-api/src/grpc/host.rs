@@ -393,10 +393,15 @@ async fn regions(
     meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceRegionsResponse, Error> {
-    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let authz = read
-        .auth_or_all(&meta, HostAdminPerm::Regions, HostPerm::Regions, org_id)
-        .await?;
+    let (org_id, authz) = if let Some(org_id) = &req.org_id {
+        let org_id: OrgId = org_id.parse().map_err(Error::ParseOrgId)?;
+        let authz = read
+            .auth_or_all(&meta, HostAdminPerm::Regions, HostPerm::Regions, org_id)
+            .await?;
+        (Some(org_id), authz)
+    } else {
+        (None, read.auth_all(&meta, HostAdminPerm::Regions).await?)
+    };
 
     let blockchain_id = req
         .blockchain_id

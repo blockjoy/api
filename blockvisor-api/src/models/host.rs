@@ -336,7 +336,7 @@ impl Host {
     }
 
     pub async fn regions_for(
-        org_id: OrgId,
+        org_id: impl Into<Option<OrgId>> + Send,
         blockchain: Blockchain,
         node_type: NodeType,
         requirements: HardwareRequirements,
@@ -348,7 +348,9 @@ impl Host {
             similarity: None,
             resource: ResourceAffinity::LeastResources,
         };
-        let org_id = (host_type == Some(HostType::Private)).then_some(org_id);
+        let org_id = (host_type == Some(HostType::Private))
+            .then(|| org_id.into())
+            .flatten();
         let requirements = HostRequirements {
             requirements,
             blockchain_id: blockchain.id,
