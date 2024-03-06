@@ -184,7 +184,7 @@ pub struct Node {
     pub sync_status: SyncStatus,
     pub staking_status: Option<StakingStatus>,
     pub note: Option<String>,
-    pub url: url::Url,
+    pub url: String,
 }
 
 impl Node {
