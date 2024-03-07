@@ -448,6 +448,7 @@ async fn node_create(
         properties,
         rules: firewall_rules(&node)?,
         network: node.network,
+        org_id: node.org_id.to_string(),
     });
 
     node_command(command, node_id, node_cmd)
@@ -495,6 +496,7 @@ async fn node_update(command: &Command, conn: &mut Conn<'_>) -> Result<api::Comm
     let node = Node::by_id(node_id, conn).await?;
     let node_cmd = api::node_command::Command::Update(api::NodeUpdate {
         rules: firewall_rules(&node)?,
+        org_id: node.org_id.to_string(),
     });
     node_command(command, node_id, node_cmd)
 }
