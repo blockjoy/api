@@ -254,7 +254,7 @@ impl Node {
             .map_err(Error::NodeProperty)
     }
 
-    pub async fn update(&self, update: UpdateNode<'_>, conn: &mut Conn<'_>) -> Result<Node, Error> {
+    pub async fn update(self, update: UpdateNode<'_>, conn: &mut Conn<'_>) -> Result<Node, Error> {
         if let Some(new_org_id) = update.org_id {
             if new_org_id != self.org_id {
                 let new_node_log = NewNodeLog {
@@ -769,7 +769,7 @@ pub struct UpdateNode<'a> {
     pub org_id: Option<OrgId>,
     pub host_id: Option<HostId>,
     pub name: Option<&'a str>,
-    pub version: Option<&'a str>,
+    pub version: Option<NodeVersion>,
     pub ip_addr: Option<&'a str>,
     pub ip_gateway: Option<&'a str>,
     pub block_height: Option<i64>,

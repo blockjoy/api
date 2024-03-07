@@ -27,6 +27,8 @@ pub enum Error {
     FindById(BlockchainId, diesel::result::Error),
     /// Failed to find blockchain versions by ids `{0:?}`: {1}
     FindByIds(HashSet<BlockchainId>, diesel::result::Error),
+    /// Failed to find blockchain version by node type `{0}` and version string `{1}`: {2}
+    FindByNodeTypeVersion(BlockchainNodeTypeId, String, diesel::result::Error),
     /// Failed to find blockchain id `{0}`, node_type `{1}`, version `{2}`: {3}
     FindVersion(BlockchainId, NodeType, NodeVersion, diesel::result::Error),
     /// Blockchain version node type: {0}
@@ -104,6 +106,19 @@ impl BlockchainVersion {
             .get_results(conn)
             .await
             .map_err(|err| Error::FindByIds(blockchain_ids, err))
+    }
+
+    pub async fn by_node_type_version(
+        node_type_id: BlockchainNodeTypeId,
+        version: &str,
+        conn: &mut Conn<'_>,
+    ) -> Result<Self, Error> {
+        blockchain_versions::table
+            .filter(blockchain_versions::blockchain_node_type_id.eq(node_type_id))
+            .filter(blockchain_versions::version.eq(version))
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::FindByNodeTypeVersion(node_type_id, version.to_string(), err))
     }
 }
 

@@ -187,6 +187,7 @@ define_perms! {
         Restart,
         Start,
         Stop,
+        Upgrade,
         UpdateConfig,
         UpdateStatus,
     }
@@ -200,6 +201,7 @@ define_perms! {
         Restart,
         Start,
         Stop,
+        Upgrade,
         UpdateConfig,
         UpdateStatus,
         Transfer,

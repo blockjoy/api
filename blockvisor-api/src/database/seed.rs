@@ -402,6 +402,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('api-key-node', 'node-restart'),
         ('api-key-node', 'node-start'),
         ('api-key-node', 'node-stop'),
+        ('api-key-node', 'node-upgrade'),
         ('api-key-node', 'node-update-config');
         ",
         "
@@ -509,6 +510,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-new-host', 'node-restart'),
         ('grpc-new-host', 'node-start'),
         ('grpc-new-host', 'node-stop'),
+        ('grpc-new-host', 'node-upgrade'),
         ('grpc-new-host', 'node-update-config'),
         ('grpc-new-host', 'node-update-status');
         ",
@@ -550,6 +552,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-member', 'node-restart'),
         ('org-member', 'node-start'),
         ('org-member', 'node-stop'),
+        ('org-member', 'node-upgrade'),
         ('org-member', 'node-update-config'),
         ('org-member', 'org-create'),
         ('org-member', 'org-get'),
@@ -580,6 +583,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-personal', 'node-restart'),
         ('org-personal', 'node-start'),
         ('org-personal', 'node-stop'),
+        ('org-personal', 'node-upgrade'),
         ('org-personal', 'node-update-config'),
         ('org-personal', 'org-create'),
         ('org-personal', 'org-get'),

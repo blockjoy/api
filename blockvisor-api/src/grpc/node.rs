@@ -16,12 +16,14 @@ use crate::auth::resource::{
 };
 use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
-use crate::models::blockchain::{BlockchainProperty, BlockchainPropertyId, BlockchainVersion};
+use crate::models::blockchain::{
+    BlockchainNodeType, BlockchainProperty, BlockchainPropertyId, BlockchainVersion,
+};
 use crate::models::command::NewCommand;
 use crate::models::node::{
     self, ContainerStatus, FilteredIpAddr, NewNode, Node, NodeFilter, NodeJob, NodeJobProgress,
     NodeJobStatus, NodeProperty, NodeReport, NodeScheduler, NodeSearch, NodeSort, NodeStatus,
-    NodeType, StakingStatus, SyncStatus, UpdateNode,
+    NodeType, NodeVersion, StakingStatus, SyncStatus, UpdateNode,
 };
 use crate::models::{Blockchain, CommandType, Host, Org, Region, User};
 use crate::storage::image::ImageId;
@@ -41,6 +43,8 @@ pub enum Error {
     AuthToken(#[from] crate::auth::token::Error),
     /// Node blockchain error: {0}
     Blockchain(#[from] crate::models::blockchain::Error),
+    /// Node blockchain node type error: {0}
+    BlockchainNodeType(#[from] crate::models::blockchain::node_type::Error),
     /// Node blockchain property error: {0}
     BlockchainProperty(#[from] crate::models::blockchain::property::Error),
     /// Node blockchain property error: {0}
@@ -75,6 +79,8 @@ pub enum Error {
     Model(#[from] crate::models::node::Error),
     /// Node model property error: {0}
     ModelProperty(#[from] crate::models::node::property::Error),
+    /// Node type model error: {0}
+    NodeType(#[from] crate::models::node::node_type::Error),
     /// No ResourceAffinity.
     NoResourceAffinity,
     /// Node org error: {0}
@@ -87,6 +93,8 @@ pub enum Error {
     ParseId(uuid::Error),
     /// Failed to parse IpAddr: {0}
     ParseIpAddr(std::net::AddrParseError),
+    /// Unable to parse node version: {0}
+    ParseNodeVersion(crate::models::node::node_type::Error),
     /// Failed to parse OrgId: {0}
     ParseOrgId(uuid::Error),
     /// Blockchain property not found: {0}
@@ -142,6 +150,7 @@ impl From<Error> for Status {
             Auth(err) => err.into(),
             AuthToken(err) => err.into(),
             Blockchain(err) => err.into(),
+            BlockchainNodeType(err) => err.into(),
             BlockchainProperty(err) => err.into(),
             BlockchainVersion(err) => err.into(),
             Claims(err) => err.into(),
@@ -150,7 +159,9 @@ impl From<Error> for Status {
             Host(err) => err.into(),
             IpAddress(err) => err.into(),
             Model(err) => err.into(),
+            NodeType(err) => err.into(),
             Org(err) => err.into(),
+            ParseNodeVersion(err) => err.into(),
             Region(err) => err.into(),
             Report(err) => err.into(),
             Resource(err) => err.into(),
@@ -184,6 +195,15 @@ impl NodeService for Grpc {
     ) -> Result<Response<api::NodeServiceListResponse>, Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta, read).scope_boxed()).await
+    }
+
+    async fn upgrade(
+        &self,
+        req: Request<api::NodeServiceUpgradeRequest>,
+    ) -> Result<Response<api::NodeServiceUpgradeResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| upgrade(req, meta, write).scope_boxed())
+            .await
     }
 
     async fn update_config(
@@ -391,6 +411,41 @@ async fn update_config(
     write.mqtt(updated);
 
     Ok(api::NodeServiceUpdateConfigResponse {})
+}
+
+async fn upgrade(
+    req: api::NodeServiceUpgradeRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::NodeServiceUpgradeResponse, Error> {
+    let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
+    let node = Node::by_id(node_id, &mut write).await?;
+
+    let authz = write
+        .auth_or_all(&meta, NodeAdminPerm::Upgrade, NodePerm::Upgrade, node_id)
+        .await?;
+
+    let blockchain = Blockchain::by_id(node.blockchain_id, &authz, &mut write).await?;
+    let node_type =
+        BlockchainNodeType::by_node_type(blockchain.id, node.node_type, &authz, &mut write).await?;
+    let new_version =
+        BlockchainVersion::by_node_type_version(node_type.id, &req.version, &mut write).await?;
+
+    // node.version = NodeVersion::new(&new_version.version);
+    let update = UpdateNode {
+        version: Some(NodeVersion::new(&new_version.version).map_err(Error::ParseNodeVersion)?),
+        ..Default::default()
+    };
+    let node = node.update(update, &mut write).await?;
+
+    let cmd = NewCommand::node(&node, CommandType::NodeUpgrade)?
+        .create(&mut write)
+        .await?;
+    let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
+
+    write.mqtt(cmd);
+
+    Ok(api::NodeServiceUpgradeResponse {})
 }
 
 async fn update_status(
@@ -1026,7 +1081,7 @@ impl api::NodeServiceUpdateStatusRequest {
             org_id: None,
             host_id: None,
             name: None,
-            version: self.version.as_deref(),
+            version: self.version.as_deref().map(NodeVersion::new).transpose()?,
             ip_addr: None,
             ip_gateway: None,
             block_height: None,

@@ -398,7 +398,7 @@ async fn add_version(
         let upgrade = upgrade_node(&node, &node_version, &blockchain)?;
         if let Some((new_command, new_log)) = upgrade {
             let update = UpdateNode {
-                version: Some(&node_version),
+                version: Some(NodeVersion::new(&node_version)?),
                 ..Default::default()
             };
             let node = node.update(update, &mut write).await?;
