@@ -280,16 +280,20 @@ async fn remove_member(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceRemoveMemberResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let authz = write.auth(&meta, OrgPerm::RemoveMember, org_id).await?;
 
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
     let user = User::by_id(user_id, &mut write).await?;
 
-    if let Some(self_id) = authz.resource().user() {
-        if user_id == self_id && !authz.has_perm(OrgPerm::RemoveSelf) {
-            return Err(Error::MissingRemoveSelf);
+    let authz = if let Ok(authz) = write.auth(&meta, OrgPerm::RemoveSelf, org_id).await {
+        if let Some(self_id) = authz.resource().user() {
+            if user_id == self_id {
+                return Err(Error::MissingRemoveSelf);
+            }
         }
-    }
+        authz
+    } else {
+        write.auth(&meta, OrgPerm::RemoveMember, org_id).await?
+    };
 
     let org = Org::by_id(org_id, &mut write).await?;
     if org.is_personal {
