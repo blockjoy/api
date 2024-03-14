@@ -115,13 +115,6 @@ async fn recover_created(
     if let Err(err) = new_log.create(write).await {
         return Err(Error::DeploymentLog(err));
     };
-
-    // We unassign the current ip address and dns record since we're going to be switching hosts.
-    node.ip(write)
-        .await?
-        .unassign(write)
-        .await
-        .map_err(Error::UnassignIp)?;
     if let Err(err) = write.ctx.dns.delete(&node.dns_record_id).await {
         warn!("Failed to remove node dns: {err}");
     }
@@ -146,6 +139,13 @@ async fn recover_created(
             Err(err) => return Err(Error::CancelationLog(err)),
         }
     };
+
+    // We unassign the current ip address and dns record since we're going to be switching hosts.
+    node.ip(write)
+        .await?
+        .unassign(write)
+        .await
+        .map_err(Error::UnassignIp)?;
 
     let ip = IpAddress::next_for_host(host.id, write)
         .await
