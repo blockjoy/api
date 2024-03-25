@@ -3,12 +3,13 @@ use std::collections::{HashSet, VecDeque};
 use argon2::password_hash::{PasswordHasher, SaltString};
 use argon2::{Algorithm, Argon2, PasswordHash};
 use chrono::{DateTime, Utc};
-use diesel::dsl;
+use diesel::dsl::{self, LeftJoinQuerySource};
 use diesel::expression::expression_types::NotSelectable;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
+use diesel::sql_types::Bool;
 use diesel_async::RunQueryDsl;
 use displaydoc::Display;
 use password_hash::{PasswordVerifier, Salt};
@@ -325,31 +326,7 @@ impl UserFilter {
         let mut query = users::table.left_join(user_roles::table).into_boxed();
 
         if let Some(search) = self.search {
-            let user_name = users::first_name.concat(" ").concat(users::last_name);
-            match search.operator {
-                SearchOperator::Or => {
-                    if let Some(id) = search.id {
-                        query = query.filter(super::text(users::id).like(id));
-                    }
-                    if let Some(name) = search.name {
-                        query = query.or_filter(super::lower(user_name).like(name));
-                    }
-                    if let Some(email) = search.email {
-                        query = query.or_filter(super::lower(users::email).like(email));
-                    }
-                }
-                SearchOperator::And => {
-                    if let Some(id) = search.id {
-                        query = query.filter(super::text(users::id).like(id));
-                    }
-                    if let Some(name) = search.name {
-                        query = query.filter(super::lower(user_name).like(name));
-                    }
-                    if let Some(email) = search.email {
-                        query = query.filter(super::lower(users::email).like(email));
-                    }
-                }
-            }
+            query = query.filter(search.into_expression());
         }
 
         if let Some(org_id) = self.org_id {
@@ -374,6 +351,44 @@ impl UserFilter {
             .count_results(conn)
             .await
             .map_err(Into::into)
+    }
+}
+
+type UsersAndRoles = LeftJoinQuerySource<users::table, user_roles::table>;
+
+impl UserSearch {
+    fn into_expression(self) -> Box<dyn BoxableExpression<UsersAndRoles, Pg, SqlType = Bool>> {
+        let user_name = users::first_name.concat(" ").concat(users::last_name);
+        match self.operator {
+            SearchOperator::Or => {
+                let mut predicate: Box<dyn BoxableExpression<UsersAndRoles, Pg, SqlType = Bool>> =
+                    Box::new(false.into_sql::<Bool>());
+                if let Some(id) = self.id {
+                    predicate = Box::new(predicate.or(super::text(users::id).like(id)));
+                }
+                if let Some(name) = self.name {
+                    predicate = Box::new(predicate.or(super::lower(user_name).like(name)));
+                }
+                if let Some(email) = self.email {
+                    predicate = Box::new(predicate.or(super::lower(users::email).like(email)));
+                }
+                predicate
+            }
+            SearchOperator::And => {
+                let mut predicate: Box<dyn BoxableExpression<UsersAndRoles, Pg, SqlType = Bool>> =
+                    Box::new(true.into_sql::<Bool>());
+                if let Some(id) = self.id {
+                    predicate = Box::new(predicate.and(super::text(users::id).like(id)));
+                }
+                if let Some(name) = self.name {
+                    predicate = Box::new(predicate.and(super::lower(user_name).like(name)));
+                }
+                if let Some(email) = self.email {
+                    predicate = Box::new(predicate.and(super::lower(users::email).like(email)));
+                }
+                predicate
+            }
+        }
     }
 }
 

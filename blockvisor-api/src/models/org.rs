@@ -1,12 +1,13 @@
 use std::collections::{HashSet, VecDeque};
 
 use chrono::{DateTime, Utc};
-use diesel::dsl;
+use diesel::dsl::{self, LeftJoinQuerySource};
 use diesel::expression::expression_types::NotSelectable;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
+use diesel::sql_types::Bool;
 use diesel_async::RunQueryDsl;
 use displaydoc::Display;
 use thiserror::Error;
@@ -340,24 +341,7 @@ impl OrgFilter {
         let mut query = orgs::table.left_join(user_roles::table).into_boxed();
 
         if let Some(search) = self.search {
-            match search.operator {
-                SearchOperator::Or => {
-                    if let Some(id) = search.id {
-                        query = query.filter(super::text(orgs::id).like(id));
-                    }
-                    if let Some(name) = search.name {
-                        query = query.or_filter(super::lower(orgs::name).like(name));
-                    }
-                }
-                SearchOperator::And => {
-                    if let Some(id) = search.id {
-                        query = query.filter(super::text(orgs::id).like(id));
-                    }
-                    if let Some(name) = search.name {
-                        query = query.filter(super::lower(orgs::name).like(name));
-                    }
-                }
-            }
+            query = query.filter(search.into_expression());
         }
 
         if let Some(member_id) = self.member_id {
@@ -386,6 +370,37 @@ impl OrgFilter {
             .count_results(conn)
             .await
             .map_err(Into::into)
+    }
+}
+
+type OrgsAndUsers = LeftJoinQuerySource<orgs::table, user_roles::table>;
+
+impl OrgSearch {
+    fn into_expression(self) -> Box<dyn BoxableExpression<OrgsAndUsers, Pg, SqlType = Bool>> {
+        match self.operator {
+            SearchOperator::Or => {
+                let mut predicate: Box<dyn BoxableExpression<OrgsAndUsers, Pg, SqlType = Bool>> =
+                    Box::new(false.into_sql::<Bool>());
+                if let Some(id) = self.id {
+                    predicate = Box::new(predicate.or(super::text(orgs::id).like(id)));
+                }
+                if let Some(name) = self.name {
+                    predicate = Box::new(predicate.or(super::lower(orgs::name).like(name)));
+                }
+                predicate
+            }
+            SearchOperator::And => {
+                let mut predicate: Box<dyn BoxableExpression<OrgsAndUsers, Pg, SqlType = Bool>> =
+                    Box::new(true.into_sql::<Bool>());
+                if let Some(id) = self.id {
+                    predicate = Box::new(predicate.and(super::text(orgs::id).like(id)));
+                }
+                if let Some(name) = self.name {
+                    predicate = Box::new(predicate.and(super::lower(orgs::name).like(name)));
+                }
+                predicate
+            }
+        }
     }
 }
 

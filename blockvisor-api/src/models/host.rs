@@ -7,6 +7,7 @@ use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
+use diesel::sql_types::Bool;
 use diesel_async::RunQueryDsl;
 use diesel_derive_enum::DbEnum;
 use diesel_derive_newtype::DieselNewType;
@@ -466,42 +467,7 @@ impl HostFilter {
         let mut query = Host::not_deleted().into_boxed();
 
         if let Some(search) = self.search {
-            match search.operator {
-                SearchOperator::Or => {
-                    if let Some(id) = search.id {
-                        query = query.filter(super::text(hosts::id).like(id));
-                    }
-                    if let Some(name) = search.name {
-                        query = query.or_filter(super::lower(hosts::name).like(name));
-                    }
-                    if let Some(version) = search.version {
-                        query = query.or_filter(super::lower(hosts::version).like(version));
-                    }
-                    if let Some(os) = search.os {
-                        query = query.or_filter(super::lower(hosts::os).like(os));
-                    }
-                    if let Some(ip) = search.ip {
-                        query = query.or_filter(hosts::ip_addr.like(ip));
-                    }
-                }
-                SearchOperator::And => {
-                    if let Some(id) = search.id {
-                        query = query.filter(super::text(hosts::id).like(id));
-                    }
-                    if let Some(name) = search.name {
-                        query = query.filter(super::lower(hosts::name).like(name));
-                    }
-                    if let Some(version) = search.version {
-                        query = query.filter(super::lower(hosts::version).like(version));
-                    }
-                    if let Some(os) = search.os {
-                        query = query.filter(super::lower(hosts::os).like(os));
-                    }
-                    if let Some(ip) = search.ip {
-                        query = query.filter(hosts::ip_addr.like(ip));
-                    }
-                }
-            }
+            query = query.filter(search.into_expression());
         }
 
         if let Some(org_id) = self.org_id {
@@ -523,6 +489,53 @@ impl HostFilter {
             .count_results(conn)
             .await
             .map_err(Into::into)
+    }
+}
+
+impl HostSearch {
+    fn into_expression(self) -> Box<dyn BoxableExpression<hosts::table, Pg, SqlType = Bool>> {
+        match self.operator {
+            SearchOperator::Or => {
+                let mut predicate: Box<dyn BoxableExpression<hosts::table, Pg, SqlType = Bool>> =
+                    Box::new(false.into_sql::<Bool>());
+                if let Some(id) = self.id {
+                    predicate = Box::new(predicate.or(super::text(hosts::id).like(id)));
+                }
+                if let Some(name) = self.name {
+                    predicate = Box::new(predicate.or(super::lower(hosts::name).like(name)));
+                }
+                if let Some(version) = self.version {
+                    predicate = Box::new(predicate.or(super::lower(hosts::version).like(version)));
+                }
+                if let Some(os) = self.os {
+                    predicate = Box::new(predicate.or(super::lower(hosts::os).like(os)));
+                }
+                if let Some(ip) = self.ip {
+                    predicate = Box::new(predicate.or(hosts::ip_addr.like(ip)));
+                }
+                predicate
+            }
+            SearchOperator::And => {
+                let mut predicate: Box<dyn BoxableExpression<hosts::table, Pg, SqlType = Bool>> =
+                    Box::new(true.into_sql::<Bool>());
+                if let Some(id) = self.id {
+                    predicate = Box::new(predicate.and(super::text(hosts::id).like(id)));
+                }
+                if let Some(name) = self.name {
+                    predicate = Box::new(predicate.and(super::lower(hosts::name).like(name)));
+                }
+                if let Some(version) = self.version {
+                    predicate = Box::new(predicate.and(super::lower(hosts::version).like(version)));
+                }
+                if let Some(os) = self.os {
+                    predicate = Box::new(predicate.and(super::lower(hosts::os).like(os)));
+                }
+                if let Some(ip) = self.ip {
+                    predicate = Box::new(predicate.and(hosts::ip_addr.like(ip)));
+                }
+                predicate
+            }
+        }
     }
 }
 

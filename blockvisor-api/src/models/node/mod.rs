@@ -22,10 +22,12 @@ pub use status::{ContainerStatus, NodeStatus, StakingStatus, SyncStatus};
 use std::collections::{HashSet, VecDeque};
 
 use chrono::{DateTime, Utc};
+use diesel::dsl::{InnerJoinQuerySource, LeftJoinQuerySource};
 use diesel::expression::expression_types::NotSelectable;
 use diesel::pg::Pg;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
+use diesel::sql_types::Bool;
 use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
 use displaydoc::Display;
@@ -520,30 +522,7 @@ impl NodeFilter {
             .into_boxed();
 
         if let Some(search) = self.search {
-            match search.operator {
-                SearchOperator::Or => {
-                    if let Some(id) = search.id {
-                        query = query.filter(super::text(nodes::id).like(id));
-                    }
-                    if let Some(name) = search.name {
-                        query = query.or_filter(super::lower(nodes::name).like(name));
-                    }
-                    if let Some(ip) = search.ip {
-                        query = query.or_filter(nodes::ip_addr.like(ip));
-                    }
-                }
-                SearchOperator::And => {
-                    if let Some(id) = search.id {
-                        query = query.filter(super::text(nodes::id).like(id));
-                    }
-                    if let Some(name) = search.name {
-                        query = query.filter(super::lower(nodes::name).like(name));
-                    }
-                    if let Some(ip) = search.ip {
-                        query = query.filter(nodes::ip_addr.like(ip));
-                    }
-                }
-            }
+            query = query.filter(search.into_expression());
         }
 
         if !self.org_ids.is_empty() {
@@ -607,6 +586,48 @@ impl NodeFilter {
             .count_results(conn)
             .await
             .map_err(Into::into)
+    }
+}
+
+type NodesHostsAndRegions =
+    LeftJoinQuerySource<InnerJoinQuerySource<nodes::table, hosts::table>, regions::table>;
+
+impl NodeSearch {
+    fn into_expression(
+        self,
+    ) -> Box<dyn BoxableExpression<NodesHostsAndRegions, Pg, SqlType = Bool>> {
+        match self.operator {
+            SearchOperator::Or => {
+                let mut predicate: Box<
+                    dyn BoxableExpression<NodesHostsAndRegions, Pg, SqlType = Bool>,
+                > = Box::new(false.into_sql::<Bool>());
+                if let Some(id) = self.id {
+                    predicate = Box::new(predicate.or(super::text(nodes::id).like(id)));
+                }
+                if let Some(name) = self.name {
+                    predicate = Box::new(predicate.or(super::lower(nodes::name).like(name)));
+                }
+                if let Some(ip) = self.ip {
+                    predicate = Box::new(predicate.or(nodes::ip_addr.like(ip)));
+                }
+                predicate
+            }
+            SearchOperator::And => {
+                let mut predicate: Box<
+                    dyn BoxableExpression<NodesHostsAndRegions, Pg, SqlType = Bool>,
+                > = Box::new(true.into_sql::<Bool>());
+                if let Some(id) = self.id {
+                    predicate = Box::new(predicate.and(super::text(nodes::id).like(id)));
+                }
+                if let Some(name) = self.name {
+                    predicate = Box::new(predicate.and(super::lower(nodes::name).like(name)));
+                }
+                if let Some(ip) = self.ip {
+                    predicate = Box::new(predicate.and(nodes::ip_addr.like(ip)));
+                }
+                predicate
+            }
+        }
     }
 }
 
