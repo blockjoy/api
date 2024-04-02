@@ -25,7 +25,7 @@ use crate::storage::metadata::HardwareRequirements;
 use crate::util::{SearchOperator, SortOrder};
 
 use super::blockchain::{Blockchain, BlockchainId};
-use super::ip_address::NewIpAddressRange;
+use super::ip_address::CreateIpAddress;
 use super::node::{NodeScheduler, NodeType, ResourceAffinity};
 use super::schema::{hosts, sql_types};
 use super::{Command, Org, Paginate, Region, RegionId};
@@ -129,8 +129,6 @@ pub struct Host {
     pub disk_size_bytes: i64,
     pub os: String,
     pub os_version: String,
-    pub ip_range_from: IpNetwork,
-    pub ip_range_to: IpNetwork,
     pub ip_gateway: IpNetwork,
     pub used_cpu: Option<i32>,
     pub used_memory: Option<i64>,
@@ -553,8 +551,6 @@ pub struct NewHost<'a> {
     pub os_version: &'a str,
     pub ip_addr: &'a str,
     pub status: ConnectionStatus,
-    pub ip_range_from: IpNetwork,
-    pub ip_range_to: IpNetwork,
     pub ip_gateway: IpNetwork,
     /// The id of the org that owns and operates this host.
     pub org_id: OrgId,
@@ -570,28 +566,19 @@ pub struct NewHost<'a> {
 
 impl NewHost<'_> {
     /// Creates a new `Host` in the db, including the necessary related rows.
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Host, Error> {
-        let ip_addr = self.ip_addr.parse().map_err(Error::ParseIp)?;
-        let ip_gateway = self.ip_gateway.ip();
-        let ips = self.ips();
-        let org_id = self.org_id;
-
+    pub async fn create(self, ips: &[IpNetwork], conn: &mut Conn<'_>) -> Result<Host, Error> {
         let host: Host = diesel::insert_into(hosts::table)
             .values(&self)
             .get_result(conn)
             .await
             .map_err(Error::Create)?;
-
-        Org::increment_host(org_id, conn).await?;
-        NewIpAddressRange::try_new(ip_range_from, ip_range_to, host.id)?
-            .create(&[ip_addr, ip_gateway], conn)
-            .await?;
-
+        Org::increment_host(self.org_id, conn).await?;
+        let new_ips: Vec<_> = ips
+            .iter()
+            .map(|&ip| CreateIpAddress::new(ip, host.id))
+            .collect();
+        CreateIpAddress::bulk_create(new_ips, conn).await?;
         Ok(host)
-    }
-
-    fn ips(&self, host_id: HostId) -> Result<Vec<CreateIpAddress>> {
-        self.ips.iter().map()
     }
 }
 
@@ -608,8 +595,6 @@ pub struct UpdateHost<'a> {
     pub os_version: Option<&'a str>,
     pub ip_addr: Option<&'a str>,
     pub status: Option<ConnectionStatus>,
-    pub ip_range_from: Option<IpNetwork>,
-    pub ip_range_to: Option<IpNetwork>,
     pub ip_gateway: Option<IpNetwork>,
     pub region_id: Option<RegionId>,
     pub managed_by: Option<ManagedBy>,
@@ -628,8 +613,6 @@ impl UpdateHost<'_> {
             os_version: None,
             ip_addr: None,
             status: None,
-            ip_range_from: None,
-            ip_range_to: None,
             ip_gateway: None,
             region_id: None,
             managed_by: None,

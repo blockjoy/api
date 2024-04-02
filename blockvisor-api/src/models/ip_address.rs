@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv6Addr};
 
 use diesel::dsl;
 use diesel::prelude::*;
@@ -7,7 +7,6 @@ use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
 use diesel_async::RunQueryDsl;
 use displaydoc::Display;
-use ipnet::{IpAddrRange, Ipv4AddrRange};
 use ipnetwork::IpNetwork;
 use thiserror::Error;
 use tonic::Status;
@@ -57,53 +56,19 @@ pub struct CreateIpAddress {
     pub host_id: HostId,
 }
 
-pub struct NewIpAddressRange {
-    from: IpAddr,
-    to: IpAddr,
-    host_id: HostId,
+impl CreateIpAddress {
+    pub const fn new(ip: IpNetwork, host_id: HostId) -> Self {
+        Self { ip, host_id }
+    }
+
+    pub async fn bulk_create(ips: Vec<Self>, conn: &mut Conn<'_>) -> Result<Vec<IpAddress>, Error> {
+        diesel::insert_into(ip_addresses::table)
+            .values(ips)
+            .get_results(conn)
+            .await
+            .map_err(Error::Create)
+    }
 }
-
-// impl NewIpAddressRange {
-//     pub fn try_new(from: IpAddr, to: IpAddr, host_id: HostId) -> Result<Self, Error> {
-//         if to < from {
-//             return Err(Error::ToIpBeforeFrom);
-//         }
-
-//         Ok(NewIpAddressRange { from, to, host_id })
-//     }
-
-//     pub async fn create(
-//         self,
-//         exclude: &[IpAddr],
-//         conn: &mut Conn<'_>,
-//     ) -> Result<Vec<IpAddress>, Error> {
-//         let host_id = self.host_id;
-//         let start_range = Self::to_ipv4(self.from)?;
-//         let stop_range = Self::to_ipv4(self.to)?;
-//         let ip_addrs = IpAddrRange::from(Ipv4AddrRange::new(start_range, stop_range));
-//         let ip_addrs: Vec<_> = ip_addrs
-//             .into_iter()
-//             .filter(|ip| !exclude.contains(ip))
-//             .map(|ip| CreateIpAddress {
-//                 ip: ip.into(),
-//                 host_id,
-//             })
-//             .collect();
-
-//         diesel::insert_into(ip_addresses::table)
-//             .values(ip_addrs)
-//             .get_results(conn)
-//             .await
-//             .map_err(Error::Create)
-//     }
-
-//     const fn to_ipv4(addr: IpAddr) -> Result<Ipv4Addr, Error> {
-//         match addr {
-//             IpAddr::V4(v4) => Ok(v4),
-//             IpAddr::V6(v6) => Err(Error::UnexpectedIpv6(v6)),
-//         }
-//     }
-// }
 
 #[derive(Debug, Queryable)]
 pub struct IpAddress {
@@ -205,32 +170,7 @@ impl UpdateIpAddress {
 
 #[cfg(test)]
 mod test {
-    use crate::config::Context;
-
     use super::*;
-
-    #[tokio::test]
-    async fn should_create_ip_range() {
-        let (_ctx, db) = Context::with_mocked().await.unwrap();
-        let mut conn = db.conn().await;
-
-        let from = "192.129.0.10".parse().unwrap();
-        let to = "192.129.0.20".parse().unwrap();
-        let new_range = NewIpAddressRange::try_new(from, to, db.seed.host.id).unwrap();
-        let range = new_range.create(&[], &mut conn).await.unwrap();
-
-        assert_eq!(range.len(), 11);
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "called `Result::unwrap()` on an `Err` value: ToIpBeforeFrom")]
-    async fn should_fail_creating_ip_range() {
-        let (_ctx, db) = Context::with_mocked().await.unwrap();
-
-        let from = "192.129.0.20".parse().unwrap();
-        let to = "192.129.0.10".parse().unwrap();
-        NewIpAddressRange::try_new(from, to, db.seed.host.id).unwrap();
-    }
 
     #[test]
     fn should_fail_if_ip_in_range() {

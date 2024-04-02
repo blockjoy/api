@@ -72,12 +72,10 @@ pub enum Error {
     ParseBlockchainId(uuid::Error),
     /// Failed to parse HostId: {0}
     ParseId(uuid::Error),
-    /// Failed to parse IP from: {0}
-    ParseIpFrom(ipnetwork::IpNetworkError),
+    /// Failed to parse entry from IP's list: {0}
+    ParseIp(ipnetwork::IpNetworkError),
     /// Failed to parse IP gateway: {0}
     ParseIpGateway(ipnetwork::IpNetworkError),
-    /// Failed to parse IP to: {0}
-    ParseIpTo(ipnetwork::IpNetworkError),
     /// Failed to parse non-zero host node_count as u64: {0}
     ParseNodeCount(std::num::TryFromIntError),
     /// Failed to parse OrgId: {0}
@@ -110,9 +108,8 @@ impl From<Error> for Status {
             HostProvisionByToken(_) => Status::permission_denied("Invalid token."),
             ParseBlockchainId(_) => Status::invalid_argument("blockchain_id"),
             ParseId(_) => Status::invalid_argument("id"),
-            ParseIpFrom(_) => Status::invalid_argument("ip_range_from"),
+            ParseIp(_) => Status::invalid_argument("ips"),
             ParseIpGateway(_) => Status::invalid_argument("ip_gateway"),
-            ParseIpTo(_) => Status::invalid_argument("ip_range_to"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ProvisionOrg => Status::failed_precondition("Wrong org."),
             SearchOperator(_) => Status::invalid_argument("search.operator"),
@@ -239,9 +236,14 @@ async fn create(
         None
     };
 
+    let ips: Vec<_> = req
+        .ips
+        .iter()
+        .map(|ip| ip.parse().map_err(Error::ParseIp))
+        .collect::<Result<_, _>>()?;
     let host = req
         .as_new(user_id, org_id, region.as_ref())?
-        .create(&mut write)
+        .create(&ips, &mut write)
         .await?;
 
     let expire_token = write.ctx.config.token.expire.token;
@@ -479,8 +481,6 @@ impl api::Host {
             os_version: host.os_version,
             ip: host.ip_addr,
             created_at: Some(NanosUtc::from(host.created_at).into()),
-            ip_range_from: host.ip_range_from.ip().to_string(),
-            ip_range_to: host.ip_range_to.ip().to_string(),
             ip_gateway: host.ip_gateway.ip().to_string(),
             org_id: host.org_id.to_string(),
             node_count: u64::try_from(max(0, host.node_count)).map_err(Error::ParseNodeCount)?,
@@ -568,7 +568,7 @@ impl common::BillingAmount {
 }
 
 impl api::HostServiceCreateRequest {
-    pub fn as_new(
+    fn as_new(
         &self,
         user_id: UserId,
         org_id: OrgId,
@@ -584,8 +584,6 @@ impl api::HostServiceCreateRequest {
             os_version: &self.os_version,
             ip_addr: &self.ip_addr,
             status: ConnectionStatus::Online,
-            ip_range_from: self.ip_range_from.parse().map_err(Error::ParseIpFrom)?,
-            ip_range_to: self.ip_range_to.parse().map_err(Error::ParseIpTo)?,
             ip_gateway: self.ip_gateway.parse().map_err(Error::ParseIpGateway)?,
             org_id,
             created_by: user_id,
@@ -673,8 +671,6 @@ impl api::HostServiceUpdateRequest {
             os_version: self.os_version.as_deref(),
             ip_addr: None,
             status: None,
-            ip_range_from: None,
-            ip_range_to: None,
             ip_gateway: None,
             region_id: region.map(|r| r.id),
             managed_by: self.managed_by().into(),

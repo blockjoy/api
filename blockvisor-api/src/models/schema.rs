@@ -188,8 +188,6 @@ diesel::table! {
         disk_size_bytes -> Int8,
         os -> Text,
         os_version -> Text,
-        ip_range_from -> Inet,
-        ip_range_to -> Inet,
         ip_gateway -> Inet,
         used_cpu -> Nullable<Int4>,
         used_memory -> Nullable<Int8>,

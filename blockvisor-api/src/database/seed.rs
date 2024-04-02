@@ -9,7 +9,7 @@ use crate::auth::resource::{NodeId, OrgId};
 use crate::grpc::common;
 use crate::models::blockchain::BlockchainId;
 use crate::models::host::{ConnectionStatus, Host, HostType, ManagedBy, MonthlyCostUsd, NewHost};
-use crate::models::ip_address::NewIpAddressRange;
+use crate::models::ip_address::CreateIpAddress;
 use crate::models::node::{Node, NodeProperty, NodeStatus, NodeType, ResourceAffinity};
 use crate::models::rbac::RbacUser;
 use crate::models::schema::{blockchains, nodes, orgs};
@@ -41,8 +41,18 @@ pub const BLOCKCHAIN_VERSION_ID: &str = "a69e7195-8a78-4e3a-a79e-4ac89edf1d68";
 pub const BLOCKCHAIN_PROPERTY_KEYSTORE: &str = "5972a35a-333c-421f-ab64-a77f4ae17533";
 pub const BLOCKCHAIN_PROPERTY_SELF_HOSTED: &str = "a989ad08-b455-4a57-9fe0-696405947e48";
 
-pub const IP_RANGE_FROM: &str = "127.0.0.1";
-pub const IP_RANGE_TO: &str = "127.0.0.10";
+pub const IP_RANGE: [&str; 10] = [
+    "127.0.0.1",
+    "127.0.0.2",
+    "127.0.0.3",
+    "127.0.0.4",
+    "127.0.0.5",
+    "127.0.0.6",
+    "127.0.0.7",
+    "127.0.0.8",
+    "127.0.0.9",
+    "127.0.0.10",
+];
 
 pub struct Seed {
     pub user: User,
@@ -182,8 +192,6 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         os_version: "3",
         ip_addr: "192.168.1.1",
         status: ConnectionStatus::Online,
-        ip_range_from: "192.168.0.10".parse().unwrap(),
-        ip_range_to: "192.168.0.100".parse().unwrap(),
         ip_gateway: "192.168.0.1".parse().unwrap(),
         org_id,
         created_by: user.id,
@@ -193,7 +201,10 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         vmm_mountpoint: None,
         managed_by: ManagedBy::Automatic,
     };
-    let host1 = host1.create(conn).await.unwrap();
+    let host1 = host1
+        .create(&["127.0.0.1".parse().unwrap()], conn)
+        .await
+        .unwrap();
 
     let host2 = NewHost {
         name: HOST_2,
@@ -205,8 +216,6 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         os_version: "3",
         ip_addr: "192.168.2.1",
         status: ConnectionStatus::Online,
-        ip_range_from: "192.12.0.10".parse().unwrap(),
-        ip_range_to: "192.12.0.20".parse().unwrap(),
         ip_gateway: "192.12.0.1".parse().unwrap(),
         org_id,
         created_by: user.id,
@@ -216,21 +225,20 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         vmm_mountpoint: None,
         managed_by: ManagedBy::Automatic,
     };
-    host2.create(conn).await.unwrap();
+    host2
+        .create(&["192.168.2.1".parse().unwrap()], conn)
+        .await
+        .unwrap();
 
     Host::by_id(host1.id, conn).await.unwrap()
 }
 
 async fn create_ip_addresses(host: &Host, conn: &mut Conn<'_>) -> (String, String) {
-    NewIpAddressRange::try_new(
-        IP_RANGE_FROM.parse().unwrap(),
-        IP_RANGE_TO.parse().unwrap(),
-        host.id,
-    )
-    .unwrap()
-    .create(&[], conn)
-    .await
-    .unwrap();
+    let ips = IP_RANGE
+        .iter()
+        .map(|ip| CreateIpAddress::new(ip.parse().unwrap(), host.id))
+        .collect();
+    CreateIpAddress::bulk_create(ips, conn).await.unwrap();
 
     let ip_gateway = host.ip_gateway.ip().to_string();
     let ip_addr = IpAddress::next_for_host(host.id, conn)
