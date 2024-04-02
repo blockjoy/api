@@ -202,7 +202,7 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         managed_by: ManagedBy::Automatic,
     };
     let host1 = host1
-        .create(&["127.0.0.1".parse().unwrap()], conn)
+        .create(&["192.168.1.2".parse().unwrap()], conn)
         .await
         .unwrap();
 
