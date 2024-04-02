@@ -573,12 +573,11 @@ impl NewHost<'_> {
     pub async fn create(self, conn: &mut Conn<'_>) -> Result<Host, Error> {
         let ip_addr = self.ip_addr.parse().map_err(Error::ParseIp)?;
         let ip_gateway = self.ip_gateway.ip();
-        let ip_range_from = self.ip_range_from.ip();
-        let ip_range_to = self.ip_range_to.ip();
+        let ips = self.ips();
         let org_id = self.org_id;
 
         let host: Host = diesel::insert_into(hosts::table)
-            .values(self)
+            .values(&self)
             .get_result(conn)
             .await
             .map_err(Error::Create)?;
@@ -589,6 +588,10 @@ impl NewHost<'_> {
             .await?;
 
         Ok(host)
+    }
+
+    fn ips(&self, host_id: HostId) -> Result<Vec<CreateIpAddress>> {
+        self.ips.iter().map()
     }
 }
 

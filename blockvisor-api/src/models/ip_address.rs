@@ -63,47 +63,47 @@ pub struct NewIpAddressRange {
     host_id: HostId,
 }
 
-impl NewIpAddressRange {
-    pub fn try_new(from: IpAddr, to: IpAddr, host_id: HostId) -> Result<Self, Error> {
-        if to < from {
-            return Err(Error::ToIpBeforeFrom);
-        }
+// impl NewIpAddressRange {
+//     pub fn try_new(from: IpAddr, to: IpAddr, host_id: HostId) -> Result<Self, Error> {
+//         if to < from {
+//             return Err(Error::ToIpBeforeFrom);
+//         }
 
-        Ok(NewIpAddressRange { from, to, host_id })
-    }
+//         Ok(NewIpAddressRange { from, to, host_id })
+//     }
 
-    pub async fn create(
-        self,
-        exclude: &[IpAddr],
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<IpAddress>, Error> {
-        let host_id = self.host_id;
-        let start_range = Self::to_ipv4(self.from)?;
-        let stop_range = Self::to_ipv4(self.to)?;
-        let ip_addrs = IpAddrRange::from(Ipv4AddrRange::new(start_range, stop_range));
-        let ip_addrs: Vec<_> = ip_addrs
-            .into_iter()
-            .filter(|ip| !exclude.contains(ip))
-            .map(|ip| CreateIpAddress {
-                ip: ip.into(),
-                host_id,
-            })
-            .collect();
+//     pub async fn create(
+//         self,
+//         exclude: &[IpAddr],
+//         conn: &mut Conn<'_>,
+//     ) -> Result<Vec<IpAddress>, Error> {
+//         let host_id = self.host_id;
+//         let start_range = Self::to_ipv4(self.from)?;
+//         let stop_range = Self::to_ipv4(self.to)?;
+//         let ip_addrs = IpAddrRange::from(Ipv4AddrRange::new(start_range, stop_range));
+//         let ip_addrs: Vec<_> = ip_addrs
+//             .into_iter()
+//             .filter(|ip| !exclude.contains(ip))
+//             .map(|ip| CreateIpAddress {
+//                 ip: ip.into(),
+//                 host_id,
+//             })
+//             .collect();
 
-        diesel::insert_into(ip_addresses::table)
-            .values(ip_addrs)
-            .get_results(conn)
-            .await
-            .map_err(Error::Create)
-    }
+//         diesel::insert_into(ip_addresses::table)
+//             .values(ip_addrs)
+//             .get_results(conn)
+//             .await
+//             .map_err(Error::Create)
+//     }
 
-    const fn to_ipv4(addr: IpAddr) -> Result<Ipv4Addr, Error> {
-        match addr {
-            IpAddr::V4(v4) => Ok(v4),
-            IpAddr::V6(v6) => Err(Error::UnexpectedIpv6(v6)),
-        }
-    }
-}
+//     const fn to_ipv4(addr: IpAddr) -> Result<Ipv4Addr, Error> {
+//         match addr {
+//             IpAddr::V4(v4) => Ok(v4),
+//             IpAddr::V6(v6) => Err(Error::UnexpectedIpv6(v6)),
+//         }
+//     }
+// }
 
 #[derive(Debug, Queryable)]
 pub struct IpAddress {
