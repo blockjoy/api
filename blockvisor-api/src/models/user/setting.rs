@@ -1,5 +1,7 @@
+use derive_more::{Deref, From, FromStr};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
+use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display;
 use thiserror::Error;
 use tonic::Status;
@@ -27,10 +29,13 @@ impl From<Error> for Status {
     }
 }
 
+#[derive(Clone, Copy, Debug, Display, Hash, PartialEq, Eq, DieselNewType, Deref, From, FromStr)]
+pub struct UserSettingId(uuid::Uuid);
+
 #[derive(Debug, Clone, Queryable, AsChangeset)]
 #[diesel(table_name = user_settings)]
 pub struct UserSetting {
-    pub id: uuid::Uuid,
+    pub id: UserSettingId,
     pub user_id: UserId,
     pub name: String,
     pub value: Vec<u8>,
