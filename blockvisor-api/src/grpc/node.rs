@@ -1011,6 +1011,7 @@ impl api::NodeServiceListRequest {
                     api::NodeSortField::SyncStatus => Ok(NodeSort::SyncStatus(order)),
                     api::NodeSortField::ContainerStatus => Ok(NodeSort::ContainerStatus(order)),
                     api::NodeSortField::StakingStatus => Ok(NodeSort::StakingStatus(order)),
+                    api::NodeSortField::BlockHeight => Ok(NodeSort::BlockHeight(order)),
                 }
             })
             .collect::<Result<_, _>>()?;

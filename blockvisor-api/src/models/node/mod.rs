@@ -447,6 +447,7 @@ pub enum NodeSort {
     SyncStatus(SortOrder),
     ContainerStatus(SortOrder),
     StakingStatus(SortOrder),
+    BlockHeight(SortOrder),
 }
 
 impl NodeSort {
@@ -461,6 +462,7 @@ impl NodeSort {
         nodes::container_status: SelectableExpression<T>,
         nodes::sync_status: SelectableExpression<T>,
         nodes::staking_status: SelectableExpression<T>,
+        nodes::block_height: SelectableExpression<T>,
     {
         use NodeSort::*;
         use SortOrder::*;
@@ -492,6 +494,9 @@ impl NodeSort {
 
             StakingStatus(Asc) => Box::new(nodes::staking_status.asc()),
             StakingStatus(Desc) => Box::new(nodes::staking_status.desc()),
+
+            BlockHeight(Asc) => Box::new(nodes::block_height.asc()),
+            BlockHeight(Desc) => Box::new(nodes::block_height.desc()),
         }
     }
 }
