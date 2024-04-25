@@ -412,6 +412,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_settings (id) {
+        id -> Uuid,
+        user_id -> Uuid,
+        name -> Text,
+        value -> Bytea,
+    }
+}
+
+diesel::table! {
     users (id) {
         id -> Uuid,
         email -> Text,
@@ -459,6 +468,7 @@ diesel::joinable!(subscriptions -> users (user_id));
 diesel::joinable!(user_roles -> orgs (org_id));
 diesel::joinable!(user_roles -> roles (role));
 diesel::joinable!(user_roles -> users (user_id));
+diesel::joinable!(user_settings -> users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     api_keys,
@@ -482,5 +492,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     subscriptions,
     tokens,
     user_roles,
+    user_settings,
     users,
 );

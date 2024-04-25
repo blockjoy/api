@@ -5,10 +5,11 @@ use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 
-use crate::auth::rbac::{UserAdminPerm, UserBillingPerm, UserPerm};
+use crate::auth::rbac::{UserAdminPerm, UserBillingPerm, UserPerm, UserSettingsPerm};
 use crate::auth::resource::UserId;
 use crate::auth::{self, token, Authorize};
 use crate::database::{ReadConn, Transaction, WriteConn};
+use crate::models::user::setting::{NewUserSetting, UserSetting};
 use crate::models::user::{NewUser, UpdateUser, User, UserFilter, UserSearch, UserSort};
 use crate::util::NanosUtc;
 
@@ -41,6 +42,8 @@ pub enum Error {
     SortOrder(crate::util::search::Error),
     /// The requested sort field is unknown.
     UnknownSortField,
+    /// User settings error: {0}
+    UserSettings(#[from] crate::models::user::setting::Error),
 }
 
 impl From<Error> for Status {
@@ -58,6 +61,7 @@ impl From<Error> for Status {
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Model(err) => err.into(),
+            UserSettings(_) => err.into(),
         }
     }
 }
@@ -131,6 +135,33 @@ impl UserService for Grpc {
     ) -> Result<Response<api::UserServiceDeleteBillingResponse>, Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| delete_billing(req, meta, write).scope_boxed())
+            .await
+    }
+
+    async fn get_settings(
+        &self,
+        req: Request<api::UserServiceGetSettingsRequest>,
+    ) -> Result<Response<api::UserServiceGetSettingsResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| get_settings(req, meta, read).scope_boxed())
+            .await
+    }
+
+    async fn update_settings(
+        &self,
+        req: Request<api::UserServiceUpdateSettingsRequest>,
+    ) -> Result<Response<api::UserServiceUpdateSettingsResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| update_settings(req, meta, write).scope_boxed())
+            .await
+    }
+
+    async fn delete_settings(
+        &self,
+        req: Request<api::UserServiceDeleteSettingsRequest>,
+    ) -> Result<Response<api::UserServiceDeleteSettingsResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| delete_settings(req, meta, write).scope_boxed())
             .await
     }
 }
@@ -278,6 +309,57 @@ async fn delete_billing(
     user.delete_billing(&mut write).await?;
 
     Ok(api::UserServiceDeleteBillingResponse {})
+}
+
+async fn get_settings(
+    req: api::UserServiceGetSettingsRequest,
+    meta: MetadataMap,
+    mut read: ReadConn<'_, '_>,
+) -> Result<api::UserServiceGetSettingsResponse, Error> {
+    let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
+    read.auth(&meta, UserSettingsPerm::Get, user_id).await?;
+
+    let user = User::by_id(user_id, &mut read).await?;
+    let settings = UserSetting::by_user(user.id, &mut read)
+        .await?
+        .into_iter()
+        .map(|s| (s.name, s.value))
+        .collect();
+
+    Ok(api::UserServiceGetSettingsResponse { settings })
+}
+
+async fn update_settings(
+    req: api::UserServiceUpdateSettingsRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::UserServiceUpdateSettingsResponse, Error> {
+    let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
+    write.auth(&meta, UserSettingsPerm::Get, user_id).await?;
+
+    let user = User::by_id(user_id, &mut write).await?;
+    let setting = NewUserSetting::new(user.id, &req.name, &req.value)
+        .create_or_update(&mut write)
+        .await?;
+
+    Ok(api::UserServiceUpdateSettingsResponse {
+        name: setting.name,
+        value: setting.value,
+    })
+}
+
+async fn delete_settings(
+    req: api::UserServiceDeleteSettingsRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::UserServiceDeleteSettingsResponse, Error> {
+    let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
+    write.auth(&meta, UserSettingsPerm::Get, user_id).await?;
+
+    let user = User::by_id(user_id, &mut write).await?;
+    UserSetting::delete(user.id, &req.name, &mut write).await?;
+
+    Ok(api::UserServiceDeleteSettingsResponse {})
 }
 
 impl api::User {

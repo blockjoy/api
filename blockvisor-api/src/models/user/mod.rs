@@ -27,6 +27,8 @@ use super::org::NewOrg;
 use super::schema::{user_roles, users};
 use super::Paginate;
 
+pub mod setting;
+
 type NotDeleted = dsl::Filter<users::table, dsl::IsNull<users::deleted_at>>;
 
 #[derive(Debug, Display, Error)]
@@ -126,10 +128,6 @@ impl User {
             .get_result(conn)
             .await
             .map_err(|err| Error::FindById(id, err))
-    }
-
-    pub async fn find_all(conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
-        users::table.get_results(conn).await.map_err(Error::FindAll)
     }
 
     pub async fn by_ids(

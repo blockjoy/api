@@ -255,4 +255,10 @@ define_perms! {
         Update,
         Delete,
     }
+
+    UserSettings => {
+        Get,
+        Update,
+        Delete,
+    }
 }
