@@ -102,7 +102,7 @@ impl From<Error> for Status {
         error!("{err}");
         match err {
             CreateTokenNotUser | Diesel(_) | Jwt(_) | LookupMissingOrg(_) | MissingTokenOrgId
-            | ParseNodeCount(_) | Refresh(_) | Storage(_) => Status::internal("Internal error."),
+            | ParseNodeCount(_) | Refresh(_) => Status::internal("Internal error."),
             CpuCount(_) | DiskSize(_) | MemSize(_) => Status::out_of_range("Host resource."),
             HasNodes => Status::failed_precondition("This host still has nodes."),
             HostProvisionByToken(_) => Status::permission_denied("Invalid token."),
@@ -126,6 +126,7 @@ impl From<Error> for Status {
             Node(err) => err.into(),
             Org(err) => err.into(),
             Region(err) => err.into(),
+            Storage(err) => err.into(),
         }
     }
 }

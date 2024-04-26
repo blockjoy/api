@@ -9,12 +9,14 @@ use std::time::Duration;
 
 use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::error::SdkError;
+use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_s3::operation::put_object::PutObjectError;
 use aws_sdk_s3::presigning::PresigningConfigError;
 use displaydoc::Display;
 use rhai::Engine;
 use semver::Version;
 use thiserror::Error;
+use tonic::Status;
 use tracing::warn;
 use url::Url;
 
@@ -56,6 +58,33 @@ pub enum Error {
     PresignedRequest(String, SdkError<PutObjectError>),
     /// Failed to serialize DownloadManifest: {0}
     SerializeManifest(serde_json::Error),
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        use Error::*;
+        match err {
+            Client(crate::storage::client::Error::ReadKey(
+                bucket,
+                file,
+                SdkError::ServiceError(err),
+            )) if matches!(err.err(), GetObjectError::NoSuchKey(_)) => {
+                Status::not_found(format!("No rhai script at `{bucket}:{file}`"))
+            }
+            DownloadManifest(_, _) | FindManifest(_, _, _) => Status::not_found("Not found."),
+            Metadata(crate::storage::metadata::Error::CompileScript(_, _)) => {
+                Status::internal("Failed to compile script")
+            }
+            Client(_)
+            | Image(_)
+            | Metadata(_)
+            | ParseManifest(_)
+            | ParseUtf8(_)
+            | PresigningConfig(_)
+            | PresignedRequest(_, _)
+            | SerializeManifest(_) => Status::internal("Internal error."),
+        }
+    }
 }
 
 pub struct Storage {
