@@ -147,10 +147,9 @@ async fn recover_created(
         .await
         .map_err(Error::UnassignIp)?;
 
-    let ip = IpAddress::next_for_host(host.id, write)
+    let ip = IpAddress::by_host_unassigned(host.id, write)
         .await
         .map_err(Error::FindIp)?;
-    let ip_addr = ip.ip().to_string();
     let ip_gateway = host.ip_gateway.ip().to_string();
 
     Host::decrement_node(node.host_id, write).await?;
@@ -158,7 +157,7 @@ async fn recover_created(
 
     let update = UpdateNode {
         host_id: Some(host.id),
-        ip_addr: Some(&ip_addr),
+        ip: Some(ip.ip),
         ip_gateway: Some(&ip_gateway),
         ..Default::default()
     };

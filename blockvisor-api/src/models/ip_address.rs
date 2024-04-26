@@ -82,15 +82,13 @@ pub struct IpAddress {
 
 impl IpAddress {
     /// Helper returning the next valid IP address for host identified by `host_id`
-    pub async fn next_for_host(host_id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let ip: Self = ip_addresses::table
+    pub async fn by_host_unassigned(host_id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        ip_addresses::table
             .filter(ip_addresses::host_id.eq(host_id))
             .filter(ip_addresses::is_assigned.eq(false))
             .get_result(conn)
             .await
-            .map_err(Error::NextForHost)?;
-
-        ip.assign(conn).await
+            .map_err(Error::NextForHost)
     }
 
     /// Helper assigned IP address identified by `ìd` to host identified by `host_id`

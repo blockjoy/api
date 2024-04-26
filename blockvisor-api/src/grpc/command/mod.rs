@@ -443,7 +443,7 @@ async fn node_create(
             node_type: common::NodeType::from(node.node_type).into(),
         }),
         node_type: common::NodeType::from(node.node_type).into(),
-        ip: node.ip_addr.clone(),
+        ip: node.ip.ip().to_string(),
         gateway: node.ip_gateway.clone(),
         properties,
         rules: firewall_rules(&node)?,

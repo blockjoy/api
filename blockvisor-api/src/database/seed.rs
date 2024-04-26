@@ -2,6 +2,7 @@
 
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
+use ipnetwork::IpNetwork;
 use uuid::Uuid;
 
 use crate::auth::rbac::{BlockjoyRole, ViewRole};
@@ -62,7 +63,7 @@ pub struct Seed {
     pub blockchain: Blockchain,
     pub region: Region,
     pub ip_gateway: String,
-    pub ip_addr: String,
+    pub ip_addr: IpNetwork,
 }
 
 impl Seed {
@@ -75,7 +76,7 @@ impl Seed {
         let host = create_hosts(&user, org.id, &region, conn).await;
         let blockchain = create_blockchains(conn).await;
         let (ip_gateway, ip_addr) = create_ip_addresses(&host, conn).await;
-        let node = create_nodes(org.id, &host, &blockchain, &ip_gateway, &ip_addr, conn).await;
+        let node = create_nodes(org.id, &host, &blockchain, &ip_gateway, ip_addr, conn).await;
 
         Seed {
             user,
@@ -233,7 +234,7 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
     Host::by_id(host1.id, conn).await.unwrap()
 }
 
-async fn create_ip_addresses(host: &Host, conn: &mut Conn<'_>) -> (String, String) {
+async fn create_ip_addresses(host: &Host, conn: &mut Conn<'_>) -> (String, IpNetwork) {
     let ips = IP_RANGE
         .iter()
         .map(|ip| CreateIpAddress::new(ip.parse().unwrap(), host.id))
@@ -241,12 +242,10 @@ async fn create_ip_addresses(host: &Host, conn: &mut Conn<'_>) -> (String, Strin
     CreateIpAddress::bulk_create(ips, conn).await.unwrap();
 
     let ip_gateway = host.ip_gateway.ip().to_string();
-    let ip_addr = IpAddress::next_for_host(host.id, conn)
+    let ip_addr = IpAddress::by_host_unassigned(host.id, conn)
         .await
         .unwrap()
-        .ip
-        .ip()
-        .to_string();
+        .ip;
 
     (ip_gateway, ip_addr)
 }
@@ -256,7 +255,7 @@ async fn create_nodes(
     host: &Host,
     blockchain: &Blockchain,
     ip_gateway: &str,
-    ip_addr: &str,
+    ip_addr: IpNetwork,
     conn: &mut Conn<'_>,
 ) -> Node {
     let node_id: NodeId = NODE_ID.parse().unwrap();
@@ -272,7 +271,7 @@ async fn create_nodes(
             nodes::consensus.eq(true),
             nodes::node_status.eq(NodeStatus::Broadcasting),
             nodes::ip_gateway.eq(ip_gateway),
-            nodes::ip_addr.eq(ip_addr),
+            nodes::ip.eq(ip_addr),
             nodes::node_type.eq(NodeType::Validator),
             nodes::dns_record_id.eq("The id"),
             nodes::vcpu_count.eq(2),

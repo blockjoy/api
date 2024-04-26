@@ -58,7 +58,7 @@ async fn responds_ok_for_pending() {
         host_id: None,
         name: None,
         version: None,
-        ip_addr: Some("123.123.123.123"),
+        ip: Some("123.123.123.123".parse().unwrap()),
         ip_gateway: None,
         block_height: None,
         node_data: None,

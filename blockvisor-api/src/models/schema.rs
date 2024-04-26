@@ -294,7 +294,6 @@ diesel::table! {
         host_id -> Uuid,
         name -> Text,
         version -> Text,
-        ip_addr -> Text,
         address -> Nullable<Text>,
         wallet_address -> Nullable<Text>,
         block_height -> Nullable<Int8>,
@@ -329,6 +328,7 @@ diesel::table! {
         note -> Nullable<Text>,
         node_status -> EnumNodeStatus,
         url -> Text,
+        ip -> Inet,
     }
 }
 

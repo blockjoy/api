@@ -93,6 +93,8 @@ pub enum Error {
     ParseId(uuid::Error),
     /// Failed to parse IpAddr: {0}
     ParseIpAddr(std::net::AddrParseError),
+    /// Failed to parse IpNetwork: {0}
+    ParseIpNetwork(ipnetwork::IpNetworkError),
     /// Unable to parse node version: {0}
     ParseNodeVersion(crate::models::node::node_type::Error),
     /// Failed to parse OrgId: {0}
@@ -140,6 +142,7 @@ impl From<Error> for Status {
             ParseBlockchainId(_) => Status::invalid_argument("blockchain_id"),
             ParseHostId(_) => Status::invalid_argument("host_id"),
             ParseId(_) => Status::invalid_argument("id"),
+            ParseIpNetwork(_) => Status::invalid_argument("ip_addresses"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
@@ -795,7 +798,7 @@ impl api::Node {
             name: node.name,
             address: node.address,
             version: node.version.into(),
-            ip: node.ip_addr,
+            ip: node.ip.ip().to_string(),
             ip_gateway: node.ip_gateway,
             node_type: common::NodeType::from(node.node_type).into(),
             properties,
@@ -1016,6 +1019,12 @@ impl api::NodeServiceListRequest {
             })
             .collect::<Result<_, _>>()?;
 
+        let ip_addresses = self
+            .ip_addresses
+            .iter()
+            .map(|ip| ip.parse().map_err(Error::ParseIpNetwork))
+            .collect::<Result<_, _>>()?;
+
         Ok(NodeFilter {
             org_ids,
             offset: self.offset,
@@ -1025,7 +1034,7 @@ impl api::NodeServiceListRequest {
             blockchain_ids,
             host_ids,
             user_ids,
-            ip_addresses: self.ip_addresses,
+            ip_addresses,
             versions: self.versions,
             networks: self.networks,
             regions: self.regions,
@@ -1059,7 +1068,7 @@ impl api::NodeServiceUpdateConfigRequest {
             host_id: None,
             name: None,
             version: None,
-            ip_addr: None,
+            ip: None,
             ip_gateway: None,
             block_height: None,
             node_data: None,
@@ -1083,7 +1092,7 @@ impl api::NodeServiceUpdateStatusRequest {
             host_id: None,
             name: None,
             version: self.version.as_deref().map(NodeVersion::new).transpose()?,
-            ip_addr: None,
+            ip: None,
             ip_gateway: None,
             block_height: None,
             node_data: None,

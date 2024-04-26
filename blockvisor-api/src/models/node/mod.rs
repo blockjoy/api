@@ -32,6 +32,7 @@ use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
 use displaydoc::Display;
 use futures_util::future::OptionFuture;
+use ipnetwork::IpNetwork;
 use petname::{Generator, Petnames};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -46,6 +47,7 @@ use crate::database::{Conn, WriteConn};
 use crate::storage::image::ImageId;
 use crate::util::{SearchOperator, SortOrder};
 
+use super::abbrev;
 use super::blockchain::{Blockchain, BlockchainId};
 use super::host::{Host, HostRequirements, HostType};
 use super::schema::{hosts, nodes, regions};
@@ -153,7 +155,6 @@ pub struct Node {
     pub host_id: HostId,
     pub name: String,
     pub version: NodeVersion,
-    pub ip_addr: String,
     pub address: Option<String>,
     pub wallet_address: Option<String>,
     pub block_height: Option<i64>,
@@ -187,6 +188,7 @@ pub struct Node {
     pub note: Option<String>,
     pub node_status: NodeStatus,
     pub url: String,
+    pub ip: IpNetwork,
 }
 
 impl Node {
@@ -381,8 +383,7 @@ impl Node {
     }
 
     pub async fn ip(&self, conn: &mut Conn<'_>) -> Result<IpAddress, Error> {
-        let ip_addr = self.ip_addr.parse().map_err(Error::ParseIpAddr)?;
-        let ip = IpAddress::by_ip(ip_addr, conn).await?;
+        let ip = IpAddress::by_ip(self.ip.ip(), conn).await?;
         Ok(ip)
     }
 
@@ -511,7 +512,7 @@ pub struct NodeFilter {
     pub blockchain_ids: Vec<BlockchainId>,
     pub host_ids: Vec<HostId>,
     pub user_ids: Vec<UserId>,
-    pub ip_addresses: Vec<String>,
+    pub ip_addresses: Vec<IpNetwork>,
     pub versions: Vec<String>,
     pub networks: Vec<String>,
     pub regions: Vec<String>,
@@ -547,7 +548,7 @@ impl NodeFilter {
         }
 
         if !self.ip_addresses.is_empty() {
-            query = query.filter(nodes::ip_addr.eq_any(self.ip_addresses));
+            query = query.filter(nodes::ip.eq_any(self.ip_addresses));
         }
 
         if !self.versions.is_empty() {
@@ -613,7 +614,7 @@ impl NodeSearch {
                     predicate = Box::new(predicate.or(super::lower(nodes::name).like(name)));
                 }
                 if let Some(ip) = self.ip {
-                    predicate = Box::new(predicate.or(nodes::ip_addr.like(ip)));
+                    predicate = Box::new(predicate.or(abbrev(nodes::ip).like(ip)));
                 }
                 predicate
             }
@@ -628,7 +629,7 @@ impl NodeSearch {
                     predicate = Box::new(predicate.and(super::lower(nodes::name).like(name)));
                 }
                 if let Some(ip) = self.ip {
-                    predicate = Box::new(predicate.and(nodes::ip_addr.like(ip)));
+                    predicate = Box::new(predicate.and(abbrev(nodes::ip).like(ip)));
                 }
                 predicate
             }
@@ -685,10 +686,9 @@ impl NewNode {
             self.find_host(scheduler, authz, write).await?
         };
 
-        let node_ip = IpAddress::next_for_host(host.id, write)
+        let node_ip = IpAddress::by_host_unassigned(host.id, write)
             .await
             .map_err(Error::NextHostIp)?;
-        let ip_addr = node_ip.ip().to_string();
         let ip_gateway = host.ip_gateway.ip().to_string();
 
         node_ip.assign(write).await.map_err(Error::AssignIpAddr)?;
@@ -711,7 +711,7 @@ impl NewNode {
                     &self,
                     nodes::host_id.eq(host.id),
                     nodes::ip_gateway.eq(&ip_gateway),
-                    nodes::ip_addr.eq(&ip_addr),
+                    nodes::ip.eq(node_ip.ip),
                     nodes::dns_record_id.eq(&dns_id),
                     nodes::data_directory_mountpoint.eq(&data_directory_mountpoint),
                     nodes::url.eq(&dns_record.name),
@@ -796,7 +796,7 @@ pub struct UpdateNode<'a> {
     pub host_id: Option<HostId>,
     pub name: Option<&'a str>,
     pub version: Option<NodeVersion>,
-    pub ip_addr: Option<&'a str>,
+    pub ip: Option<IpNetwork>,
     pub ip_gateway: Option<&'a str>,
     pub block_height: Option<i64>,
     pub node_data: Option<serde_json::Value>,
