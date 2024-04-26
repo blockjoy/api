@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::Utc;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures_util::future::join_all;
@@ -10,7 +9,6 @@ use tonic::{Request, Response, Status};
 use tracing::{error, warn};
 
 use crate::auth::rbac::{BlockchainAdminPerm, BlockchainPerm};
-use crate::auth::resource::NodeId;
 use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::blockchain::{
@@ -18,9 +16,7 @@ use crate::models::blockchain::{
     BlockchainVersion, BlockchainVersionId, NewBlockchainNodeType, NewProperty, NewVersion,
     NodeStats,
 };
-use crate::models::command::NewCommand;
-use crate::models::node::{NewNodeLog, Node, NodeLogEvent, NodeType, NodeVersion, UpdateNode};
-use crate::models::{Command, CommandType};
+use crate::models::node::{NodeType, NodeVersion};
 use crate::storage::image::ImageId;
 use crate::storage::Storage;
 use crate::util::{HashVec, NanosUtc};
@@ -367,12 +363,12 @@ async fn add_version(
         .auth_all(&meta, BlockchainAdminPerm::AddVersion)
         .await?;
 
-    let id = req.id.parse().map_err(Error::ParseId)?;
-    let blockchain = Blockchain::by_id(id, &authz, &mut write).await?;
+    let blockchain_id = req.blockchain_id.parse().map_err(Error::ParseId)?;
+    let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write).await?;
     let node_type = NodeType::from(req.node_type());
     let node_version = NodeVersion::new(&req.version)?;
     let version = NewVersion::new(
-        id,
+        blockchain_id,
         node_type,
         &node_version,
         req.description,
@@ -393,23 +389,6 @@ async fn add_version(
         .collect::<Result<Vec<_>, _>>()?;
     NewProperty::bulk_create(properties, &mut write).await?;
 
-    let nodes = Node::upgradeable_by_type(id, node_type, &mut write).await?;
-    for node in nodes {
-        let upgrade = upgrade_node(&node, &node_version, &blockchain)?;
-        if let Some((new_command, new_log)) = upgrade {
-            let update = UpdateNode {
-                version: Some(NodeVersion::new(&node_version)?),
-                ..Default::default()
-            };
-            let node = node.update(update, &mut write).await?;
-
-            new_log.create(&mut write).await?;
-            let command = new_command.create(&mut write).await?;
-
-            write.mqtt(upgrade_command(node.id, &command, image.clone()));
-        }
-    }
-
     let version =
         BlockchainVersion::find(blockchain.id, node_type, &node_version, &mut write).await?;
     let properties = BlockchainProperty::by_version_id(version.id, &mut write).await?;
@@ -419,50 +398,6 @@ async fn add_version(
             version, networks, properties,
         )),
     })
-}
-
-fn upgrade_node(
-    node: &Node,
-    node_version: &NodeVersion,
-    blockchain: &Blockchain,
-) -> Result<Option<(NewCommand, NewNodeLog)>, Error> {
-    if node_version.semver()? <= node.version.semver()? {
-        return Ok(None);
-    }
-
-    let command = NewCommand::node(node, CommandType::NodeUpgrade)?;
-
-    let log = NewNodeLog {
-        host_id: node.host_id,
-        node_id: node.id,
-        event: NodeLogEvent::Upgraded,
-        blockchain_id: blockchain.id,
-        node_type: node.node_type,
-        version: node_version.clone(),
-        created_at: Utc::now(),
-        org_id: node.org_id,
-    };
-
-    Ok(Some((command, log)))
-}
-
-/// Take our new Command and turn it into a `gRPC` message
-fn upgrade_command(node_id: NodeId, command: &Command, image: ImageId) -> api::Command {
-    api::Command {
-        id: command.id.to_string(),
-        exit_code: None,
-        exit_message: None,
-        retry_hint_seconds: None,
-        created_at: Some(NanosUtc::from(command.created_at).into()),
-        acked_at: None,
-        command: Some(api::command::Command::Node(api::NodeCommand {
-            node_id: node_id.to_string(),
-            host_id: command.host_id.to_string(),
-            command: Some(api::node_command::Command::Upgrade(api::NodeUpgrade {
-                image: Some(image.into()),
-            })),
-        })),
-    }
 }
 
 /// For each blockchain version, retrieve a list of networks from storage.

@@ -82,7 +82,7 @@ async fn add_blockchain_node_type() {
 async fn add_blockchain_version() {
     let test = TestServer::new().await;
     let request = |version: &str, node_type: NodeType| api::BlockchainServiceAddVersionRequest {
-        id: BLOCKCHAIN_ID.to_string(),
+        blockchain_id: BLOCKCHAIN_ID.to_string(),
         version: version.to_string(),
         description: None,
         node_type: common::NodeType::from(node_type).into(),
