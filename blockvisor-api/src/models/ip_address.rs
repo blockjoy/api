@@ -15,27 +15,30 @@ use crate::auth::resource::HostId;
 use crate::database::Conn;
 
 use super::schema::ip_addresses;
+use super::Node;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// Failed to find assigned ip address range: {0}
     Assigned(diesel::result::Error),
+    /// Failed to find ip address for hosts `{0:?}`: {1}
+    ByHosts(HashSet<HostId>, diesel::result::Error),
+    /// Failed to get next IP for host: {0}
+    ByHostUnassigned(diesel::result::Error),
+    /// Failed to find ip address for ip `{0}`: {1}
+    ByIp(IpAddr, diesel::result::Error),
     /// Failed to create new ip address range: {0}
     Create(diesel::result::Error),
-    /// Failed to find ip address for hosts `{0:?}`: {1}
-    FindByHosts(HashSet<HostId>, diesel::result::Error),
-    /// Failed to find ip address for ip `{0}`: {1}
-    FindByIp(IpAddr, diesel::result::Error),
-    /// Failed to get next IP for host: {0}
-    NextForHost(diesel::result::Error),
     /// Failed to create new IP network: {0}
     NewIpNetwork(ipnetwork::IpNetworkError),
     /// To IP address is before the From IP.
     ToIpBeforeFrom,
     /// Unexpected IP v6 in the database: {0}
     UnexpectedIpv6(Ipv6Addr),
-    /// Failed to update ip address range: {0}
+    /// Failed to update ip address: {0}
     Update(diesel::result::Error),
+    /// Failed to update ip address' assignment: {0}
+    UpdateAssignment(Box<super::node::Error>),
 }
 
 impl From<Error> for Status {
@@ -43,7 +46,7 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
-            FindByIp(_, NotFound) => Status::not_found("Not found."),
+            ByIp(_, NotFound) => Status::not_found("Not found."),
             _ => Status::internal("Internal error."),
         }
     }
@@ -82,15 +85,13 @@ pub struct IpAddress {
 
 impl IpAddress {
     /// Helper returning the next valid IP address for host identified by `host_id`
-    pub async fn next_for_host(host_id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let ip: Self = ip_addresses::table
+    pub async fn by_host_unassigned(host_id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        ip_addresses::table
             .filter(ip_addresses::host_id.eq(host_id))
             .filter(ip_addresses::is_assigned.eq(false))
             .get_result(conn)
             .await
-            .map_err(Error::NextForHost)?;
-
-        ip.assign(conn).await
+            .map_err(Error::ByHostUnassigned)
     }
 
     /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
@@ -135,7 +136,7 @@ impl IpAddress {
             .filter(ip_addresses::ip.eq(ip_network))
             .get_result(conn)
             .await
-            .map_err(|err| Error::FindByIp(ip, err))
+            .map_err(|err| Error::ByIp(ip, err))
     }
 
     pub async fn by_host_ids(
@@ -146,7 +147,26 @@ impl IpAddress {
             .filter(ip_addresses::host_id.eq_any(&host_ids))
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindByHosts(host_ids, err))
+            .map_err(|err| Error::ByHosts(host_ids, err))
+    }
+
+    pub async fn update_assignment(&self, conn: &mut Conn<'_>) -> Result<(), Error> {
+        let maybe_node = Node::by_ip(self, conn)
+            .await
+            .map_err(Box::new)
+            .map_err(Error::UpdateAssignment)?;
+        match (self.is_assigned, maybe_node) {
+            (true, Some(_)) => Ok(()),
+            (true, None) => {
+                self.unassign(conn).await?;
+                Ok(())
+            }
+            (false, Some(_)) => {
+                self.assign(conn).await?;
+                Ok(())
+            }
+            (false, None) => Ok(()),
+        }
     }
 }
 

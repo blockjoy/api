@@ -140,17 +140,12 @@ async fn recover_created(
         }
     };
 
-    // We unassign the current ip address and dns record since we're going to be switching hosts.
-    node.ip(write)
-        .await?
-        .unassign(write)
-        .await
-        .map_err(Error::UnassignIp)?;
+    let old_ip = node.ip(write).await?;
 
-    let ip = IpAddress::next_for_host(host.id, write)
+    let new_ip = IpAddress::by_host_unassigned(host.id, write)
         .await
         .map_err(Error::FindIp)?;
-    let ip_addr = ip.ip().to_string();
+    let ip_addr = new_ip.ip().to_string();
     let ip_gateway = host.ip_gateway.ip().to_string();
 
     Host::decrement_node(node.host_id, write).await?;
@@ -169,10 +164,17 @@ async fn recover_created(
     write
         .ctx
         .dns
-        .create(&node.name, ip.ip())
+        .create(&node.name, new_ip.ip())
         .await
         .map_err(Error::Cloudflare)?;
-    ip.assign(write).await.map_err(Error::AssignIp)?;
+    old_ip
+        .update_assignment(write)
+        .await
+        .map_err(Error::UnassignIp)?;
+    new_ip
+        .update_assignment(write)
+        .await
+        .map_err(Error::AssignIp)?;
 
     // 3. We notify blockvisor of our retry via an MQTT message.
     if let Ok(cmd) = NewCommand::node(&node, CommandType::NodeCreate)?

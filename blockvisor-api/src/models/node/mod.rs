@@ -65,6 +65,18 @@ pub enum Error {
     AssignIpAddr(#[from] super::ip_address::Error),
     /// Blockchain error for node: {0}
     Blockchain(#[from] super::blockchain::Error),
+    /// Failed to find nodes by host id {0}: {1}
+    ByHostId(HostId, diesel::result::Error),
+    /// Failed to find node by id `{0}`: {1}
+    ById(NodeId, diesel::result::Error),
+    /// Failed to find node by ip address `{0}`: {1}
+    ByIp(std::net::IpAddr, diesel::result::Error),
+    /// Failed to find nodes by id `{0:?}`: {1}
+    ByIds(HashSet<NodeId>, diesel::result::Error),
+    /// Failed to find nodes by org id {0}: {1}
+    ByOrgId(OrgId, diesel::result::Error),
+    /// Failed to find node ids `{0:?}`: {1}
+    ExistingIds(HashSet<NodeId>, diesel::result::Error),
     /// Node Command error: {0}
     Command(Box<super::command::Error>),
     /// Node Cloudflare error: {0}
@@ -75,16 +87,6 @@ pub enum Error {
     Delete(NodeId, diesel::result::Error),
     /// Failed to parse filtered IP addresses: {0}
     FilteredIps(serde_json::Error),
-    /// Failed to find nodes by host id {0}: {1}
-    FindByHostId(HostId, diesel::result::Error),
-    /// Failed to find node by id `{0}`: {1}
-    FindById(NodeId, diesel::result::Error),
-    /// Failed to find nodes by id `{0:?}`: {1}
-    FindByIds(HashSet<NodeId>, diesel::result::Error),
-    /// Failed to find nodes by org id {0}: {1}
-    FindByOrgId(OrgId, diesel::result::Error),
-    /// Failed to find node ids `{0:?}`: {1}
-    FindExistingIds(HashSet<NodeId>, diesel::result::Error),
     /// Host error for node: {0}
     Host(#[from] super::host::Error),
     /// Only available host candidate failed.
@@ -135,8 +137,8 @@ impl From<Error> for Status {
         match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             Delete(_, NotFound)
-            | FindById(_, NotFound)
-            | FindByIds(_, NotFound)
+            | ById(_, NotFound)
+            | ByIds(_, NotFound)
             | UpgradeableByType(_, _, NotFound) => Status::not_found("Not found."),
             NoMatchingHost => Status::resource_exhausted("No matching host."),
             Org(err) => err.into(),
@@ -195,7 +197,7 @@ impl Node {
             .find(id)
             .get_result(conn)
             .await
-            .map_err(|err| Error::FindById(id, err))
+            .map_err(|err| Error::ById(id, err))
     }
 
     pub async fn by_ids(ids: HashSet<NodeId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
@@ -203,7 +205,7 @@ impl Node {
             .filter(nodes::id.eq_any(ids.iter()))
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindByIds(ids, err))
+            .map_err(|err| Error::ByIds(ids, err))
     }
 
     pub async fn by_org_id(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
@@ -211,7 +213,7 @@ impl Node {
             .filter(nodes::org_id.eq(org_id))
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindByOrgId(org_id, err))
+            .map_err(|err| Error::ByOrgId(org_id, err))
     }
 
     pub async fn by_host_id(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
@@ -219,7 +221,16 @@ impl Node {
             .filter(nodes::host_id.eq(host_id))
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindByHostId(host_id, err))
+            .map_err(|err| Error::ByHostId(host_id, err))
+    }
+
+    pub async fn by_ip(ip: &IpAddress, conn: &mut Conn<'_>) -> Result<Option<Self>, Error> {
+        Self::not_deleted()
+            .filter(nodes::ip_addr.eq(ip.ip().to_string()))
+            .get_result(conn)
+            .await
+            .optional()
+            .map_err(|err| Error::ByIp(ip.ip(), err))
     }
 
     pub async fn upgradeable_by_type(
@@ -246,7 +257,7 @@ impl Node {
             .select(nodes::id)
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindExistingIds(ids, err))?;
+            .map_err(|err| Error::ExistingIds(ids, err))?;
         Ok(ids.into_iter().collect())
     }
 
@@ -287,7 +298,7 @@ impl Node {
             .await
             .map_err(|err| Error::Delete(id, err))?;
 
-        node.ip(write).await?.unassign(write).await?;
+        node.ip(write).await?.update_assignment(write).await?;
 
         Org::decrement_node(node.org_id, write).await?;
         Host::decrement_node(node.host_id, write).await?;
@@ -303,7 +314,7 @@ impl Node {
         Ok(())
     }
 
-    /// Finds the next possible host for this node to be tried on.
+    /// s the next possible host for this node to be tried on.
     pub async fn find_host(
         &self,
         authz: &AuthZ,
@@ -685,7 +696,7 @@ impl NewNode {
             self.find_host(scheduler, authz, write).await?
         };
 
-        let node_ip = IpAddress::next_for_host(host.id, write)
+        let node_ip = IpAddress::by_host_unassigned(host.id, write)
             .await
             .map_err(Error::NextHostIp)?;
         let ip_addr = node_ip.ip().to_string();
@@ -742,7 +753,7 @@ impl NewNode {
         }
     }
 
-    /// Finds the most suitable host to initially place the node on.
+    /// s the most suitable host to initially place the node on.
     ///
     /// Since this is a freshly created node, we do not need to worry about
     /// logic regarding where to retry placing the node. We simply ask for an

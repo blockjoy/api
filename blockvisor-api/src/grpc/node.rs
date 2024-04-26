@@ -455,7 +455,7 @@ async fn update_status(
 ) -> Result<api::NodeServiceUpdateStatusResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
     let node = match Node::by_id(node_id, &mut write).await {
-        Err(node::Error::FindById(_, diesel::result::Error::NotFound)) => {
+        Err(node::Error::ById(_, diesel::result::Error::NotFound)) => {
             let token = (&meta).try_into()?;
             let claims = write.ctx.auth.claims(&token, &mut write).await?;
             return Err(Error::UpdateStatusMissingNode(

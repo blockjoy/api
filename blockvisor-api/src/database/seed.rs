@@ -241,10 +241,9 @@ async fn create_ip_addresses(host: &Host, conn: &mut Conn<'_>) -> (String, Strin
     CreateIpAddress::bulk_create(ips, conn).await.unwrap();
 
     let ip_gateway = host.ip_gateway.ip().to_string();
-    let ip_addr = IpAddress::next_for_host(host.id, conn)
+    let ip_addr = IpAddress::by_host_unassigned(host.id, conn)
         .await
         .unwrap()
-        .ip
         .ip()
         .to_string();
 
