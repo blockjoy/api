@@ -453,7 +453,8 @@ impl HostSort {
 
 #[derive(Debug)]
 pub struct HostFilter {
-    pub org_id: Option<OrgId>,
+    pub org_ids: Vec<OrgId>,
+    pub versions: Vec<String>,
     pub offset: u64,
     pub limit: u64,
     pub search: Option<HostSearch>,
@@ -468,8 +469,12 @@ impl HostFilter {
             query = query.filter(search.into_expression());
         }
 
-        if let Some(org_id) = self.org_id {
-            query = query.filter(hosts::org_id.eq(org_id));
+        if !self.org_ids.is_empty() {
+            query = query.filter(hosts::org_id.eq_any(self.org_ids));
+        }
+
+        if !self.versions.is_empty() {
+            query = query.filter(hosts::version.eq_any(self.versions));
         }
 
         if let Some(sort) = self.sort.pop_front() {

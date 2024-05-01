@@ -287,11 +287,11 @@ async fn list(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceListResponse, Error> {
     let filter = req.into_filter()?;
-    let authz = if let Some(org_id) = filter.org_id {
-        read.auth_or_all(&meta, HostAdminPerm::List, HostPerm::List, org_id)
-            .await?
-    } else {
+    let authz = if filter.org_ids.is_empty() {
         read.auth_all(&meta, HostAdminPerm::List).await?
+    } else {
+        read.auth_or_all(&meta, HostAdminPerm::List, HostPerm::List, &filter.org_ids)
+            .await?
     };
 
     let (hosts, host_count) = filter.query(&mut read).await?;
@@ -606,12 +606,25 @@ impl api::HostServiceCreateRequest {
 
 impl api::HostServiceListRequest {
     fn into_filter(self) -> Result<HostFilter, Error> {
-        let org_id = self
-            .org_id
+        let Self {
+            org_ids,
+            versions,
+            offset,
+            limit,
+            search,
+            sort,
+        } = self;
+
+        let org_ids = org_ids
+            .into_iter()
             .map(|id| id.parse().map_err(Error::ParseOrgId))
-            .transpose()?;
-        let search = self
-            .search
+            .collect::<Result<_, _>>()?;
+        let versions = versions
+            .into_iter()
+            .map(|v| v.trim().to_lowercase())
+            .collect();
+
+        let search = search
             .map(|search| {
                 Ok::<_, Error>(HostSearch {
                     operator: search
@@ -626,8 +639,7 @@ impl api::HostServiceListRequest {
                 })
             })
             .transpose()?;
-        let sort = self
-            .sort
+        let sort = sort
             .into_iter()
             .map(|sort| {
                 let order = sort.order().try_into().map_err(Error::SortOrder)?;
@@ -647,9 +659,10 @@ impl api::HostServiceListRequest {
             .collect::<Result<_, _>>()?;
 
         Ok(HostFilter {
-            org_id,
-            offset: self.offset,
-            limit: self.limit,
+            org_ids,
+            versions,
+            offset,
+            limit,
             search,
             sort,
         })

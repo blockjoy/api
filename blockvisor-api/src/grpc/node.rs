@@ -962,30 +962,50 @@ impl api::NodeServiceCreateRequest {
 
 impl api::NodeServiceListRequest {
     fn into_filter(self) -> Result<NodeFilter, Error> {
-        let org_ids = self
-            .org_ids
+        let statuses = self.statuses().map(NodeStatus::from).collect();
+        let node_types = self.node_types().map(NodeType::from).collect();
+        let container_statuses = self
+            .container_statuses()
+            .map(ContainerStatus::from)
+            .collect();
+        let sync_statuses = self.sync_statuses().map(SyncStatus::from).collect();
+
+        let Self {
+            org_ids,
+            offset,
+            limit,
+            statuses: _,
+            node_types: _,
+            blockchain_ids,
+            host_ids,
+            user_ids,
+            ip_addresses,
+            versions,
+            networks,
+            regions,
+            container_statuses: _,
+            sync_statuses: _,
+            search,
+            sort,
+        } = self;
+
+        let org_ids = org_ids
             .iter()
             .map(|id| id.parse().map_err(Error::ParseOrgId))
             .collect::<Result<_, _>>()?;
-        let status = self.statuses().map(NodeStatus::from).collect();
-        let node_types = self.node_types().map(NodeType::from).collect();
-        let blockchain_ids = self
-            .blockchain_ids
+        let blockchain_ids = blockchain_ids
             .iter()
             .map(|id| id.parse().map_err(Error::ParseBlockchainId))
             .collect::<Result<_, _>>()?;
-        let host_ids = self
-            .host_ids
+        let host_ids = host_ids
             .iter()
             .map(|id| id.parse().map_err(Error::ParseHostId))
             .collect::<Result<_, _>>()?;
-        let user_ids = self
-            .user_ids
+        let user_ids = user_ids
             .iter()
             .map(|id| id.parse().map_err(Error::ParseHostId))
             .collect::<Result<_, _>>()?;
-        let search = self
-            .search
+        let search = search
             .map(|search| {
                 Ok::<_, Error>(NodeSearch {
                     operator: search
@@ -998,8 +1018,7 @@ impl api::NodeServiceListRequest {
                 })
             })
             .transpose()?;
-        let sort = self
-            .sort
+        let sort = sort
             .into_iter()
             .map(|sort| {
                 let order = sort.order().try_into().map_err(Error::SortOrder)?;
@@ -1019,25 +1038,26 @@ impl api::NodeServiceListRequest {
             })
             .collect::<Result<_, _>>()?;
 
-        let ip_addresses = self
-            .ip_addresses
+        let ip_addresses = ip_addresses
             .iter()
             .map(|ip| ip.parse().map_err(Error::ParseIpNetwork))
             .collect::<Result<_, _>>()?;
 
         Ok(NodeFilter {
             org_ids,
-            offset: self.offset,
-            limit: self.limit,
-            status,
+            offset,
+            limit,
+            statuses,
+            sync_statuses,
+            container_statuses,
             node_types,
             blockchain_ids,
             host_ids,
             user_ids,
             ip_addresses,
-            versions: self.versions,
-            networks: self.networks,
-            regions: self.regions,
+            versions,
+            networks,
+            regions,
             search,
             sort,
         })

@@ -507,7 +507,9 @@ pub struct NodeFilter {
     pub org_ids: Vec<OrgId>,
     pub offset: u64,
     pub limit: u64,
-    pub status: Vec<NodeStatus>,
+    pub statuses: Vec<NodeStatus>,
+    pub sync_statuses: Vec<SyncStatus>,
+    pub container_statuses: Vec<ContainerStatus>,
     pub node_types: Vec<NodeType>,
     pub blockchain_ids: Vec<BlockchainId>,
     pub host_ids: Vec<HostId>,
@@ -565,11 +567,19 @@ impl NodeFilter {
 
         // If the user requested a deleted status, we include deleted records with the response.
         // Conversely, if no such request is made, we exlude all deleted rows.
-        if !self.status.iter().any(|s| DELETED_STATUSES.contains(s)) {
+        if !self.statuses.iter().any(|s| DELETED_STATUSES.contains(s)) {
             query = query.filter(nodes::deleted_at.is_null());
         }
-        if !self.status.is_empty() {
-            query = query.filter(nodes::node_status.eq_any(self.status));
+        if !self.statuses.is_empty() {
+            query = query.filter(nodes::node_status.eq_any(self.statuses));
+        }
+
+        if !self.sync_statuses.is_empty() {
+            query = query.filter(nodes::sync_status.eq_any(self.sync_statuses));
+        }
+
+        if !self.container_statuses.is_empty() {
+            query = query.filter(nodes::container_status.eq_any(self.container_statuses));
         }
 
         if !self.node_types.is_empty() {
@@ -909,7 +919,9 @@ mod tests {
             org_ids: vec![org_id],
             offset: 0,
             limit: 10,
-            status: vec![NodeStatus::Ingesting],
+            statuses: vec![NodeStatus::Ingesting],
+            sync_statuses: vec![],
+            container_statuses: vec![],
             node_types: vec![],
             blockchain_ids: vec![blockchain_id],
             host_ids: vec![host_id],
