@@ -12,9 +12,9 @@ use crate::auth::rbac::{BlockchainAdminPerm, BlockchainPerm};
 use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::blockchain::{
-    Blockchain, BlockchainId, BlockchainNodeType, BlockchainNodeTypeId, BlockchainProperty,
-    BlockchainVersion, BlockchainVersionId, NewBlockchainNodeType, NewProperty, NewVersion,
-    NodeStats,
+    Blockchain, BlockchainFilter, BlockchainId, BlockchainNodeType, BlockchainNodeTypeId,
+    BlockchainProperty, BlockchainSearch, BlockchainSort, BlockchainVersion, BlockchainVersionId,
+    NewBlockchainNodeType, NewProperty, NewVersion, NodeStats,
 };
 use crate::models::node::{NodeType, NodeVersion};
 use crate::storage::image::ImageId;
@@ -74,10 +74,16 @@ pub enum Error {
     ParseOrgId(uuid::Error),
     /// Blockchain property error: {0}
     Property(#[from] crate::models::blockchain::property::Error),
+    /// Blockchain search failed: {0}
+    SearchOperator(crate::util::search::Error),
+    /// Sort order: {0}
+    SortOrder(crate::util::search::Error),
     /// Storage failed: {0}
     Storage(#[from] crate::storage::Error),
     /// Blockchain failed to get storage networks for `{0:?}`: {1}
     StorageNetworks(ImageId, crate::storage::Error),
+    /// The requested sort field is unknown.
+    UnknownSortField,
 }
 
 impl From<Error> for Status {
@@ -99,6 +105,9 @@ impl From<Error> for Status {
             MissingImageId | ParseImageId(_) => Status::invalid_argument("id"),
             ParseId(_) => Status::invalid_argument("id"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
+            SearchOperator(_) => Status::invalid_argument("search.operator"),
+            SortOrder(_) => Status::invalid_argument("sort.order"),
+            UnknownSortField => Status::invalid_argument("sort.field"),
             Auth(err) => err.into(),
             Blockchain(err) => err.into(),
             BlockchainNodeType(err) => err.into(),
@@ -205,7 +214,7 @@ async fn get(
 
     let node_stats = if let Some(id) = req.org_id {
         let org_id = id.parse().map_err(Error::ParseOrgId)?;
-        NodeStats::for_org(org_id, &authz, &mut read).await
+        NodeStats::for_orgs(&[org_id], &authz, &mut read).await
     } else {
         NodeStats::for_all(&authz, &mut read).await
     }?;
@@ -288,25 +297,29 @@ async fn list(
         Err(crate::auth::Error::Claims(_)) => read.auth_all(&meta, BlockchainPerm::List).await,
         Err(err) => Err(err),
     }?;
+    let filter = req.into_filter()?;
 
-    let blockchains = Blockchain::find_all(&authz, &mut read).await?;
+    let node_stats = if filter.org_ids.is_empty() {
+        NodeStats::for_all(&authz, &mut read).await
+    } else {
+        NodeStats::for_orgs(&filter.org_ids, &authz, &mut read).await
+    }?;
+    let node_stats = node_stats.map(|stats| stats.to_map_keep_last(|ns| (ns.blockchain_id, ns)));
+
+    let (blockchains, blockchain_count) = filter.query(&authz, &mut read).await?;
+
     let blockchain_refs = blockchains.iter().collect::<Vec<_>>();
     let mut networks =
         blockchain_networks(blockchain_refs, &read.ctx.storage, &authz, &mut read).await?;
-
-    let node_stats = if let Some(id) = req.org_id {
-        let org_id = id.parse().map_err(Error::ParseOrgId)?;
-        NodeStats::for_org(org_id, &authz, &mut read).await
-    } else {
-        NodeStats::for_all(&authz, &mut read).await
-    }?;
-    let node_stats = node_stats.map(|stats| stats.to_map_keep_last(|ns| (ns.blockchain_id, ns)));
 
     let blockchains =
         api::Blockchain::from_models(blockchains, &mut networks, node_stats, &authz, &mut read)
             .await?;
 
-    Ok(api::BlockchainServiceListResponse { blockchains })
+    Ok(api::BlockchainServiceListResponse {
+        blockchains,
+        blockchain_count,
+    })
 }
 
 async fn list_image_versions(
@@ -637,6 +650,54 @@ impl api::BlockchainStats {
                     .map_err(Error::NodeCountProvisioning)?,
             ),
             node_count_failed: Some(failed.try_into().map_err(Error::NodeCountFailed)?),
+        })
+    }
+}
+
+impl api::BlockchainServiceListRequest {
+    fn into_filter(self) -> Result<BlockchainFilter, Error> {
+        let Self {
+            org_ids,
+            offset,
+            limit,
+            search,
+            sort,
+        } = self;
+
+        let org_ids = org_ids
+            .iter()
+            .map(|id| id.parse().map_err(Error::ParseOrgId))
+            .collect::<Result<_, _>>()?;
+
+        let search = search
+            .map(|search| {
+                Ok::<_, Error>(BlockchainSearch {
+                    operator: search
+                        .operator()
+                        .try_into()
+                        .map_err(Error::SearchOperator)?,
+                    id: search.id.map(|id| id.trim().to_lowercase()),
+                    name: search.name.map(|name| name.trim().to_lowercase()),
+                })
+            })
+            .transpose()?;
+        let sort = sort
+            .into_iter()
+            .map(|sort| {
+                let order = sort.order().try_into().map_err(Error::SortOrder)?;
+                match sort.field() {
+                    api::BlockchainSortField::Unspecified => Err(Error::UnknownSortField),
+                    api::BlockchainSortField::Name => Ok(BlockchainSort::Name(order)),
+                }
+            })
+            .collect::<Result<_, _>>()?;
+
+        Ok(BlockchainFilter {
+            org_ids,
+            offset,
+            limit,
+            search,
+            sort,
         })
     }
 }

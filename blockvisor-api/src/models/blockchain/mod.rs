@@ -1,4 +1,7 @@
 pub mod node_type;
+use diesel::expression::expression_types::NotSelectable;
+use diesel::pg::Pg;
+use diesel::sql_types::Bool;
 pub use node_type::{BlockchainNodeType, BlockchainNodeTypeId, NewBlockchainNodeType};
 
 pub mod property;
@@ -7,7 +10,7 @@ pub use property::{BlockchainProperty, BlockchainPropertyId, NewProperty, UiType
 pub mod version;
 pub use version::{BlockchainVersion, BlockchainVersionId, NewVersion};
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use chrono::{DateTime, Utc};
 use derive_more::{Deref, Display, From, FromStr};
@@ -29,9 +32,11 @@ use crate::database::Conn;
 use crate::grpc::api;
 use crate::models::node::{ContainerStatus, NodeStatus, SyncStatus};
 use crate::models::schema::sql_types;
+use crate::util::{SearchOperator, SortOrder};
 
 use super::schema::{blockchains, nodes};
 use super::Node;
+use super::Paginate;
 
 #[derive(Debug, DisplayDoc, Error)]
 pub enum Error {
@@ -45,8 +50,10 @@ pub enum Error {
     FindIds(HashSet<BlockchainId>, diesel::result::Error),
     /// Failed to get all node stats: {0}
     NodeStatsForAll(diesel::result::Error),
-    /// Failed to get node stats for org `{0}`: {1}
-    NodeStatsForOrg(OrgId, diesel::result::Error),
+    /// Failed to get node stats for orgs `{0:?}`: {1}
+    NodeStatsForOrgs(Vec<OrgId>, diesel::result::Error),
+    /// Node pagination: {0}
+    Paginate(#[from] crate::models::paginate::Error),
     /// Blockchain Property model error: {0}
     Property(#[from] property::Error),
     /// Failed to update blockchain id `{0}`: {1}
@@ -62,7 +69,7 @@ impl From<Error> for Status {
             | FindId(_, NotFound)
             | FindIds(_, NotFound)
             | NodeStatsForAll(NotFound)
-            | NodeStatsForOrg(_, NotFound) => Status::not_found("Not found."),
+            | NodeStatsForOrgs(_, NotFound) => Status::not_found("Not found."),
             _ => Status::internal("Internal error."),
         }
     }
@@ -86,14 +93,14 @@ pub struct Blockchain {
 }
 
 impl Blockchain {
-    pub async fn find_all(authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
-        blockchains::table
-            .filter(blockchains::visibility.eq_any(Visibility::from(authz).iter()))
-            .order_by(super::lower(blockchains::name))
-            .get_results(conn)
-            .await
-            .map_err(Error::FindAll)
-    }
+    // pub async fn find_all(authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    //     blockchains::table
+    //         .filter(blockchains::visibility.eq_any(Visibility::from(authz).iter()))
+    //         .order_by(super::lower(blockchains::name))
+    //         .get_results(conn)
+    //         .await
+    //         .map_err(Error::FindAll)
+    // }
 
     pub async fn by_id(
         id: BlockchainId,
@@ -147,6 +154,105 @@ impl Blockchain {
     }
 }
 
+#[derive(Debug)]
+pub struct BlockchainFilter {
+    pub org_ids: Vec<OrgId>,
+    pub offset: u64,
+    pub limit: u64,
+    pub search: Option<BlockchainSearch>,
+    pub sort: VecDeque<BlockchainSort>,
+}
+
+impl BlockchainFilter {
+    pub async fn query(
+        mut self,
+        authz: &AuthZ,
+        conn: &mut Conn<'_>,
+    ) -> Result<(Vec<Blockchain>, u64), Error> {
+        let mut query = blockchains::table
+            .filter(blockchains::visibility.eq_any(Visibility::from(authz).into_iter()))
+            .into_boxed();
+
+        if let Some(search) = self.search {
+            query = query.filter(search.into_expression());
+        }
+
+        if let Some(sort) = self.sort.pop_front() {
+            query = query.order_by(sort.into_expr());
+        } else {
+            query = query.order_by(blockchains::created_at.desc());
+        }
+
+        while let Some(sort) = self.sort.pop_front() {
+            query = query.then_order_by(sort.into_expr());
+        }
+
+        query
+            .select(blockchains::all_columns)
+            .paginate(self.limit, self.offset)?
+            .count_results(conn)
+            .await
+            .map_err(Into::into)
+    }
+}
+#[derive(Debug)]
+pub struct BlockchainSearch {
+    pub operator: SearchOperator,
+    pub id: Option<String>,
+    pub name: Option<String>,
+}
+
+impl BlockchainSearch {
+    fn into_expression(self) -> Box<dyn BoxableExpression<blockchains::table, Pg, SqlType = Bool>> {
+        match self.operator {
+            SearchOperator::Or => {
+                let mut predicate: Box<
+                    dyn BoxableExpression<blockchains::table, Pg, SqlType = Bool>,
+                > = Box::new(false.into_sql::<Bool>());
+                if let Some(id) = self.id {
+                    predicate = Box::new(predicate.or(super::text(blockchains::id).like(id)));
+                }
+                if let Some(name) = self.name {
+                    predicate = Box::new(predicate.or(super::lower(blockchains::name).like(name)));
+                }
+                predicate
+            }
+            SearchOperator::And => {
+                let mut predicate: Box<
+                    dyn BoxableExpression<blockchains::table, Pg, SqlType = Bool>,
+                > = Box::new(true.into_sql::<Bool>());
+                if let Some(id) = self.id {
+                    predicate = Box::new(predicate.and(super::text(blockchains::id).like(id)));
+                }
+                if let Some(name) = self.name {
+                    predicate = Box::new(predicate.and(super::lower(blockchains::name).like(name)));
+                }
+                predicate
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum BlockchainSort {
+    Name(SortOrder),
+}
+
+impl BlockchainSort {
+    fn into_expr<T>(self) -> Box<dyn BoxableExpression<T, Pg, SqlType = NotSelectable>>
+    where
+        blockchains::name: SelectableExpression<T>,
+    {
+        use BlockchainSort::*;
+        use SortOrder::*;
+
+        match self {
+            Name(Asc) => Box::new(blockchains::name.asc()),
+            Name(Desc) => Box::new(blockchains::name.desc()),
+        }
+    }
+}
+
 #[derive(Queryable)]
 pub struct NodeStats {
     pub blockchain_id: BlockchainId,
@@ -190,8 +296,8 @@ impl NodeStats {
     }
 
     /// Compute stats about nodes within an org and their blockchain states.
-    pub async fn for_org(
-        org_id: OrgId,
+    pub async fn for_orgs(
+        org_ids: &[OrgId],
         authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Option<Vec<NodeStats>>, Error> {
@@ -200,7 +306,7 @@ impl NodeStats {
         }
 
         Node::not_deleted()
-            .filter(nodes::org_id.eq(org_id))
+            .filter(nodes::org_id.eq_any(org_ids.iter()))
             .group_by(nodes::blockchain_id)
             .select((
                 nodes::blockchain_id,
@@ -215,7 +321,7 @@ impl NodeStats {
             .get_results(conn)
             .await
             .map(Some)
-            .map_err(|err| Error::NodeStatsForOrg(org_id, err))
+            .map_err(|err| Error::NodeStatsForOrgs(org_ids.to_vec(), err))
     }
 }
 

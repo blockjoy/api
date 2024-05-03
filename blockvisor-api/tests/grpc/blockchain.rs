@@ -48,12 +48,26 @@ async fn responds_not_found_for_get_deleted() {
 async fn can_list_blockchains() {
     let test = TestServer::new().await;
 
-    let req = api::BlockchainServiceListRequest { org_id: None };
+    let req = api::BlockchainServiceListRequest {
+        org_ids: vec![],
+        offset: 0,
+        limit: 2,
+        search: None,
+        sort: vec![],
+    };
     let resp = test.send_member(Service::list, req).await.unwrap();
+    assert_eq!(resp.blockchain_count, 0);
     assert_eq!(resp.blockchains.len(), 0);
 
-    let req = api::BlockchainServiceListRequest { org_id: None };
+    let req = api::BlockchainServiceListRequest {
+        org_ids: vec![],
+        offset: 0,
+        limit: 2,
+        search: None,
+        sort: vec![],
+    };
     let resp = test.send_admin(Service::list, req).await.unwrap();
+    assert_eq!(resp.blockchain_count, 1);
     assert_eq!(resp.blockchains.len(), 1);
     assert_eq!(resp.blockchains[0].node_types.len(), 1);
 }
