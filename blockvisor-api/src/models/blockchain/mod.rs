@@ -93,15 +93,6 @@ pub struct Blockchain {
 }
 
 impl Blockchain {
-    // pub async fn find_all(authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
-    //     blockchains::table
-    //         .filter(blockchains::visibility.eq_any(Visibility::from(authz).iter()))
-    //         .order_by(super::lower(blockchains::name))
-    //         .get_results(conn)
-    //         .await
-    //         .map_err(Error::FindAll)
-    // }
-
     pub async fn by_id(
         id: BlockchainId,
         authz: &AuthZ,

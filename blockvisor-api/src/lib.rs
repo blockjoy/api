@@ -11,6 +11,7 @@
 )]
 #![allow(
     clippy::default_trait_access,
+    clippy::doc_markdown,
     clippy::enum_glob_use,
     clippy::match_same_arms,
     clippy::missing_errors_doc,
