@@ -98,25 +98,13 @@ impl From<Error> for Status {
             | NodeCountActive(_)
             | NodeCountSyncing(_)
             | NodeCountProvisioning(_)
-            | NodeCountFailed(_)
-            | Storage(_) => Status::internal("Internal error."),
+            | NodeCountFailed(_) => Status::internal("Internal error."),
             NodeTypeExists => Status::already_exists("Already exists."),
             MissingImageId | ParseImageId(_) => Status::invalid_argument("id"),
             ParseId(_) => Status::invalid_argument("id"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
-            StorageNetworks(
-                _,
-                crate::storage::Error::Client(crate::storage::client::Error::ReadKey(
-                    bucket,
-                    path,
-                    _err,
-                )),
-            ) => Status::invalid_argument(format!(
-                "Failed to read file {bucket}:{path}, is there a rhai script present?"
-            )),
-            StorageNetworks(..) => Status::internal("Internal error."),
             UnknownSortField => Status::invalid_argument("sort.field"),
             Auth(err) => err.into(),
             Blockchain(err) => err.into(),
@@ -129,6 +117,8 @@ impl From<Error> for Status {
             NodeLog(err) => err.into(),
             NodeType(err) => err.into(),
             Property(err) => err.into(),
+            Storage(err) => err.into(),
+            StorageNetworks(_, err) => err.into(),
         }
     }
 }
