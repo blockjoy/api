@@ -231,7 +231,6 @@ diesel::table! {
         id -> Uuid,
         ip -> Inet,
         host_id -> Nullable<Uuid>,
-        is_assigned -> Bool,
     }
 }
 

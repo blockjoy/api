@@ -285,13 +285,6 @@ async fn create_nodes(
         .await
         .unwrap();
 
-    IpAddress::by_ip(ip_addr.ip(), conn)
-        .await
-        .unwrap()
-        .assign(conn)
-        .await
-        .unwrap();
-
     let properties = vec![
         NodeProperty {
             id: Uuid::new_v4().into(),

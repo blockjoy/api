@@ -140,13 +140,6 @@ async fn recover_created(
         }
     };
 
-    // We unassign the current ip address and dns record since we're going to be switching hosts.
-    node.ip(write)
-        .await?
-        .unassign(write)
-        .await
-        .map_err(Error::UnassignIp)?;
-
     let ip = IpAddress::by_host_unassigned(host.id, write)
         .await
         .map_err(Error::FindIp)?;
@@ -171,7 +164,6 @@ async fn recover_created(
         .create(&node.name, ip.ip())
         .await
         .map_err(Error::Cloudflare)?;
-    ip.assign(write).await.map_err(Error::AssignIp)?;
 
     // 3. We notify blockvisor of our retry via an MQTT message.
     if let Ok(cmd) = NewCommand::node(&node, CommandType::NodeCreate)?

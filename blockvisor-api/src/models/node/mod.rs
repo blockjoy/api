@@ -63,8 +63,6 @@ const DELETED_STATUSES: [NodeStatus; 3] = [
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to assign ip address to node: {0},
-    AssignIpAddr(#[from] super::ip_address::Error),
     /// Blockchain error for node: {0}
     Blockchain(#[from] super::blockchain::Error),
     /// Node Command error: {0}
@@ -79,6 +77,8 @@ pub enum Error {
     FilteredIps(serde_json::Error),
     /// Failed to find nodes by host id {0}: {1}
     FindByHostId(HostId, diesel::result::Error),
+    /// Failed to find nodes by host id {0:?}: {1}
+    FindByHostIds(Vec<HostId>, diesel::result::Error),
     /// Failed to find node by id `{0}`: {1}
     FindById(NodeId, diesel::result::Error),
     /// Failed to find nodes by id `{0:?}`: {1}
@@ -91,6 +91,8 @@ pub enum Error {
     Host(#[from] super::host::Error),
     /// Only available host candidate failed.
     HostCandidateFailed,
+    /// Ip address error: {0},
+    IpAddr(#[from] super::ip_address::Error),
     /// Failed to get next host ip for node: {0}
     NextHostIp(crate::models::ip_address::Error),
     /// Node log error: {0}
@@ -224,6 +226,17 @@ impl Node {
             .map_err(|err| Error::FindByHostId(host_id, err))
     }
 
+    pub async fn by_hosts(
+        host_ids: &HashSet<HostId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<Vec<Self>, Error> {
+        Self::not_deleted()
+            .filter(nodes::host_id.eq_any(host_ids))
+            .get_results(conn)
+            .await
+            .map_err(|err| Error::FindByHostIds(host_ids.iter().copied().collect(), err))
+    }
+
     pub async fn upgradeable_by_type(
         blockchain_id: BlockchainId,
         node_type: NodeType,
@@ -288,8 +301,6 @@ impl Node {
             .get_result(write)
             .await
             .map_err(|err| Error::Delete(id, err))?;
-
-        node.ip(write).await?.unassign(write).await?;
 
         Org::decrement_node(node.org_id, write).await?;
         Host::decrement_node(node.host_id, write).await?;
@@ -701,7 +712,6 @@ impl NewNode {
             .map_err(Error::NextHostIp)?;
         let ip_gateway = host.ip_gateway.ip().to_string();
 
-        node_ip.assign(write).await.map_err(Error::AssignIpAddr)?;
         let dns_record = write.ctx.dns.create(&self.name, node_ip.ip()).await?;
         let dns_id = dns_record.id;
 
@@ -738,9 +748,6 @@ impl NewNode {
                     continue;
                 }
                 Err(err) => {
-                    if let Err(err) = node_ip.unassign(write).await {
-                        warn!("Failed to unassign IP {node_ip:?} for aborted node creation: {err}");
-                    }
                     if let Err(err) = write.ctx.dns.delete(&dns_id).await {
                         warn!(
                             "Failed to delete DNS record {dns_id} for aborted node creation: {err}"

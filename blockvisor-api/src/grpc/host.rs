@@ -467,7 +467,8 @@ impl api::Host {
     }
 
     fn from_model(host: Host, authz: Option<&AuthZ>, lookup: &Lookup) -> Result<Self, Error> {
-        let empty = vec![];
+        let no_ips = vec![];
+        let no_nodes = vec![];
         let billing_amount =
             authz.and_then(|authz| common::BillingAmount::from_model(&host, authz));
 
@@ -496,7 +497,8 @@ impl api::Host {
             billing_amount,
             vmm_mountpoint: host.vmm_mountpoint,
             ip_addresses: api::HostIpAddress::from_models(
-                lookup.ip_addresses.get(&host.id).unwrap_or(&empty),
+                lookup.ip_addresses.get(&host.id).unwrap_or(&no_ips),
+                lookup.nodes.get(&host.id).unwrap_or(&no_nodes),
             ),
             managed_by: api::ManagedBy::from_model(host.managed_by).into(),
         })
@@ -505,6 +507,7 @@ impl api::Host {
 
 struct Lookup {
     orgs: HashMap<OrgId, Org>,
+    nodes: HashMap<HostId, Vec<Node>>,
     regions: HashMap<RegionId, Region>,
     ip_addresses: HashMap<HostId, Vec<IpAddress>>,
 }
@@ -530,14 +533,19 @@ impl Lookup {
             .await?
             .to_map_keep_last(|region| (region.id, region));
 
-        let ip_addresses = IpAddress::by_host_ids(host_ids, conn)
+        let ip_addresses = IpAddress::by_host_ids(&host_ids, conn)
             .await?
             .into_iter()
             .filter_map(|ip| ip.host_id.map(|host_id| (host_id, ip)))
             .to_map_keep_all(|(host_id, ip)| (host_id, ip));
 
+        let nodes = Node::by_hosts(&host_ids, conn)
+            .await?
+            .to_map_keep_all(|node| (node.host_id, node));
+
         Ok(Lookup {
             orgs,
+            nodes,
             regions,
             ip_addresses,
         })
@@ -545,12 +553,12 @@ impl Lookup {
 }
 
 impl api::HostIpAddress {
-    fn from_models(models: &[IpAddress]) -> Vec<Self> {
+    fn from_models(models: &[IpAddress], nodes: &[Node]) -> Vec<Self> {
         models
             .iter()
             .map(|ip| Self {
                 ip: ip.ip().to_string(),
-                assigned: ip.is_assigned,
+                assigned: nodes.iter().any(|n| n.ip == ip.ip),
             })
             .collect()
     }

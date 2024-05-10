@@ -72,41 +72,24 @@ impl CreateIpAddress {
 
 #[derive(Debug, Queryable)]
 pub struct IpAddress {
-    pub(crate) id: uuid::Uuid,
-    pub(crate) ip: IpNetwork,
-    #[allow(unused)]
-    pub(crate) host_id: Option<HostId>,
-    #[allow(unused)]
-    pub(crate) is_assigned: bool,
+    pub id: uuid::Uuid,
+    pub ip: IpNetwork,
+    pub host_id: Option<HostId>,
 }
 
 impl IpAddress {
     /// Helper returning the next valid IP address for host identified by `host_id`
     pub async fn by_host_unassigned(host_id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        use super::schema::nodes;
+
         ip_addresses::table
             .filter(ip_addresses::host_id.eq(host_id))
-            .filter(ip_addresses::is_assigned.eq(false))
+            .left_join(nodes::table.on(nodes::ip.eq(ip_addresses::ip)))
+            .filter(nodes::id.is_null())
+            .select(ip_addresses::all_columns)
             .get_result(conn)
             .await
             .map_err(Error::NextForHost)
-    }
-
-    /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
-    pub async fn assign(&self, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        diesel::update(ip_addresses::table.find(self.id))
-            .set(ip_addresses::is_assigned.eq(true))
-            .get_result(conn)
-            .await
-            .map_err(Error::Update)
-    }
-
-    /// Helper assigned IP address identified by `ìd` to host identified by `host_id`
-    pub async fn unassign(&self, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        diesel::update(ip_addresses::table.find(self.id))
-            .set(ip_addresses::is_assigned.eq(false))
-            .get_result(conn)
-            .await
-            .map_err(Error::Update)
     }
 
     pub fn in_range(ip: IpAddr, from: IpAddr, to: IpAddr) -> bool {
@@ -137,14 +120,14 @@ impl IpAddress {
     }
 
     pub async fn by_host_ids(
-        host_ids: HashSet<HostId>,
+        host_ids: &HashSet<HostId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         ip_addresses::table
-            .filter(ip_addresses::host_id.eq_any(&host_ids))
+            .filter(ip_addresses::host_id.eq_any(host_ids))
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindByHosts(host_ids, err))
+            .map_err(|err| Error::FindByHosts(host_ids.clone(), err))
     }
 }
 
@@ -153,7 +136,6 @@ impl IpAddress {
 pub struct UpdateIpAddress {
     pub(crate) id: uuid::Uuid,
     pub(crate) host_id: Option<HostId>,
-    pub(crate) is_assigned: Option<bool>,
 }
 
 impl UpdateIpAddress {
