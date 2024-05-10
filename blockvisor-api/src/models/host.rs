@@ -291,7 +291,7 @@ impl Host {
                 hosts.cpu_count - (SELECT COALESCE(SUM(vcpu_count), 0)::BIGINT FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id) AS av_cpus,
                 hosts.mem_size_bytes - (SELECT COALESCE(SUM(mem_size_bytes), 0)::BIGINT FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id) AS av_mem,
                 hosts.disk_size_bytes - (SELECT COALESCE(SUM(disk_size_bytes), 0)::BIGINT FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id) AS av_disk,
-                (SELECT COUNT(*) FROM ip_addresses WHERE ip_addresses.host_id = hosts.id AND NOT ip_addresses.is_assigned) AS ips,
+                (SELECT COUNT(*) FROM ip_addresses WHERE ip_addresses.host_id = hosts.id AND NOT EXISTS (SELECT id FROM nodes WHERE nodes.ip = ip_addresses.ip)) AS ips,
                 (SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id AND blockchain_id = $4 AND node_type = $5 AND host_type = 'cloud') AS n_similar,
                 hosts.region_id AS region_id,
                 hosts.org_id AS org_id,
