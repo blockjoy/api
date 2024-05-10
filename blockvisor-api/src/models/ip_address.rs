@@ -85,6 +85,7 @@ impl IpAddress {
         ip_addresses::table
             .filter(ip_addresses::host_id.eq(host_id))
             .left_join(nodes::table.on(nodes::ip.eq(ip_addresses::ip)))
+            .filter(nodes::is_deleted.is_null())
             .filter(nodes::id.is_null())
             .select(ip_addresses::all_columns)
             .get_result(conn)
