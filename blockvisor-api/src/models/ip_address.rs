@@ -82,10 +82,12 @@ impl IpAddress {
     pub async fn by_host_unassigned(host_id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         use super::schema::nodes;
 
+        let node_for_this_ip = nodes::ip
+            .eq(ip_addresses::ip)
+            .and(nodes::deleted_at.is_null());
         ip_addresses::table
             .filter(ip_addresses::host_id.eq(host_id))
-            .left_join(nodes::table.on(nodes::ip.eq(ip_addresses::ip)))
-            .filter(nodes::is_deleted.is_null())
+            .left_join(nodes::table.on(node_for_this_ip))
             .filter(nodes::id.is_null())
             .select(ip_addresses::all_columns)
             .get_result(conn)
