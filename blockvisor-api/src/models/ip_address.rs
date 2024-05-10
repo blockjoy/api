@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv6Addr};
 
-use diesel::dsl;
 use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
@@ -103,16 +102,6 @@ impl IpAddress {
         self.ip.ip()
     }
 
-    pub async fn assigned(ip: IpAddr, conn: &mut Conn<'_>) -> Result<bool, Error> {
-        let ip = IpNetwork::new(ip, 32).map_err(Error::NewIpNetwork)?;
-        let row = ip_addresses::table.filter(ip_addresses::ip.eq(ip));
-
-        diesel::select(dsl::exists(row))
-            .get_result(conn)
-            .await
-            .map_err(Error::Assigned)
-    }
-
     pub async fn by_ip(ip: IpAddr, conn: &mut Conn<'_>) -> Result<Self, Error> {
         let ip_network = IpNetwork::new(ip, 32).map_err(Error::NewIpNetwork)?;
         ip_addresses::table
@@ -137,8 +126,8 @@ impl IpAddress {
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = ip_addresses)]
 pub struct UpdateIpAddress {
-    pub(crate) id: uuid::Uuid,
-    pub(crate) host_id: Option<HostId>,
+    pub id: uuid::Uuid,
+    pub host_id: Option<HostId>,
 }
 
 impl UpdateIpAddress {
