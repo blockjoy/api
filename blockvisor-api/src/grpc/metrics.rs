@@ -12,7 +12,7 @@ use tonic::{Request, Response, Status};
 use tracing::error;
 
 use crate::auth::rbac::MetricsPerm;
-use crate::auth::resource::NodeId;
+use crate::auth::resource::{HostId, NodeId};
 use crate::auth::Authorize;
 use crate::database::{Transaction, WriteConn};
 use crate::models::host::UpdateHostMetrics;
@@ -65,10 +65,20 @@ pub enum Error {
     UsedDisk(std::num::TryFromIntError),
     /// Failed to parse used memory: {0}
     UsedMemory(std::num::TryFromIntError),
-    /// Attempt to update the metrics for node(s) `{msg}`, which don't exist
-    MetricsForMissingNode { msg: String },
-    /// Attempt to update the metrics for host(s) `{msg}`, which don't exist
-    MetricsForMissingHost { msg: String },
+    /// Attempt to update the metrics for node `{node_id}`, which doesn't exist HostId: {host_id:?}
+    MetricsForMissingNode {
+        node_id: NodeId,
+        host_id: Option<HostId>,
+    },
+    /// Attempt to update the metrics for nodes `{msg}`, which don't exist. HostId: {host_id:?}
+    MetricsForMissingNodes {
+        msg: String,
+        host_id: Option<HostId>,
+    },
+    /// Attempt to update the metrics for host `{host_id}`, which doesn't exist
+    MetricsForMissingHost { host_id: HostId },
+    /// Attempt to update the metrics for hosts `{msg}`, which don't exist
+    MetricsForMissingHosts { msg: String },
     /// Could not serialize jobs: {0}
     UnserializableJobs(serde_json::Error),
 }
@@ -82,7 +92,9 @@ impl From<Error> for Status {
             BlockAge(_) => Status::invalid_argument("block_age"),
             BlockHeight(_) => Status::invalid_argument("height"),
             MetricsForMissingNode { .. } => Status::not_found("Not found."),
+            MetricsForMissingNodes { .. } => Status::not_found("Not found."),
             MetricsForMissingHost { .. } => Status::not_found("Not found."),
+            MetricsForMissingHosts { .. } => Status::not_found("Not found."),
             NetworkReceived(_) => Status::invalid_argument("network_received"),
             NetworkSent(_) => Status::invalid_argument("network_sent"),
             ParseNodeId(_) => Status::invalid_argument("metrics.id"),
@@ -164,6 +176,7 @@ async fn node(
     let node_ids = Node::existing_ids(all_node_ids.iter().copied().collect(), &mut write).await?;
     // Check that the user has metrics-access to all nodes that do exist.
     let authz = write.auth(&meta, MetricsPerm::Node, &node_ids).await?;
+    let host_id = authz.claims.resource().host();
 
     // Query all the nodes from the database. We need the info from the `node.jobs` field to perform
     // a patch-sort-of-update on that field.
@@ -191,11 +204,19 @@ async fn node(
         .into_iter()
         .filter(|id| !node_ids.contains(id))
         .collect();
-    if missing.is_empty() {
-        Ok(RespOrError::Resp(api::MetricsServiceNodeResponse {}))
-    } else {
-        let msg = missing.iter().join(", ");
-        Ok(RespOrError::Error(Error::MetricsForMissingNode { msg }))
+    match missing.as_slice() {
+        [] => Ok(RespOrError::Resp(api::MetricsServiceNodeResponse {})),
+        &[node_id] => Ok(RespOrError::Error(Error::MetricsForMissingNode {
+            node_id,
+            host_id,
+        })),
+        _ => {
+            let msg = missing.iter().join(", ");
+            Ok(RespOrError::Error(Error::MetricsForMissingNodes {
+                msg,
+                host_id,
+            }))
+        }
     }
 }
 
@@ -223,11 +244,15 @@ async fn host(
         .into_iter()
         .for_each(|msg| write.mqtt(msg));
 
-    if missing.is_empty() {
-        Ok(RespOrError::Resp(api::MetricsServiceHostResponse {}))
-    } else {
-        let msg = missing.iter().map(|m| m.id).join(", ");
-        Ok(RespOrError::Error(Error::MetricsForMissingHost { msg }))
+    match missing.as_slice() {
+        [] => Ok(RespOrError::Resp(api::MetricsServiceHostResponse {})),
+        [missing] => Ok(RespOrError::Error(Error::MetricsForMissingHost {
+            host_id: missing.id,
+        })),
+        _ => {
+            let msg = missing.iter().map(|m| m.id).join(", ");
+            Ok(RespOrError::Error(Error::MetricsForMissingHosts { msg }))
+        }
     }
 }
 
