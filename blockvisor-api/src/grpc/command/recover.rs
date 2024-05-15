@@ -116,7 +116,10 @@ async fn recover_created(
         return Err(Error::DeploymentLog(err));
     };
     if let Err(err) = write.ctx.dns.delete(&node.dns_record_id).await {
-        warn!("Failed to remove node dns: {err}");
+        warn!(
+            "Failed to remove node dns for node {} ({}): {err}",
+            node.name, node.id
+        );
     }
 
     // 2. We now find the host that is next in line, and assign our node to that host.
