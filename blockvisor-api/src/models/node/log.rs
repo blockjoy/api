@@ -84,10 +84,7 @@ pub struct NodeLog {
 }
 
 impl NodeLog {
-    pub async fn by_node_id(
-        node_id: NodeId,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
+    pub async fn by_node_id(node_id: NodeId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         node_logs::table
             .filter(node_logs::node_id.eq(node_id))
             .get_results(conn)
