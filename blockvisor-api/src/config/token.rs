@@ -26,10 +26,6 @@ const TOKEN_EXPIRE_VAR: &str = "TOKEN_EXPIRE";
 const TOKEN_EXPIRE_MINS: &str = "TOKEN_EXPIRATION_MINS";
 const TOKEN_EXPIRE_ENTRY: &str = "token.expire.token";
 const TOKEN_EXPIRE_DEFAULT: &str = "10m";
-const EXPIRE_REFRESH_VAR: &str = "EXPIRE_REFRESH";
-const EXPIRE_REFRESH_MINS: &str = "REFRESH_EXPIRATION_MINS";
-const EXPIRE_REFRESH_ENTRY: &str = "token.expire.refresh";
-const EXPIRE_REFRESH_DEFAULT: &str = "20h";
 const REFRESH_HOST_EXPIRE_VAR: &str = "REFRESH_HOST_EXPIRE";
 const REFRESH_HOST_EXPIRE_MINS: &str = "REFRESH_EXPIRATION_HOST_MINS";
 const REFRESH_HOST_EXPIRE_ENTRY: &str = "token.expire.refresh_host";
@@ -164,8 +160,6 @@ impl TryFrom<&Provider> for SecretConfig {
 pub enum ExpireError {
     /// Failed to parse {TOKEN_EXPIRE_ENTRY:?}: {0}
     Token(provider::Error),
-    /// Failed to parse {EXPIRE_REFRESH_ENTRY:?}: {0}
-    Refresh(provider::Error),
     /// Failed to parse {REFRESH_HOST_EXPIRE_ENTRY:?}: {0}
     RefreshHost(provider::Error),
     /// Failed to parse {REFRESH_USER_EXPIRE_ENTRY:?}: {0}
@@ -182,7 +176,6 @@ pub enum ExpireError {
 #[serde(deny_unknown_fields)]
 pub struct ExpireConfig {
     pub token: HumanTime,
-    pub refresh: HumanTime,
     pub refresh_host: HumanTime,
     pub refresh_user: HumanTime,
     pub password_reset: HumanTime,
@@ -209,19 +202,6 @@ impl TryFrom<&Provider> for ExpireConfig {
                 TOKEN_EXPIRE_ENTRY,
             )
             .map_err(ExpireError::Token)?;
-        let refresh = provider
-            .read_or_else(
-                || {
-                    if let Ok(mins) = read_mins(EXPIRE_REFRESH_MINS) {
-                        Ok(Duration::from_secs(60 * mins).into())
-                    } else {
-                        EXPIRE_REFRESH_DEFAULT.parse::<HumanTime>()
-                    }
-                },
-                EXPIRE_REFRESH_VAR,
-                EXPIRE_REFRESH_ENTRY,
-            )
-            .map_err(ExpireError::Refresh)?;
         let refresh_host = provider
             .read_or_else(
                 || {
@@ -290,7 +270,6 @@ impl TryFrom<&Provider> for ExpireConfig {
 
         Ok(ExpireConfig {
             token,
-            refresh,
             refresh_host,
             refresh_user,
             password_reset,
@@ -305,8 +284,6 @@ impl TryFrom<&Provider> for ExpireConfig {
 pub struct ExpireChrono {
     #[serde_as(as = "DurationSeconds<i64>")]
     pub token: chrono::Duration,
-    #[serde_as(as = "DurationSeconds<i64>")]
-    pub refresh: chrono::Duration,
     #[serde_as(as = "DurationSeconds<i64>")]
     pub refresh_host: chrono::Duration,
     #[serde_as(as = "DurationSeconds<i64>")]
@@ -325,7 +302,6 @@ impl TryFrom<ExpireConfig> for ExpireChrono {
     fn try_from(config: ExpireConfig) -> Result<Self, Self::Error> {
         Ok(ExpireChrono {
             token: chrono::Duration::from_std(*config.token).map_err(Error::Chrono)?,
-            refresh: chrono::Duration::from_std(*config.refresh).map_err(Error::Chrono)?,
             refresh_host: chrono::Duration::from_std(*config.refresh_host)
                 .map_err(Error::Chrono)?,
             refresh_user: chrono::Duration::from_std(*config.refresh_user)

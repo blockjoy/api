@@ -5,7 +5,7 @@ use diesel::sql_types::Bool;
 pub use node_type::{BlockchainNodeType, BlockchainNodeTypeId, NewBlockchainNodeType};
 
 pub mod property;
-pub use property::{BlockchainProperty, BlockchainPropertyId, NewProperty, UiType};
+pub use property::{BlockchainProperty, BlockchainPropertyId, NewProperty};
 
 pub mod version;
 pub use version::{BlockchainVersion, BlockchainVersionId, NewVersion};
@@ -118,30 +118,6 @@ impl Blockchain {
             .get_results(conn)
             .await
             .map_err(|err| Error::FindIds(ids, err))
-    }
-
-    pub async fn by_name(
-        blockchain: &str,
-        authz: &AuthZ,
-        conn: &mut Conn<'_>,
-    ) -> Result<Self, Error> {
-        blockchains::table
-            .filter(super::lower(blockchains::name).eq(super::lower(blockchain)))
-            .filter(blockchains::visibility.eq_any(Visibility::from(authz).iter()))
-            .first(conn)
-            .await
-            .map_err(|err| Error::FindByName(blockchain.to_lowercase(), err))
-    }
-
-    pub async fn update(&self, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let mut updated = self.clone();
-        updated.updated_at = Utc::now();
-
-        diesel::update(blockchains::table.find(updated.id))
-            .set(updated)
-            .get_result(conn)
-            .await
-            .map_err(|err| Error::Update(self.id, err))
     }
 }
 

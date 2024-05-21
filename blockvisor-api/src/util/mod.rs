@@ -1,7 +1,7 @@
 pub mod search;
 pub use search::{SearchOperator, SortOrder};
 
-pub mod timestamp;
+mod timestamp;
 pub use timestamp::{NanosUtc, SecondsUtc};
 
 use std::collections::HashMap;

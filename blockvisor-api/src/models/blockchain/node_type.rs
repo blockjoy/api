@@ -68,19 +68,6 @@ pub struct BlockchainNodeType {
 }
 
 impl BlockchainNodeType {
-    pub async fn by_blockchain_id(
-        blockchain_id: BlockchainId,
-        authz: &AuthZ,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
-        blockchain_node_types::table
-            .filter(blockchain_node_types::blockchain_id.eq(blockchain_id))
-            .filter(blockchain_node_types::visibility.eq_any(Visibility::from(authz).iter()))
-            .get_results(conn)
-            .await
-            .map_err(|err| Error::FindById(blockchain_id, err))
-    }
-
     pub async fn by_blockchain_ids(
         blockchain_ids: HashSet<BlockchainId>,
         authz: &AuthZ,

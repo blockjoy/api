@@ -5,13 +5,14 @@ pub mod log;
 pub use log::{NewNodeLog, NodeLog, NodeLogEvent};
 
 pub mod node_type;
-pub use node_type::{NodeNetwork, NodeType, NodeVersion};
+use node_type::NodeNetwork;
+pub use node_type::{NodeType, NodeVersion};
 
 pub mod property;
 pub use property::NodeProperty;
 
 pub mod report;
-pub use report::{NewNodeReport, NodeReport, NodeReportId};
+pub use report::{NewNodeReport, NodeReport};
 
 pub mod scheduler;
 pub use scheduler::{NodeScheduler, ResourceAffinity, SimilarNodeAffinity};
@@ -237,20 +238,6 @@ impl Node {
             .map_err(|err| Error::FindByHostIds(host_ids.iter().copied().collect(), err))
     }
 
-    pub async fn upgradeable_by_type(
-        blockchain_id: BlockchainId,
-        node_type: NodeType,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
-        Self::not_deleted()
-            .filter(nodes::blockchain_id.eq(blockchain_id))
-            .filter(nodes::node_type.eq(node_type))
-            .filter(nodes::self_update)
-            .get_results(conn)
-            .await
-            .map_err(|err| Error::UpgradeableByType(blockchain_id, node_type, err))
-    }
-
     /// Filters out any node ids that do no exist.
     pub async fn existing_ids(
         ids: HashSet<NodeId>,
@@ -391,11 +378,6 @@ impl Node {
 
     pub fn deny_ips(&self) -> Result<Vec<FilteredIpAddr>, Error> {
         Self::filtered_ip_addrs(self.deny_ips.clone())
-    }
-
-    pub async fn ip(&self, conn: &mut Conn<'_>) -> Result<IpAddress, Error> {
-        let ip = IpAddress::by_ip(self.ip.ip(), conn).await?;
-        Ok(ip)
     }
 
     fn filtered_ip_addrs(value: serde_json::Value) -> Result<Vec<FilteredIpAddr>, Error> {

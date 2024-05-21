@@ -102,15 +102,6 @@ impl IpAddress {
         self.ip.ip()
     }
 
-    pub async fn by_ip(ip: IpAddr, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let ip_network = IpNetwork::new(ip, 32).map_err(Error::NewIpNetwork)?;
-        ip_addresses::table
-            .filter(ip_addresses::ip.eq(ip_network))
-            .get_result(conn)
-            .await
-            .map_err(|err| Error::FindByIp(ip, err))
-    }
-
     pub async fn by_host_ids(
         host_ids: &HashSet<HostId>,
         conn: &mut Conn<'_>,
@@ -120,23 +111,6 @@ impl IpAddress {
             .get_results(conn)
             .await
             .map_err(|err| Error::FindByHosts(host_ids.clone(), err))
-    }
-}
-
-#[derive(Debug, AsChangeset)]
-#[diesel(table_name = ip_addresses)]
-pub struct UpdateIpAddress {
-    pub id: uuid::Uuid,
-    pub host_id: Option<HostId>,
-}
-
-impl UpdateIpAddress {
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<IpAddress, Error> {
-        diesel::update(ip_addresses::table.find(self.id))
-            .set(self)
-            .get_result(conn)
-            .await
-            .map_err(Error::Update)
     }
 }
 

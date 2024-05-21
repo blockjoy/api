@@ -131,7 +131,8 @@ impl RbacRole {
         Ok(())
     }
 
-    pub async fn has_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<bool, Error>
+    #[allow(unused)]
+    async fn has_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<bool, Error>
     where
         P: Into<Perm> + Send,
         R: Into<Role> + Send,
@@ -147,7 +148,8 @@ impl RbacRole {
             .map_err(|err| Error::RoleHasPerm(role, perm, err))
     }
 
-    pub async fn link_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<(), Error>
+    #[allow(unused)]
+    async fn link_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<(), Error>
     where
         P: Into<Perm> + Send,
         R: Into<Role> + Send,
@@ -168,7 +170,8 @@ impl RbacRole {
             })
     }
 
-    pub async fn unlink_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<(), Error>
+    #[allow(unused)]
+    async fn unlink_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<(), Error>
     where
         P: Into<Perm> + Send,
         R: Into<Role> + Send,

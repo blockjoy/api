@@ -25,8 +25,6 @@ pub enum Error {
     EnsureOrg,
     /// Claims does not have visibility of the target UserId.
     EnsureUser,
-    /// Expiration time is before issue time.
-    ExpiresBeforeIssued,
     /// Failed to check claims for host: {0},
     Host(#[from] crate::models::host::Error),
     /// Permission `{0}` not held by {1}
@@ -48,7 +46,6 @@ impl From<Error> for Status {
             EnsureHost | EnsureNode | EnsureOrg | EnsureUser => {
                 Status::permission_denied("Access denied.")
             }
-            ExpiresBeforeIssued => Status::internal("Internal error."),
             MissingPerm(perm, _) => {
                 Status::permission_denied(format!("Missing permission: {perm}"))
             }
@@ -116,10 +113,6 @@ impl Claims {
 
     pub fn resource(&self) -> Resource {
         self.resource_entry.into()
-    }
-
-    pub const fn expires_at(&self) -> SecondsUtc {
-        self.expirable.expires_at
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {
@@ -347,17 +340,6 @@ pub struct Expirable {
 }
 
 impl Expirable {
-    pub fn new(issued_at: SecondsUtc, expires_at: SecondsUtc) -> Result<Self, Error> {
-        if expires_at < issued_at {
-            return Err(Error::ExpiresBeforeIssued);
-        }
-
-        Ok(Self {
-            issued_at,
-            expires_at,
-        })
-    }
-
     pub fn from_now(expires: Duration) -> Self {
         let issued_at = SecondsUtc::now();
         let expires_at = issued_at + expires;

@@ -1,5 +1,5 @@
 pub mod template;
-pub use template::{Kind, Language, Template, Templates};
+pub use template::{Kind, Language, Templates};
 
 use std::collections::HashMap;
 use std::sync::Arc;

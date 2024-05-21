@@ -86,17 +86,6 @@ impl BlockchainVersion {
             .map_err(|err| Error::FindVersion(blockchain_id, node_type, version.clone(), err))
     }
 
-    pub async fn by_blockchain_id(
-        blockchain_id: BlockchainId,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
-        blockchain_versions::table
-            .filter(blockchain_versions::blockchain_id.eq(blockchain_id))
-            .get_results(conn)
-            .await
-            .map_err(|err| Error::FindById(blockchain_id, err))
-    }
-
     pub async fn by_blockchain_ids(
         blockchain_ids: HashSet<BlockchainId>,
         conn: &mut Conn<'_>,

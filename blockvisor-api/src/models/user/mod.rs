@@ -390,11 +390,6 @@ impl UserSearch {
     }
 }
 
-pub struct UserFiltered {
-    pub users: Vec<User>,
-    pub count: u64,
-}
-
 #[derive(Debug, Clone, Validate, Insertable)]
 #[diesel(table_name = users)]
 pub struct NewUser<'a> {

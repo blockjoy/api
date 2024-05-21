@@ -10,8 +10,6 @@ use std::time::Duration;
 use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::get_object::GetObjectError;
-use aws_sdk_s3::operation::put_object::PutObjectError;
-use aws_sdk_s3::presigning::PresigningConfigError;
 use displaydoc::Display;
 use rhai::Engine;
 use semver::Version;
@@ -52,10 +50,6 @@ pub enum Error {
     ParseManifest(serde_json::Error),
     /// Failed to parse storage bytes as UTF8: {0}
     ParseUtf8(std::string::FromUtf8Error),
-    /// Failed to create PresigningConfig: {0}
-    PresigningConfig(PresigningConfigError),
-    /// Failed to create PresignedRequest for key `{0}`: {1:?}
-    PresignedRequest(String, SdkError<PutObjectError>),
     /// Failed to serialize DownloadManifest: {0}
     SerializeManifest(serde_json::Error),
 }
@@ -75,13 +69,7 @@ impl From<Error> for Status {
             Metadata(crate::storage::metadata::Error::CompileScript(_, _)) => {
                 Status::internal("Failed to compile script")
             }
-            Client(_)
-            | Image(_)
-            | Metadata(_)
-            | ParseManifest(_)
-            | ParseUtf8(_)
-            | PresigningConfig(_)
-            | PresignedRequest(_, _)
+            Client(_) | Image(_) | Metadata(_) | ParseManifest(_) | ParseUtf8(_)
             | SerializeManifest(_) => Status::internal("Internal error."),
         }
     }

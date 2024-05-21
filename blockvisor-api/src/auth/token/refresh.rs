@@ -119,13 +119,6 @@ pub struct Refresh {
 }
 
 impl Refresh {
-    pub const fn new(resource_id: ResourceId, expirable: Expirable) -> Self {
-        Self {
-            resource_id,
-            expirable,
-        }
-    }
-
     pub fn from_now<R: Into<ResourceId>>(expires: chrono::Duration, resource_id: R) -> Self {
         Refresh {
             resource_id: resource_id.into(),
@@ -139,10 +132,6 @@ impl Refresh {
 
     pub const fn expirable(&self) -> Expirable {
         self.expirable
-    }
-
-    pub fn cookie(&self, cipher: &Cipher) -> Result<RequestCookie, Error> {
-        RequestCookie::new(self, cipher)
     }
 }
 

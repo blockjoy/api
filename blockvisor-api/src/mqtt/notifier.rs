@@ -101,21 +101,6 @@ impl Notifier {
             .map_err(Into::into)
     }
 
-    pub async fn send_all<I, M>(&self, messages: I) -> Result<(), Error>
-    where
-        I: IntoIterator<Item = M> + Send,
-        I::IntoIter: Send,
-        M: Into<Message> + Send,
-    {
-        let mut client = self.client.clone();
-
-        for msg in messages {
-            client.send(msg.into()).await?;
-        }
-
-        Ok(())
-    }
-
     async fn handle_packet(&self, packet: Publish, pool: &Pool) -> Result<(), Error> {
         let status = api::HostStatus::decode(&*packet.payload).map_err(Error::ParseHostStatus)?;
         let mut conn = pool.conn().await.map_err(Error::PoolConnection)?;

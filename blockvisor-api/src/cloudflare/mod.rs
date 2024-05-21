@@ -166,10 +166,9 @@ pub mod tests {
         server
     }
 
-    fn mock_config(server: &ServerGuard) -> Config {
+    fn mock_config(_: &ServerGuard) -> Config {
         Config {
             api: ApiConfig {
-                base_url: server.url(),
                 zone_id: "zone_id".into(),
                 token: "token".parse().unwrap(),
             },

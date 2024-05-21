@@ -13,15 +13,11 @@ const DNS_TTL_ENTRY: &str = "cloudflare.dns.ttl";
 
 const API_ZONE_ID_VAR: &str = "CF_ZONE";
 const API_ZONE_ID_ENTRY: &str = "cloudflare.api.zone_id";
-const API_BASE_URL_VAR: &str = "CF_BASE_URL";
-const API_BASE_URL_ENTRY: &str = "cloudflare.api.base_url";
 const API_TOKEN_VAR: &str = "CF_TOKEN";
 const API_TOKEN_ENTRY: &str = "cloudflare.api.token";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to parse {API_BASE_URL_ENTRY:?}: {0}
-    ParseApiBaseUrl(provider::Error),
     /// Failed to parse {API_TOKEN_ENTRY:?}: {0}
     ParseApiToken(provider::Error),
     /// Failed to parse {API_ZONE_ID_ENTRY:?}: {0}
@@ -79,7 +75,6 @@ pub struct ApiToken(Redacted<String>);
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApiConfig {
-    pub base_url: String,
     pub zone_id: String,
     pub token: ApiToken,
 }
@@ -89,9 +84,6 @@ impl TryFrom<&Provider> for ApiConfig {
 
     fn try_from(provider: &Provider) -> Result<Self, Self::Error> {
         Ok(ApiConfig {
-            base_url: provider
-                .read(API_BASE_URL_VAR, API_BASE_URL_ENTRY)
-                .map_err(Error::ParseApiBaseUrl)?,
             zone_id: provider
                 .read(API_ZONE_ID_VAR, API_ZONE_ID_ENTRY)
                 .map_err(Error::ParseApiZoneId)?,

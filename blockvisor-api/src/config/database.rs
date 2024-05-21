@@ -92,8 +92,6 @@ pub enum PoolError {
     MaxLifetime(provider::Error),
     /// Failed to parse {POOL_IDLE_TIMEOUT_ENTRY:?}: {0}
     IdleTimeout(provider::Error),
-    /// Failed to parse {POOL_IDLE_TIMEOUT_DEFAULT:?}: {0}
-    IdleTimeoutDefault(Box<super::Error>),
 }
 
 #[derive(Debug, Deserialize)]

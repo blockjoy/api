@@ -242,7 +242,7 @@ impl Provider {
 
     /// Parse the contents of the environment variable `var`.
     #[allow(clippy::unused_self)]
-    pub(super) fn read_var<T, E>(&self, var: &str) -> Result<T, Error>
+    pub fn read_var<T, E>(&self, var: &str) -> Result<T, Error>
     where
         T: FromStr<Err = E>,
         E: std::error::Error + Send + Sync + 'static,

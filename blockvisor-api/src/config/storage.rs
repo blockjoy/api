@@ -1,7 +1,6 @@
 use displaydoc::Display;
 use serde::Deserialize;
 use thiserror::Error;
-use tonic::metadata::errors;
 use url::Url;
 
 use super::provider::{self, Provider};
@@ -31,8 +30,6 @@ const KERNEL_BUCKET_ENTRY: &str = "storage.bucket.kernel";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to create authorization header: {0}
-    AuthHeader(errors::InvalidMetadataValue),
     /// Failed to parse BucketConfig: {0}
     Bucket(#[from] BucketError),
     /// Failed to read {PRESIGNED_URL_EXPIRATION_VAR:?}: {0}

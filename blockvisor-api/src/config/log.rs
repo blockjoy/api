@@ -76,14 +76,6 @@ impl Config {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "integration-test"))]
-    pub fn try_start(&self) -> Result<(), Error> {
-        self.setup_registry(true)?
-            .try_init()
-            .map_err(Error::StartGlobal)?;
-        Ok(())
-    }
-
     fn setup_registry(&self, ansi: bool) -> Result<impl Subscriber, Error> {
         let env = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(self.filter.clone()));
@@ -183,20 +175,4 @@ impl TryFrom<&Provider> for OpentelemetryConfig {
             export_interval,
         })
     }
-}
-
-#[cfg(any(test, feature = "integration-test"))]
-pub fn test_log(filter: &str) {
-    Registry::default()
-        .with(EnvFilter::new(filter))
-        .with(fmt::Layer::default().with_ansi(true))
-        .with(ErrorLayer::default())
-        .init();
-}
-
-#[cfg(any(test, feature = "integration-test"))]
-pub fn test_debug() {
-    test_log(
-        "debug,blockvisor_api::config::provider=info,h2=info,tokio_postgres=info,tower_http=off",
-    );
 }

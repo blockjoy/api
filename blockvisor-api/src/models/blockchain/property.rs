@@ -100,17 +100,6 @@ impl BlockchainProperty {
             .map_err(|err| Error::ByVersionId(version_id, err))
     }
 
-    pub async fn by_version_ids(
-        version_ids: HashSet<BlockchainVersionId>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
-        blockchain_properties::table
-            .filter(blockchain_properties::blockchain_version_id.eq_any(version_ids.iter()))
-            .get_results(conn)
-            .await
-            .map_err(|err| Error::ByVersionIds(version_ids, err))
-    }
-
     /// Returns a map from `BlockchainPropertyId` to the `name` field of that blockchain property.
     pub async fn id_to_name_map(
         version_id: BlockchainVersionId,

@@ -11,13 +11,13 @@ pub mod blockchain;
 pub use blockchain::{Blockchain, BlockchainId};
 
 pub mod command;
-pub use command::{Command, CommandId, CommandType};
+pub use command::{Command, CommandType};
 
 pub mod host;
-pub use host::{Host, HostType};
+pub use host::Host;
 
 pub mod invitation;
-pub use invitation::{Invitation, InvitationId};
+pub use invitation::Invitation;
 
 pub mod ip_address;
 pub use ip_address::IpAddress;

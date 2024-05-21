@@ -404,12 +404,6 @@ impl OrgSearch {
     }
 }
 
-pub struct OrgFiltered {
-    pub orgs: Vec<Org>,
-    pub count: u64,
-    pub sort: Vec<OrgSort>,
-}
-
 #[derive(Debug, Insertable)]
 #[diesel(table_name = orgs)]
 pub struct NewOrg<'a> {

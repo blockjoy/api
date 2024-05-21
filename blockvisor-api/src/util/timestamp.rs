@@ -97,10 +97,6 @@ impl NanosUtc {
             .ok_or(Error::ParseNanos(seconds, nanos))
             .map(|dt| NanosUtc(Utc.from_utc_datetime(&dt)))
     }
-
-    pub fn now() -> Self {
-        NanosUtc(Utc::now())
-    }
 }
 
 impl From<NanosUtc> for Timestamp {
