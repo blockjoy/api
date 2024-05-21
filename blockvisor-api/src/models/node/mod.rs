@@ -5,7 +5,6 @@ pub mod log;
 pub use log::{NewNodeLog, NodeLog, NodeLogEvent};
 
 pub mod node_type;
-use node_type::NodeNetwork;
 pub use node_type::{NodeType, NodeVersion};
 
 pub mod property;
@@ -47,6 +46,8 @@ use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
 use crate::storage::image::ImageId;
 use crate::util::{SearchOperator, SortOrder};
+
+use self::node_type::NodeNetwork;
 
 use super::abbrev;
 use super::blockchain::{Blockchain, BlockchainId};
