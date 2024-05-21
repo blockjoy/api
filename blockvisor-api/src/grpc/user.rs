@@ -169,12 +169,12 @@ impl UserService for Grpc {
             .await
     }
 
-    async fn add_card(
+    async fn init_card(
         &self,
-        req: Request<api::UserServiceAddCardRequest>,
-    ) -> Result<Response<api::UserServiceAddCardResponse>, Status> {
+        req: Request<api::UserServiceInitCardRequest>,
+    ) -> Result<Response<api::UserServiceInitCardResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| add_card(req, meta, write).scope_boxed())
+        self.write(|write| init_card(req, meta, write).scope_boxed())
             .await
     }
 }
@@ -375,13 +375,13 @@ async fn delete_settings(
     Ok(api::UserServiceDeleteSettingsResponse {})
 }
 
-async fn add_card(
-    req: api::UserServiceAddCardRequest,
+async fn init_card(
+    req: api::UserServiceInitCardRequest,
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
-) -> Result<api::UserServiceAddCardResponse, Error> {
+) -> Result<api::UserServiceInitCardResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    write.auth(&meta, UserBillingPerm::AddCard, user_id).await?;
+    write.auth(&meta, UserBillingPerm::InitCard, user_id).await?;
 
     let client_secret = write
         .ctx
@@ -390,7 +390,7 @@ async fn add_card(
         .await?
         .client_secret;
 
-    Ok(api::UserServiceAddCardResponse { client_secret })
+    Ok(api::UserServiceInitCardResponse { client_secret })
 }
 
 impl api::User {

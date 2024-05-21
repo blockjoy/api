@@ -9,7 +9,7 @@ use crate::auth::resource::UserId;
 
 use super::Endpoint;
 
-/// The SetupIntent message, used by the frontend to add a card to our strile environment.
+/// The SetupIntent message, used by the frontend to add a card to our stripe environment.
 /// <https://docs.stripe.com/api/setup_intents/create>
 /// There are some field that the documentation specifies as being null, so those are omitted from
 /// our message.

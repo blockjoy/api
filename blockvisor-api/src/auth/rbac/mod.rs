@@ -255,7 +255,7 @@ define_perms! {
         Update,
         Delete,
 
-        AddCard,
+        InitCard,
     }
 
     UserSettings => {
