@@ -11,6 +11,7 @@ use crate::database::Pool;
 use crate::email::Email;
 use crate::mqtt::Notifier;
 use crate::storage::Storage;
+use crate::stripe::Stripe;
 
 use super::Config;
 
@@ -34,6 +35,8 @@ pub enum Error {
     MissingNotifier,
     /// Builder is missing Pool.
     MissingPool,
+    /// Builder is missing Stripe.
+    MissingStripe,
     /// Builder is missing Storage.
     MissingStorage,
     /// Failed to create MQTT options: {0}
@@ -42,6 +45,8 @@ pub enum Error {
     Notifier(crate::mqtt::notifier::Error),
     /// Failed to create database Pool: {0}
     Pool(crate::database::Error),
+    /// Failed to create Stripe: {0}
+    Stripe(crate::stripe::Error),
 }
 
 /// Service `Context` containing metadata that can be passed down to handlers.
@@ -58,6 +63,7 @@ pub struct Context {
     pub pool: Pool,
     pub rng: Arc<Mutex<OsRng>>,
     pub storage: Arc<Storage>,
+    pub stripe: Arc<Stripe>,
 }
 
 impl Context {
@@ -80,6 +86,7 @@ impl Context {
             .await
             .map_err(Error::Notifier)?;
         let storage = Storage::new_s3(&config.storage);
+        let stripe = Stripe::new(config.stripe.clone()).map_err(Error::Stripe)?;
 
         Ok(Builder::default()
             .auth(auth)
@@ -88,6 +95,7 @@ impl Context {
             .notifier(notifier)
             .pool(pool)
             .storage(storage)
+            .stripe(stripe)
             .config(config))
     }
 
@@ -96,6 +104,7 @@ impl Context {
         use crate::cloudflare::tests::MockCloudflare;
         use crate::database::tests::TestDb;
         use crate::storage::tests::TestStorage;
+        // use crate::stripe::tests::MockStripe;
 
         let config = Config::from_default_toml().map_err(Error::Config)?;
         let mut rng = OsRng;
@@ -109,6 +118,7 @@ impl Context {
             .await
             .map_err(Error::Notifier)?;
         let storage = TestStorage::new().await.new_mock();
+        // let stripe = MockStripe::new().await;
 
         Builder::default()
             .auth(auth)
@@ -118,6 +128,7 @@ impl Context {
             .pool(pool)
             .rng(rng)
             .storage(storage)
+            // .stripe(stripe)
             .config(config)
             .build()
             .map(|ctx| (ctx, db))
@@ -135,6 +146,7 @@ pub struct Builder {
     pool: Option<Pool>,
     rng: Option<OsRng>,
     storage: Option<Storage>,
+    stripe: Option<Stripe>,
 }
 
 impl Builder {
@@ -148,6 +160,7 @@ impl Builder {
             pool: self.pool.ok_or(Error::MissingPool)?,
             rng: Arc::new(Mutex::new(self.rng.unwrap_or_default())),
             storage: self.storage.ok_or(Error::MissingStorage).map(Arc::new)?,
+            stripe: self.stripe.ok_or(Error::MissingStripe).map(Arc::new)?,
         }))
     }
 
@@ -199,6 +212,12 @@ impl Builder {
     #[must_use]
     pub fn storage(mut self, storage: Storage) -> Self {
         self.storage = Some(storage);
+        self
+    }
+
+    #[must_use]
+    pub fn stripe(mut self, stripe: Stripe) -> Self {
+        self.stripe = Some(stripe);
         self
     }
 }

@@ -7,6 +7,7 @@ pub mod log;
 pub mod mqtt;
 pub mod slack;
 pub mod storage;
+pub mod stripe;
 pub mod token;
 
 pub mod context;
@@ -62,6 +63,8 @@ pub enum Error {
     ),
     /// Failed to parse storage Config: {0}
     Storage(storage::Error),
+    /// Failed to parse stripe Config: {0}
+    Stripe(stripe::Error),
     /// Failed to parse token Config: {0}
     Token(token::Error),
 }
@@ -77,6 +80,7 @@ pub struct Config {
     pub log: Arc<log::Config>,
     pub mqtt: Arc<mqtt::Config>,
     pub storage: Arc<storage::Config>,
+    pub stripe: Arc<stripe::Config>,
     pub token: Arc<token::Config>,
 }
 
@@ -137,6 +141,9 @@ impl TryFrom<&Provider> for Config {
         let storage = storage::Config::try_from(provider)
             .map(Arc::new)
             .map_err(Error::Storage)?;
+        let stripe = stripe::Config::try_from(provider)
+            .map(Arc::new)
+            .map_err(Error::Stripe)?;
         let token = token::Config::try_from(provider)
             .map(Arc::new)
             .map_err(Error::Token)?;
@@ -150,6 +157,7 @@ impl TryFrom<&Provider> for Config {
             log,
             mqtt,
             storage,
+            stripe,
             token,
         })
     }

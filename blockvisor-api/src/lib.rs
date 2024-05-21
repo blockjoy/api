@@ -40,4 +40,5 @@ pub mod mqtt;
 pub mod server;
 pub mod slack;
 pub mod storage;
+pub mod stripe;
 pub mod util;
