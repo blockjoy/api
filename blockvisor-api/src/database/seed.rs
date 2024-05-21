@@ -340,7 +340,8 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'org-admin-update'),
         ('blockjoy-admin', 'user-admin-filter'),
         ('blockjoy-admin', 'user-admin-get'),
-        ('blockjoy-admin', 'user-admin-update');
+        ('blockjoy-admin', 'user-admin-update'),
+        ('blockjoy-admin', 'user-billing-add-card');
         ",
         "
         insert into role_permissions (role, permission)
