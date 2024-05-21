@@ -11,7 +11,7 @@ use crate::database::Pool;
 use crate::email::Email;
 use crate::mqtt::Notifier;
 use crate::storage::Storage;
-use crate::stripe::Stripe;
+use crate::stripe::{Payment, Stripe};
 
 use super::Config;
 
@@ -63,7 +63,7 @@ pub struct Context {
     pub pool: Pool,
     pub rng: Arc<Mutex<OsRng>>,
     pub storage: Arc<Storage>,
-    pub stripe: Arc<Stripe>,
+    pub stripe: Arc<Box<dyn Payment + Send + Sync + 'static>>,
 }
 
 impl Context {
@@ -104,7 +104,7 @@ impl Context {
         use crate::cloudflare::tests::MockCloudflare;
         use crate::database::tests::TestDb;
         use crate::storage::tests::TestStorage;
-        // use crate::stripe::tests::MockStripe;
+        use crate::stripe::tests::MockStripe;
 
         let config = Config::from_default_toml().map_err(Error::Config)?;
         let mut rng = OsRng;
@@ -118,7 +118,7 @@ impl Context {
             .await
             .map_err(Error::Notifier)?;
         let storage = TestStorage::new().await.new_mock();
-        // let stripe = MockStripe::new().await;
+        let stripe = MockStripe::new().await;
 
         Builder::default()
             .auth(auth)
@@ -128,7 +128,7 @@ impl Context {
             .pool(pool)
             .rng(rng)
             .storage(storage)
-            // .stripe(stripe)
+            .stripe(stripe)
             .config(config)
             .build()
             .map(|ctx| (ctx, db))
@@ -146,7 +146,7 @@ pub struct Builder {
     pool: Option<Pool>,
     rng: Option<OsRng>,
     storage: Option<Storage>,
-    stripe: Option<Stripe>,
+    stripe: Option<Box<dyn Payment + Send + Sync + 'static>>,
 }
 
 impl Builder {
@@ -216,8 +216,11 @@ impl Builder {
     }
 
     #[must_use]
-    pub fn stripe(mut self, stripe: Stripe) -> Self {
-        self.stripe = Some(stripe);
+    pub fn stripe<S>(mut self, stripe: S) -> Self
+    where
+        S: Payment + Send + Sync + 'static,
+    {
+        self.stripe = Some(Box::new(stripe));
         self
     }
 }

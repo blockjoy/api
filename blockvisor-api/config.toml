@@ -58,6 +58,7 @@ archive = "archive"
 
 [stripe]
 secret = "sk_test_51KfoP7B5ce1jJsfTHQ9i7ffUhQwUatBZ9djf4hKjqAXOB194aH5pHiJM1icpiGTdIqxeoRbhHSgwPPszyEkcXZKg00B9m2zhIn"
+url = "https://api.stripe.com/v1"
 
 [token.secret]
 jwt = "1245456"

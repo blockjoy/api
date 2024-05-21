@@ -7,7 +7,6 @@ use url::Url;
 
 use super::api::Endpoint;
 
-const API_URL: &str = "https://api.stripe.com/v1/";
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(5);
 const CONTENT_JSON: &str = "application/json";
 
@@ -34,12 +33,12 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(secret: &str) -> Result<Client, Error> {
+    pub fn new(secret: &str, base_url: &str) -> Result<Client, Error> {
         let inner = reqwest::Client::builder()
             .timeout(CLIENT_TIMEOUT)
             .build()
             .map_err(Error::BuildClient)?;
-        let endpoint = API_URL.parse().map_err(Error::ParseEndpoint)?;
+        let endpoint = base_url.parse().map_err(Error::ParseEndpoint)?;
 
         Ok(Client {
             inner,

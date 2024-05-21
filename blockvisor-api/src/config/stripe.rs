@@ -8,16 +8,22 @@ use super::Redacted;
 const STRIPE_SECRET_VAR: &str = "STRIPE_SECRET";
 const STRIPE_SECRET_ENTRY: &str = "stripe.secret";
 
+const STRIPE_URL_VAR: &str = "STRIPE_URL";
+const STRIPE_URL_ENTRY: &str = "stripe.url";
+
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// Failed to read {STRIPE_SECRET_VAR:?}: {0}
     ReadSecret(provider::Error),
+    /// Failed to read {STRIPE_URL_VAR:?}: {0}
+    ReadUrl(provider::Error),
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub secret: Redacted<String>,
+    pub base_url: String,
 }
 
 impl TryFrom<&provider::Provider> for Config {
@@ -27,8 +33,10 @@ impl TryFrom<&provider::Provider> for Config {
         Ok(Config {
             secret: provider
                 .read(STRIPE_SECRET_VAR, STRIPE_SECRET_ENTRY)
-                .map_err(Error::ReadSecret)
-                .unwrap_or_else(|_| "sk_test_51KfoP7B5ce1jJsfTHQ9i7ffUhQwUatBZ9djf4hKjqAXOB194aH5pHiJM1icpiGTdIqxeoRbhHSgwPPszyEkcXZKg00B9m2zhIn".to_owned().into())
+                .map_err(Error::ReadSecret)?,
+            base_url: provider
+                .read(STRIPE_URL_VAR, STRIPE_URL_ENTRY)
+                .map_err(Error::ReadUrl)?,
         })
     }
 }
