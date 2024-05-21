@@ -381,7 +381,9 @@ async fn init_card(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceInitCardResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    write.auth(&meta, UserBillingPerm::InitCard, user_id).await?;
+    write
+        .auth(&meta, UserBillingPerm::InitCard, user_id)
+        .await?;
 
     let client_secret = write
         .ctx

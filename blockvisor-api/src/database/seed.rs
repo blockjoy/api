@@ -341,7 +341,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'user-admin-filter'),
         ('blockjoy-admin', 'user-admin-get'),
         ('blockjoy-admin', 'user-admin-update'),
-        ('blockjoy-admin', 'user-billing-add-card');
+        ('blockjoy-admin', 'user-billing-init-card');
         ",
         "
         insert into role_permissions (role, permission)
@@ -612,6 +612,9 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
     ];
 
     for query in queries {
-        diesel::sql_query(query).execute(conn).await.unwrap();
+        diesel::sql_query(query)
+            .execute(conn)
+            .await
+            .unwrap_or_else(|e| panic!("`{query}` failed with: {e}"));
     }
 }
