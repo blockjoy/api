@@ -82,7 +82,7 @@ impl<'a> NewUserSetting<'a> {
     pub async fn create_or_update(self, conn: &mut Conn<'_>) -> Result<UserSetting, Error> {
         diesel::insert_into(user_settings::table)
             .values(&self)
-            .on_conflict(user_settings::name)
+            .on_conflict((user_settings::user_id, user_settings::name))
             .do_update()
             .set(user_settings::value.eq(self.value))
             .get_result(conn)
