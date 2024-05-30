@@ -5,7 +5,7 @@ use reqwest::header::CONTENT_TYPE;
 use thiserror::Error;
 use url::Url;
 
-use super::api::Endpoint;
+use super::api::StripeEndpoint;
 
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(5);
 const CONTENT_FORM_ENCODED: &str = "application/x-www-form-urlencoded";
@@ -64,10 +64,12 @@ impl Client {
 
     pub async fn request<E>(&self, endpoint: &E) -> Result<E::Result, Error>
     where
-        E: Endpoint,
+        E: StripeEndpoint,
     {
-        let url =
-            dbg!(dbg!(&self.endpoint).join(dbg!(&endpoint.path()))).map_err(Error::JoinEndpoint)?;
+        let url = self
+            .endpoint
+            .join(&endpoint.path())
+            .map_err(Error::JoinEndpoint)?;
 
         let mut request = self
             .inner

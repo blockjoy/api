@@ -432,7 +432,8 @@ diesel::table! {
         last_name -> Varchar,
         confirmed_at -> Nullable<Timestamptz>,
         deleted_at -> Nullable<Timestamptz>,
-        billing_id -> Nullable<Text>,
+        chargebee_billing_id -> Nullable<Text>,
+        stripe_customer_id -> Nullable<Text>,
     }
 }
 

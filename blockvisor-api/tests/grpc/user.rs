@@ -134,7 +134,7 @@ async fn test_billing() {
 
     let test = TestServer::new().await;
     let user = &test.seed().user;
-    assert!(user.billing_id.is_none());
+    assert!(user.chargebee_billing_id.is_none());
 
     // Test that we indeed get no billing id back
     let get = api::UserServiceGetBillingRequest {

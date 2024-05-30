@@ -96,10 +96,6 @@ async fn callback(
         return not_found();
     }
 
-    // This is temporary, until we get it working end to end
-    // I (luuk) will definitely be going into the logs to inspect these values
-    dbg!(&body);
-
     // We only start parsing the json after the secret is verfied so people
     // can't try to discover this endpoint.
     let callback: Callback = match serde_json::from_str(&body) {
@@ -109,8 +105,6 @@ async fn callback(
             return bad_params();
         }
     };
-
-    dbg!(&callback);
 
     let resp = match callback.event_type {
         EventType::SubscriptionCancelled => {

@@ -1,4 +1,4 @@
-mod api;
+pub mod api;
 mod client;
 
 use std::sync::Arc;
@@ -6,12 +6,16 @@ use std::sync::Arc;
 use displaydoc::Display;
 use thiserror::Error;
 
+use crate::models;
 use crate::{auth::resource::UserId, config::stripe::Config};
+use api::{customer, payment_method, setup_intent};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// Failed to create stripe Client: {0}
     CreateClient(client::Error),
+    /// Failed to create stripe customer: {0}
+    CreateCustomer(client::Error),
     /// Failed to create stripe setup intent: {0}
     CreateSetupIntent(client::Error),
 }
@@ -23,7 +27,23 @@ pub struct Stripe {
 
 #[tonic::async_trait]
 pub trait Payment {
-    async fn create_setup_intent(&self, user_id: UserId) -> Result<api::SetupIntent, Error>;
+    async fn create_setup_intent(
+        &self,
+        user_id: UserId,
+    ) -> Result<setup_intent::SetupIntent, Error>;
+
+    async fn create_customer(
+        &self,
+        user: &models::User,
+        payment_method_id: &api::PaymentMethodId,
+    ) -> Result<customer::Customer, Error>;
+
+    /// Attaches a payment method to a particular customer.
+    async fn attach_payment_method(
+        &self,
+        payment_method_id: &api::PaymentMethodId,
+        customer_id: &str,
+    ) -> Result<payment_method::PaymentMethod, Error>;
 }
 
 impl Stripe {
@@ -43,12 +63,39 @@ impl Stripe {
 
 #[tonic::async_trait]
 impl Payment for Stripe {
-    async fn create_setup_intent(&self, user_id: UserId) -> Result<api::SetupIntent, Error> {
-        let req = api::CreateSetupIntent::new(user_id);
+    async fn create_setup_intent(
+        &self,
+        user_id: UserId,
+    ) -> Result<setup_intent::SetupIntent, Error> {
+        let req = setup_intent::CreateSetupIntent::new(user_id);
         self.client
             .request(&req)
             .await
             .map_err(Error::CreateSetupIntent)
+    }
+
+    async fn create_customer(
+        &self,
+        user: &models::User,
+        payment_method_id: &api::PaymentMethodId,
+    ) -> Result<customer::Customer, Error> {
+        let customer = customer::CreateCustomer::new(user, payment_method_id);
+        self.client
+            .request(&customer)
+            .await
+            .map_err(Error::CreateCustomer)
+    }
+
+    async fn attach_payment_method(
+        &self,
+        payment_method_id: &api::PaymentMethodId,
+        customer_id: &str,
+    ) -> Result<payment_method::PaymentMethod, Error> {
+        let attach = payment_method::AttachPaymentMethod::new(payment_method_id, customer_id);
+        self.client
+            .request(&attach)
+            .await
+            .map_err(Error::CreateCustomer)
     }
 }
 
@@ -65,8 +112,29 @@ pub mod tests {
 
     #[tonic::async_trait]
     impl Payment for MockStripe {
-        async fn create_setup_intent(&self, user_id: UserId) -> Result<api::SetupIntent, Error> {
+        async fn create_setup_intent(
+            &self,
+            user_id: UserId,
+        ) -> Result<setup_intent::SetupIntent, Error> {
             self.stripe.create_setup_intent(user_id).await
+        }
+
+        async fn create_customer(
+            &self,
+            user: &models::User,
+            payment_method_id: &api::PaymentMethodId,
+        ) -> Result<customer::Customer, Error> {
+            self.stripe.create_customer(user, payment_method_id).await
+        }
+
+        async fn attach_payment_method(
+            &self,
+            payment_method_id: &api::PaymentMethodId,
+            customer_id: &str,
+        ) -> Result<payment_method::PaymentMethod, Error> {
+            self.stripe
+                .attach_payment_method(payment_method_id, customer_id)
+                .await
         }
     }
 

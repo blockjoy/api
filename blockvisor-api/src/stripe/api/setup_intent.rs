@@ -1,13 +1,10 @@
 use std::any::type_name;
-use std::collections::HashMap;
 
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::auth::resource::UserId;
-
-use super::Endpoint;
 
 /// The SetupIntent message, used by the frontend to add a card to our stripe environment.
 /// <https://docs.stripe.com/api/setup_intents/create>
@@ -21,7 +18,7 @@ pub struct SetupIntent {
     pub client_secret: String,
     created: i64,
     livemode: bool,
-    metadata: Metadata,
+    metadata: super::Metadata,
     payment_method_options: PaymentMethodOptions,
     payment_method_types: Vec<String>,
     status: String,
@@ -39,9 +36,6 @@ struct PaymentMethodOptions {
 struct Card {
     request_three_d_secure: String,
 }
-
-#[derive(Serialize, Deserialize)]
-struct Metadata(HashMap<String, String>);
 
 /// Creates a SetupIntent object.
 ///
@@ -67,7 +61,7 @@ pub struct CreateSetupIntent<'a> {
     /// additional information about the object in a structured format. Individual keys can be unset
     /// by posting an empty value to them. All keys can be unset by posting an empty value to
     /// metadata.
-    metadata: Option<Metadata>,
+    metadata: Option<super::Metadata>,
     /// ID of the payment method (a PaymentMethod, Card, or saved Source object) to attach to this
     /// SetupIntent.
     payment_method: Option<&'a str>,
@@ -80,14 +74,15 @@ impl CreateSetupIntent<'_> {
     pub fn new(user_id: UserId) -> Self {
         Self {
             payment_method_types: vec!["card"],
-            metadata: Some(Metadata(hashmap! {
+            metadata: Some(super::Metadata(hashmap! {
                 "user_id".to_string() => user_id.to_string()
             })),
             ..Default::default()
         }
     }
 }
-impl Endpoint for CreateSetupIntent<'_> {
+
+impl super::StripeEndpoint for CreateSetupIntent<'_> {
     type Result = SetupIntent;
 
     fn method(&self) -> Method {

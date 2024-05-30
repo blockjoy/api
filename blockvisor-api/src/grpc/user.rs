@@ -289,7 +289,7 @@ async fn get_billing(
     let user = User::by_id(user_id, &mut read).await?;
 
     Ok(api::UserServiceGetBillingResponse {
-        billing_id: user.billing_id,
+        billing_id: user.chargebee_billing_id,
     })
 }
 
@@ -302,11 +302,11 @@ async fn update_billing(
     write.auth(&meta, UserBillingPerm::Update, user_id).await?;
 
     let mut user = User::by_id(user_id, &mut write).await?;
-    user.billing_id = req.billing_id;
+    user.chargebee_billing_id = req.billing_id;
     user.update(&mut write).await?;
 
     Ok(api::UserServiceUpdateBillingResponse {
-        billing_id: user.billing_id,
+        billing_id: user.chargebee_billing_id,
     })
 }
 

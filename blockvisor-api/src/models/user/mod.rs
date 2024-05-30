@@ -118,7 +118,8 @@ pub struct User {
     pub last_name: String,
     pub confirmed_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
-    pub billing_id: Option<String>,
+    pub chargebee_billing_id: Option<String>,
+    pub stripe_customer_id: Option<String>,
 }
 
 impl User {
@@ -248,7 +249,7 @@ impl User {
 
     pub async fn delete_billing(&self, conn: &mut Conn<'_>) -> Result<(), Error> {
         diesel::update(users::table)
-            .set(users::billing_id.eq(None::<String>))
+            .set(users::chargebee_billing_id.eq(None::<String>))
             .execute(conn)
             .await
             .map(|_| ())
@@ -478,7 +479,8 @@ mod tests {
             last_name: "Ballington".to_string(),
             confirmed_at: Some(chrono::Utc::now()),
             deleted_at: None,
-            billing_id: None,
+            chargebee_billing_id: None,
+            stripe_customer_id: None,
         };
         user.verify_password("A password that cannot be hacked!1")
             .unwrap();
