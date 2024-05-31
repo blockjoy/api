@@ -341,7 +341,8 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'user-admin-filter'),
         ('blockjoy-admin', 'user-admin-get'),
         ('blockjoy-admin', 'user-admin-update'),
-        ('blockjoy-admin', 'user-billing-init-card');
+        ('blockjoy-admin', 'user-billing-init-card'),
+        ('blockjoy-admin', 'user-billing-list-payment-methods');
         ",
         "
         insert into role_permissions (role, permission)
@@ -475,7 +476,8 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-login', 'user-update'),
         ('grpc-login', 'user-billing-delete'),
         ('grpc-login', 'user-billing-get'),
-        ('grpc-login', 'user-billing-update');
+        ('grpc-login', 'user-billing-update'),
+        ('grpc-login', 'user-billing-list-payment-methods');
         ",
         "
         insert into role_permissions (role, permission)

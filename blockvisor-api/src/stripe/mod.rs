@@ -13,11 +13,15 @@ use api::{customer, payment_method, setup_intent};
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// Failed to create stripe Client: {0}
+    AttachPaymentMethod(client::Error),
+    /// Failed to create stripe Client: {0}
     CreateClient(client::Error),
     /// Failed to create stripe customer: {0}
     CreateCustomer(client::Error),
     /// Failed to create stripe setup intent: {0}
     CreateSetupIntent(client::Error),
+    /// Failed to list stripe payment methods: {0}
+    ListPaymentMethods(client::Error),
 }
 
 pub struct Stripe {
@@ -44,6 +48,11 @@ pub trait Payment {
         payment_method_id: &api::PaymentMethodId,
         customer_id: &str,
     ) -> Result<payment_method::PaymentMethod, Error>;
+
+    async fn list_payment_methods(
+        &self,
+        customer_id: &str,
+    ) -> Result<Vec<payment_method::PaymentMethod>, Error>;
 }
 
 impl Stripe {
@@ -95,7 +104,20 @@ impl Payment for Stripe {
         self.client
             .request(&attach)
             .await
-            .map_err(Error::CreateCustomer)
+            .map_err(Error::AttachPaymentMethod)
+    }
+
+    async fn list_payment_methods(
+        &self,
+        customer_id: &str,
+    ) -> Result<Vec<payment_method::PaymentMethod>, Error> {
+        let req = payment_method::ListPaymentMethodsRequest::new(customer_id);
+        let resp = self
+            .client
+            .request(&req)
+            .await
+            .map_err(Error::ListPaymentMethods)?;
+        Ok(resp.data)
     }
 }
 
@@ -135,6 +157,13 @@ pub mod tests {
             self.stripe
                 .attach_payment_method(payment_method_id, customer_id)
                 .await
+        }
+
+        async fn list_payment_methods(
+            &self,
+            customer_id: &str,
+        ) -> Result<Vec<payment_method::PaymentMethod>, Error> {
+            self.stripe.list_payment_methods(customer_id).await
         }
     }
 

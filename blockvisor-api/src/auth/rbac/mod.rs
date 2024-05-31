@@ -256,6 +256,7 @@ define_perms! {
         Delete,
 
         InitCard,
+        ListPaymentMethods,
     }
 
     UserSettings => {

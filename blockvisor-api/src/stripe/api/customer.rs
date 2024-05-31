@@ -12,7 +12,7 @@ pub struct Customer {
     /// Unique identifier for the object.
     pub id: String,
     /// The customer's address.
-    pub address: Option<Address>,
+    pub address: Option<super::Address>,
     /// The current balance, if any, that's stored on the customer.
     ///
     /// If negative, the customer has credit to apply to their next invoice. If positive, the
@@ -102,7 +102,7 @@ pub struct Customer {
 #[derive(Debug, serde::Serialize)]
 pub struct CreateCustomer<'a> {
     name: String,
-    address: Option<Address>,
+    address: Option<super::Address>,
     email: &'a str,
     metadata: Option<super::Metadata>,
     payment_method: &'a super::PaymentMethodId,
@@ -139,28 +139,6 @@ impl super::StripeEndpoint for CreateCustomer<'_> {
             .map_err(|err| warn!("Failed to serialize {}: {}", type_name::<Self>(), err))
             .ok()
     }
-}
-
-/// The resource representing a Stripe "Address".
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct Address {
-    /// City, district, suburb, town, or village.
-    pub city: Option<String>,
-
-    /// Two-letter country code ([ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)).
-    pub country: Option<String>,
-
-    /// Address line 1 (e.g., street, PO Box, or company name).
-    pub line1: Option<String>,
-
-    /// Address line 2 (e.g., apartment, suite, unit, or building).
-    pub line2: Option<String>,
-
-    /// ZIP or postal code.
-    pub postal_code: Option<String>,
-
-    /// State, county, province, or region.
-    pub state: Option<String>,
 }
 
 /// The resource representing a Stripe "cash_balance".
