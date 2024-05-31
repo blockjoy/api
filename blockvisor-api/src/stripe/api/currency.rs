@@ -5,8 +5,6 @@
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Currency {
-    BYN, // Belarusian Ruble
-    MMK, // Myanmar Kyat
     AED, // United Arab Emirates Dirham
     AFN, // Afghan Afghani
     ALL, // Albanian Lek
@@ -28,6 +26,7 @@ pub enum Currency {
     BRL, // Brazilian Real
     BSD, // Bahamian Dollar
     BWP, // Botswana Pula
+    BYN, // Belarusian Ruble
     BZD, // Belize Dollar
     CAD, // Canadian Dollar
     CDF, // Congolese Franc
@@ -84,6 +83,7 @@ pub enum Currency {
     MDL, // Moldovan Leu
     MGA, // Malagasy Ariary
     MKD, // Macedonian Denar
+    MMK, // Myanmar Kyat
     MNT, // Mongolian Tögrög
     MOP, // Macanese Pataca
     MRO, // Mauritanian Ouguiya

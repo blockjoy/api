@@ -160,10 +160,10 @@ pub struct SetupIntent {
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct EventId(String);
+pub struct EventId(pub String);
 
 #[derive(Debug, serde::Deserialize)]
-pub struct SetupIntentId(String);
+pub struct SetupIntentId(pub String);
 
 /// An enum representing the possible values of an `SetupIntent`'s `flow_directions` field.
 #[derive(Debug, serde::Deserialize)]

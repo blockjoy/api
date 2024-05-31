@@ -46,7 +46,7 @@ pub enum IdOrObject<Id, Object> {
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct Timestamp(i64);
+pub struct Timestamp(pub i64);
 
 #[derive(Debug, derive_more::Deref, serde::Serialize, serde::Deserialize)]
 pub struct Metadata(std::collections::HashMap<String, String>);

@@ -59,6 +59,8 @@ where
 }
 
 async fn setup_intent_succeeded(State(ctx): State<Arc<Context>>, body: String) -> Response {
+    // FIXME: this bastard needs auth.
+
     let event: event::Event = match serde_json::from_str(&body) {
         Ok(body) => body,
         Err(err) => {
