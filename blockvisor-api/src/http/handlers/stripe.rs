@@ -3,12 +3,6 @@
 //! These are currently only used for follow-up actions after the cancellation
 //! of a subscription.
 
-// mod account;
-// mod card;
-// mod currency;
-// mod customer;
-// mod event;
-
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -28,18 +22,8 @@ use crate::stripe::api::event;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    // /// Stripe command: {0}
-    // Command(#[from] crate::models::command::Error),
     /// Stripe database error: {0}
     Database(#[from] diesel::result::Error),
-    // /// Stripe gRPC command: {0}
-    // GrpcCommand(#[from] crate::grpc::command::Error),
-    // /// Stripe IpAddress: {0}
-    // IpAddress(#[from] crate::models::ip_address::Error),
-    // /// Stripe node: {0}
-    // Node(#[from] crate::models::node::Error),
-    // /// Stripe failed to parse IpAddr: {0}
-    // ParseIpAddr(std::net::AddrParseError),
     /// Stripe subscription: {0}
     Stripe(#[from] crate::stripe::Error),
     /// Stripe subscription: {0}
@@ -75,15 +59,6 @@ where
 }
 
 async fn setup_intent_succeeded(State(ctx): State<Arc<Context>>, body: String) -> Response {
-    // if ctx.config.stripe.secret != secret {
-    //     error!("Bad chargebee callback secret. Ignoring event.");
-    //     // We return a 404 if the secret is incorrect, so we don't give away
-    //     // that there is a secret in this url that might be brute-forced.
-    //     return not_found();
-    // }
-
-    // We only start parsing the json after the secret is verfied so people
-    // can't try to discover this endpoint.
     let event: event::Event = match serde_json::from_str(&body) {
         Ok(body) => body,
         Err(err) => {
@@ -136,13 +111,3 @@ async fn setup_intent_succeeded_handler(
 
     Ok("subscription created")
 }
-
-// async fn delete_node(node: &Node, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
-//     let new_command = NewCommand::node(node, CommandType::NodeDelete)?;
-//     let cmd = new_command.create(write).await?;
-
-//     write.mqtt(command::node_delete(&cmd)?);
-//     write.mqtt(api::NodeMessage::deleted(node, None));
-
-//     Ok(())
-// }

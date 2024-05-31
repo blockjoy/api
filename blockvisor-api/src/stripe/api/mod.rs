@@ -1,4 +1,8 @@
 //! Types reimplemented from <https://crates.io/crates/cloudflare>.
+//! Note that several of the fields in the api definitions are commented out. We do this because
+//! they often contain nested definition's that we do not use, and we don't want to pay the
+//! maintenance / binary size / compilation time cost of having them commented in. If you do need a
+//! field that is commented out, feel free to comment it in.
 
 pub mod account;
 pub mod card;
