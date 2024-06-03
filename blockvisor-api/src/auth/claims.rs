@@ -17,14 +17,14 @@ use super::resource::{HostId, NodeId, OrgId, Resource, ResourceEntry, Resources,
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Claims does not have visibility of the target HostId.
-    EnsureHost,
-    /// Claims does not have visibility of the target NodeId.
-    EnsureNode,
-    /// Claims does not have visibility of the target OrgId.
-    EnsureOrg,
-    /// Claims does not have visibility of the target UserId.
-    EnsureUser,
+    /// Claims `{0:?}` does not have visibility of the target HostId ({1}).
+    EnsureHost(Resource, HostId),
+    /// Claims `{0:?}` does not have visibility of the target NodeId ({1}).
+    EnsureNode(Resource, NodeId),
+    /// Claims `{0:?}` does not have visibility of the target OrgId ({1}).
+    EnsureOrg(Resource, OrgId),
+    /// Claims `{0:?}` does not have visibility of the target UserId ({1}).
+    EnsureUser(Resource, UserId),
     /// Failed to check claims for host: {0},
     Host(#[from] crate::models::host::Error),
     /// Permission `{0}` not held by {1}
@@ -43,7 +43,7 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            EnsureHost | EnsureNode | EnsureOrg | EnsureUser => {
+            EnsureHost(..) | EnsureNode(..) | EnsureOrg(..) | EnsureUser(..) => {
                 Status::permission_denied("Access denied.")
             }
             MissingPerm(perm, _) => {
@@ -164,7 +164,7 @@ impl Claims {
     pub fn ensure_user(&self, user_id: UserId) -> Result<(), Error> {
         match self.resource() {
             Resource::User(id) if id == user_id => Ok(()),
-            _ => Err(Error::EnsureUser),
+            resource => Err(Error::EnsureUser(resource, user_id)),
         }
     }
 
@@ -181,7 +181,7 @@ impl Claims {
                 RbacPerm::for_org(id, org_id, true, conn).await?,
             ))),
             Resource::Org(id) if id == org_id => Ok(None),
-            _ => Err(Error::EnsureOrg),
+            resource => Err(Error::EnsureOrg(resource, org_id)),
         }
     }
 
@@ -201,7 +201,7 @@ impl Claims {
             ))),
             Resource::Org(id) if id == host.org_id => Ok(None),
             Resource::Host(id) if id == host_id => Ok(None),
-            _ => Err(Error::EnsureHost),
+            resource => Err(Error::EnsureHost(resource, host_id)),
         }
     }
 
@@ -222,7 +222,7 @@ impl Claims {
             Resource::Org(id) if id == node.org_id => Ok(None),
             Resource::Host(id) if id == node.host_id => Ok(None),
             Resource::Node(id) if id == node_id => Ok(None),
-            _ => Err(Error::EnsureNode),
+            resource => Err(Error::EnsureNode(resource, node_id)),
         }
     }
 }
