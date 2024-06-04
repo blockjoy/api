@@ -80,6 +80,13 @@ impl BlockchainArchiveService for Grpc {
         self.read(|read| put_download_manifest(req, meta, read).scope_boxed())
             .await
     }
+
+    async fn has_blockchain_archive(
+        &self,
+        _req: Request<api::HasBlockchainArchiveRequest>,
+    ) -> Result<Response<api::HasBlockchainArchiveResponse>, Status> {
+        todo!()
+    }
 }
 
 async fn get_download_manifest(
