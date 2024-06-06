@@ -168,24 +168,6 @@ impl UserService for Grpc {
         self.write(|write| delete_settings(req, meta, write).scope_boxed())
             .await
     }
-
-    async fn init_card(
-        &self,
-        req: Request<api::UserServiceInitCardRequest>,
-    ) -> Result<Response<api::UserServiceInitCardResponse>, Status> {
-        let (meta, _, req) = req.into_parts();
-        self.write(|write| init_card(req, meta, write).scope_boxed())
-            .await
-    }
-
-    async fn list_payment_methods(
-        &self,
-        req: Request<api::UserServiceListPaymentMethodsRequest>,
-    ) -> Result<Response<api::UserServiceListPaymentMethodsResponse>, Status> {
-        let (meta, _, req) = req.into_parts();
-        self.write(|write| list_payment_methods(req, meta, write).scope_boxed())
-            .await
-    }
 }
 
 async fn create(
@@ -382,81 +364,6 @@ async fn delete_settings(
     UserSetting::delete(user.id, &req.name, &mut write).await?;
 
     Ok(api::UserServiceDeleteSettingsResponse {})
-}
-
-async fn init_card(
-    req: api::UserServiceInitCardRequest,
-    meta: MetadataMap,
-    mut write: WriteConn<'_, '_>,
-) -> Result<api::UserServiceInitCardResponse, Error> {
-    let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    write
-        .auth(&meta, UserBillingPerm::InitCard, user_id)
-        .await?;
-
-    let client_secret = write
-        .ctx
-        .stripe
-        .create_setup_intent(user_id)
-        .await?
-        .client_secret;
-
-    Ok(api::UserServiceInitCardResponse { client_secret })
-}
-
-async fn list_payment_methods(
-    req: api::UserServiceListPaymentMethodsRequest,
-    meta: MetadataMap,
-    mut write: WriteConn<'_, '_>,
-) -> Result<api::UserServiceListPaymentMethodsResponse, Error> {
-    let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    write
-        .auth(&meta, UserBillingPerm::ListPaymentMethods, user_id)
-        .await?;
-
-    let user = User::by_id(user_id, &mut write).await?;
-    let payment_methods = if let Some(customer_id) = &user.stripe_customer_id {
-        write.ctx.stripe.list_payment_methods(customer_id).await?
-    } else {
-        vec![]
-    };
-
-    let methods = payment_methods
-        .into_iter()
-        .map(|pm| api::PaymentMethod {
-            id: None,
-            user_id: user.id.to_string(),
-            details: Some(api::BillingDetails {
-                address: pm.billing_details.address.as_ref().map(|add| api::Address {
-                    city: add.city.clone(),
-                    country: add.country.clone(),
-                    line1: add.line1.clone(),
-                    line2: add.line2.clone(),
-                    postal_code: add.postal_code.clone(),
-                    state: add.state.clone(),
-                }),
-                email: pm.billing_details.email.clone(),
-                name: pm.billing_details.name.clone(),
-                phone: pm.billing_details.phone.clone(),
-            }),
-            created_at: chrono::DateTime::from_timestamp(pm.created.0, 0)
-                .map(NanosUtc::from)
-                .map(Into::into),
-            updated_at: chrono::DateTime::from_timestamp(pm.created.0, 0)
-                .map(NanosUtc::from)
-                .map(Into::into),
-            method: pm.card.map(|card| {
-                api::payment_method::Method::Card(api::Card {
-                    brand: card.brand,
-                    exp_month: card.exp_month,
-                    exp_year: card.exp_year,
-                    last4: card.last4,
-                })
-            }),
-        })
-        .collect();
-
-    Ok(api::UserServiceListPaymentMethodsResponse { methods })
 }
 
 impl api::User {

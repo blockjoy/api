@@ -165,6 +165,24 @@ impl OrgService for Grpc {
         self.write(|write| reset_provision_token(req, meta, write).scope_boxed())
             .await
     }
+
+    async fn init_card(
+        &self,
+        req: Request<api::OrgServiceInitCardRequest>,
+    ) -> Result<Response<api::OrgServiceInitCardResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| init_card(req, meta, write).scope_boxed())
+            .await
+    }
+
+    async fn list_payment_methods(
+        &self,
+        req: Request<api::OrgServiceListPaymentMethodsRequest>,
+    ) -> Result<Response<api::OrgServiceListPaymentMethodsResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| list_payment_methods(req, meta, write).scope_boxed())
+            .await
+    }
 }
 
 async fn create(
@@ -355,6 +373,82 @@ async fn reset_provision_token(
     Ok(api::OrgServiceResetProvisionTokenResponse {
         token: new_token.take(),
     })
+}
+
+async fn init_card(
+    req: api::OrgServiceInitCardRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::OrgServiceInitCardResponse, Error> {
+    let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
+    write
+        .auth(&meta, UserBillingPerm::InitCard, user_id)
+        .await?;
+
+    let client_secret = write
+        .ctx
+        .stripe
+        .create_setup_intent(user_id)
+        .await?
+        .client_secret;
+
+    Ok(api::OrgServiceInitCardResponse { client_secret })
+}
+
+async fn list_payment_methods(
+    req: api::OrgServiceListPaymentMethodsRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::OrgServiceListPaymentMethodsResponse, Error> {
+    let org_id: UserId = req.org_id.parse().map_err(Error::ParseOrgId)?;
+    write
+        .auth(&meta, UserBillingPerm::ListPaymentMethods, org_id)
+        .await?;
+
+    let user = User::by_id(org_id, &mut write).await?;
+    let payment_methods = if let Some(customer_id) = &org.stripe_customer_id {
+        write.ctx.stripe.list_payment_methods(customer_id).await?
+    } else {
+        vec![]
+    };
+
+    let methods = payment_methods
+        .into_iter()
+        .map(|pm| api::PaymentMethod {
+            id: None,
+            org_id: Some(org_id.to_string()),
+            user_id: pm.metadata.and_then(|meta| meta.get("user_id").cloned()),
+            details: Some(api::BillingDetails {
+                address: pm.billing_details.address.as_ref().map(|add| api::Address {
+                    city: add.city.clone(),
+                    country: add.country.clone(),
+                    line1: add.line1.clone(),
+                    line2: add.line2.clone(),
+                    postal_code: add.postal_code.clone(),
+                    state: add.state.clone(),
+                }),
+                email: pm.billing_details.email.clone(),
+                name: pm.billing_details.name.clone(),
+                phone: pm.billing_details.phone.clone(),
+            }),
+            created_at: chrono::DateTime::from_timestamp(pm.created.0, 0)
+                .map(NanosUtc::from)
+                .map(Into::into),
+            updated_at: chrono::DateTime::from_timestamp(pm.created.0, 0)
+                .map(NanosUtc::from)
+                .map(Into::into),
+            method: pm.card.map(|card| {
+                api::payment_method::Method::Card(api::Card {
+                    brand: card.brand,
+                    exp_month: card.exp_month,
+                    exp_year: card.exp_year,
+                    last4: card.last4,
+                })
+            }),
+        })
+        .collect();
+
+    Ok(api::OrgServiceListPaymentMethodsResponse { methods })
 }
 
 impl api::Org {
