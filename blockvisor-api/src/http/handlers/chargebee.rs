@@ -20,7 +20,7 @@ use crate::database::{Transaction, WriteConn};
 use crate::grpc::{api, command};
 use crate::http::response::{bad_params, failed, not_found, ok_custom};
 use crate::models::command::NewCommand;
-use crate::models::{CommandType, Node, Subscription};
+use crate::models::{CommandType, Host, Node, Subscription};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -30,6 +30,8 @@ pub enum Error {
     Database(#[from] diesel::result::Error),
     /// Chargebee gRPC command: {0}
     GrpcCommand(#[from] crate::grpc::command::Error),
+    /// Host error: {0}
+    Host(#[from] crate::models::host::Error),
     /// Chargebee IpAddress: {0}
     IpAddress(#[from] crate::models::ip_address::Error),
     /// Chargebee node: {0}
@@ -45,8 +47,8 @@ impl From<Error> for tonic::Status {
         use Error::*;
         error!("Chargebee webhook: {err:?}");
         match err {
-            Command(_) | Database(_) | GrpcCommand(_) | IpAddress(_) | Node(_) | ParseIpAddr(_)
-            | Subscription(_) => tonic::Status::internal("Internal error"),
+            Command(_) | Database(_) | GrpcCommand(_) | IpAddress(_) | Node(_) | Host(_)
+            | ParseIpAddr(_) | Subscription(_) => tonic::Status::internal("Internal error"),
         }
     }
 }
@@ -140,8 +142,9 @@ async fn subscription_cancelled(
 async fn delete_node(node: &Node, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
     let new_command = NewCommand::node(node, CommandType::NodeDelete)?;
     let cmd = new_command.create(write).await?;
+    let host = Host::by_id(node.host_id, write).await?;
 
-    write.mqtt(command::node_delete(&cmd)?);
+    write.mqtt(command::node_delete(&cmd, node.clone(), host)?);
     write.mqtt(api::NodeMessage::deleted(node, None));
 
     Ok(())

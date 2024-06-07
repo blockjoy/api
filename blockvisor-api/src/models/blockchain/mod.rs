@@ -90,6 +90,7 @@ pub struct Blockchain {
     pub updated_at: DateTime<Utc>,
     pub visibility: Visibility,
     pub ticker: String,
+    pub display_name: String,
 }
 
 impl Blockchain {
@@ -203,12 +204,14 @@ impl BlockchainSearch {
 #[derive(Clone, Copy, Debug)]
 pub enum BlockchainSort {
     Name(SortOrder),
+    DisplayName(SortOrder),
 }
 
 impl BlockchainSort {
     fn into_expr<T>(self) -> Box<dyn BoxableExpression<T, Pg, SqlType = NotSelectable>>
     where
         blockchains::name: SelectableExpression<T>,
+        blockchains::display_name: SelectableExpression<T>,
     {
         use BlockchainSort::*;
         use SortOrder::*;
@@ -216,6 +219,9 @@ impl BlockchainSort {
         match self {
             Name(Asc) => Box::new(blockchains::name.asc()),
             Name(Desc) => Box::new(blockchains::name.desc()),
+
+            DisplayName(Asc) => Box::new(blockchains::display_name.asc()),
+            DisplayName(Desc) => Box::new(blockchains::display_name.desc()),
         }
     }
 }

@@ -13,7 +13,7 @@ use crate::grpc::api;
 use crate::grpc::command::host_pending;
 use crate::models::command::NewCommand;
 use crate::models::host::{ConnectionStatus, UpdateHost};
-use crate::models::{Command, CommandType};
+use crate::models::{Command, CommandType, Host};
 
 use super::{Client, Message, CLIENT_CAPACITY, CLIENT_QOS};
 
@@ -25,6 +25,8 @@ pub enum Error {
     Command(#[from] crate::models::command::Error),
     /// MQTT GRPC Command error: {0}
     GrpcCommand(#[from] crate::grpc::command::Error),
+    /// MQTT host error: {0}
+    Host(#[from] crate::models::host::Error),
     /// Failed to parse HostId from MQTT HostStatus: {0}
     ParseHostId(uuid::Error),
     /// Failed to parse HostStatus: {0}
@@ -118,8 +120,9 @@ impl Notifier {
             && Command::has_host_pending(host_id, &mut conn).await?
         {
             let pending = NewCommand::host(host_id, CommandType::HostPending)?;
+            let host = Host::by_id(host_id, &mut conn).await?;
             let command = pending.create(&mut conn).await?;
-            self.send(host_pending(&command)?).await?;
+            self.send(host_pending(&command, host)?).await?;
         }
 
         Ok(())

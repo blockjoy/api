@@ -93,7 +93,7 @@ impl Seed {
 
 async fn create_blockchains(conn: &mut Conn<'_>) -> Blockchain {
     let queries = [
-        format!("INSERT INTO blockchains (id, name, visibility, ticker) VALUES ('{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NAME}', '{BLOCKCHAIN_VISIBILITY}', '{BLOCKCHAIN_TICKER}');"),
+        format!("INSERT INTO blockchains (id, name, display_name, visibility, ticker) VALUES ('{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NAME}', '{BLOCKCHAIN_NAME}', '{BLOCKCHAIN_VISIBILITY}', '{BLOCKCHAIN_TICKER}');"),
         format!("INSERT INTO blockchain_node_types (id, blockchain_id, node_type, visibility) VALUES ('{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NODE_TYPE}', '{BLOCKCHAIN_VISIBILITY}');"),
         format!("INSERT INTO blockchain_versions (id, blockchain_id, blockchain_node_type_id, version) VALUES ('{BLOCKCHAIN_VERSION_ID}', '{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION}');"),
         format!("INSERT INTO blockchain_properties VALUES ('{BLOCKCHAIN_PROPERTY_KEYSTORE}', '{BLOCKCHAIN_ID}', 'keystore-file', NULL, 'file_upload', FALSE, FALSE, '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION_ID}', 'Keystore file contents');"),

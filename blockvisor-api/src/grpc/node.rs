@@ -962,13 +962,19 @@ impl api::NodeServiceCreateRequest {
 
 impl api::NodeServiceListRequest {
     fn into_filter(self) -> Result<NodeFilter, Error> {
-        let statuses = self.statuses().map(NodeStatus::from).collect();
+        let statuses = self
+            .statuses()
+            .filter_map(common::NodeStatus::into_model)
+            .collect();
         let node_types = self.node_types().map(NodeType::from).collect();
         let container_statuses = self
             .container_statuses()
             .map(ContainerStatus::from)
             .collect();
-        let sync_statuses = self.sync_statuses().map(SyncStatus::from).collect();
+        let sync_statuses = self
+            .sync_statuses()
+            .filter_map(common::SyncStatus::into_model)
+            .collect();
 
         let Self {
             org_ids,

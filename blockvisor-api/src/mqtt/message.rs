@@ -333,7 +333,9 @@ mod tests {
             command_type: CommandType::NodeDelete,
         };
 
-        let command = crate::grpc::command::node_delete(&command).unwrap();
+        let command =
+            crate::grpc::command::node_delete(&command, db.seed.node.clone(), db.seed.host.clone())
+                .unwrap();
         ctx.notifier.send(command).await.unwrap();
     }
 

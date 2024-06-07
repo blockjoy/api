@@ -523,6 +523,7 @@ impl api::Blockchain {
                 Ok(api::Blockchain {
                     id: model.id.to_string(),
                     name: model.name,
+                    display_name: model.display_name,
                     description: model.description,
                     project_url: model.project_url,
                     repo_url: model.repo_url,
@@ -688,6 +689,7 @@ impl api::BlockchainServiceListRequest {
                 match sort.field() {
                     api::BlockchainSortField::Unspecified => Err(Error::UnknownSortField),
                     api::BlockchainSortField::Name => Ok(BlockchainSort::Name(order)),
+                    api::BlockchainSortField::DisplayName => Ok(BlockchainSort::DisplayName(order)),
                 }
             })
             .collect::<Result<_, _>>()?;

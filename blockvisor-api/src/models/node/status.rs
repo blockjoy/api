@@ -65,34 +65,34 @@ impl From<NodeStatus> for common::NodeStatus {
     }
 }
 
-impl From<common::NodeStatus> for NodeStatus {
-    fn from(status: common::NodeStatus) -> Self {
-        match status {
-            common::NodeStatus::Unspecified => NodeStatus::Unknown,
-            common::NodeStatus::ProvisioningPending => NodeStatus::ProvisioningPending,
-            common::NodeStatus::Provisioning => NodeStatus::Provisioning,
-            common::NodeStatus::Broadcasting => NodeStatus::Broadcasting,
-            common::NodeStatus::Cancelled => NodeStatus::Cancelled,
-            common::NodeStatus::Delegating => NodeStatus::Delegating,
-            common::NodeStatus::Delinquent => NodeStatus::Delinquent,
-            common::NodeStatus::Disabled => NodeStatus::Disabled,
-            common::NodeStatus::Earning => NodeStatus::Earning,
-            common::NodeStatus::Electing => NodeStatus::Electing,
-            common::NodeStatus::Elected => NodeStatus::Elected,
-            common::NodeStatus::Exported => NodeStatus::Exported,
-            common::NodeStatus::Ingesting => NodeStatus::Ingesting,
-            common::NodeStatus::Mining => NodeStatus::Mining,
-            common::NodeStatus::Minting => NodeStatus::Minting,
-            common::NodeStatus::Processing => NodeStatus::Processing,
-            common::NodeStatus::Relaying => NodeStatus::Relaying,
-            common::NodeStatus::DeletePending => NodeStatus::DeletePending,
-            common::NodeStatus::Deleting => NodeStatus::Deleting,
-            common::NodeStatus::Deleted => NodeStatus::Deleted,
-            common::NodeStatus::UpdatePending => NodeStatus::UpdatePending,
-            common::NodeStatus::Updating => NodeStatus::Updating,
-            common::NodeStatus::Initializing => NodeStatus::Initializing,
-            common::NodeStatus::Downloading => NodeStatus::Downloading,
-            common::NodeStatus::Uploading => NodeStatus::Uploading,
+impl common::NodeStatus {
+    pub const fn into_model(self) -> Option<NodeStatus> {
+        match self {
+            common::NodeStatus::Unspecified => None,
+            common::NodeStatus::ProvisioningPending => Some(NodeStatus::ProvisioningPending),
+            common::NodeStatus::Provisioning => Some(NodeStatus::Provisioning),
+            common::NodeStatus::Broadcasting => Some(NodeStatus::Broadcasting),
+            common::NodeStatus::Cancelled => Some(NodeStatus::Cancelled),
+            common::NodeStatus::Delegating => Some(NodeStatus::Delegating),
+            common::NodeStatus::Delinquent => Some(NodeStatus::Delinquent),
+            common::NodeStatus::Disabled => Some(NodeStatus::Disabled),
+            common::NodeStatus::Earning => Some(NodeStatus::Earning),
+            common::NodeStatus::Electing => Some(NodeStatus::Electing),
+            common::NodeStatus::Elected => Some(NodeStatus::Elected),
+            common::NodeStatus::Exported => Some(NodeStatus::Exported),
+            common::NodeStatus::Ingesting => Some(NodeStatus::Ingesting),
+            common::NodeStatus::Mining => Some(NodeStatus::Mining),
+            common::NodeStatus::Minting => Some(NodeStatus::Minting),
+            common::NodeStatus::Processing => Some(NodeStatus::Processing),
+            common::NodeStatus::Relaying => Some(NodeStatus::Relaying),
+            common::NodeStatus::DeletePending => Some(NodeStatus::DeletePending),
+            common::NodeStatus::Deleting => Some(NodeStatus::Deleting),
+            common::NodeStatus::Deleted => Some(NodeStatus::Deleted),
+            common::NodeStatus::UpdatePending => Some(NodeStatus::UpdatePending),
+            common::NodeStatus::Updating => Some(NodeStatus::Updating),
+            common::NodeStatus::Initializing => Some(NodeStatus::Initializing),
+            common::NodeStatus::Downloading => Some(NodeStatus::Downloading),
+            common::NodeStatus::Uploading => Some(NodeStatus::Uploading),
         }
     }
 }
@@ -176,12 +176,12 @@ impl From<SyncStatus> for common::SyncStatus {
     }
 }
 
-impl From<common::SyncStatus> for SyncStatus {
-    fn from(status: common::SyncStatus) -> Self {
-        match status {
-            common::SyncStatus::Unspecified => SyncStatus::Unknown,
-            common::SyncStatus::Syncing => SyncStatus::Syncing,
-            common::SyncStatus::Synced => SyncStatus::Synced,
+impl common::SyncStatus {
+    pub const fn into_model(self) -> Option<SyncStatus> {
+        match self {
+            common::SyncStatus::Unspecified => None,
+            common::SyncStatus::Syncing => Some(SyncStatus::Syncing),
+            common::SyncStatus::Synced => Some(SyncStatus::Synced),
         }
     }
 }
@@ -212,16 +212,16 @@ impl From<StakingStatus> for common::StakingStatus {
     }
 }
 
-impl From<common::StakingStatus> for StakingStatus {
-    fn from(status: common::StakingStatus) -> StakingStatus {
-        match status {
-            common::StakingStatus::Unspecified => StakingStatus::Unknown,
-            common::StakingStatus::Follower => StakingStatus::Follower,
-            common::StakingStatus::Staked => StakingStatus::Staked,
-            common::StakingStatus::Staking => StakingStatus::Staking,
-            common::StakingStatus::Validating => StakingStatus::Validating,
-            common::StakingStatus::Consensus => StakingStatus::Consensus,
-            common::StakingStatus::Unstaked => StakingStatus::Unstaked,
+impl common::StakingStatus {
+    pub const fn into_model(self) -> Option<StakingStatus> {
+        match self {
+            common::StakingStatus::Unspecified => None,
+            common::StakingStatus::Follower => Some(StakingStatus::Follower),
+            common::StakingStatus::Staked => Some(StakingStatus::Staked),
+            common::StakingStatus::Staking => Some(StakingStatus::Staking),
+            common::StakingStatus::Validating => Some(StakingStatus::Validating),
+            common::StakingStatus::Consensus => Some(StakingStatus::Consensus),
+            common::StakingStatus::Unstaked => Some(StakingStatus::Unstaked),
         }
     }
 }

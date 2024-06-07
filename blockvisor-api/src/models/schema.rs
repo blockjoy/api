@@ -148,6 +148,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         visibility -> EnumBlockchainVisibility,
         ticker -> Text,
+        display_name -> Text,
     }
 }
 

@@ -10,7 +10,7 @@ use tonic::{Request, Response, Status};
 use tracing::{error, warn};
 
 use crate::auth::rbac::{CommandAdminPerm, CommandPerm};
-use crate::auth::resource::{NodeId, Resource};
+use crate::auth::resource::Resource;
 use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::grpc::api::command_service_server::CommandService;
@@ -275,18 +275,40 @@ impl api::Command {
         authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Self, Error> {
+        let host = Host::by_id(model.host_id, conn).await?;
         match model.command_type {
-            CommandType::HostStart => host_start(model),
-            CommandType::HostStop => host_stop(model),
-            CommandType::HostRestart => host_restart(model),
-            CommandType::HostPending => host_pending(model),
-            CommandType::NodeCreate => node_create(model, authz, conn).await,
-            CommandType::NodeStart => node_start(model),
-            CommandType::NodeStop => node_stop(model),
-            CommandType::NodeRestart => node_restart(model),
-            CommandType::NodeUpgrade => node_upgrade(model, authz, conn).await,
-            CommandType::NodeUpdate => node_update(model, conn).await,
-            CommandType::NodeDelete => node_delete(model),
+            CommandType::HostStart => host_start(model, host),
+            CommandType::HostStop => host_stop(model, host),
+            CommandType::HostRestart => host_restart(model, host),
+            CommandType::HostPending => host_pending(model, host),
+            CommandType::NodeCreate => {
+                let node = Node::by_id(model.node_id.ok_or(Error::MissingNodeId)?, conn).await?;
+                node_create(model, node, host, authz, conn).await
+            }
+            CommandType::NodeStart => {
+                let node = Node::by_id(model.node_id.ok_or(Error::MissingNodeId)?, conn).await?;
+                node_start(model, node, host)
+            }
+            CommandType::NodeStop => {
+                let node = Node::by_id(model.node_id.ok_or(Error::MissingNodeId)?, conn).await?;
+                node_stop(model, node, host)
+            }
+            CommandType::NodeRestart => {
+                let node = Node::by_id(model.node_id.ok_or(Error::MissingNodeId)?, conn).await?;
+                node_restart(model, node, host)
+            }
+            CommandType::NodeUpgrade => {
+                let node = Node::by_id(model.node_id.ok_or(Error::MissingNodeId)?, conn).await?;
+                node_upgrade(model, node, host, authz, conn).await
+            }
+            CommandType::NodeUpdate => {
+                let node = Node::by_id(model.node_id.ok_or(Error::MissingNodeId)?, conn).await?;
+                node_update(model, node, host)
+            }
+            CommandType::NodeDelete => {
+                let node = Node::by_id(model.node_id.ok_or(Error::MissingNodeId)?, conn).await?;
+                node_delete(model, node, host)
+            }
         }
     }
 }
@@ -333,6 +355,7 @@ impl api::CommandExitCode {
 fn host_command(
     command: &Command,
     host_cmd: api::host_command::Command,
+    host: Host,
 ) -> Result<api::Command, Error> {
     let exit_code = command
         .exit_code
@@ -351,35 +374,37 @@ fn host_command(
         acked_at: command.acked_at.map(NanosUtc::from).map(Into::into),
         command: Some(api::command::Command::Host(api::HostCommand {
             host_id: command.host_id.to_string(),
+            host_name: host.name,
             command: Some(host_cmd),
         })),
     })
 }
 
-fn host_start(command: &Command) -> Result<api::Command, Error> {
+fn host_start(command: &Command, host: Host) -> Result<api::Command, Error> {
     let host_cmd = api::host_command::Command::Start(api::HostStart {});
-    host_command(command, host_cmd)
+    host_command(command, host_cmd, host)
 }
 
-fn host_stop(command: &Command) -> Result<api::Command, Error> {
+fn host_stop(command: &Command, host: Host) -> Result<api::Command, Error> {
     let host_cmd = api::host_command::Command::Stop(api::HostStop {});
-    host_command(command, host_cmd)
+    host_command(command, host_cmd, host)
 }
 
-fn host_restart(command: &Command) -> Result<api::Command, Error> {
+fn host_restart(command: &Command, host: Host) -> Result<api::Command, Error> {
     let host_cmd = api::host_command::Command::Restart(api::HostRestart {});
-    host_command(command, host_cmd)
+    host_command(command, host_cmd, host)
 }
 
-pub fn host_pending(command: &Command) -> Result<api::Command, Error> {
+pub fn host_pending(command: &Command, host: Host) -> Result<api::Command, Error> {
     let host_cmd = api::host_command::Command::Pending(api::HostPending {});
-    host_command(command, host_cmd)
+    host_command(command, host_cmd, host)
 }
 
 /// Create a new `api::NodeCommand` from a `Command`.
 fn node_command(
     command: &Command,
-    node_id: NodeId,
+    node: Node,
+    host: Host,
     node_cmd: api::node_command::Command,
 ) -> Result<api::Command, Error> {
     let exit_code = command
@@ -398,8 +423,10 @@ fn node_command(
         created_at: Some(NanosUtc::from(command.created_at).into()),
         acked_at: command.acked_at.map(NanosUtc::from).map(Into::into),
         command: Some(api::command::Command::Node(api::NodeCommand {
-            host_id: command.host_id.to_string(),
-            node_id: node_id.to_string(),
+            host_id: host.id.to_string(),
+            host_name: host.name,
+            node_id: node.id.to_string(),
+            node_name: node.name,
             command: Some(node_cmd),
         })),
     })
@@ -407,12 +434,11 @@ fn node_command(
 
 async fn node_create(
     command: &Command,
+    node: Node,
+    host: Host,
     authz: &AuthZ,
     conn: &mut Conn<'_>,
 ) -> Result<api::Command, Error> {
-    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
-    let node = Node::by_id(node_id, conn).await?;
-
     let blockchain = Blockchain::by_id(node.blockchain_id, authz, conn).await?;
     let version =
         BlockchainVersion::find(blockchain.id, node.node_type, &node.version, conn).await?;
@@ -447,40 +473,36 @@ async fn node_create(
         gateway: node.ip_gateway.clone(),
         properties,
         rules: firewall_rules(&node)?,
-        network: node.network,
+        network: node.network.clone(),
         org_id: node.org_id.to_string(),
     });
 
-    node_command(command, node_id, node_cmd)
+    node_command(command, node, host, node_cmd)
 }
 
-fn node_start(command: &Command) -> Result<api::Command, Error> {
-    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+fn node_start(command: &Command, node: Node, host: Host) -> Result<api::Command, Error> {
     let node_cmd = api::node_command::Command::Start(api::NodeStart {});
-    node_command(command, node_id, node_cmd)
+    node_command(command, node, host, node_cmd)
 }
 
-fn node_stop(command: &Command) -> Result<api::Command, Error> {
-    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+fn node_stop(command: &Command, node: Node, host: Host) -> Result<api::Command, Error> {
     let node_cmd = api::node_command::Command::Stop(api::NodeStop {});
-    node_command(command, node_id, node_cmd)
+    node_command(command, node, host, node_cmd)
 }
 
-fn node_restart(command: &Command) -> Result<api::Command, Error> {
-    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+fn node_restart(command: &Command, node: Node, host: Host) -> Result<api::Command, Error> {
     let node_cmd = api::node_command::Command::Restart(api::NodeRestart {});
-    node_command(command, node_id, node_cmd)
+    node_command(command, node, host, node_cmd)
 }
 
 async fn node_upgrade(
     command: &Command,
+    node: Node,
+    host: Host,
     authz: &AuthZ,
     conn: &mut Conn<'_>,
 ) -> Result<api::Command, Error> {
-    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
-    let node = Node::by_id(node_id, conn).await?;
     let blockchain = Blockchain::by_id(node.blockchain_id, authz, conn).await?;
-
     let node_cmd = api::node_command::Command::Upgrade(api::NodeUpgrade {
         image: Some(common::ImageIdentifier {
             protocol: blockchain.name,
@@ -488,23 +510,20 @@ async fn node_upgrade(
             node_type: common::NodeType::from(node.node_type).into(),
         }),
     });
-    node_command(command, node_id, node_cmd)
+    node_command(command, node, host, node_cmd)
 }
 
-async fn node_update(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
-    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
-    let node = Node::by_id(node_id, conn).await?;
+pub fn node_update(command: &Command, node: Node, host: Host) -> Result<api::Command, Error> {
     let node_cmd = api::node_command::Command::Update(api::NodeUpdate {
         rules: firewall_rules(&node)?,
         org_id: node.org_id.to_string(),
     });
-    node_command(command, node_id, node_cmd)
+    node_command(command, node, host, node_cmd)
 }
 
-pub fn node_delete(command: &Command) -> Result<api::Command, Error> {
-    let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
+pub fn node_delete(command: &Command, node: Node, host: Host) -> Result<api::Command, Error> {
     let node_cmd = api::node_command::Command::Delete(api::NodeDelete {});
-    node_command(command, node_id, node_cmd)
+    node_command(command, node, host, node_cmd)
 }
 
 fn firewall_rules(node: &Node) -> Result<Vec<FirewallRule>, Error> {
