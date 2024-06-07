@@ -4,7 +4,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::auth::resource::UserId;
+use crate::auth::resource::{OrgId, UserId};
 
 /// The SetupIntent message, used by the frontend to add a card to our stripe environment.
 /// <https://docs.stripe.com/api/setup_intents/create>
@@ -71,11 +71,12 @@ pub struct CreateSetupIntent<'a> {
 }
 
 impl CreateSetupIntent<'_> {
-    pub fn new(user_id: UserId) -> Self {
+    pub fn new(org_id: OrgId, user_id: UserId) -> Self {
         Self {
             payment_method_types: vec!["card"],
             metadata: Some(super::Metadata(hashmap! {
-                "user_id".to_string() => user_id.to_string()
+                "org_id".to_string() => org_id.to_string(),
+                "created_by_user".to_string() => user_id.to_string(),
             })),
             ..Default::default()
         }

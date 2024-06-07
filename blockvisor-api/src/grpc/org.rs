@@ -8,7 +8,7 @@ use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error};
 
-use crate::auth::rbac::{OrgAdminPerm, OrgPerm, OrgProvisionPerm};
+use crate::auth::rbac::{OrgAdminPerm, OrgBillingPerm, OrgPerm, OrgProvisionPerm};
 use crate::auth::resource::{OrgId, UserId};
 use crate::auth::Authorize;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
@@ -58,6 +58,8 @@ pub enum Error {
     SearchOperator(crate::util::search::Error),
     /// Sort order: {0}
     SortOrder(crate::util::search::Error),
+    /// Stripe error: {0}
+    Stripe(#[from] crate::stripe::Error),
     /// Org token error: {0}
     Token(#[from] crate::models::token::Error),
     /// The requested sort field is unknown.
@@ -74,7 +76,9 @@ impl From<Error> for Status {
             ClaimsNotUser | DeletePersonal | CanOnlyRemoveSelf => {
                 Status::permission_denied("Access denied.")
             }
-            ConvertNoOrg | Diesel(_) | ParseMax(_) => Status::internal("Internal error."),
+            ConvertNoOrg | Diesel(_) | ParseMax(_) | Stripe(_) => {
+                Status::internal("Internal error.")
+            }
             ParseId(_) => Status::invalid_argument("id"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseUserId(_) => Status::invalid_argument("user_id"),
@@ -381,14 +385,13 @@ async fn init_card(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceInitCardResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    write
-        .auth(&meta, UserBillingPerm::InitCard, user_id)
-        .await?;
+    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseUserId)?;
+    write.auth(&meta, OrgBillingPerm::InitCard, org_id).await?;
 
     let client_secret = write
         .ctx
         .stripe
-        .create_setup_intent(user_id)
+        .create_setup_intent(org_id, user_id)
         .await?
         .client_secret;
 
@@ -400,12 +403,12 @@ async fn list_payment_methods(
     meta: MetadataMap,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceListPaymentMethodsResponse, Error> {
-    let org_id: UserId = req.org_id.parse().map_err(Error::ParseOrgId)?;
+    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
     write
-        .auth(&meta, UserBillingPerm::ListPaymentMethods, org_id)
+        .auth(&meta, OrgBillingPerm::ListPaymentMethods, org_id)
         .await?;
 
-    let user = User::by_id(org_id, &mut write).await?;
+    let org = Org::by_id(org_id, &mut write).await?;
     let payment_methods = if let Some(customer_id) = &org.stripe_customer_id {
         write.ctx.stripe.list_payment_methods(customer_id).await?
     } else {

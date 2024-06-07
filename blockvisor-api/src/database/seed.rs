@@ -338,11 +338,11 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'org-admin-get'),
         ('blockjoy-admin', 'org-admin-list'),
         ('blockjoy-admin', 'org-admin-update'),
+        ('blockjoy-admin', 'org-billing-init-card'),
+        ('blockjoy-admin', 'org-billing-list-payment-methods'),
         ('blockjoy-admin', 'user-admin-filter'),
         ('blockjoy-admin', 'user-admin-get'),
-        ('blockjoy-admin', 'user-admin-update'),
-        ('blockjoy-admin', 'user-billing-init-card'),
-        ('blockjoy-admin', 'user-billing-list-payment-methods');
+        ('blockjoy-admin', 'user-admin-update');
         ",
         "
         insert into role_permissions (role, permission)
@@ -476,8 +476,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-login', 'user-update'),
         ('grpc-login', 'user-billing-delete'),
         ('grpc-login', 'user-billing-get'),
-        ('grpc-login', 'user-billing-update'),
-        ('grpc-login', 'user-billing-list-payment-methods');
+        ('grpc-login', 'user-billing-update');
         ",
         "
         insert into role_permissions (role, permission)
@@ -537,6 +536,8 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-admin', 'invitation-revoke'),
         ('org-admin', 'org-remove-member'),
         ('org-admin', 'org-update'),
+        ('org-admin', 'org-billing-init-card'),
+        ('org-admin', 'org-billing-list-payment-methods'),
         ('org-admin', 'subscription-create'),
         ('org-admin', 'subscription-delete'),
         ('org-admin', 'subscription-update');

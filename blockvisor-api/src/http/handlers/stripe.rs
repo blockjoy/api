@@ -13,7 +13,7 @@ use displaydoc::Display;
 use thiserror::Error;
 use tracing::{debug, error};
 
-use crate::auth::resource::UserId;
+use crate::auth::resource::{OrgId, UserId};
 use crate::config::Context;
 use crate::database::{Transaction, WriteConn};
 use crate::http::response::{bad_params, failed, ok_custom};
@@ -34,8 +34,8 @@ pub enum Error {
     MissingMetadata,
     /// Stripe event is missing a user_id in its metadata.
     MissingUserId,
-    /// Stripe user: {0}
-    User(#[from] crate::models::user::Error),
+    /// Stripe org: {0}
+    Org(#[from] crate::models::org::Error),
 }
 
 impl From<Error> for tonic::Status {
@@ -44,7 +44,7 @@ impl From<Error> for tonic::Status {
         error!("Stripe webhook: {err:?}");
         match err {
             Database(_) | Subscription(_) | BadUserId(_) | MissingMetadata | MissingUserId
-            | User(_) | Stripe(_) => tonic::Status::internal("Internal error."),
+            | Org(_) | Stripe(_) => tonic::Status::internal("Internal error."),
         }
     }
 }
@@ -88,15 +88,15 @@ async fn setup_intent_succeeded_handler(
     mut write: WriteConn<'_, '_>,
 ) -> Result<&'static str, Error> {
     let stripe = &write.ctx.stripe;
-    let user_id: UserId = setup_intent
+    let org_id: OrgId = setup_intent
         .metadata
         .ok_or_else(|| Error::MissingMetadata)?
-        .get("user_id")
+        .get("org_id")
         .ok_or_else(|| Error::MissingUserId)?
         .parse()
         .map_err(Error::BadUserId)?;
-    let user = models::User::by_id(user_id, &mut write).await?;
-    match user.stripe_customer_id.as_ref() {
+    let org = models::Org::by_id(org_id, &mut write).await?;
+    match org.stripe_customer_id.as_ref() {
         // We have an existing customer, attach this payment method.
         Some(stripe_customer_id) => {
             stripe
@@ -106,7 +106,7 @@ async fn setup_intent_succeeded_handler(
         // No customer exists yet, create one and include the payment method straight away.
         None => {
             stripe
-                .create_customer(&user, &setup_intent.payment_method)
+                .create_customer(&org, &setup_intent.payment_method)
                 .await?;
         }
     };

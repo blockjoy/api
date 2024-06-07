@@ -6,6 +6,7 @@ use std::sync::Arc;
 use displaydoc::Display;
 use thiserror::Error;
 
+use crate::auth::resource::OrgId;
 use crate::models;
 use crate::{auth::resource::UserId, config::stripe::Config};
 use api::{customer, payment_method, setup_intent};
@@ -33,12 +34,13 @@ pub struct Stripe {
 pub trait Payment {
     async fn create_setup_intent(
         &self,
+        org_id: OrgId,
         user_id: UserId,
     ) -> Result<setup_intent::SetupIntent, Error>;
 
     async fn create_customer(
         &self,
-        user: &models::User,
+        org: &models::Org,
         payment_method_id: &api::PaymentMethodId,
     ) -> Result<customer::Customer, Error>;
 
@@ -74,9 +76,10 @@ impl Stripe {
 impl Payment for Stripe {
     async fn create_setup_intent(
         &self,
+        org_id: OrgId,
         user_id: UserId,
     ) -> Result<setup_intent::SetupIntent, Error> {
-        let req = setup_intent::CreateSetupIntent::new(user_id);
+        let req = setup_intent::CreateSetupIntent::new(org_id, user_id);
         self.client
             .request(&req)
             .await
@@ -85,10 +88,10 @@ impl Payment for Stripe {
 
     async fn create_customer(
         &self,
-        user: &models::User,
+        org: &models::Org,
         payment_method_id: &api::PaymentMethodId,
     ) -> Result<customer::Customer, Error> {
-        let customer = customer::CreateCustomer::new(user, payment_method_id);
+        let customer = customer::CreateCustomer::new(org, payment_method_id);
         self.client
             .request(&customer)
             .await
@@ -136,17 +139,18 @@ pub mod tests {
     impl Payment for MockStripe {
         async fn create_setup_intent(
             &self,
+            org_id: OrgId,
             user_id: UserId,
         ) -> Result<setup_intent::SetupIntent, Error> {
-            self.stripe.create_setup_intent(user_id).await
+            self.stripe.create_setup_intent(org_id, user_id).await
         }
 
         async fn create_customer(
             &self,
-            user: &models::User,
+            org: &models::Org,
             payment_method_id: &api::PaymentMethodId,
         ) -> Result<customer::Customer, Error> {
-            self.stripe.create_customer(user, payment_method_id).await
+            self.stripe.create_customer(org, payment_method_id).await
         }
 
         async fn attach_payment_method(

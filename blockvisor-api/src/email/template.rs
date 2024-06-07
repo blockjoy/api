@@ -196,7 +196,6 @@ mod test {
             confirmed_at: None,
             deleted_at: None,
             chargebee_billing_id: None,
-            stripe_customer_id: None,
         };
         let recipient = Recipient::from(&user);
         let invitation = Invitation {

@@ -343,6 +343,7 @@ diesel::table! {
         host_count -> Int4,
         node_count -> Int4,
         member_count -> Int4,
+        stripe_customer_id -> Nullable<Text>,
     }
 }
 
@@ -434,7 +435,6 @@ diesel::table! {
         confirmed_at -> Nullable<Timestamptz>,
         deleted_at -> Nullable<Timestamptz>,
         chargebee_billing_id -> Nullable<Text>,
-        stripe_customer_id -> Nullable<Text>,
     }
 }
 

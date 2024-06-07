@@ -95,6 +95,7 @@ pub struct Org {
     pub host_count: i32,
     pub node_count: i32,
     pub member_count: i32,
+    pub stripe_customer_id: Option<String>,
 }
 
 impl Org {

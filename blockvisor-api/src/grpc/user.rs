@@ -40,8 +40,6 @@ pub enum Error {
     SearchOperator(crate::util::search::Error),
     /// Sort order: {0}
     SortOrder(crate::util::search::Error),
-    /// Stripe error: {0}
-    Stripe(#[from] crate::stripe::Error),
     /// The requested sort field is unknown.
     UnknownSortField,
     /// User settings error: {0}
@@ -53,9 +51,7 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            Diesel(_) | Email(_) | ParseInvitationId(_) | Stripe(_) => {
-                Status::internal("Internal error.")
-            }
+            Diesel(_) | Email(_) | ParseInvitationId(_) => Status::internal("Internal error."),
             ParseId(_) => Status::invalid_argument("id"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseUserId(_) => Status::invalid_argument("user_id"),

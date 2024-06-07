@@ -103,7 +103,7 @@ pub struct Customer {
 pub struct CreateCustomer<'a> {
     name: String,
     address: Option<super::Address>,
-    email: &'a str,
+    email: Option<&'a str>,
     metadata: Option<super::Metadata>,
     payment_method: &'a super::PaymentMethodId,
     phone: Option<&'a str>,
@@ -111,11 +111,11 @@ pub struct CreateCustomer<'a> {
 }
 
 impl<'a> CreateCustomer<'a> {
-    pub fn new(user: &'a models::User, payment_method_id: &'a super::PaymentMethodId) -> Self {
+    pub fn new(org: &'a models::Org, payment_method_id: &'a super::PaymentMethodId) -> Self {
         Self {
-            name: user.name(),
+            name: org.name.clone(),
             address: None,
-            email: &user.email,
+            email: None,
             metadata: None,
             payment_method: payment_method_id,
             phone: None,

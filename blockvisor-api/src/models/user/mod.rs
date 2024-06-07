@@ -119,7 +119,6 @@ pub struct User {
     pub confirmed_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
     pub chargebee_billing_id: Option<String>,
-    pub stripe_customer_id: Option<String>,
 }
 
 impl User {
@@ -480,7 +479,6 @@ mod tests {
             confirmed_at: Some(chrono::Utc::now()),
             deleted_at: None,
             chargebee_billing_id: None,
-            stripe_customer_id: None,
         };
         user.verify_password("A password that cannot be hacked!1")
             .unwrap();

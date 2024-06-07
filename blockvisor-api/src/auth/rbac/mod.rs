@@ -228,6 +228,11 @@ define_perms! {
         ResetToken,
     }
 
+    OrgBilling => {
+        InitCard,
+        ListPaymentMethods,
+    }
+
     Subscription => {
         Create,
         Get,
@@ -254,9 +259,6 @@ define_perms! {
         Get,
         Update,
         Delete,
-
-        InitCard,
-        ListPaymentMethods,
     }
 
     UserSettings => {
