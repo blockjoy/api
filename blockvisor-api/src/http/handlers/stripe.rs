@@ -28,10 +28,14 @@ pub enum Error {
     Stripe(#[from] crate::stripe::Error),
     /// Stripe subscription: {0}
     Subscription(#[from] crate::models::subscription::Error),
-    /// Stripe event has an unparsableuser_id in its metadata.
+    /// Stripe event has an unparsable org_id in its metadata.
+    BadOrgId(<OrgId as std::str::FromStr>::Err),
+    /// Stripe event has an unparsable user_id in its metadata.
     BadUserId(<UserId as std::str::FromStr>::Err),
     /// Stripe event is missing the metadata field.
     MissingMetadata,
+    /// Stripe event is missing a org_id in its metadata.
+    MissingOrgId,
     /// Stripe event is missing a user_id in its metadata.
     MissingUserId,
     /// Stripe org: {0}
@@ -43,8 +47,14 @@ impl From<Error> for tonic::Status {
         use Error::*;
         error!("Stripe webhook: {err:?}");
         match err {
-            Database(_) | Subscription(_) | BadUserId(_) | MissingMetadata | MissingUserId
-            | Org(_) | Stripe(_) => tonic::Status::internal("Internal error."),
+            MissingMetadata => tonic::Status::invalid_argument("Metadata field not set"),
+            MissingUserId => tonic::Status::invalid_argument("User id missing from metadata"),
+            BadUserId(_) => tonic::Status::invalid_argument("Could not parse user id"),
+            MissingOrgId => tonic::Status::invalid_argument("Org id missing from metadata"),
+            BadOrgId(_) => tonic::Status::invalid_argument("Could not parse org id"),
+            Database(_) | Subscription(_) | Org(_) | Stripe(_) => {
+                tonic::Status::internal("Internal error.")
+            }
         }
     }
 }
@@ -87,14 +97,16 @@ async fn setup_intent_succeeded_handler(
     setup_intent: event::SetupIntent,
     mut write: WriteConn<'_, '_>,
 ) -> Result<&'static str, Error> {
+    println!("Got this setup_intent:");
+    println!("{setup_intent:?}");
     let stripe = &write.ctx.stripe;
     let org_id: OrgId = setup_intent
         .metadata
         .ok_or_else(|| Error::MissingMetadata)?
         .get("org_id")
-        .ok_or_else(|| Error::MissingUserId)?
+        .ok_or_else(|| Error::MissingOrgId)?
         .parse()
-        .map_err(Error::BadUserId)?;
+        .map_err(Error::BadOrgId)?;
     let org = models::Org::by_id(org_id, &mut write).await?;
     match org.stripe_customer_id.as_ref() {
         // We have an existing customer, attach this payment method.

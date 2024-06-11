@@ -834,7 +834,7 @@ impl UpdateNodeMetrics {
         updates.sort_by_key(|u| u.id);
 
         let mut results = Vec::with_capacity(updates.len());
-        for update in updates {
+        for update in updates.into_iter().filter(Self::has_field) {
             let updated = diesel::update(Node::not_deleted().find(update.id))
                 .set(&update)
                 .get_result(conn)
@@ -843,6 +843,16 @@ impl UpdateNodeMetrics {
             results.push(updated);
         }
         Ok(results)
+    }
+
+    fn has_field(&self) -> bool {
+        self.block_height.is_some()
+            || self.block_age.is_some()
+            || self.staking_status.is_some()
+            || self.consensus.is_some()
+            || self.node_status.is_some()
+            || self.sync_status.is_some()
+            || self.jobs.is_some()
     }
 }
 

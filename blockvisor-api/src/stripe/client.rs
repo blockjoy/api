@@ -77,6 +77,8 @@ impl Client {
             .basic_auth(&self.secret, None as Option<String>);
 
         if let Some(body) = endpoint.body() {
+            println!("This is the body:");
+            println!("{body}");
             request = request.body(body);
             request = request.header(CONTENT_TYPE, CONTENT_FORM_ENCODED);
         }
