@@ -205,10 +205,31 @@ impl Storage {
         Ok(idents)
     }
 
-    /// Find the most recent download manifest (<= `image.node_version`).
-    ///
-    /// Also regenerates the download URLs which may have expired.
-    pub async fn download_manifest(
+    /// Find the most recent download manifest (<= `image.node_version`)
+    /// and generates the download URLs which may have expired.
+    pub async fn generate_download_manifest(
+        &self,
+        image: &ImageId,
+        network: &str,
+    ) -> Result<DownloadManifest, Error> {
+        let mut manifest = self
+            .find_download_manifest_blueprint(image, network)
+            .await?;
+        let download_gb = manifest.chunks.iter().map(|c| c.size).sum::<u64>() / 1_000_000_000;
+        let expires = Duration::from_secs(self.expiration.as_secs().max(30 * download_gb));
+        for chunk in &mut manifest.chunks {
+            let url = self
+                .client
+                .download_url(&self.bucket.archive, &chunk.key, expires)
+                .await?;
+            chunk.url = Some(url);
+        }
+
+        Ok(manifest)
+    }
+
+    /// Find the most recent download manifest (<= `image.node_version`) blueprint.
+    pub async fn find_download_manifest_blueprint(
         &self,
         image: &ImageId,
         network: &str,
@@ -217,7 +238,7 @@ impl Storage {
         let node_versions = self.node_versions(image).await?;
         let mut versions = node_versions.iter().rev();
 
-        let mut manifest = loop {
+        let manifest = loop {
             let Some(version) = versions.next() else {
                 return Err(Error::DownloadManifest(image.clone(), network.into()));
             };
@@ -229,17 +250,6 @@ impl Storage {
                 }
             }
         };
-
-        let download_gb = manifest.chunks.iter().map(|c| c.size).sum::<u64>() / 1_000_000_000;
-        let expires = Duration::from_secs(self.expiration.as_secs().max(30 * download_gb));
-        for chunk in &mut manifest.chunks {
-            let url = self
-                .client
-                .download_url(&self.bucket.archive, &chunk.key, expires)
-                .await?;
-            chunk.url = Some(url);
-        }
-
         Ok(manifest)
     }
 
