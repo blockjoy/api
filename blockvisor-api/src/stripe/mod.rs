@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::auth::resource::OrgId;
 use crate::models;
 use crate::{auth::resource::UserId, config::stripe::Config};
-use api::{customer, payment_method, setup_intent};
+use api::{customer, payment_method, setup_intent, subscription};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -23,6 +23,10 @@ pub enum Error {
     CreateSetupIntent(client::Error),
     /// Failed to list stripe payment methods: {0}
     ListPaymentMethods(client::Error),
+    /// Failed to list stripe susbcriptions: {0}
+    ListSubscriptions(client::Error),
+    /// No subscription available for customer_id `{0}`.
+    NoSubscription(String),
 }
 
 pub struct Stripe {
@@ -55,6 +59,12 @@ pub trait Payment {
         &self,
         customer_id: &str,
     ) -> Result<Vec<payment_method::PaymentMethod>, Error>;
+
+    /// Each org only has one subscription.
+    async fn get_subscription(
+        &self,
+        customer_id: &str,
+    ) -> Result<subscription::Subscription, Error>;
 }
 
 impl Stripe {
@@ -122,6 +132,20 @@ impl Payment for Stripe {
             .map_err(Error::ListPaymentMethods)?;
         Ok(resp.data)
     }
+
+    async fn get_subscription(
+        &self,
+        customer_id: &str,
+    ) -> Result<subscription::Subscription, Error> {
+        let req = subscription::ListSubscriptions::new(customer_id);
+        self.client
+            .request(&req)
+            .await
+            .map_err(Error::ListSubscriptions)?
+            .data
+            .pop()
+            .ok_or_else(|| Error::NoSubscription(customer_id.to_string()))
+    }
 }
 
 #[cfg(any(test, feature = "integration-test"))]
@@ -168,6 +192,14 @@ pub mod tests {
             customer_id: &str,
         ) -> Result<Vec<payment_method::PaymentMethod>, Error> {
             self.stripe.list_payment_methods(customer_id).await
+        }
+
+        /// Each org only has one subscription.
+        async fn get_subscription(
+            &self,
+            customer_id: &str,
+        ) -> Result<subscription::Subscription, Error> {
+            self.stripe.get_subscription(customer_id).await
         }
     }
 

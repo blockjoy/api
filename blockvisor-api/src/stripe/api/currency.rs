@@ -2,7 +2,7 @@
 ///
 /// For more details see
 /// <https://support.stripe.com/questions/which-currencies-does-stripe-support>.
-#[derive(Debug, Default, serde::Deserialize)]
+#[derive(Debug, Default, serde::Deserialize, derive_more::Display)]
 #[serde(rename_all = "lowercase")]
 pub enum Currency {
     AED, // United Arab Emirates Dirham

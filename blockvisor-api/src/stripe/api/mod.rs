@@ -11,6 +11,7 @@ pub mod customer;
 pub mod event;
 pub mod payment_method;
 pub mod setup_intent;
+pub mod subscription;
 
 use reqwest::Method;
 use serde::de::DeserializeOwned;
