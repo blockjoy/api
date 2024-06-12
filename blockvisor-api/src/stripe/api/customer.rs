@@ -1,7 +1,3 @@
-use std::any::type_name;
-
-use tracing::warn;
-
 use crate::models;
 
 /// The resource representing a Stripe "Customer".
@@ -134,10 +130,8 @@ impl super::StripeEndpoint for CreateCustomer<'_> {
         "customers".to_string()
     }
 
-    fn body(&self) -> Option<String> {
-        serde_json::to_string(self)
-            .map_err(|err| warn!("Failed to serialize {}: {}", type_name::<Self>(), err))
-            .ok()
+    fn body(&self) -> Option<&Self> {
+        Some(self)
     }
 }
 

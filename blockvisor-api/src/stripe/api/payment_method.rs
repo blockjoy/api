@@ -1,5 +1,3 @@
-use std::any::type_name;
-
 /// The resource representing a Stripe "PaymentMethod".
 ///
 /// For more details see <https://stripe.com/docs/api/payment_methods/object>
@@ -106,10 +104,8 @@ impl super::StripeEndpoint for AttachPaymentMethod<'_> {
         format!("payment_methods/{}/attach", self.payment_method_id)
     }
 
-    fn body(&self) -> Option<String> {
-        serde_json::to_string(self)
-            .map_err(|err| tracing::warn!("Failed to serialize {}: {}", type_name::<Self>(), err))
-            .ok()
+    fn body(&self) -> Option<&Self> {
+        Some(self)
     }
 }
 
@@ -135,10 +131,8 @@ impl super::StripeEndpoint for ListPaymentMethodsRequest<'_> {
         "payment_methods".to_string()
     }
 
-    fn body(&self) -> Option<String> {
-        serde_json::to_string(self)
-            .map_err(|err| tracing::warn!("Failed to serialize {}: {}", type_name::<Self>(), err))
-            .ok()
+    fn body(&self) -> Option<&Self> {
+        Some(self)
     }
 }
 

@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use displaydoc::Display;
 use reqwest::header::CONTENT_TYPE;
+use serde::Serialize;
 use thiserror::Error;
 use url::Url;
 
@@ -64,7 +65,7 @@ impl Client {
 
     pub async fn request<E>(&self, endpoint: &E) -> Result<E::Result, Error>
     where
-        E: StripeEndpoint,
+        E: StripeEndpoint + Serialize + std::fmt::Debug,
     {
         let url = self
             .endpoint
@@ -77,7 +78,9 @@ impl Client {
             .basic_auth(&self.secret, None as Option<String>);
 
         if let Some(body) = endpoint.body() {
-            request = request.body(body);
+            println!("This is the body:");
+            println!("{body:?}");
+            request = request.form(body);
             request = request.header(CONTENT_TYPE, CONTENT_FORM_ENCODED);
         }
 

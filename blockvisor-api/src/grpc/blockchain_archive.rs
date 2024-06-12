@@ -83,10 +83,35 @@ impl BlockchainArchiveService for Grpc {
 
     async fn has_blockchain_archive(
         &self,
-        _req: Request<api::HasBlockchainArchiveRequest>,
-    ) -> Result<Response<api::HasBlockchainArchiveResponse>, Status> {
-        todo!()
+        req: Request<api::BlockchainArchiveServiceHasBlockchainArchiveRequest>,
+    ) -> Result<Response<api::BlockchainArchiveServiceHasBlockchainArchiveResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| has_download_manifest(req, meta, read).scope_boxed())
+            .await
     }
+}
+
+async fn has_download_manifest(
+    req: api::BlockchainArchiveServiceHasBlockchainArchiveRequest,
+    meta: MetadataMap,
+    mut read: ReadConn<'_, '_>,
+) -> Result<api::BlockchainArchiveServiceHasBlockchainArchiveResponse, Error> {
+    read.auth_all(&meta, BlockchainArchivePerm::HasDownload)
+        .await?;
+
+    let id = req.id.ok_or(Error::MissingId)?;
+    let image = ImageId::try_from(id).map_err(Error::ParseImageId)?;
+    let has_manifest = !matches!(
+        read.ctx
+            .storage
+            .find_download_manifest_blueprint(&image, &req.network)
+            .await,
+        Err(crate::storage::Error::DownloadManifest(..))
+    );
+
+    Ok(api::BlockchainArchiveServiceHasBlockchainArchiveResponse {
+        available: has_manifest,
+    })
 }
 
 async fn get_download_manifest(
@@ -102,7 +127,7 @@ async fn get_download_manifest(
     let manifest = read
         .ctx
         .storage
-        .download_manifest(&image, &req.network)
+        .generate_download_manifest(&image, &req.network)
         .await?;
 
     Ok(api::BlockchainArchiveServiceGetDownloadManifestResponse {

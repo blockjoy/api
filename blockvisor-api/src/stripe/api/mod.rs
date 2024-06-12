@@ -15,7 +15,7 @@ pub mod setup_intent;
 use reqwest::Method;
 use serde::de::DeserializeOwned;
 
-pub trait StripeEndpoint: Send + Sync {
+pub trait StripeEndpoint: Send + Sync + Sized {
     type Result: DeserializeOwned;
 
     /// The HTTP Method used for this endpoint.
@@ -30,7 +30,7 @@ pub trait StripeEndpoint: Send + Sync {
     }
 
     /// The HTTP body associated with this endpoint.
-    fn body(&self) -> Option<String> {
+    fn body(&self) -> Option<&Self> {
         None
     }
 }

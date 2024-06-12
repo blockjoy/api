@@ -1,5 +1,5 @@
 DATABASE_URL ?= postgres://blockvisor:password@localhost:25432/blockvisor_db
-DOCKER_COMPOSE ?= docker-compose --file docker/docker-compose.yaml
+DOCKER_COMPOSE ?= docker compose --file docker/docker-compose.yaml
 DIESEL ?= diesel --config-file blockvisor-api/diesel.toml --database-url ${DATABASE_URL}
 TEST_SERVICES ?= postgres emqx
 

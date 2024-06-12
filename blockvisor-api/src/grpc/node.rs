@@ -811,7 +811,7 @@ impl api::Node {
             sync_status: common::SyncStatus::from(node.sync_status).into(),
             self_update: node.self_update,
             network: node.network,
-            blockchain_name: blockchain.name.clone(),
+            blockchain_name: blockchain.display_name.clone(),
             created_by,
             allow_ips,
             deny_ips,

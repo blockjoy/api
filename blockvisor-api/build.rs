@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 
 // multiple paths lets Dockerfile find them
 const PROTO_DIRS: &[&str] = &["./proto", "../proto"];
+const EXCLUDE_DIRS: &[&str] = &[".direnv"];
 
 fn main() -> Result<()> {
     #[cfg(any(test, feature = "integration-test"))]
@@ -28,7 +29,14 @@ fn proto_files() -> Result<Vec<PathBuf>> {
 }
 
 fn find_recursive(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
-    if !path.is_dir() {
+    let is_excluded = || {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| EXCLUDE_DIRS.contains(&name))
+            .unwrap_or_default()
+    };
+
+    if !path.is_dir() || is_excluded() {
         return Ok(());
     }
 

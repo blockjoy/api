@@ -93,7 +93,7 @@ pub enum Error {
     Host(#[from] super::host::Error),
     /// Only available host candidate failed.
     HostCandidateFailed,
-    /// Ip address error: {0},
+    /// Ip address error: {0}
     IpAddr(#[from] super::ip_address::Error),
     /// Failed to get next host ip for node: {0}
     NextHostIp(crate::models::ip_address::Error),
@@ -680,6 +680,8 @@ impl NewNode {
         authz: &AuthZ,
         mut write: &mut WriteConn<'_, '_>,
     ) -> Result<Node, Error> {
+        // We are having concurrency issues with the node ip selection, so we take an exclusive lock
+        // before selecting the right ip and host.
         let host = if let Some(host) = host {
             host
         } else {
@@ -690,10 +692,10 @@ impl NewNode {
             self.find_host(scheduler, authz, write).await?
         };
 
+        let ip_gateway = host.ip_gateway.ip().to_string();
         let node_ip = IpAddress::by_host_unassigned(host.id, write)
             .await
             .map_err(Error::NextHostIp)?;
-        let ip_gateway = host.ip_gateway.ip().to_string();
 
         let dns_record = write.ctx.dns.create(&self.name, node_ip.ip()).await?;
         let dns_id = dns_record.id;
@@ -834,7 +836,7 @@ impl UpdateNodeMetrics {
         updates.sort_by_key(|u| u.id);
 
         let mut results = Vec::with_capacity(updates.len());
-        for update in updates {
+        for update in updates.into_iter().filter(Self::has_field) {
             let updated = diesel::update(Node::not_deleted().find(update.id))
                 .set(&update)
                 .get_result(conn)
@@ -844,10 +846,22 @@ impl UpdateNodeMetrics {
         }
         Ok(results)
     }
+
+    const fn has_field(&self) -> bool {
+        self.block_height.is_some()
+            || self.block_age.is_some()
+            || self.staking_status.is_some()
+            || self.consensus.is_some()
+            || self.node_status.is_some()
+            || self.sync_status.is_some()
+            || self.jobs.is_some()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use diesel_async::scoped_futures::ScopedFutureExt;
+    use diesel_async::AsyncConnection;
     use tokio::sync::mpsc;
     use uuid::Uuid;
 
@@ -899,12 +913,19 @@ mod tests {
             meta_tx,
             mqtt_tx,
         };
-
         let authz = view_authz(&ctx, db.seed.node.id, &mut write).await;
         let host = db.seed.host.clone();
         let host_id = db.seed.host.id;
-        req.create(Some(host), &authz, &mut write).await.unwrap();
-
+        write
+            .transaction(|conn| {
+                async move {
+                    req.create(Some(host), &authz, conn).await.unwrap();
+                    Ok(()) as Result<(), diesel::result::Error>
+                }
+                .scope_boxed()
+            })
+            .await
+            .unwrap();
         let filter = NodeFilter {
             org_ids: vec![org_id],
             offset: 0,

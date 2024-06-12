@@ -9,11 +9,12 @@ use displaydoc::Display;
 use ipnetwork::IpNetwork;
 use thiserror::Error;
 use tonic::Status;
+use uuid::Uuid;
 
 use crate::auth::resource::HostId;
 use crate::database::Conn;
 
-use super::schema::ip_addresses;
+use super::schema::{ip_addresses, nodes};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -25,6 +26,10 @@ pub enum Error {
     FindByHosts(HashSet<HostId>, diesel::result::Error),
     /// Failed to find ip address for ip `{0}`: {1}
     FindByIp(IpAddr, diesel::result::Error),
+    /// Failed to find ip addresses in use: {0}
+    InUse(diesel::result::Error),
+    /// Failed to lock table `nodes`: {0}
+    Lock(diesel::result::Error),
     /// Failed to get next IP for host: {0}
     NextForHost(diesel::result::Error),
     /// Failed to create new IP network: {0}
@@ -71,7 +76,7 @@ impl CreateIpAddress {
 
 #[derive(Debug, Queryable)]
 pub struct IpAddress {
-    pub id: uuid::Uuid,
+    pub id: Uuid,
     pub ip: IpNetwork,
     pub host_id: Option<HostId>,
 }
@@ -79,16 +84,23 @@ pub struct IpAddress {
 impl IpAddress {
     /// Helper returning the next valid IP address for host identified by `host_id`
     pub async fn by_host_unassigned(host_id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        use super::schema::nodes;
+        let ids_in_use: Vec<Uuid> = ip_addresses::table
+            .left_join(nodes::table.on(ip_addresses::ip.eq(nodes::ip)))
+            .filter(ip_addresses::host_id.eq(host_id))
+            .filter(nodes::id.is_not_null())
+            .filter(nodes::deleted_at.is_null())
+            .select(ip_addresses::id)
+            .load(conn)
+            .await
+            .map_err(Error::InUse)?;
 
-        let node_for_this_ip = nodes::ip
-            .eq(ip_addresses::ip)
-            .and(nodes::deleted_at.is_null());
         ip_addresses::table
             .filter(ip_addresses::host_id.eq(host_id))
-            .left_join(nodes::table.on(node_for_this_ip))
-            .filter(nodes::id.is_null())
+            .filter(ip_addresses::id.ne_all(ids_in_use))
             .select(ip_addresses::all_columns)
+            .limit(1)
+            .for_update()
+            .skip_locked()
             .get_result(conn)
             .await
             .map_err(Error::NextForHost)

@@ -61,6 +61,8 @@ pub enum Error {
     Paginate(#[from] crate::models::paginate::Error),
     /// Org model RBAC error: {0}
     Rbac(#[from] crate::models::rbac::Error),
+    /// Failed update customer_id for org: {0}
+    SetCustomerId(diesel::result::Error),
     /// Org model token error: {0}
     Token(#[from] crate::models::token::Error),
     /// Failed to update org: {0}
@@ -124,6 +126,18 @@ impl Org {
             .get_result(conn)
             .await
             .map_err(|err| Error::FindPersonal(user_id, err))
+    }
+
+    pub async fn set_customer_id(
+        self,
+        customer_id: &str,
+        conn: &mut Conn<'_>,
+    ) -> Result<Org, Error> {
+        diesel::update(orgs::table.filter(orgs::id.eq(self.id)))
+            .set(orgs::stripe_customer_id.eq(customer_id))
+            .get_result(conn)
+            .await
+            .map_err(Error::SetCustomerId)
     }
 
     pub async fn add_admin(

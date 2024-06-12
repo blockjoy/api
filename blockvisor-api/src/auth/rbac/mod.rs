@@ -95,6 +95,7 @@ define_perms! {
         GetDownload,
         GetUpload,
         PutDownload,
+        HasDownload,
     }
 
     Bundle => {
