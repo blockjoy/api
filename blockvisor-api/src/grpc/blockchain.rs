@@ -679,6 +679,7 @@ impl api::BlockchainServiceListRequest {
                         .map_err(Error::SearchOperator)?,
                     id: search.id.map(|id| id.trim().to_lowercase()),
                     name: search.name.map(|name| name.trim().to_lowercase()),
+                    display_name: search.display_name.map(|name| name.trim().to_lowercase()),
                 })
             })
             .transpose()?;

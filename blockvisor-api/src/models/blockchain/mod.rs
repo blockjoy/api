@@ -168,6 +168,7 @@ pub struct BlockchainSearch {
     pub operator: SearchOperator,
     pub id: Option<String>,
     pub name: Option<String>,
+    pub display_name: Option<String>,
 }
 
 impl BlockchainSearch {
@@ -183,6 +184,11 @@ impl BlockchainSearch {
                 if let Some(name) = self.name {
                     predicate = Box::new(predicate.or(super::lower(blockchains::name).like(name)));
                 }
+                if let Some(display_name) = self.display_name {
+                    predicate = Box::new(
+                        predicate.or(super::lower(blockchains::display_name).like(display_name)),
+                    );
+                }
                 predicate
             }
             SearchOperator::And => {
@@ -194,6 +200,11 @@ impl BlockchainSearch {
                 }
                 if let Some(name) = self.name {
                     predicate = Box::new(predicate.and(super::lower(blockchains::name).like(name)));
+                }
+                if let Some(display_name) = self.display_name {
+                    predicate = Box::new(
+                        predicate.and(super::lower(blockchains::display_name).like(display_name)),
+                    );
                 }
                 predicate
             }
