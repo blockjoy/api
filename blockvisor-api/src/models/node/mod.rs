@@ -273,6 +273,8 @@ impl Node {
                     org_id: new_org_id,
                 };
                 new_node_log.create(conn).await?;
+                Org::decrement_node(self.org_id, conn).await?;
+                Org::increment_node(new_org_id, conn).await?;
             }
         }
 
