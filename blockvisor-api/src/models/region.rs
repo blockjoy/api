@@ -76,9 +76,16 @@ impl Region {
             .map_err(|err| Error::ByName(name.into(), err))
     }
 
-    pub async fn get_or_create(name: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn get_or_create(
+        name: &str,
+        pricing_tier: Option<&str>,
+        conn: &mut Conn<'_>,
+    ) -> Result<Self, Error> {
         diesel::insert_into(regions::table)
-            .values(regions::name.eq(name.to_lowercase()))
+            .values((
+                regions::name.eq(name.to_lowercase()),
+                regions::pricing_tier.eq(pricing_tier.map(str::to_uppercase)),
+            ))
             .on_conflict(regions::name)
             .do_update()
             .set(regions::name.eq(name.to_lowercase()))

@@ -232,7 +232,9 @@ async fn create(
     }
 
     let region = if let Some(ref region) = req.region {
-        Region::get_or_create(region, &mut write).await.map(Some)?
+        Region::get_or_create(region, None, &mut write)
+            .await
+            .map(Some)?
     } else {
         None
     };
@@ -311,7 +313,9 @@ async fn update(
         .await?;
 
     let region = if let Some(ref region) = req.region {
-        Region::get_or_create(region, &mut write).await.map(Some)?
+        Region::get_or_create(region, None, &mut write)
+            .await
+            .map(Some)?
     } else {
         None
     };

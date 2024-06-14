@@ -172,7 +172,9 @@ async fn create_users(org_id: OrgId, conn: &mut Conn<'_>) -> User {
 }
 
 async fn create_region(conn: &mut Conn<'_>) -> Region {
-    Region::get_or_create("moneyland", conn).await.unwrap()
+    Region::get_or_create("moneyland", Some("MOLA"), conn)
+        .await
+        .unwrap()
 }
 
 async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Conn<'_>) -> Host {
