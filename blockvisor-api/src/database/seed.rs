@@ -120,6 +120,7 @@ async fn create_orgs(conn: &mut Conn<'_>) -> Org {
             orgs::id.eq(org_id),
             orgs::name.eq("the blockboys"),
             orgs::is_personal.eq(false),
+            orgs::stripe_customer_id.eq("testing testing, is thing thing even on?"),
         ))
         .execute(conn)
         .await
