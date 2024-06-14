@@ -147,7 +147,8 @@ pub enum Error {
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
-        match err {
+        tracing::error!("{err}");
+        match dbg!(err) {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             Delete(_, NotFound)
             | FindById(_, NotFound)
