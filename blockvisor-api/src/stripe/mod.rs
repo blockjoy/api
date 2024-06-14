@@ -295,7 +295,7 @@ pub mod tests {
     impl MockStripe {
         pub async fn new() -> Self {
             let server = mock_server().await;
-            let server_url = server.url().parse().unwrap();
+            let server_url = format!("{}/v1", server.url()).parse().unwrap();
             let config = Arc::new(mock_config(&server));
             let stripe = Stripe::new_mock(config, server_url).unwrap();
 
