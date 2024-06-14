@@ -333,8 +333,7 @@ pub mod tests {
         server
             .mock(
                 "GET",
-                "https://api.stripe.com/v1/payment_methods",
-                // "https://api.stripe.com/v1/payment_methods?customer=cus_NffrFeUfNV2Hib",
+                "https://api.stripe.com/v1/payment_methods?customer=cus_NffrFeUfNV2Hib",
             )
             .with_status(200)
             .with_body(mock_payment_methods())
@@ -358,8 +357,7 @@ pub mod tests {
         server
             .mock(
                 "GET",
-                "https://api.stripe.com/v1/subscriptions",
-                // "https://api.stripe.com/v1/subscriptions?customer=cus_NffrFeUfNV2Hib",
+                "https://api.stripe.com/v1/subscriptions?customer=cus_NffrFeUfNV2Hib",
             )
             .with_status(200)
             .with_body(mock_subscriptions())
@@ -379,7 +377,7 @@ pub mod tests {
     fn mock_config(server: &ServerGuard) -> Config {
         Config {
             secret: "stripe_fake_secret".to_owned().into(),
-            base_url: server.url(),
+            base_url: dbg!(server.url()),
         }
     }
 

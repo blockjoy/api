@@ -67,10 +67,10 @@ impl Client {
     where
         E: StripeEndpoint + Serialize + std::fmt::Debug,
     {
-        let url = self
+        let url = dbg!(self
             .endpoint
             .join(&endpoint.path())
-            .map_err(Error::JoinEndpoint)?;
+            .map_err(Error::JoinEndpoint)?);
 
         let mut request = self
             .inner
