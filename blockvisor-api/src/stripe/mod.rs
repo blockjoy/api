@@ -307,14 +307,17 @@ pub mod tests {
         let mut server = mockito::Server::new_async().await;
 
         server
-            .mock("POST", "https://api.stripe.com/v1/setup_intents")
+            .mock(
+                "POST",
+                mockito::Matcher::Regex(r"^/v1/setup_intents".into()),
+            )
             .with_status(200)
             .with_body(mock_setup_intent())
             .create_async()
             .await;
 
         server
-            .mock("POST", "https://api.stripe.com/v1/customers")
+            .mock("POST", mockito::Matcher::Regex(r"^/v1/customers".into()))
             .with_status(201)
             .with_body(mock_customer())
             .create_async()
@@ -323,7 +326,7 @@ pub mod tests {
         server
             .mock(
                 "POST",
-                "https://api.stripe.com/v1/payment_methods/moneyfaucet/attach",
+                mockito::Matcher::Regex(r"^/v1/payment_methods/moneyfaucet/attach".into()),
             )
             .with_status(201)
             .with_body(mock_payment_method())
@@ -333,7 +336,7 @@ pub mod tests {
         server
             .mock(
                 "GET",
-                "https://api.stripe.com/v1/payment_methods?customer=cus_NffrFeUfNV2Hib",
+                mockito::Matcher::Regex(r"^/v1/payment_methods?customer=cus_NffrFeUfNV2Hib".into()),
             )
             .with_status(200)
             .with_body(mock_payment_methods())
@@ -341,14 +344,20 @@ pub mod tests {
             .await;
 
         server
-            .mock("POST", "https://api.stripe.com/v1/subscriptions")
+            .mock(
+                "POST",
+                mockito::Matcher::Regex(r"^/v1/subscriptions".into()),
+            )
             .with_status(201)
             .with_body(mock_subscription())
             .create_async()
             .await;
 
         server
-            .mock("POST", "https://api.stripe.com/v1/subscription_items")
+            .mock(
+                "POST",
+                mockito::Matcher::Regex(r"^/v1/subscription_items".into()),
+            )
             .with_status(201)
             .with_body(mock_subscription_item())
             .create_async()
@@ -357,7 +366,7 @@ pub mod tests {
         server
             .mock(
                 "GET",
-                "https://api.stripe.com/v1/subscriptions?customer=cus_NffrFeUfNV2Hib",
+                mockito::Matcher::Regex(r"^/v1/subscriptions?customer=cus_NffrFeUfNV2Hib".into()),
             )
             .with_status(200)
             .with_body(mock_subscriptions())
@@ -365,7 +374,10 @@ pub mod tests {
             .await;
 
         server
-            .mock("GET", "https://api.stripe.com/v1/prices/search")
+            .mock(
+                "GET",
+                mockito::Matcher::Regex(r"^/v1/prices/search?^".into()),
+            )
             .with_status(200)
             .with_body(mock_prices())
             .create_async()
