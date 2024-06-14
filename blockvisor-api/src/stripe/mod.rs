@@ -314,6 +314,13 @@ pub mod tests {
             .await;
 
         server
+            .mock("GET", "https://api.stripe.com/v1/prices/search")
+            .with_status(200)
+            .with_body(mock_prices())
+            .create_async()
+            .await;
+
+        server
     }
 
     fn mock_config(server: &ServerGuard) -> Config {
@@ -357,6 +364,45 @@ pub mod tests {
           "single_use_mandate": null,
           "status": "requires_payment_method",
           "usage": "off_session"
+        }"#
+    }
+
+    const fn mock_prices() -> &'static str {
+        r#"{
+          "object": "search_result",
+          "url": "/v1/prices/search",
+          "has_more": false,
+          "data": [
+            {
+              "id": "price_1MoBy5LkdIwHu7ixZhnattbh",
+              "object": "price",
+              "active": true,
+              "billing_scheme": "per_unit",
+              "created": 1679431181,
+              "currency": "usd",
+              "custom_unit_amount": null,
+              "livemode": false,
+              "lookup_key": null,
+              "metadata": {
+                "order_id": "6735"
+              },
+              "nickname": null,
+              "product": "prod_NZKdYqrwEYx6iK",
+              "recurring": {
+                "aggregate_usage": null,
+                "interval": "month",
+                "interval_count": 1,
+                "trial_period_days": null,
+                "usage_type": "licensed"
+              },
+              "tax_behavior": "unspecified",
+              "tiers_mode": null,
+              "transform_quantity": null,
+              "type": "recurring",
+              "unit_amount": 1000,
+              "unit_amount_decimal": "1000"
+            }
+          ],
         }"#
     }
 }
