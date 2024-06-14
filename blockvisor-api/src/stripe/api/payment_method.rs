@@ -131,7 +131,7 @@ impl super::StripeEndpoint for ListPaymentMethodsRequest<'_> {
         "payment_methods".to_string()
     }
 
-    fn body(&self) -> Option<&Self> {
+    fn query(&self) -> Option<&Self> {
         Some(self)
     }
 }

@@ -314,6 +314,59 @@ pub mod tests {
             .await;
 
         server
+            .mock("POST", "https://api.stripe.com/v1/customers")
+            .with_status(201)
+            .with_body(mock_customer())
+            .create_async()
+            .await;
+
+        server
+            .mock(
+                "POST",
+                "https://api.stripe.com/v1/payment_methods/moneyfaucet/attach",
+            )
+            .with_status(201)
+            .with_body(mock_payment_method())
+            .create_async()
+            .await;
+
+        server
+            .mock(
+                "GET",
+                "https://api.stripe.com/v1/payment_methods",
+                // "https://api.stripe.com/v1/payment_methods?customer=cus_NffrFeUfNV2Hib",
+            )
+            .with_status(200)
+            .with_body(mock_payment_methods())
+            .create_async()
+            .await;
+
+        server
+            .mock("POST", "https://api.stripe.com/v1/subscriptions")
+            .with_status(201)
+            .with_body(mock_subscription())
+            .create_async()
+            .await;
+
+        server
+            .mock("POST", "https://api.stripe.com/v1/subscription_items")
+            .with_status(201)
+            .with_body(mock_subscription_item())
+            .create_async()
+            .await;
+
+        server
+            .mock(
+                "GET",
+                "https://api.stripe.com/v1/subscriptions",
+                // "https://api.stripe.com/v1/subscriptions?customer=cus_NffrFeUfNV2Hib",
+            )
+            .with_status(200)
+            .with_body(mock_subscriptions())
+            .create_async()
+            .await;
+
+        server
             .mock("GET", "https://api.stripe.com/v1/prices/search")
             .with_status(200)
             .with_body(mock_prices())
@@ -349,7 +402,7 @@ pub mod tests {
           "metadata": {},
           "next_action": null,
           "on_behalf_of": null,
-          "payment_method": null,
+          "payment_method": "moneyfaucet",
           "payment_method_configuration_details": null,
           "payment_method_options": {
             "card": {
@@ -364,6 +417,38 @@ pub mod tests {
           "single_use_mandate": null,
           "status": "requires_payment_method",
           "usage": "off_session"
+        }"#
+    }
+
+    const fn mock_customer() -> &'static str {
+        r#"{
+          "id": "cus_NffrFeUfNV2Hib",
+          "object": "customer",
+          "address": null,
+          "balance": 0,
+          "created": 1680893993,
+          "currency": null,
+          "default_source": null,
+          "delinquent": false,
+          "description": null,
+          "discount": null,
+          "email": "jennyrosen@example.com",
+          "invoice_prefix": "0759376C",
+          "invoice_settings": {
+            "custom_fields": null,
+            "default_payment_method": null,
+            "footer": null,
+            "rendering_options": null
+          },
+          "livemode": false,
+          "metadata": {},
+          "name": "Jenny Rosen",
+          "next_invoice_sequence": 1,
+          "phone": null,
+          "preferred_locales": [],
+          "shipping": null,
+          "tax_exempt": "none",
+          "test_clock": null
         }"#
     }
 
@@ -402,7 +487,432 @@ pub mod tests {
               "unit_amount": 1000,
               "unit_amount_decimal": "1000"
             }
-          ],
+          ]
+        }"#
+    }
+
+    const fn mock_payment_method() -> &'static str {
+        r#"{
+          "id": "pm_1MqM05LkdIwHu7ixlDxxO6Mc",
+          "object": "payment_method",
+          "billing_details": {
+            "address": {
+              "city": null,
+              "country": null,
+              "line1": null,
+              "line2": null,
+              "postal_code": null,
+              "state": null
+            },
+            "email": null,
+            "name": null,
+            "phone": null
+          },
+          "card": {
+            "brand": "visa",
+            "checks": {
+              "address_line1_check": null,
+              "address_postal_code_check": null,
+              "cvc_check": "pass"
+            },
+            "country": "US",
+            "exp_month": 8,
+            "exp_year": 2026,
+            "fingerprint": "mToisGZ01V71BCos",
+            "funding": "credit",
+            "generated_from": null,
+            "last4": "4242",
+            "networks": {
+              "available": [
+                "visa"
+              ],
+              "preferred": null
+            },
+            "three_d_secure_usage": {
+              "supported": true
+            },
+            "wallet": null
+          },
+          "created": 1679946402,
+          "customer": "cus_NffrFeUfNV2Hib",
+          "livemode": false,
+          "metadata": {},
+          "type": "card"
+        }"#
+    }
+
+    const fn mock_payment_methods() -> &'static str {
+        r#"{
+          "object": "list",
+          "url": "/v1/customers/cus_NffrFeUfNV2Hib/payment_methods",
+          "has_more": false,
+          "data": [
+            {
+              "id": "pm_1MqM05LkdIwHu7ixlDxxO6Mc",
+              "object": "payment_method",
+              "billing_details": {
+                "address": {
+                  "city": null,
+                  "country": null,
+                  "line1": null,
+                  "line2": null,
+                  "postal_code": null,
+                  "state": null
+                },
+                "email": null,
+                "name": null,
+                "phone": null
+              },
+              "card": {
+                "brand": "visa",
+                "checks": {
+                  "address_line1_check": null,
+                  "address_postal_code_check": null,
+                  "cvc_check": "pass"
+                },
+                "country": "US",
+                "exp_month": 8,
+                "exp_year": 2026,
+                "fingerprint": "mToisGZ01V71BCos",
+                "funding": "credit",
+                "generated_from": null,
+                "last4": "4242",
+                "networks": {
+                  "available": [
+                    "visa"
+                  ],
+                  "preferred": null
+                },
+                "three_d_secure_usage": {
+                  "supported": true
+                },
+                "wallet": null
+              },
+              "created": 1679946402,
+              "customer": "cus_NffrFeUfNV2Hib",
+              "livemode": false,
+              "metadata": {},
+              "type": "card"
+            }
+          ]
+        }"#
+    }
+
+    const fn mock_subscription() -> &'static str {
+        r#"{
+          "id": "sub_1MowQVLkdIwHu7ixeRlqHVzs",
+          "object": "subscription",
+          "application": null,
+          "application_fee_percent": null,
+          "automatic_tax": {
+            "enabled": false,
+            "liability": null
+          },
+          "billing_cycle_anchor": 1679609767,
+          "billing_thresholds": null,
+          "cancel_at": null,
+          "cancel_at_period_end": false,
+          "canceled_at": null,
+          "cancellation_details": {
+            "comment": null,
+            "feedback": null,
+            "reason": null
+          },
+          "collection_method": "charge_automatically",
+          "created": 1679609767,
+          "currency": "usd",
+          "current_period_end": 1682288167,
+          "current_period_start": 1679609767,
+          "customer": "cus_NffrFeUfNV2Hib",
+          "days_until_due": null,
+          "default_payment_method": null,
+          "default_source": null,
+          "default_tax_rates": [],
+          "description": null,
+          "discount": null,
+          "discounts": null,
+          "ended_at": null,
+          "invoice_settings": {
+            "issuer": {
+              "type": "self"
+            }
+          },
+          "items": {
+            "object": "list",
+            "data": [
+              {
+                "id": "si_Na6dzxczY5fwHx",
+                "object": "subscription_item",
+                "billing_thresholds": null,
+                "created": 1679609768,
+                "metadata": {},
+                "plan": {
+                  "id": "price_1MowQULkdIwHu7ixraBm864M",
+                  "object": "plan",
+                  "active": true,
+                  "aggregate_usage": null,
+                  "amount": 1000,
+                  "amount_decimal": "1000",
+                  "billing_scheme": "per_unit",
+                  "created": 1679609766,
+                  "currency": "usd",
+                  "discounts": null,
+                  "interval": "month",
+                  "interval_count": 1,
+                  "livemode": false,
+                  "metadata": {},
+                  "nickname": null,
+                  "product": "prod_Na6dGcTsmU0I4R",
+                  "tiers_mode": null,
+                  "transform_usage": null,
+                  "trial_period_days": null,
+                  "usage_type": "licensed"
+                },
+                "price": {
+                  "id": "price_1MowQULkdIwHu7ixraBm864M",
+                  "object": "price",
+                  "active": true,
+                  "billing_scheme": "per_unit",
+                  "created": 1679609766,
+                  "currency": "usd",
+                  "custom_unit_amount": null,
+                  "livemode": false,
+                  "lookup_key": null,
+                  "metadata": {},
+                  "nickname": null,
+                  "product": "prod_Na6dGcTsmU0I4R",
+                  "recurring": {
+                    "aggregate_usage": null,
+                    "interval": "month",
+                    "interval_count": 1,
+                    "trial_period_days": null,
+                    "usage_type": "licensed"
+                  },
+                  "tax_behavior": "unspecified",
+                  "tiers_mode": null,
+                  "transform_quantity": null,
+                  "type": "recurring",
+                  "unit_amount": 1000,
+                  "unit_amount_decimal": "1000"
+                },
+                "quantity": 1,
+                "subscription": "sub_1MowQVLkdIwHu7ixeRlqHVzs",
+                "tax_rates": []
+              }
+            ],
+            "has_more": false,
+            "total_count": 1,
+            "url": "/v1/subscription_items?subscription=sub_1MowQVLkdIwHu7ixeRlqHVzs"
+          },
+          "latest_invoice": "in_1MowQWLkdIwHu7ixuzkSPfKd",
+          "livemode": false,
+          "metadata": {},
+          "next_pending_invoice_item_invoice": null,
+          "on_behalf_of": null,
+          "pause_collection": null,
+          "payment_settings": {
+            "payment_method_options": null,
+            "payment_method_types": null,
+            "save_default_payment_method": "off"
+          },
+          "pending_invoice_item_interval": null,
+          "pending_setup_intent": null,
+          "pending_update": null,
+          "schedule": null,
+          "start_date": 1679609767,
+          "status": "active",
+          "test_clock": null,
+          "transfer_data": null,
+          "trial_end": null,
+          "trial_settings": {
+            "end_behavior": {
+              "missing_payment_method": "create_invoice"
+            }
+          },
+          "trial_start": null
+        }"#
+    }
+
+    const fn mock_subscription_item() -> &'static str {
+        r#"{
+          "id": "si_NcLYdDxLHxlFo7",
+          "object": "subscription_item",
+          "billing_thresholds": null,
+          "created": 1680126546,
+          "metadata": {},
+          "price": {
+            "id": "price_1Mr6rdLkdIwHu7ixwPmiybbR",
+            "object": "price",
+            "active": true,
+            "billing_scheme": "per_unit",
+            "created": 1680126545,
+            "currency": "usd",
+            "custom_unit_amount": null,
+            "discounts": null,
+            "livemode": false,
+            "lookup_key": null,
+            "metadata": {},
+            "nickname": null,
+            "product": "prod_NcLYGKH0eY5b8s",
+            "recurring": {
+              "aggregate_usage": null,
+              "interval": "month",
+              "interval_count": 1,
+              "trial_period_days": null,
+              "usage_type": "licensed"
+            },
+            "tax_behavior": "unspecified",
+            "tiers_mode": null,
+            "transform_quantity": null,
+            "type": "recurring",
+            "unit_amount": 1000,
+            "unit_amount_decimal": "1000"
+          },
+          "quantity": 2,
+          "subscription": "sub_1Mr6rbLkdIwHu7ix4Xm9Ahtd",
+          "tax_rates": []
+        }"#
+    }
+
+    const fn mock_subscriptions() -> &'static str {
+        r#"{
+          "object": "list",
+          "url": "/v1/subscriptions",
+          "has_more": false,
+          "data": [
+            {
+              "id": "sub_1MowQVLkdIwHu7ixeRlqHVzs",
+              "object": "subscription",
+              "application": null,
+              "application_fee_percent": null,
+              "automatic_tax": {
+                "enabled": false,
+                "liability": null
+              },
+              "billing_cycle_anchor": 1679609767,
+              "billing_thresholds": null,
+              "cancel_at": null,
+              "cancel_at_period_end": false,
+              "canceled_at": null,
+              "cancellation_details": {
+                "comment": null,
+                "feedback": null,
+                "reason": null
+              },
+              "collection_method": "charge_automatically",
+              "created": 1679609767,
+              "currency": "usd",
+              "current_period_end": 1682288167,
+              "current_period_start": 1679609767,
+              "customer": "cus_NffrFeUfNV2Hib",
+              "days_until_due": null,
+              "default_payment_method": null,
+              "default_source": null,
+              "default_tax_rates": [],
+              "description": null,
+              "discount": null,
+              "discounts": null,
+              "ended_at": null,
+              "invoice_settings": {
+                "issuer": {
+                  "type": "self"
+                }
+              },
+              "items": {
+                "object": "list",
+                "data": [
+                  {
+                    "id": "si_Na6dzxczY5fwHx",
+                    "object": "subscription_item",
+                    "billing_thresholds": null,
+                    "created": 1679609768,
+                    "metadata": {},
+                    "plan": {
+                      "id": "price_1MowQULkdIwHu7ixraBm864M",
+                      "object": "plan",
+                      "active": true,
+                      "aggregate_usage": null,
+                      "amount": 1000,
+                      "amount_decimal": "1000",
+                      "billing_scheme": "per_unit",
+                      "created": 1679609766,
+                      "currency": "usd",
+                      "discounts": null,
+                      "interval": "month",
+                      "interval_count": 1,
+                      "livemode": false,
+                      "metadata": {},
+                      "nickname": null,
+                      "product": "prod_Na6dGcTsmU0I4R",
+                      "tiers_mode": null,
+                      "transform_usage": null,
+                      "trial_period_days": null,
+                      "usage_type": "licensed"
+                    },
+                    "price": {
+                      "id": "price_1MowQULkdIwHu7ixraBm864M",
+                      "object": "price",
+                      "active": true,
+                      "billing_scheme": "per_unit",
+                      "created": 1679609766,
+                      "currency": "usd",
+                      "custom_unit_amount": null,
+                      "livemode": false,
+                      "lookup_key": null,
+                      "metadata": {},
+                      "nickname": null,
+                      "product": "prod_Na6dGcTsmU0I4R",
+                      "recurring": {
+                        "aggregate_usage": null,
+                        "interval": "month",
+                        "interval_count": 1,
+                        "trial_period_days": null,
+                        "usage_type": "licensed"
+                      },
+                      "tax_behavior": "unspecified",
+                      "tiers_mode": null,
+                      "transform_quantity": null,
+                      "type": "recurring",
+                      "unit_amount": 1000,
+                      "unit_amount_decimal": "1000"
+                    },
+                    "quantity": 1,
+                    "subscription": "sub_1MowQVLkdIwHu7ixeRlqHVzs",
+                    "tax_rates": []
+                  }
+                ],
+                "has_more": false,
+                "total_count": 1,
+                "url": "/v1/subscription_items?subscription=sub_1MowQVLkdIwHu7ixeRlqHVzs"
+              },
+              "latest_invoice": "in_1MowQWLkdIwHu7ixuzkSPfKd",
+              "livemode": false,
+              "metadata": {},
+              "next_pending_invoice_item_invoice": null,
+              "on_behalf_of": null,
+              "pause_collection": null,
+              "payment_settings": {
+                "payment_method_options": null,
+                "payment_method_types": null,
+                "save_default_payment_method": "off"
+              },
+              "pending_invoice_item_interval": null,
+              "pending_setup_intent": null,
+              "pending_update": null,
+              "schedule": null,
+              "start_date": 1679609767,
+              "status": "active",
+              "test_clock": null,
+              "transfer_data": null,
+              "trial_end": null,
+              "trial_settings": {
+                "end_behavior": {
+                  "missing_payment_method": "create_invoice"
+                }
+              },
+              "trial_start": null
+            }
+          ]
         }"#
     }
 }
