@@ -86,7 +86,7 @@ impl Client {
             request = request.query(query);
         }
 
-        let resp = request.send().await.map_err(Error::SendRequest)?;
+        let resp = dbg!(dbg!(request).send().await).map_err(Error::SendRequest)?;
         let status = resp.status();
         if status.is_success() {
             resp.json()
