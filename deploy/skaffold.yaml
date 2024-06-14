@@ -23,11 +23,11 @@ profiles:
       kustomize:
         paths:
           - ./kubernetes/staging
-  # - name: testing
-  #   deploy:
-  #     kustomize:
-  #       paths:
-  #         - ./kubernetes/testing
+  - name: testing
+    deploy:
+      kustomize:
+        paths:
+          - ./kubernetes/testing
   - name: prod
     deploy:
       kustomize:

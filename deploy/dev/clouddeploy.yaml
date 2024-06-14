@@ -10,9 +10,9 @@ serialPipeline:
   - targetId: dev
     profiles:
     - dev
-  # - targetId: testing
-  #   profiles:
-  #   - testing
+  - targetId: testing
+    profiles:
+    - testing
 ---
 apiVersion: deploy.cloud.google.com/v1
 kind: Target
@@ -25,13 +25,13 @@ requireApproval: false
 gke:
   cluster: projects/blockjoy-dev/locations/us-east1-b/clusters/blockjoy-dev
 ---
-# apiVersion: deploy.cloud.google.com/v1
-# kind: Target
-# metadata:
-#   name: testing
-#   annotations: {}
-#   labels: {}
-# description: testing
-# requireApproval: false
-# gke:
-#   cluster: projects/blockjoy-testing/locations/us-east1-b/clusters/blockjoy-testing
+apiVersion: deploy.cloud.google.com/v1
+kind: Target
+metadata:
+  name: testing
+  annotations: {}
+  labels: {}
+description: testing
+requireApproval: false
+gke:
+  cluster: projects/blockjoy-testing/locations/us-east1-b/clusters/blockjoy-testing
