@@ -41,7 +41,9 @@ pub enum Error {
     /// Org model error: {0}
     Model(#[from] crate::models::org::Error),
     /// No customer exists in stripe for org `{0}`.
-    NoCustomer(OrgId),
+    NoStripeCustomer(OrgId),
+    /// No subscription exists in stripe for org `{0}`.
+    NoStripeSubscription(OrgId),
     /// Failed to parse `id` as OrgId: {0}
     ParseId(uuid::Error),
     /// Failed to parse non-zero count as u64: {0}
@@ -88,7 +90,8 @@ impl From<Error> for Status {
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
-            NoCustomer(_) => Status::failed_precondition("No customer for that org."),
+            NoStripeCustomer(_) => Status::failed_precondition("No customer for that org."),
+            NoStripeSubscription(_) => Status::failed_precondition("No subscription for that org."),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Invitation(err) => err.into(),
@@ -475,9 +478,13 @@ async fn billing_details(
 
     let org = Org::by_id(org_id, &mut read).await?;
     let subscription = if let Some(customer_id) = org.stripe_customer_id.as_deref() {
-        read.ctx.stripe.get_subscription(customer_id).await?
+        read.ctx
+            .stripe
+            .get_subscription(customer_id)
+            .await?
+            .ok_or_else(|| Error::NoStripeSubscription(org_id))?
     } else {
-        return Err(Error::NoCustomer(org_id));
+        return Err(Error::NoStripeCustomer(org_id));
     };
 
     Ok(api::OrgServiceBillingDetailsResponse {

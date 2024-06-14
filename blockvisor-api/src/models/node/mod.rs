@@ -39,6 +39,7 @@ use thiserror::Error;
 use tonic::Status;
 use tracing::warn;
 
+use crate::auth::rbac::NodeAdminPerm;
 use crate::auth::resource::{
     HostId, NodeId, OrgId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
 };
@@ -109,6 +110,10 @@ pub enum Error {
     NoHostOrScheduler,
     /// Failed to find a matching host.
     NoMatchingHost,
+    /// Org with id `{0}` has no customer in stripe.
+    NoStripeCustomer(OrgId),
+    /// Cannot launch node without a region.
+    NoRegion,
     /// Node org error: {0}
     Org(#[from] crate::models::org::Error),
     /// Node pagination: {0}
@@ -116,13 +121,17 @@ pub enum Error {
     /// Failed to parse IpAddr: {0}
     ParseIpAddr(std::net::AddrParseError),
     /// Node region error: {0}
-    Region(crate::models::region::Error),
+    Region(#[from] crate::models::region::Error),
+    /// The region `{0}` has no pricing set, so we cannot launch nodes here.
+    RegionWithoutPricing(RegionId),
     /// Failed to regenerate node name. This should not happen.
     RegenerateName,
     /// Node report error: {0}
     Report(report::Error),
     /// Storage error for node: {0}
     Storage(#[from] crate::storage::Error),
+    /// Stripe error for node: {0}
+    Stripe(#[from] crate::stripe::Error),
     /// Failed to update node: {0}
     Update(diesel::result::Error),
     /// Failed to update node `{0}`: {1}
@@ -682,14 +691,21 @@ impl NewNode {
         authz: &AuthZ,
         mut write: &mut WriteConn<'_, '_>,
     ) -> Result<Node, Error> {
-        let host = if let Some(host) = host {
-            host
+        let blockchain = Blockchain::by_id(self.blockchain_id, authz, write).await?;
+        let org = Org::by_id(self.org_id, write).await?;
+
+        let (host, region) = if let Some(host) = host {
+            let region_id = host.region_id.ok_or(Error::NoRegion)?;
+            let region = Region::by_id(region_id, write).await?;
+            (host, region)
         } else {
             let scheduler = self
                 .scheduler(write)
                 .await?
                 .ok_or(Error::NoHostOrScheduler)?;
-            self.find_host(scheduler, authz, write).await?
+            let region = scheduler.region.clone().ok_or(Error::NoRegion)?;
+            let host = self.find_host(scheduler, authz, write).await?;
+            (host, region)
         };
 
         let ip_gateway = host.ip_gateway.ip().to_string();
@@ -697,10 +713,38 @@ impl NewNode {
             .await
             .map_err(Error::NextHostIp)?;
 
+        // We let superusers continue making new nodes unmolested so as not to interfere with any
+        // testing.
+        let needs_billing = !authz.has_perm(NodeAdminPerm::Create);
+        if needs_billing {
+            let stripe_customer_id = org
+                .stripe_customer_id
+                .ok_or_else(|| Error::NoStripeCustomer(org.id))?;
+            let sku = self.sku(&blockchain, &region)?;
+            let price = write.ctx.stripe.get_price(&sku).await?;
+            if let Some(subscription) = write
+                .ctx
+                .stripe
+                .get_subscription(&stripe_customer_id)
+                .await?
+            {
+                write
+                    .ctx
+                    .stripe
+                    .create_item(&subscription.id, &price.id)
+                    .await?;
+            } else {
+                write
+                    .ctx
+                    .stripe
+                    .create_subscription(&stripe_customer_id, &price.id)
+                    .await?;
+            }
+        }
+
         let dns_record = write.ctx.dns.create(&self.name, node_ip.ip()).await?;
         let dns_id = dns_record.id;
 
-        let blockchain = Blockchain::by_id(self.blockchain_id, authz, write).await?;
         let image = ImageId::new(blockchain.name, self.node_type, self.version.clone());
         let meta = write.ctx.storage.rhai_metadata(&image).await?;
         let data_directory_mountpoint = meta
@@ -788,6 +832,29 @@ impl NewNode {
             similarity: self.scheduler_similarity,
             resource,
         }))
+    }
+
+    fn sku(&self, blockchain: &super::Blockchain, region: &super::Region) -> Result<String, Error> {
+        // FMN - hardcoded for Nodes (Fully-Managed Node)
+        // BLASTGETH - Node ticker (Blast Geth)
+        // A - Node Type (archive)
+        // MN - Net type (mainnet)
+        // USW1 - Region (US west)
+        // USD - hardcoded for now
+        // M - Billing cycle (monthly)
+        // FMN-BLASTGETH-A-MN-USW1-USD-M
+        let blockchain = &blockchain.ticker;
+        let full_network_name = self.network.to_uppercase();
+        let network = match full_network_name.as_str() {
+            "main" | "mainnet" => "MN",
+            "test" | "testnet" => "TN",
+            other => &other[0..std::cmp::min(other.len(), 3)],
+        };
+        let region = region
+            .pricing_tier
+            .as_deref()
+            .ok_or_else(|| Error::RegionWithoutPricing(region.id))?;
+        Ok(format!("FMN-{blockchain}-A-{network}-{region}-USD-M"))
     }
 }
 

@@ -10,6 +10,7 @@ pub mod currency;
 pub mod customer;
 pub mod event;
 pub mod payment_method;
+pub mod price;
 pub mod setup_intent;
 pub mod subscription;
 

@@ -19,10 +19,10 @@ pub enum Error {
     JoinEndpoint(url::ParseError),
     /// Failed to parse stripe API endpoint: {0}
     ParseEndpoint(url::ParseError),
-    /// Failed to parse stripe response: {0}
-    ParseResponse(reqwest::Error),
-    /// Bad error code from stripe: {0}
-    ResponseCode(reqwest::Error),
+    /// Failed to parse stripe response with code `{0}`: {1}
+    ParseResponse(reqwest::StatusCode, reqwest::Error),
+    /// Error code {0} from stripe: {1}
+    ResponseCode(reqwest::StatusCode, String),
     /// Failed to send stripe request: {0}
     SendRequest(reqwest::Error),
 }
@@ -86,15 +86,18 @@ impl Client {
             request = request.query(query);
         }
 
-        let resp = request
-            .send()
-            .await
-            .map_err(Error::SendRequest)?
-            .error_for_status()
-            .map_err(Error::ResponseCode)?
-            .json()
-            .await
-            .map_err(Error::ParseResponse)?;
-        Ok(resp)
+        let resp = request.send().await.map_err(Error::SendRequest)?;
+        let status = resp.status();
+        if status.is_success() {
+            resp.json()
+                .await
+                .map_err(|err| Error::ParseResponse(status, err))
+        } else {
+            let message = resp
+                .text()
+                .await
+                .map_err(|err| Error::ParseResponse(status, err))?;
+            Err(Error::ResponseCode(status, message))
+        }
     }
 }

@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::auth::resource::OrgId;
 use crate::models;
 use crate::{auth::resource::UserId, config::stripe::Config};
-use api::{customer, payment_method, setup_intent, subscription};
+use api::{customer, payment_method, price, setup_intent, subscription};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -21,12 +21,18 @@ pub enum Error {
     CreateCustomer(client::Error),
     /// Failed to create stripe setup intent: {0}
     CreateSetupIntent(client::Error),
+    /// Failed to create stripe subscription: {0}
+    CreateSubscription(client::Error),
+    /// Failed to create stripe subscription item: {0}
+    CreateSubscriptionItem(client::Error),
     /// Failed to list stripe payment methods: {0}
     ListPaymentMethods(client::Error),
     /// Failed to list stripe susbcriptions: {0}
     ListSubscriptions(client::Error),
-    /// No subscription available for customer_id `{0}`.
-    NoSubscription(String),
+    /// No price found on stripe for sku `{0}`.
+    NoPrice(String),
+    /// Failed to search stripe prices: {0}
+    SearchPrices(client::Error),
 }
 
 pub struct Stripe {
@@ -60,11 +66,25 @@ pub trait Payment {
         customer_id: &str,
     ) -> Result<Vec<payment_method::PaymentMethod>, Error>;
 
+    async fn create_subscription(
+        &self,
+        customer_id: &str,
+        price_id: &price::PriceId,
+    ) -> Result<subscription::Subscription, Error>;
+
+    async fn create_item(
+        &self,
+        susbcription_id: &subscription::SubscriptionId,
+        price_id: &price::PriceId,
+    ) -> Result<subscription::SubscriptionItem, Error>;
+
     /// Each org only has one subscription.
     async fn get_subscription(
         &self,
         customer_id: &str,
-    ) -> Result<subscription::Subscription, Error>;
+    ) -> Result<Option<subscription::Subscription>, Error>;
+
+    async fn get_price(&self, sku: &str) -> Result<price::Price, Error>;
 }
 
 impl Stripe {
@@ -133,18 +153,67 @@ impl Payment for Stripe {
         Ok(resp.data)
     }
 
-    async fn get_subscription(
+    async fn create_subscription(
         &self,
         customer_id: &str,
+        price_id: &price::PriceId,
     ) -> Result<subscription::Subscription, Error> {
-        let req = subscription::ListSubscriptions::new(customer_id);
+        let req = subscription::CreateSubscription::new(customer_id, price_id);
         self.client
             .request(&req)
             .await
+            .map_err(Error::CreateSubscription)
+    }
+
+    async fn create_item(
+        &self,
+        susbcription_id: &subscription::SubscriptionId,
+        price_id: &price::PriceId,
+    ) -> Result<subscription::SubscriptionItem, Error> {
+        let req = subscription::CreateSubscriptionItem::new(susbcription_id, price_id);
+        self.client
+            .request(&req)
+            .await
+            .map_err(Error::CreateSubscriptionItem)
+    }
+
+    async fn get_subscription(
+        &self,
+        customer_id: &str,
+    ) -> Result<Option<subscription::Subscription>, Error> {
+        let req = subscription::ListSubscriptions::new(customer_id);
+        let mut subscriptions = self
+            .client
+            .request(&req)
+            .await
             .map_err(Error::ListSubscriptions)?
-            .data
-            .pop()
-            .ok_or_else(|| Error::NoSubscription(customer_id.to_string()))
+            .data;
+        if let Some(subscription) = subscriptions.pop() {
+            if !subscriptions.is_empty() {
+                tracing::warn!("More than one subscription returned for customer `{customer_id}`.");
+            }
+            Ok(Some(subscription))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_price(&self, sku: &str) -> Result<price::Price, Error> {
+        let req = price::SearchPrice::new(sku);
+        let mut prices = self
+            .client
+            .request(&req)
+            .await
+            .map_err(Error::SearchPrices)?
+            .data;
+        if let Some(price) = prices.pop() {
+            if !prices.is_empty() {
+                tracing::warn!("More than one price returned for sku `{sku}`.");
+            }
+            Ok(price)
+        } else {
+            Err(Error::NoPrice(sku.to_string()))
+        }
     }
 }
 
@@ -194,12 +263,32 @@ pub mod tests {
             self.stripe.list_payment_methods(customer_id).await
         }
 
+        async fn create_subscription(
+            &self,
+            customer_id: &str,
+            price_id: &price::PriceId,
+        ) -> Result<subscription::Subscription, Error> {
+            self.stripe.create_subscription(customer_id, price_id).await
+        }
+
+        async fn create_item(
+            &self,
+            susbcription_id: &subscription::SubscriptionId,
+            price_id: &price::PriceId,
+        ) -> Result<subscription::SubscriptionItem, Error> {
+            self.stripe.create_item(susbcription_id, price_id).await
+        }
+
         /// Each org only has one subscription.
         async fn get_subscription(
             &self,
             customer_id: &str,
-        ) -> Result<subscription::Subscription, Error> {
+        ) -> Result<Option<subscription::Subscription>, Error> {
             self.stripe.get_subscription(customer_id).await
+        }
+
+        async fn get_price(&self, sku: &str) -> Result<price::Price, Error> {
+            self.stripe.get_price(sku).await
         }
     }
 
