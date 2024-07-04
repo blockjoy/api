@@ -56,7 +56,7 @@ async fn responds_ok_for_pending() {
     let update = UpdateNode {
         org_id: None,
         host_id: None,
-        name: None,
+        display_name: None,
         version: None,
         ip: Some("123.123.123.123".parse().unwrap()),
         ip_gateway: None,

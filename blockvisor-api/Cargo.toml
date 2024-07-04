@@ -1,6 +1,6 @@
 [package]
 name = "blockvisor-api"
-version = "0.3.20"
+version = "0.3.50"
 publish = false
 edition = "2021"
 

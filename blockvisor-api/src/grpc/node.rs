@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures_util::future::OptionFuture;
-use petname::{Generator, Petnames};
 use thiserror::Error;
 use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
@@ -12,7 +11,7 @@ use uuid::Uuid;
 
 use crate::auth::rbac::{NodeAdminPerm, NodePerm};
 use crate::auth::resource::{
-    HostId, NodeId, OrgId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
+    NodeId, OrgId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
 };
 use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
@@ -21,15 +20,16 @@ use crate::models::blockchain::{
 };
 use crate::models::command::NewCommand;
 use crate::models::node::{
-    self, ContainerStatus, FilteredIpAddr, NewNode, Node, NodeFilter, NodeJob, NodeJobProgress,
-    NodeJobStatus, NodeProperty, NodeReport, NodeScheduler, NodeSearch, NodeSort, NodeStatus,
-    NodeType, NodeVersion, StakingStatus, SyncStatus, UpdateNode,
+    self, ContainerStatus, FilteredIpAddr, NewNode, Node, NodeCount, NodeFilter, NodeJob,
+    NodeJobProgress, NodeJobStatus, NodeProperty, NodeReport, NodeScheduler, NodeSearch, NodeSort,
+    NodeStatus, NodeType, NodeVersion, StakingStatus, SyncStatus, UpdateNode,
 };
 use crate::models::{Blockchain, CommandType, Host, Org, Region, User};
 use crate::storage::image::ImageId;
 use crate::storage::metadata::HardwareRequirements;
 use crate::util::{HashVec, NanosUtc};
 
+use super::api::node_placement::Placement;
 use super::api::node_service_server::NodeService;
 use super::{api, common, Grpc};
 
@@ -315,19 +315,37 @@ async fn create(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceCreateResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
+    let inner = req.placement.as_ref().ok_or(Error::MissingPlacement)?;
+    let placement = inner.placement.as_ref().ok_or(Error::MissingPlacement)?;
 
-    // The host_id is either determined by the scheduler, or an optional host_id.
-    let (host, authz) = if let Some(host_id) = req.host_id()? {
-        let host = Host::by_id(host_id, &mut write).await?;
-        let authz = write
-            .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, host_id)
-            .await?;
-        (Some(host), authz)
-    } else if let Ok(authz) = write.auth_all(&meta, NodeAdminPerm::Create).await {
-        (None, authz)
-    } else {
-        let authz = write.auth(&meta, NodePerm::Create, org_id).await?;
-        (None, authz)
+    let (node_counts, authz) = match placement {
+        Placement::Scheduler(_) => {
+            let authz = write
+                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, org_id)
+                .await?;
+            (None, authz)
+        }
+
+        Placement::HostId(id) => {
+            let host_id = id.parse().map_err(Error::ParseHostId)?;
+            let authz = write
+                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, host_id)
+                .await?;
+            (Some(vec![NodeCount::one(host_id)]), authz)
+        }
+
+        Placement::Multiple(hosts) => {
+            let node_counts = hosts
+                .node_counts
+                .iter()
+                .map(|nc| nc.try_into().map_err(Into::into))
+                .collect::<Result<Vec<NodeCount>, Error>>()?;
+            let host_ids = node_counts.iter().map(|nc| nc.host_id).collect::<Vec<_>>();
+            let authz = write
+                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, &host_ids)
+                .await?;
+            (Some(node_counts), authz)
+        }
     };
 
     let blockchain_id = req
@@ -335,7 +353,6 @@ async fn create(
         .parse()
         .map_err(Error::ParseBlockchainId)?;
     let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write).await?;
-
     let node_type = req.node_type().into();
     let image = ImageId::new(&blockchain.name, node_type, req.version.clone().into());
     let version =
@@ -346,36 +363,36 @@ async fn create(
     let new_node = req
         .as_new(requirements, org_id, created_by, &mut write)
         .await?;
-    let node = new_node.create(host, &authz, &mut write).await?;
+    let created = new_node
+        .create(node_counts, &blockchain, &authz, &mut write)
+        .await?;
+    let mut nodes = Vec::with_capacity(created.len());
 
-    // The user sends in the properties in a key-value style, that is,
-    // { property name: property value }. We want to store this as
-    // { property id: property value }. In order to map property names to property ids we can use
-    // the id to name map, and then flip the keys and values to create an id to name map. Note that
-    // this requires the names to be unique, but we expect this to be the case.
-    let name_to_id_map = BlockchainProperty::id_to_name_map(version.id, &mut write)
+    let name_to_ids = BlockchainProperty::id_to_names(version.id, &mut write)
         .await?
         .into_iter()
-        .map(|(k, v)| (v, k))
+        .map(|(id, name)| (name, id))
         .collect();
-    let properties = req.properties(&node, &name_to_id_map)?;
-    NodeProperty::bulk_create(properties, &mut write).await?;
 
-    let create_notif = NewCommand::node(&node, CommandType::NodeCreate)?
-        .create(&mut write)
-        .await?;
-    let create_cmd = api::Command::from_model(&create_notif, &authz, &mut write).await?;
-    let node_api = api::Node::from_model(node, &authz, &mut write).await?;
+    for node in created {
+        let properties = req.properties(&node, &name_to_ids)?;
+        NodeProperty::bulk_create(properties, &mut write).await?;
 
-    let created_by = common::EntityUpdate::from_resource(created_by, &mut write).await?;
-    let created = api::NodeMessage::created(node_api.clone(), created_by);
+        let node_create = NewCommand::node(&node, CommandType::NodeCreate)?
+            .create(&mut write)
+            .await?;
+        let api_cmd = api::Command::from_model(&node_create, &authz, &mut write).await?;
+        let api_node = api::Node::from_model(node, &authz, &mut write).await?;
 
-    write.mqtt(create_cmd);
-    write.mqtt(created);
+        let created_by = common::EntityUpdate::from_resource(created_by, &mut write).await?;
+        let created = api::NodeMessage::created(api_node.clone(), created_by);
 
-    Ok(api::NodeServiceCreateResponse {
-        node: Some(node_api),
-    })
+        write.mqtt(api_cmd);
+        write.mqtt(created);
+        nodes.push(api_node);
+    }
+
+    Ok(api::NodeServiceCreateResponse { nodes })
 }
 
 async fn update_config(
@@ -761,8 +778,8 @@ impl api::Node {
         // If there is a scheduler we return the node placement variant,
         // otherwise we return the host id variant.
         let placement = scheduler.map(api::NodeScheduler::new).map_or_else(
-            || api::node_placement::Placement::HostId(node.host_id.to_string()),
-            api::node_placement::Placement::Scheduler,
+            || Placement::HostId(node.host_id.to_string()),
+            Placement::Scheduler,
         );
 
         let block_height = node
@@ -795,7 +812,9 @@ impl api::Node {
             host_id: node.host_id.to_string(),
             host_name: host.name.clone(),
             blockchain_id: node.blockchain_id.to_string(),
-            name: node.name,
+            node_name: node.node_name,
+            dns_name: node.dns_name,
+            display_name: node.display_name,
             address: node.address,
             version: node.version.into(),
             ip: node.ip.ip().to_string(),
@@ -853,17 +872,14 @@ impl api::NodeServiceCreateRequest {
         created_by: Resource,
         conn: &mut Conn<'_>,
     ) -> Result<NewNode, Error> {
-        let name = Petnames::small()
-            .generate_one(3, "-")
-            .ok_or(Error::GenerateName)?;
         let placement = self
             .placement
             .as_ref()
             .and_then(|p| p.placement.as_ref())
             .ok_or(Error::MissingPlacement)?;
         let scheduler = match placement {
-            api::node_placement::Placement::HostId(_) => None,
-            api::node_placement::Placement::Scheduler(s) => Some(s),
+            Placement::Scheduler(s) => Some(s),
+            Placement::HostId(_) | Placement::Multiple(_) => None,
         };
 
         let allow_ips: Vec<FilteredIpAddr> = self
@@ -884,9 +900,7 @@ impl api::NodeServiceCreateRequest {
         let entry = ResourceEntry::from(created_by);
 
         Ok(NewNode {
-            id: Uuid::new_v4().into(),
             org_id,
-            name,
             version: self.version.clone().into(),
             blockchain_id: self
                 .blockchain_id
@@ -924,27 +938,15 @@ impl api::NodeServiceCreateRequest {
         })
     }
 
-    fn host_id(&self) -> Result<Option<HostId>, Error> {
-        let inner = self.placement.as_ref().ok_or(Error::MissingPlacement)?;
-        let placement = inner.placement.as_ref().ok_or(Error::MissingPlacement)?;
-
-        match placement {
-            api::node_placement::Placement::Scheduler(_) => Ok(None),
-            api::node_placement::Placement::HostId(id) => {
-                Ok(Some(id.parse().map_err(Error::ParseHostId)?))
-            }
-        }
-    }
-
     fn properties(
         &self,
         node: &Node,
-        name_to_id_map: &HashMap<String, BlockchainPropertyId>,
+        name_to_ids: &HashMap<String, BlockchainPropertyId>,
     ) -> Result<Vec<NodeProperty>, Error> {
         self.properties
             .iter()
             .map(|prop| {
-                let blockchain_property_id = name_to_id_map
+                let blockchain_property_id = name_to_ids
                     .get(&prop.name)
                     .copied()
                     .ok_or_else(|| Error::PropertyNotFound(prop.name.clone()))?;
@@ -1019,8 +1021,10 @@ impl api::NodeServiceListRequest {
                         .try_into()
                         .map_err(Error::SearchOperator)?,
                     id: search.id.map(|id| id.trim().to_lowercase()),
-                    name: search.name.map(|name| name.trim().to_lowercase()),
                     ip: search.ip.map(|ip| ip.trim().to_lowercase()),
+                    node_name: search.node_name.map(|name| name.trim().to_lowercase()),
+                    dns_name: search.dns_name.map(|name| name.trim().to_lowercase()),
+                    display_name: search.display_name.map(|name| name.trim().to_lowercase()),
                 })
             })
             .transpose()?;
@@ -1032,6 +1036,8 @@ impl api::NodeServiceListRequest {
                     api::NodeSortField::Unspecified => Err(Error::UnknownSortField),
                     api::NodeSortField::HostName => Ok(NodeSort::HostName(order)),
                     api::NodeSortField::NodeName => Ok(NodeSort::NodeName(order)),
+                    api::NodeSortField::DnsName => Ok(NodeSort::DnsName(order)),
+                    api::NodeSortField::DisplayName => Ok(NodeSort::DisplayName(order)),
                     api::NodeSortField::NodeType => Ok(NodeSort::NodeType(order)),
                     api::NodeSortField::CreatedAt => Ok(NodeSort::CreatedAt(order)),
                     api::NodeSortField::UpdatedAt => Ok(NodeSort::UpdatedAt(order)),
@@ -1072,7 +1078,6 @@ impl api::NodeServiceListRequest {
 
 impl api::NodeServiceUpdateConfigRequest {
     pub fn as_update(&self) -> Result<UpdateNode<'_>, Error> {
-        // Convert the ip list from the gRPC structures to the database models.
         let allow_ips: Vec<FilteredIpAddr> = self
             .allow_ips
             .iter()
@@ -1092,7 +1097,7 @@ impl api::NodeServiceUpdateConfigRequest {
                 .transpose()
                 .map_err(Error::ParseOrgId)?,
             host_id: None,
-            name: None,
+            display_name: self.display_name.as_deref(),
             version: None,
             ip: None,
             ip_gateway: None,
@@ -1116,7 +1121,7 @@ impl api::NodeServiceUpdateStatusRequest {
         Ok(UpdateNode {
             org_id: None,
             host_id: None,
-            name: None,
+            display_name: None,
             version: self.version.as_deref().map(NodeVersion::new).transpose()?,
             ip: None,
             ip_gateway: None,

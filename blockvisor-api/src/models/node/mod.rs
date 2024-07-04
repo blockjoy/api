@@ -45,6 +45,7 @@ use crate::auth::resource::{
 };
 use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
+use crate::grpc::api;
 use crate::storage::image::ImageId;
 use crate::util::{SearchOperator, SortOrder};
 
@@ -118,6 +119,8 @@ pub enum Error {
     Org(#[from] crate::models::org::Error),
     /// Node pagination: {0}
     Paginate(#[from] crate::models::paginate::Error),
+    /// Failed to parse HostId: {0}
+    ParseHostId(uuid::Error),
     /// Failed to parse IpAddr: {0}
     ParseIpAddr(std::net::AddrParseError),
     /// Node region error: {0}
@@ -167,7 +170,7 @@ pub struct Node {
     pub id: NodeId,
     pub org_id: OrgId,
     pub host_id: HostId,
-    pub name: String,
+    pub node_name: String,
     pub version: NodeVersion,
     pub address: Option<String>,
     pub wallet_address: Option<String>,
@@ -203,6 +206,8 @@ pub struct Node {
     pub node_status: NodeStatus,
     pub url: String,
     pub ip: IpNetwork,
+    pub dns_name: String,
+    pub display_name: String,
 }
 
 impl Node {
@@ -439,13 +444,17 @@ pub struct FilteredIpAddr {
 pub struct NodeSearch {
     pub operator: SearchOperator,
     pub id: Option<String>,
-    pub name: Option<String>,
     pub ip: Option<String>,
+    pub node_name: Option<String>,
+    pub dns_name: Option<String>,
+    pub display_name: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum NodeSort {
     NodeName(SortOrder),
+    DnsName(SortOrder),
+    DisplayName(SortOrder),
     HostName(SortOrder),
     CreatedAt(SortOrder),
     UpdatedAt(SortOrder),
@@ -460,7 +469,9 @@ pub enum NodeSort {
 impl NodeSort {
     fn into_expr<T>(self) -> Box<dyn BoxableExpression<T, Pg, SqlType = NotSelectable>>
     where
-        nodes::name: SelectableExpression<T>,
+        nodes::node_name: SelectableExpression<T>,
+        nodes::dns_name: SelectableExpression<T>,
+        nodes::display_name: SelectableExpression<T>,
         hosts::name: SelectableExpression<T>,
         nodes::created_at: SelectableExpression<T>,
         nodes::updated_at: SelectableExpression<T>,
@@ -475,8 +486,14 @@ impl NodeSort {
         use SortOrder::*;
 
         match self {
-            NodeName(Asc) => Box::new(nodes::name.asc()),
-            NodeName(Desc) => Box::new(nodes::name.desc()),
+            NodeName(Asc) => Box::new(nodes::node_name.asc()),
+            NodeName(Desc) => Box::new(nodes::node_name.desc()),
+
+            DnsName(Asc) => Box::new(nodes::dns_name.asc()),
+            DnsName(Desc) => Box::new(nodes::dns_name.desc()),
+
+            DisplayName(Asc) => Box::new(nodes::display_name.asc()),
+            DisplayName(Desc) => Box::new(nodes::display_name.desc()),
 
             HostName(Asc) => Box::new(hosts::name.asc()),
             HostName(Desc) => Box::new(hosts::name.desc()),
@@ -626,11 +643,18 @@ impl NodeSearch {
                 if let Some(id) = self.id {
                     predicate = Box::new(predicate.or(super::text(nodes::id).like(id)));
                 }
-                if let Some(name) = self.name {
-                    predicate = Box::new(predicate.or(super::lower(nodes::name).like(name)));
-                }
                 if let Some(ip) = self.ip {
                     predicate = Box::new(predicate.or(abbrev(nodes::ip).like(ip)));
+                }
+                if let Some(name) = self.node_name {
+                    predicate = Box::new(predicate.or(super::lower(nodes::node_name).like(name)));
+                }
+                if let Some(name) = self.dns_name {
+                    predicate = Box::new(predicate.or(super::lower(nodes::dns_name).like(name)));
+                }
+                if let Some(name) = self.display_name {
+                    predicate =
+                        Box::new(predicate.or(super::lower(nodes::display_name).like(name)));
                 }
                 predicate
             }
@@ -641,11 +665,18 @@ impl NodeSearch {
                 if let Some(id) = self.id {
                     predicate = Box::new(predicate.and(super::text(nodes::id).like(id)));
                 }
-                if let Some(name) = self.name {
-                    predicate = Box::new(predicate.and(super::lower(nodes::name).like(name)));
-                }
                 if let Some(ip) = self.ip {
                     predicate = Box::new(predicate.and(abbrev(nodes::ip).like(ip)));
+                }
+                if let Some(name) = self.node_name {
+                    predicate = Box::new(predicate.and(super::lower(nodes::node_name).like(name)));
+                }
+                if let Some(name) = self.dns_name {
+                    predicate = Box::new(predicate.and(super::lower(nodes::dns_name).like(name)));
+                }
+                if let Some(name) = self.display_name {
+                    predicate =
+                        Box::new(predicate.and(super::lower(nodes::display_name).like(name)));
                 }
                 predicate
             }
@@ -656,9 +687,7 @@ impl NodeSearch {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = nodes)]
 pub struct NewNode {
-    pub id: NodeId,
     pub org_id: OrgId,
-    pub name: String,
     pub version: NodeVersion,
     pub blockchain_id: BlockchainId,
     pub block_height: Option<i64>,
@@ -687,28 +716,64 @@ pub struct NewNode {
 
 impl NewNode {
     pub async fn create(
-        mut self,
-        host: Option<Host>,
+        &self,
+        node_counts: Option<Vec<NodeCount>>,
+        blockchain: &Blockchain,
         authz: &AuthZ,
-        mut write: &mut WriteConn<'_, '_>,
-    ) -> Result<Node, Error> {
-        let blockchain = Blockchain::by_id(self.blockchain_id, authz, write).await?;
+        write: &mut WriteConn<'_, '_>,
+    ) -> Result<Vec<Node>, Error> {
         let org = Org::by_id(self.org_id, write).await?;
 
-        let (host, region) = if let Some(host) = host {
-            let region_id = host.region_id.ok_or(Error::NoRegion)?;
-            let region = Region::by_id(region_id, write).await?;
-            (host, region)
+        let mut created = Vec::new();
+
+        if let Some(counts) = node_counts {
+            for count in counts {
+                let host = Host::by_id(count.host_id, write).await?;
+                let region = Region::by_id(host.region_id.ok_or(Error::NoRegion)?, write).await?;
+                for _ in 0..count.node_count {
+                    match self
+                        .create_node(&host, blockchain, &org, &region, authz, write)
+                        .await
+                    {
+                        Ok(node) => created.push(node),
+                        Err(err) => {
+                            for node in created {
+                                let dns_id = &node.dns_record_id;
+                                if let Err(err) = write.ctx.dns.delete(dns_id).await {
+                                    warn!("Failed to delete DNS record {dns_id}: {err}");
+                                }
+                            }
+
+                            return Err(err);
+                        }
+                    }
+                }
+            }
         } else {
             let scheduler = self
                 .scheduler(write)
                 .await?
                 .ok_or(Error::NoHostOrScheduler)?;
             let region = scheduler.region.clone().ok_or(Error::NoRegion)?;
-            let host = self.find_host(scheduler, authz, write).await?;
-            (host, region)
-        };
+            let host = self.find_host(scheduler, blockchain, write).await?;
+            let node = self
+                .create_node(&host, blockchain, &org, &region, authz, write)
+                .await?;
+            created.push(node);
+        }
 
+        Ok(created)
+    }
+
+    async fn create_node(
+        &self,
+        host: &Host,
+        blockchain: &Blockchain,
+        org: &Org,
+        region: &Region,
+        authz: &AuthZ,
+        mut write: &mut WriteConn<'_, '_>,
+    ) -> Result<Node, Error> {
         let ip_gateway = host.ip_gateway.ip().to_string();
         let node_ip = IpAddress::by_host_unassigned(host.id, write)
             .await
@@ -720,13 +785,14 @@ impl NewNode {
         if needs_billing {
             let stripe_customer_id = org
                 .stripe_customer_id
+                .as_ref()
                 .ok_or_else(|| Error::NoStripeCustomer(org.id))?;
-            let sku = self.sku(&blockchain, &region)?;
+            let sku = self.sku(blockchain, region)?;
             let price = write.ctx.stripe.get_price(&sku).await?;
             if let Some(subscription) = write
                 .ctx
                 .stripe
-                .get_subscription(&stripe_customer_id)
+                .get_subscription(stripe_customer_id)
                 .await?
             {
                 write
@@ -738,51 +804,51 @@ impl NewNode {
                 write
                     .ctx
                     .stripe
-                    .create_subscription(&stripe_customer_id, &price.id)
+                    .create_subscription(stripe_customer_id, &price.id)
                     .await?;
             }
         }
 
-        let dns_record = write.ctx.dns.create(&self.name, node_ip.ip()).await?;
-        let dns_id = dns_record.id;
-
-        let image = ImageId::new(blockchain.name, self.node_type, self.version.clone());
-        let meta = write.ctx.storage.rhai_metadata(&image).await?;
-        let data_directory_mountpoint = meta
-            .babel_config
-            .and_then(|cfg| cfg.data_directory_mount_point);
-
-        Org::increment_node(self.org_id, write).await?;
-        Host::increment_node(host.id, write).await?;
-
         loop {
+            let name = Petnames::small()
+                .generate_one(3, "-")
+                .ok_or(Error::RegenerateName)?;
+            let dns_record = write.ctx.dns.create(&name, node_ip.ip()).await?;
+            let dns_id = dns_record.id;
+
             match diesel::insert_into(nodes::table)
                 .values((
-                    &self,
+                    self,
+                    nodes::node_name.eq(&name),
+                    nodes::dns_name.eq(&name),
+                    nodes::display_name.eq(&name),
                     nodes::host_id.eq(host.id),
                     nodes::ip_gateway.eq(&ip_gateway),
                     nodes::ip.eq(node_ip.ip),
                     nodes::dns_record_id.eq(&dns_id),
-                    nodes::data_directory_mountpoint.eq(&data_directory_mountpoint),
                     nodes::url.eq(&dns_record.name),
                 ))
                 .get_result(&mut write)
                 .await
             {
-                Ok(node) => return Ok(node),
-                Err(DatabaseError(UniqueViolation, info)) if info.column_name() == Some("name") => {
-                    warn!("Node name {} already taken. Retrying...", self.name);
-                    self.name = Petnames::small()
-                        .generate_one(3, "-")
-                        .ok_or(Error::RegenerateName)?;
-                    continue;
+                Ok(node) => {
+                    Org::increment_node(self.org_id, write).await?;
+                    Host::increment_node(host.id, write).await?;
+                    return Ok(node);
                 }
+
                 Err(err) => {
                     if let Err(err) = write.ctx.dns.delete(&dns_id).await {
-                        warn!(
-                            "Failed to delete DNS record {dns_id} for aborted node creation: {err}"
-                        );
+                        warn!("Failed to delete DNS record {dns_id}: {err}");
                     }
+
+                    if let DatabaseError(UniqueViolation, ref info) = err {
+                        if info.column_name() == Some("name") {
+                            warn!("Node name {} already taken. Retrying...", name);
+                            continue;
+                        }
+                    }
+
                     return Err(Error::Create(err));
                 }
             }
@@ -797,12 +863,10 @@ impl NewNode {
     async fn find_host(
         &self,
         scheduler: NodeScheduler,
-        authz: &AuthZ,
+        blockchain: &Blockchain,
         write: &mut WriteConn<'_, '_>,
     ) -> Result<Host, Error> {
-        let chain = Blockchain::by_id(self.blockchain_id, authz, write).await?;
-
-        let image = ImageId::new(chain.name, self.node_type, self.version.clone());
+        let image = ImageId::new(&blockchain.name, self.node_type, self.version.clone());
         let metadata = write.ctx.storage.rhai_metadata(&image).await?;
 
         let requirements = HostRequirements {
@@ -859,12 +923,37 @@ impl NewNode {
     }
 }
 
+pub struct NodeCount {
+    pub host_id: HostId,
+    pub node_count: u32,
+}
+
+impl NodeCount {
+    pub const fn one(host_id: HostId) -> Self {
+        NodeCount {
+            host_id,
+            node_count: 1,
+        }
+    }
+}
+
+impl TryFrom<&api::NodeCount> for NodeCount {
+    type Error = Error;
+
+    fn try_from(api: &api::NodeCount) -> Result<Self, Self::Error> {
+        Ok(NodeCount {
+            host_id: api.host_id.parse().map_err(Error::ParseHostId)?,
+            node_count: api.node_count,
+        })
+    }
+}
+
 #[derive(Debug, Default, AsChangeset)]
 #[diesel(table_name = nodes)]
 pub struct UpdateNode<'a> {
     pub org_id: Option<OrgId>,
     pub host_id: Option<HostId>,
-    pub name: Option<&'a str>,
+    pub display_name: Option<&'a str>,
     pub version: Option<NodeVersion>,
     pub ip: Option<IpNetwork>,
     pub ip_gateway: Option<&'a str>,
@@ -931,7 +1020,6 @@ mod tests {
     use diesel_async::scoped_futures::ScopedFutureExt;
     use diesel_async::AsyncConnection;
     use tokio::sync::mpsc;
-    use uuid::Uuid;
 
     use crate::auth::rbac::access::tests::view_authz;
     use crate::config::Context;
@@ -942,12 +1030,12 @@ mod tests {
     async fn can_filter_nodes() {
         let (ctx, db) = Context::with_mocked().await.unwrap();
 
-        let blockchain_id = db.seed.blockchain.id;
         let user_id = db.seed.user.id;
         let org_id = db.seed.org.id;
+        let host_id = db.seed.host.id;
+        let blockchain_id = db.seed.blockchain.id;
 
         let req = NewNode {
-            id: Uuid::new_v4().into(),
             org_id,
             blockchain_id,
             node_status: NodeStatus::Ingesting,
@@ -955,7 +1043,6 @@ mod tests {
             container_status: ContainerStatus::Installing,
             block_height: None,
             node_data: None,
-            name: "my-test-node".to_string(),
             version: "3.3.0".to_string().into(),
             staking_status: StakingStatus::Staked,
             self_update: false,
@@ -981,13 +1068,19 @@ mod tests {
             meta_tx,
             mqtt_tx,
         };
+
+        let node_counts = Some(vec![NodeCount::one(host_id)]);
         let authz = view_authz(&ctx, db.seed.node.id, &mut write).await;
-        let host = db.seed.host.clone();
-        let host_id = db.seed.host.id;
+        let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write)
+            .await
+            .unwrap();
+
         write
             .transaction(|conn| {
                 async move {
-                    req.create(Some(host), &authz, conn).await.unwrap();
+                    req.create(node_counts, &blockchain, &authz, conn)
+                        .await
+                        .unwrap();
                     Ok(()) as Result<(), diesel::result::Error>
                 }
                 .scope_boxed()

@@ -266,7 +266,6 @@ async fn create_nodes(
     diesel::insert_into(nodes::table)
         .values((
             nodes::id.eq(node_id),
-            nodes::name.eq("Test Node"),
             nodes::org_id.eq(org_id),
             nodes::host_id.eq(host.id),
             nodes::blockchain_id.eq(blockchain.id),
@@ -275,8 +274,11 @@ async fn create_nodes(
             nodes::node_status.eq(NodeStatus::Broadcasting),
             nodes::ip_gateway.eq(ip_gateway),
             nodes::ip.eq(ip_addr),
+            nodes::node_name.eq("node-name"),
             nodes::node_type.eq(NodeType::Validator),
-            nodes::dns_record_id.eq("The id"),
+            nodes::dns_name.eq("dns-name"),
+            nodes::dns_record_id.eq("dns-id"),
+            nodes::display_name.eq("display-name"),
             nodes::vcpu_count.eq(2),
             nodes::disk_size_bytes.eq(8 * 1024 * 1024 * 1024),
             nodes::mem_size_bytes.eq(1024 * 1024 * 1024),
@@ -357,7 +359,10 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('api-key-user', 'user-update'),
         ('api-key-user', 'user-billing-delete'),
         ('api-key-user', 'user-billing-get'),
-        ('api-key-user', 'user-billing-update');
+        ('api-key-user', 'user-billing-update'),
+        ('api-key-user', 'user-settings-delete'),
+        ('api-key-user', 'user-settings-get'),
+        ('api-key-user', 'user-settings-update');
         ",
         "
         insert into role_permissions (role, permission)
@@ -479,7 +484,10 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-login', 'user-update'),
         ('grpc-login', 'user-billing-delete'),
         ('grpc-login', 'user-billing-get'),
-        ('grpc-login', 'user-billing-update');
+        ('grpc-login', 'user-billing-update'),
+        ('grpc-login', 'user-settings-delete'),
+        ('grpc-login', 'user-settings-get'),
+        ('grpc-login', 'user-settings-update');
         ",
         "
         insert into role_permissions (role, permission)

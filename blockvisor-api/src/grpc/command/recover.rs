@@ -118,7 +118,7 @@ async fn recover_created(
     if let Err(err) = write.ctx.dns.delete(&node.dns_record_id).await {
         warn!(
             "Failed to remove node dns for node {} ({}): {err}",
-            node.name, node.id
+            node.node_name, node.id
         );
     }
 
@@ -164,7 +164,7 @@ async fn recover_created(
     write
         .ctx
         .dns
-        .create(&node.name, ip.ip())
+        .create(&node.dns_name, ip.ip())
         .await
         .map_err(Error::Cloudflare)?;
 

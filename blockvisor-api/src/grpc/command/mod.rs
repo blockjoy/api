@@ -426,7 +426,7 @@ fn node_command(
             host_id: host.id.to_string(),
             host_name: host.name,
             node_id: node.id.to_string(),
-            node_name: node.name,
+            node_name: node.node_name,
             command: Some(node_cmd),
         })),
     })
@@ -443,7 +443,7 @@ async fn node_create(
     let version =
         BlockchainVersion::find(blockchain.id, node.node_type, &node.version, conn).await?;
 
-    let id_to_names = BlockchainProperty::id_to_name_map(version.id, conn).await?;
+    let id_to_names = BlockchainProperty::id_to_names(version.id, conn).await?;
     let properties = node
         .properties(conn)
         .await?
@@ -461,7 +461,9 @@ async fn node_create(
         .collect::<Result<_, _>>()?;
 
     let node_cmd = api::node_command::Command::Create(api::NodeCreate {
-        name: node.name.clone(),
+        node_name: node.node_name.clone(),
+        dns_name: node.dns_name.clone(),
+        org_id: node.org_id.to_string(),
         blockchain: node.blockchain_id.to_string(),
         image: Some(common::ImageIdentifier {
             protocol: blockchain.name,
@@ -474,7 +476,6 @@ async fn node_create(
         properties,
         rules: firewall_rules(&node)?,
         network: node.network.clone(),
-        org_id: node.org_id.to_string(),
     });
 
     node_command(command, node, host, node_cmd)

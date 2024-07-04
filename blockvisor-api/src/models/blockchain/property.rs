@@ -101,7 +101,7 @@ impl BlockchainProperty {
     }
 
     /// Returns a map from `BlockchainPropertyId` to the `name` field of that blockchain property.
-    pub async fn id_to_name_map(
+    pub async fn id_to_names(
         version_id: BlockchainVersionId,
         conn: &mut Conn<'_>,
     ) -> Result<HashMap<BlockchainPropertyId, String>, Error> {
