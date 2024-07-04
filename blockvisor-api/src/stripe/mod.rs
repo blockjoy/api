@@ -346,7 +346,7 @@ pub mod tests {
         server
             .mock(
                 "POST",
-                mockito::Matcher::Regex(r"^/v1/subscriptions".into()),
+                mockito::Matcher::Regex(r"^\/v1\/subscriptions".into()),
             )
             .with_status(201)
             .with_body(mock_subscription())
