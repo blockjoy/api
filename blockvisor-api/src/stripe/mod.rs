@@ -307,27 +307,21 @@ pub mod tests {
         let mut server = mockito::Server::new_async().await;
 
         server
-            .mock(
-                "POST",
-                mockito::Matcher::Regex(r"^/v1/setup_intents".into()),
-            )
+            .mock("POST", "/v1/setup_intents")
             .with_status(200)
             .with_body(mock_setup_intent())
             .create_async()
             .await;
 
         server
-            .mock("POST", mockito::Matcher::Regex(r"^/v1/customers".into()))
+            .mock("POST", "/v1/customers")
             .with_status(201)
             .with_body(mock_customer())
             .create_async()
             .await;
 
         server
-            .mock(
-                "POST",
-                mockito::Matcher::Regex(r"^/v1/payment_methods/moneyfaucet/attach".into()),
-            )
+            .mock("POST", "/v1/payment_methods/moneyfaucet/attach")
             .with_status(201)
             .with_body(mock_payment_method())
             .create_async()
@@ -346,7 +340,7 @@ pub mod tests {
         server
             .mock(
                 "POST",
-                mockito::Matcher::Regex(r"^\/v1\/subscriptions".into()),
+                mockito::Matcher::Regex(r"^/v1/subscriptions".into()),
             )
             .with_status(201)
             .with_body(mock_subscription())
@@ -364,17 +358,14 @@ pub mod tests {
             .await;
 
         server
-            .mock("GET", "/v1/subscriptions")
+            .mock("GET", mockito::Matcher::Regex("^/v1/subscriptions".into()))
             .with_status(200)
             .with_body(mock_subscriptions())
             .create_async()
             .await;
 
         server
-            .mock(
-                "GET",
-                mockito::Matcher::Regex(r"^\/v1\/prices\/search".into()),
-            )
+            .mock("GET", mockito::Matcher::Regex(r"^/v1/prices/search".into()))
             .with_status(200)
             .with_body(mock_prices())
             .create_async()
