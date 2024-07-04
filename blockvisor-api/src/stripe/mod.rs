@@ -212,6 +212,7 @@ impl Payment for Stripe {
             }
             Ok(price)
         } else {
+            tracing::error!("No price returned for sku `{sku}`.");
             Err(Error::NoPrice(sku.to_string()))
         }
     }
