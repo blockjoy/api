@@ -374,7 +374,10 @@ pub mod tests {
             .await;
 
         server
-            .mock("GET", mockito::Matcher::Regex(r"^/v1/prices/search".into()))
+            .mock(
+                "GET",
+                mockito::Matcher::Regex(r"^\/v1\/prices\/search".into()),
+            )
             .with_status(200)
             .with_body(mock_prices())
             .create_async()
@@ -386,7 +389,7 @@ pub mod tests {
     fn mock_config(server: &ServerGuard) -> Config {
         Config {
             secret: "stripe_fake_secret".to_owned().into(),
-            base_url: dbg!(server.url()),
+            base_url: dbg!(format!("{}/v1", server.url())),
         }
     }
 
