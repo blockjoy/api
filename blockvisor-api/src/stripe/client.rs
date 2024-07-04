@@ -58,7 +58,7 @@ impl Client {
 
         Ok(Client {
             inner,
-            endpoint: dbg!(endpoint),
+            endpoint: endpoint,
             secret,
         })
     }
@@ -67,9 +67,10 @@ impl Client {
     where
         E: StripeEndpoint + Serialize + std::fmt::Debug,
     {
-        let url = dbg!(dbg!(&self.endpoint)
+        let url = self
+            .endpoint
             .join(&endpoint.path())
-            .map_err(Error::JoinEndpoint)?);
+            .map_err(Error::JoinEndpoint)?;
 
         let mut request = self
             .inner
@@ -85,7 +86,7 @@ impl Client {
             request = request.query(query);
         }
 
-        let resp = dbg!(dbg!(request).send().await).map_err(Error::SendRequest)?;
+        let resp = request.send().await.map_err(Error::SendRequest)?;
         let status = resp.status();
         if status.is_success() {
             resp.json()

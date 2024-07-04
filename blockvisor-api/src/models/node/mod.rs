@@ -151,7 +151,7 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         tracing::error!("{err}");
-        match dbg!(err) {
+        match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             Delete(_, NotFound)
             | FindById(_, NotFound)

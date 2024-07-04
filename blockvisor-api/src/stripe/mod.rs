@@ -328,30 +328,21 @@ pub mod tests {
             .await;
 
         server
-            .mock(
-                "GET",
-                mockito::Matcher::Regex(r"^/v1/payment_methods?customer=cus_NffrFeUfNV2Hib".into()),
-            )
+            .mock("GET", "^/v1/payment_methods?customer=cus_NffrFeUfNV2Hib")
             .with_status(200)
             .with_body(mock_payment_methods())
             .create_async()
             .await;
 
         server
-            .mock(
-                "POST",
-                mockito::Matcher::Regex(r"^/v1/subscriptions".into()),
-            )
+            .mock("POST", "^/v1/subscriptions")
             .with_status(201)
             .with_body(mock_subscription())
             .create_async()
             .await;
 
         server
-            .mock(
-                "POST",
-                mockito::Matcher::Regex(r"^/v1/subscription_items".into()),
-            )
+            .mock("POST", "^/v1/subscription_items")
             .with_status(201)
             .with_body(mock_subscription_item())
             .create_async()
@@ -377,7 +368,7 @@ pub mod tests {
     fn mock_config(server: &ServerGuard) -> Config {
         Config {
             secret: "stripe_fake_secret".to_owned().into(),
-            base_url: dbg!(format!("{}/v1/", server.url())),
+            base_url: format!("{}/v1/", server.url()),
         }
     }
 
