@@ -374,7 +374,7 @@ pub mod tests {
             .await;
 
         server
-            .mock("GET", mockito::Matcher::Regex(r"^/v1/prices/search?query=active:'true'+AND+metadata['sku']:'FMN-ETH-A-SOM-MOLA-USD-M'&limit=2".into()))
+            .mock("GET", mockito::Matcher::Regex(r"^/v1/prices/search".into()))
             .with_status(200)
             .with_body(mock_prices())
             .create_async()
