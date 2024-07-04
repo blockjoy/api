@@ -58,7 +58,7 @@ impl Client {
 
         Ok(Client {
             inner,
-            endpoint,
+            endpoint: dbg!(endpoint),
             secret,
         })
     }
