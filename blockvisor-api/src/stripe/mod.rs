@@ -389,7 +389,7 @@ pub mod tests {
     fn mock_config(server: &ServerGuard) -> Config {
         Config {
             secret: "stripe_fake_secret".to_owned().into(),
-            base_url: dbg!(format!("{}/v1", server.url())),
+            base_url: dbg!(format!("{}/v1/", server.url())),
         }
     }
 
