@@ -102,18 +102,31 @@ pub struct CreateCustomer<'a> {
     email: Option<&'a str>,
     metadata: Option<super::Metadata>,
     payment_method: &'a super::PaymentMethodId,
+    invoice_settings: InvoiceSettings<'a>,
     phone: Option<&'a str>,
     // shipping: Shipping,
 }
 
+#[derive(Debug, serde::Serialize)]
+struct InvoiceSettings<'a> {
+    default_payment_method: &'a super::PaymentMethodId,
+}
+
 impl<'a> CreateCustomer<'a> {
-    pub fn new(org: &'a models::Org, payment_method_id: &'a super::PaymentMethodId) -> Self {
+    pub fn new(
+        org: &'a models::Org,
+        user: &'a models::User,
+        payment_method_id: &'a super::PaymentMethodId,
+    ) -> Self {
         Self {
             name: org.name.clone(),
             address: None,
-            email: None,
+            email: Some(&user.email),
             metadata: None,
             payment_method: payment_method_id,
+            invoice_settings: InvoiceSettings {
+                default_payment_method: payment_method_id,
+            },
             phone: None,
         }
     }

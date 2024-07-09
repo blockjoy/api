@@ -51,6 +51,7 @@ pub trait Payment {
     async fn create_customer(
         &self,
         org: &models::Org,
+        user: &models::User,
         payment_method_id: &api::PaymentMethodId,
     ) -> Result<customer::Customer, Error>;
 
@@ -119,9 +120,10 @@ impl Payment for Stripe {
     async fn create_customer(
         &self,
         org: &models::Org,
+        user: &models::User,
         payment_method_id: &api::PaymentMethodId,
     ) -> Result<customer::Customer, Error> {
-        let customer = customer::CreateCustomer::new(org, payment_method_id);
+        let customer = customer::CreateCustomer::new(org, user, payment_method_id);
         self.client
             .request(&customer)
             .await
@@ -242,9 +244,12 @@ pub mod tests {
         async fn create_customer(
             &self,
             org: &models::Org,
+            user: &models::User,
             payment_method_id: &api::PaymentMethodId,
         ) -> Result<customer::Customer, Error> {
-            self.stripe.create_customer(org, payment_method_id).await
+            self.stripe
+                .create_customer(org, user, payment_method_id)
+                .await
         }
 
         async fn attach_payment_method(
