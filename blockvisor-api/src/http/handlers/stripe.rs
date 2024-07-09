@@ -13,6 +13,7 @@ use displaydoc::Display;
 use thiserror::Error;
 use tracing::{debug, error};
 
+use crate::auth::rbac::{OrgRole, Role};
 use crate::auth::resource::{OrgId, UserId};
 use crate::config::Context;
 use crate::database::{Transaction, WriteConn};
@@ -118,7 +119,7 @@ async fn setup_intent_succeeded_handler(
             .attach_payment_method(&setup_intent.payment_method, stripe_customer_id)
             .await?;
     } else {
-        let owner = User::by_org_role(org_id, "org-owner", &mut write)
+        let owner = User::by_org_role(org_id, Role::Org(OrgRole::Owner), &mut write)
             .await?
             .pop()
             .ok_or_else(|| Error::NoOwner(org_id))?;

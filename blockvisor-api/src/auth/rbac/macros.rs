@@ -3,9 +3,11 @@ macro_rules! define_roles {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash,
                  serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
                  strum::EnumDiscriminants, strum::IntoStaticStr)]
+        #[derive(diesel::expression::AsExpression)]
         #[strum(serialize_all = "kebab-case")]
         #[strum_discriminants(derive(strum::IntoStaticStr))]
         #[strum_discriminants(strum(serialize_all = "kebab-case"))]
+        #[diesel(sql_type = diesel::sql_types::Text)]
         pub enum Role {
             $( $enum([< $enum Role >]), )*
         }
@@ -48,6 +50,23 @@ macro_rules! define_roles {
                 )*
 
                     Err(format!("Role not found: {s}"))
+            }
+        }
+
+        impl diesel::serialize::ToSql<diesel::sql_types::Integer, diesel::pg::Pg> for Role
+        where
+            diesel::pg::Pg: diesel::backend::Backend,
+            String: diesel::serialize::ToSql<diesel::sql_types::Text, diesel::pg::Pg>,
+        {
+            fn to_sql<'b>(
+                &'b self,
+                out: &mut diesel::serialize::Output<'b, '_, diesel::pg::Pg>,
+            ) -> diesel::serialize::Result {
+                let repr = &mut self.to_string();
+                <String as diesel::serialize::ToSql<diesel::sql_types::Text, diesel::pg::Pg>>::to_sql(
+                    &repr,
+                    &mut out.reborrow(),
+                )
             }
         }
 
