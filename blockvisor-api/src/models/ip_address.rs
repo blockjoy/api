@@ -48,6 +48,9 @@ impl From<Error> for Status {
         match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             FindByIp(_, NotFound) => Status::not_found("Not found."),
+            NextForHost(NotFound) => {
+                Status::failed_precondition("This host has no available ip addresses")
+            }
             _ => Status::internal("Internal error."),
         }
     }
