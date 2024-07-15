@@ -268,7 +268,7 @@ define_perms! {
         Delete,
     }
 
-    Tmp => {
-        UsesBilling,
+    Billing => {
+        Enabled,
     }
 }

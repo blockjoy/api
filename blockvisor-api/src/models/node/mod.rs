@@ -39,7 +39,7 @@ use thiserror::Error;
 use tonic::Status;
 use tracing::warn;
 
-use crate::auth::rbac::TmpPerm;
+use crate::auth::rbac::BillingPerm;
 use crate::auth::resource::{
     HostId, NodeId, OrgId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
 };
@@ -781,7 +781,7 @@ impl NewNode {
 
         // We let superusers continue making new nodes unmolested so as not to interfere with any
         // testing.
-        let needs_billing = authz.has_perm(TmpPerm::UsesBilling);
+        let needs_billing = authz.has_perm(BillingPerm::Enabled);
         if needs_billing {
             let stripe_customer_id = org
                 .stripe_customer_id
