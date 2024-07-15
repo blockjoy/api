@@ -267,4 +267,8 @@ define_perms! {
         Update,
         Delete,
     }
+
+    Tmp => {
+        UsesBilling,
+    }
 }
