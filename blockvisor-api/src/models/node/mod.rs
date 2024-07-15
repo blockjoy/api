@@ -781,7 +781,7 @@ impl NewNode {
 
         // We let superusers continue making new nodes unmolested so as not to interfere with any
         // testing.
-        let needs_billing = !authz.has_perm(TmpPerm::UsesBilling);
+        let needs_billing = authz.has_perm(TmpPerm::UsesBilling);
         if needs_billing {
             let stripe_customer_id = org
                 .stripe_customer_id
