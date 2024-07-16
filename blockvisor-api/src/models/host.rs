@@ -153,6 +153,7 @@ pub struct Host {
     pub deleted_at: Option<DateTime<Utc>>,
     pub managed_by: ManagedBy,
     pub node_count: i32,
+    pub tags: Vec<Option<String>>,
 }
 
 impl AsRef<Host> for Host {
@@ -379,6 +380,10 @@ impl Host {
     pub fn not_deleted() -> NotDeleted {
         hosts::table.filter(hosts::deleted_at.is_null())
     }
+
+    // pub fn tags(&self) -> impl Iterator<Item = &str> {
+    //     self.tags.iter().flatten().map(|s| s.as_str())
+    // }
 }
 
 #[derive(Debug)]
@@ -567,6 +572,7 @@ pub struct NewHost<'a> {
     pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
     pub vmm_mountpoint: Option<&'a str>,
     pub managed_by: ManagedBy,
+    pub tags: Vec<Option<String>>,
 }
 
 impl NewHost<'_> {
@@ -603,6 +609,7 @@ pub struct UpdateHost<'a> {
     pub ip_gateway: Option<IpNetwork>,
     pub region_id: Option<RegionId>,
     pub managed_by: Option<ManagedBy>,
+    pub tags: Option<Vec<Option<String>>>,
 }
 
 impl UpdateHost<'_> {
@@ -621,6 +628,7 @@ impl UpdateHost<'_> {
             ip_gateway: None,
             region_id: None,
             managed_by: None,
+            tags: None,
         }
     }
 

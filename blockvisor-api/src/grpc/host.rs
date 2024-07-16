@@ -311,6 +311,7 @@ async fn update(
     write
         .auth_or_all(&meta, HostAdminPerm::Update, HostPerm::Update, id)
         .await?;
+    let host = Host::by_id(id, &mut write).await?;
 
     let region = if let Some(ref region) = req.region {
         Region::get_or_create(region, None, &mut write)
@@ -320,7 +321,9 @@ async fn update(
         None
     };
 
-    req.as_update(region.as_ref())?.update(&mut write).await?;
+    req.as_update(&host, region.as_ref())?
+        .update(&mut write)
+        .await?;
 
     Ok(api::HostServiceUpdateResponse {})
 }
@@ -505,6 +508,14 @@ impl api::Host {
                 lookup.nodes.get(&host.id).unwrap_or(&no_nodes),
             ),
             managed_by: api::ManagedBy::from_model(host.managed_by).into(),
+            tags: Some(common::Tags {
+                tags: host
+                    .tags
+                    .into_iter()
+                    .flatten()
+                    .map(|name| common::Tag { name })
+                    .collect(),
+            }),
         })
     }
 }
@@ -612,6 +623,14 @@ impl api::HostServiceCreateRequest {
                 .managed_by()
                 .into_model()
                 .ok_or(Error::InvalidManagedBy(self.managed_by.unwrap_or(0)))?,
+            tags: self
+                .tags
+                .as_ref()
+                .map(|tags| tags.tags.as_slice())
+                .unwrap_or_default()
+                .iter()
+                .map(|tag| Some(tag.name.trim().to_lowercase()))
+                .collect(),
         })
     }
 }
@@ -682,7 +701,9 @@ impl api::HostServiceListRequest {
 }
 
 impl api::HostServiceUpdateRequest {
-    pub fn as_update(&self, region: Option<&Region>) -> Result<UpdateHost<'_>, Error> {
+    pub fn as_update(&self, host: &Host, region: Option<&Region>) -> Result<UpdateHost<'_>, Error> {
+        use api::update_tags::Update;
+
         Ok(UpdateHost {
             id: self.id.parse().map_err(Error::ParseId)?,
             name: self.name.as_deref(),
@@ -700,6 +721,28 @@ impl api::HostServiceUpdateRequest {
             ip_gateway: None,
             region_id: region.map(|r| r.id),
             managed_by: self.managed_by().into(),
+            tags: match &self.update_tags {
+                Some(api::UpdateTags {
+                    update: Some(Update::OverwriteTags(tags)),
+                }) => Some(
+                    tags.tags
+                        .iter()
+                        .map(|tag| Some(tag.name.trim().to_lowercase()))
+                        .collect(),
+                ),
+                Some(api::UpdateTags {
+                    update: Some(Update::AddTag(new_tag)),
+                }) => Some(
+                    host.tags
+                        .iter()
+                        .flatten()
+                        .map(|s| s.trim().to_lowercase())
+                        .chain([new_tag.name.trim().to_lowercase()])
+                        .map(Some)
+                        .collect(),
+                ),
+                Some(api::UpdateTags { update: None }) | None => None,
+            },
         })
     }
 }

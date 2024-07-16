@@ -25,6 +25,7 @@ async fn unauthenticated_without_token_for_update() {
         billing_amount: None,
         total_disk_space: None,
         managed_by: None,
+        update_tags: None,
     };
     let status = test.send(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
@@ -46,6 +47,7 @@ async fn permission_denied_with_token_ownership_for_update() {
         billing_amount: None,
         total_disk_space: None,
         managed_by: None,
+        update_tags: None,
     };
 
     let status = test
@@ -70,6 +72,7 @@ async fn permission_denied_with_user_token_for_update() {
         billing_amount: None,
         total_disk_space: None,
         managed_by: None,
+        update_tags: None,
     };
 
     let status = test.send_admin(Service::update, req).await.unwrap_err();
@@ -108,6 +111,7 @@ async fn ok_for_create() {
         billing_amount: None,
         vmm_mountpoint: Some("/a/path/to/the/data/treasure".to_string()),
         managed_by: Some(api::ManagedBy::Automatic.into()),
+        tags: None,
     };
     test.send(Service::create, req).await.unwrap();
 }
@@ -127,6 +131,7 @@ async fn ok_for_update() {
         billing_amount: None,
         total_disk_space: None,
         managed_by: None,
+        update_tags: None,
     };
 
     test.send_with(Service::update, req, &jwt).await.unwrap();
@@ -211,8 +216,6 @@ async fn permission_denied_for_delete() {
 #[tokio::test]
 async fn can_update_host_info() {
     use schema::hosts;
-    // TODO @Thomas: This doesn't really test the api, should this be here or maybe in
-    // `src/models/host.rs`?
 
     let test = TestServer::new().await;
     let host = &test.seed().host;
@@ -230,6 +233,7 @@ async fn can_update_host_info() {
         status: None,
         region_id: None,
         managed_by: None,
+        tags: None,
     };
     let mut conn = test.conn().await;
     let update = update_host.update(&mut conn).await.unwrap();

@@ -208,6 +208,7 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         managed_by -> EnumManagedBy,
         node_count -> Int4,
+        tags -> Array<Nullable<Text>>,
     }
 }
 

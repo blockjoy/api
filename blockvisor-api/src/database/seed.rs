@@ -185,6 +185,7 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         }),
         period: common::Period::Monthly as i32,
     };
+    let tag = BLOCKCHAIN_NAME.trim().to_lowercase();
 
     let host1 = NewHost {
         name: HOST_1,
@@ -204,6 +205,7 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         monthly_cost_in_usd: Some(MonthlyCostUsd::from_proto(&billing).unwrap()),
         vmm_mountpoint: None,
         managed_by: ManagedBy::Automatic,
+        tags: vec![Some(tag.clone())],
     };
     let host1 = host1
         .create(&["192.168.1.2".parse().unwrap()], conn)
@@ -228,6 +230,7 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         monthly_cost_in_usd: None,
         vmm_mountpoint: None,
         managed_by: ManagedBy::Automatic,
+        tags: vec![Some(tag)],
     };
     host2
         .create(&["192.168.2.1".parse().unwrap()], conn)
