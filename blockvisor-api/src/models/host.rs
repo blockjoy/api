@@ -7,7 +7,7 @@ use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
-use diesel::sql_types::Bool;
+use diesel::sql_types::{Bool, Text};
 use diesel_async::RunQueryDsl;
 use diesel_derive_enum::DbEnum;
 use diesel_derive_newtype::DieselNewType;
@@ -24,7 +24,7 @@ use crate::grpc::{api, common};
 use crate::storage::metadata::HardwareRequirements;
 use crate::util::{SearchOperator, SortOrder};
 
-use super::blockchain::{Blockchain, BlockchainId};
+use super::blockchain::Blockchain;
 use super::ip_address::CreateIpAddress;
 use super::node::{NodeScheduler, NodeType, ResourceAffinity};
 use super::schema::{hosts, sql_types};
@@ -165,7 +165,6 @@ impl AsRef<Host> for Host {
 #[derive(Debug)]
 pub struct HostRequirements {
     pub requirements: HardwareRequirements,
-    pub blockchain_id: BlockchainId,
     pub node_type: NodeType,
     pub host_type: Option<HostType>,
     pub scheduler: NodeScheduler,
@@ -248,6 +247,7 @@ impl Host {
     /// gracefully.
     pub async fn host_candidates(
         reqs: HostRequirements,
+        blockchain: &Blockchain,
         limit: Option<i64>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Host>, Error> {
@@ -262,12 +262,13 @@ impl Host {
 
         let HostRequirements {
             requirements,
-            blockchain_id,
             node_type,
             host_type,
             scheduler,
             org_id,
         } = reqs;
+
+        let tag = blockchain.name.trim().to_lowercase();
 
         let order_by = scheduler.order_clause();
         let limit_clause = limit.map(|_| "LIMIT $6").unwrap_or_default();
@@ -301,7 +302,8 @@ impl Host {
                 hosts
             WHERE
                 deleted_at IS NULL AND
-                managed_by = 'automatic'
+                managed_by = 'automatic' AND
+                $10 = ANY(tags)
         ) AS resouces
         WHERE
             -- These are our hard filters, we do not want any nodes that cannot satisfy the
@@ -321,12 +323,13 @@ impl Host {
             .bind::<BigInt, _>(i64::from(requirements.vcpu_count))
             .bind::<BigInt, _>(requirements.mem_size_mb as i64 * 1000 * 1000)
             .bind::<BigInt, _>(requirements.disk_size_gb as i64 * 1000 * 1000 * 1000)
-            .bind::<Uuid, _>(blockchain_id)
+            .bind::<Uuid, _>(blockchain.id)
             .bind::<EnumNodeType, _>(node_type)
             .bind::<Nullable<BigInt>, _>(limit)
             .bind::<Nullable<Uuid>, _>(scheduler.region.map(|r| r.id))
             .bind::<Nullable<Uuid>, _>(org_id)
             .bind::<Nullable<sql_types::EnumHostType>, _>(host_type)
+            .bind::<Text, _>(tag)
             .get_results(conn)
             .await
             .map_err(Error::HostCandidates)?;
@@ -353,13 +356,12 @@ impl Host {
             .flatten();
         let requirements = HostRequirements {
             requirements,
-            blockchain_id: blockchain.id,
             node_type,
             host_type,
             scheduler,
             org_id,
         };
-        let regions = Self::host_candidates(requirements, None, conn)
+        let regions = Self::host_candidates(requirements, &blockchain, None, conn)
             .await?
             .into_iter()
             .filter_map(|host| host.region_id)

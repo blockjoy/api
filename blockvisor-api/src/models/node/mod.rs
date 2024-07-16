@@ -329,20 +329,19 @@ impl Node {
     ) -> Result<Host, Error> {
         let chain = Blockchain::by_id(self.blockchain_id, authz, write).await?;
 
-        let image = ImageId::new(chain.name, self.node_type, self.version.clone());
+        let image = ImageId::new(chain.name.clone(), self.node_type, self.version.clone());
         let meta = write.ctx.storage.rhai_metadata(&image).await?;
 
         let candidates = match self.scheduler(write).await? {
             Some(scheduler) => {
                 let reqs = HostRequirements {
                     requirements: meta.requirements,
-                    blockchain_id: self.blockchain_id,
                     node_type: self.node_type,
                     host_type: Some(HostType::Cloud),
                     scheduler,
                     org_id: None,
                 };
-                Host::host_candidates(reqs, Some(2), write).await?
+                Host::host_candidates(reqs, &chain, Some(2), write).await?
             }
             None => vec![Host::by_id(self.host_id, write).await?],
         };
@@ -871,14 +870,13 @@ impl NewNode {
 
         let requirements = HostRequirements {
             requirements: metadata.requirements,
-            blockchain_id: self.blockchain_id,
             node_type: self.node_type,
             host_type: Some(HostType::Cloud),
             scheduler,
             org_id: None,
         };
 
-        let candidates = Host::host_candidates(requirements, Some(1), write).await?;
+        let candidates = Host::host_candidates(requirements, blockchain, Some(1), write).await?;
         candidates.into_iter().next().ok_or(Error::NoMatchingHost)
     }
 
