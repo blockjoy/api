@@ -10,7 +10,7 @@ use crate::auth::resource::UserId;
 use crate::auth::{self, token, Authorize};
 use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::models::user::setting::{NewUserSetting, UserSetting};
-use crate::models::user::{NewUser, UpdateUser, User, UserFilter, UserSearch, UserSort};
+use crate::models::user::{setting, NewUser, UpdateUser, User, UserFilter, UserSearch, UserSort};
 use crate::util::NanosUtc;
 
 use super::api::user_service_server::UserService;
@@ -320,12 +320,12 @@ async fn get_settings(
     read.auth(&meta, UserSettingsPerm::Get, user_id).await?;
 
     let user = User::by_id(user_id, &mut read).await?;
-    let settings = UserSetting::by_user(user.id, &mut read)
-        .await?
-        .into_iter()
-        .map(|s| (s.name, s.value))
-        .collect();
-
+    let settings = match UserSetting::by_user(user.id, &mut read).await {
+        Ok(settings) => settings,
+        Err(setting::Error::ByUser(_, diesel::result::Error::NotFound)) => vec![],
+        Err(err) => return Err(err.into()),
+    };
+    let settings = settings.into_iter().map(|s| (s.name, s.value)).collect();
     Ok(api::UserServiceGetSettingsResponse { settings })
 }
 
