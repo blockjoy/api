@@ -68,7 +68,7 @@ pub struct PaymentMethod {
 #[derive(Debug, serde::Deserialize)]
 pub struct BillingDetails {
     /// Billing address.
-    pub address: Option<super::Address>,
+    pub address: Option<super::address::Address>,
     /// Email address.
     pub email: Option<String>,
     /// Full name.

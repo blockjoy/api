@@ -8,7 +8,7 @@ use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error};
 
-use crate::auth::rbac::{OrgAdminPerm, OrgBillingPerm, OrgPerm, OrgProvisionPerm};
+use crate::auth::rbac::{OrgAddressPerm, OrgAdminPerm, OrgBillingPerm, OrgPerm, OrgProvisionPerm};
 use crate::auth::resource::{OrgId, UserId};
 use crate::auth::Authorize;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
@@ -38,6 +38,8 @@ pub enum Error {
     Diesel(#[from] diesel::result::Error),
     /// Org invitation error: {0}
     Invitation(#[from] crate::models::invitation::Error),
+    /// The request is missing the `address` fields.
+    MissingAddress,
     /// Org model error: {0}
     Model(#[from] crate::models::org::Error),
     /// No customer exists in stripe for org `{0}`.
@@ -90,6 +92,7 @@ impl From<Error> for Status {
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
+            MissingAddress => Status::failed_precondition("User has no address."),
             NoStripeCustomer(_) => Status::failed_precondition("No customer for that org."),
             NoStripeSubscription(_) => Status::failed_precondition("No subscription for that org."),
             Auth(err) => err.into(),
@@ -200,6 +203,33 @@ impl OrgService for Grpc {
     ) -> Result<Response<api::OrgServiceBillingDetailsResponse>, Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| billing_details(req, meta, read).scope_boxed())
+            .await
+    }
+
+    async fn get_address(
+        &self,
+        req: Request<api::OrgServiceGetAddressRequest>,
+    ) -> Result<Response<api::OrgServiceGetAddressResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| get_address(req, meta, read).scope_boxed())
+            .await
+    }
+
+    async fn set_address(
+        &self,
+        req: Request<api::OrgServiceSetAddressRequest>,
+    ) -> Result<Response<api::OrgServiceSetAddressResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| set_address(req, meta, read).scope_boxed())
+            .await
+    }
+
+    async fn delete_address(
+        &self,
+        req: Request<api::OrgServiceDeleteAddressRequest>,
+    ) -> Result<Response<api::OrgServiceDeleteAddressResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| delete_address(req, meta, read).scope_boxed())
             .await
     }
 }
@@ -435,14 +465,18 @@ async fn list_payment_methods(
             org_id: Some(org_id.to_string()),
             user_id: pm.metadata.and_then(|meta| meta.get("user_id").cloned()),
             details: Some(api::BillingDetails {
-                address: pm.billing_details.address.as_ref().map(|add| api::Address {
-                    city: add.city.clone(),
-                    country: add.country.clone(),
-                    line1: add.line1.clone(),
-                    line2: add.line2.clone(),
-                    postal_code: add.postal_code.clone(),
-                    state: add.state.clone(),
-                }),
+                address: pm
+                    .billing_details
+                    .address
+                    .as_ref()
+                    .map(|add| common::Address {
+                        city: add.city.clone(),
+                        country: add.country.clone(),
+                        line1: add.line1.clone(),
+                        line2: add.line2.clone(),
+                        postal_code: add.postal_code.clone(),
+                        state: add.state.clone(),
+                    }),
                 email: pm.billing_details.email.clone(),
                 name: pm.billing_details.name.clone(),
                 phone: pm.billing_details.phone.clone(),
@@ -514,6 +548,61 @@ async fn billing_details(
             })
             .collect(),
     })
+}
+
+async fn get_address(
+    req: api::OrgServiceGetAddressRequest,
+    meta: MetadataMap,
+    mut read: ReadConn<'_, '_>,
+) -> Result<api::OrgServiceGetAddressResponse, Error> {
+    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
+    read.auth(&meta, OrgAddressPerm::Get, org_id).await?;
+    let org = Org::by_id(org_id, &mut read).await?;
+    let customer_id = org
+        .stripe_customer_id
+        .as_deref()
+        .ok_or(Error::NoStripeCustomer(org_id))?;
+    let address = read.ctx.stripe.get_address(customer_id).await?;
+    Ok(api::OrgServiceGetAddressResponse {
+        address: address.map(Into::into),
+    })
+}
+
+async fn set_address(
+    req: api::OrgServiceSetAddressRequest,
+    meta: MetadataMap,
+    mut write: ReadConn<'_, '_>,
+) -> Result<api::OrgServiceSetAddressResponse, Error> {
+    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
+    write.auth(&meta, OrgAddressPerm::Set, org_id).await?;
+    let org = Org::by_id(org_id, &mut write).await?;
+    let address = req.address.ok_or(Error::MissingAddress)?;
+    let customer_id = org
+        .stripe_customer_id
+        .as_deref()
+        .ok_or(Error::NoStripeCustomer(org_id))?;
+    write
+        .ctx
+        .stripe
+        .set_address(customer_id, &address.into())
+        .await?;
+    Ok(api::OrgServiceSetAddressResponse {})
+}
+
+async fn delete_address(
+    req: api::OrgServiceDeleteAddressRequest,
+    meta: MetadataMap,
+    mut write: ReadConn<'_, '_>,
+) -> Result<api::OrgServiceDeleteAddressResponse, Error> {
+    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
+    write.auth(&meta, OrgAddressPerm::Delete, org_id).await?;
+    let org = Org::by_id(org_id, &mut write).await?;
+    let customer_id = org
+        .stripe_customer_id
+        .as_deref()
+        .ok_or(Error::NoStripeCustomer(org_id))?;
+    write.ctx.stripe.delete_address(customer_id).await?;
+    Ok(api::OrgServiceDeleteAddressResponse {})
 }
 
 impl api::Org {

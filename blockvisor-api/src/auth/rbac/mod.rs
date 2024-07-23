@@ -234,6 +234,12 @@ define_perms! {
         ListPaymentMethods,
     }
 
+    OrgAddress => {
+        Get,
+        Set,
+        Delete,
+    }
+
     Subscription => {
         Create,
         Get,

@@ -8,7 +8,7 @@ pub struct Customer {
     /// Unique identifier for the object.
     pub id: String,
     /// The customer's address.
-    pub address: Option<super::Address>,
+    pub address: Option<super::address::Address>,
     /// The current balance, if any, that's stored on the customer.
     ///
     /// If negative, the customer has credit to apply to their next invoice. If positive, the
@@ -98,7 +98,7 @@ pub struct Customer {
 #[derive(Debug, serde::Serialize)]
 pub struct CreateCustomer<'a> {
     name: String,
-    address: Option<super::Address>,
+    address: Option<super::address::Address>,
     email: Option<&'a str>,
     metadata: Option<super::Metadata>,
     payment_method: &'a super::PaymentMethodId,
@@ -200,4 +200,95 @@ pub enum PaymentSource {
     // BankAccount(BankAccount),
     #[serde(other)]
     Other,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct GetCustomer<'a> {
+    customer_id: &'a str,
+}
+
+impl<'a> GetCustomer<'a> {
+    pub const fn new(customer_id: &'a str) -> Self {
+        Self { customer_id }
+    }
+}
+
+impl super::StripeEndpoint for GetCustomer<'_> {
+    type Result = Customer;
+
+    fn method(&self) -> hyper::Method {
+        hyper::Method::GET
+    }
+
+    fn path(&self) -> String {
+        format!("customers/{}", self.customer_id)
+    }
+
+    fn query(&self) -> Option<&Self> {
+        None
+    }
+
+    fn body(&self) -> Option<&Self> {
+        None
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct UpdateCustomer<'a> {
+    customer_id: &'a str,
+
+    #[serde(rename = "address[city]")]
+    address_city: Option<&'a str>,
+    #[serde(rename = "address[country]")]
+    address_country: Option<&'a str>,
+    #[serde(rename = "address[line1]")]
+    address_line1: Option<&'a str>,
+    #[serde(rename = "address[line2]")]
+    address_line2: Option<&'a str>,
+    #[serde(rename = "address[postal_code]")]
+    address_postal_code: Option<&'a str>,
+    #[serde(rename = "address[state]")]
+    address_state: Option<&'a str>,
+}
+
+impl<'a> UpdateCustomer<'a> {
+    pub const fn new(
+        customer_id: &'a str,
+        city: Option<&'a str>,
+        country: Option<&'a str>,
+        line1: Option<&'a str>,
+        line2: Option<&'a str>,
+        postal_code: Option<&'a str>,
+        state: Option<&'a str>,
+    ) -> Self {
+        Self {
+            customer_id,
+            address_city: city,
+            address_country: country,
+            address_line1: line1,
+            address_line2: line2,
+            address_postal_code: postal_code,
+            address_state: state,
+        }
+    }
+}
+
+impl super::StripeEndpoint for UpdateCustomer<'_> {
+    type Result = Customer;
+
+    fn method(&self) -> hyper::Method {
+        hyper::Method::POST
+    }
+
+    fn path(&self) -> String {
+        format!("customers/{}", self.customer_id)
+    }
+
+    fn query(&self) -> Option<&Self> {
+        None
+    }
+
+    fn body(&self) -> Option<&Self> {
+        Some(self)
+    }
 }

@@ -5,6 +5,7 @@
 //! field that is commented out, feel free to comment it in.
 
 pub mod account;
+pub mod address;
 pub mod card;
 pub mod currency;
 pub mod customer;
@@ -55,24 +56,6 @@ pub struct Metadata(std::collections::HashMap<String, String>);
 
 #[derive(Debug, derive_more::Display, serde::Serialize, serde::Deserialize)]
 pub struct PaymentMethodId(String);
-
-/// The resource representing a Stripe "Address".
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct Address {
-    /// City, district, suburb, town, or village.
-    pub city: Option<String>,
-    /// Two-letter country code ([ISO 3166-1 alpha-2]
-    /// (https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)).
-    pub country: Option<String>,
-    /// Address line 1 (e.g., street, PO Box, or company name).
-    pub line1: Option<String>,
-    /// Address line 2 (e.g., apartment, suite, unit, or building).
-    pub line2: Option<String>,
-    /// ZIP or postal code.
-    pub postal_code: Option<String>,
-    /// State, county, province, or region.
-    pub state: Option<String>,
-}
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ListResponse<T> {

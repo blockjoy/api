@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::auth::resource::OrgId;
 use crate::models;
 use crate::{auth::resource::UserId, config::stripe::Config};
-use api::{customer, payment_method, price, setup_intent, subscription};
+use api::{address, customer, payment_method, price, setup_intent, subscription};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -25,14 +25,22 @@ pub enum Error {
     CreateSubscription(client::Error),
     /// Failed to create stripe subscription item: {0}
     CreateSubscriptionItem(client::Error),
+    /// Failed to get address: {0}
+    GetAddress(client::Error),
+    /// Failed to delete address: {0}
+    DeleteAddress(client::Error),
     /// Failed to list stripe payment methods: {0}
     ListPaymentMethods(client::Error),
     /// Failed to list stripe susbcriptions: {0}
     ListSubscriptions(client::Error),
+    /// No address found for the current customer.
+    NoAddress,
     /// No price found on stripe for sku `{0}`.
     NoPrice(String),
     /// Failed to search stripe prices: {0}
     SearchPrices(client::Error),
+    /// Failed to set address: {0}
+    SetAddress(client::Error),
 }
 
 pub struct Stripe {
@@ -86,6 +94,16 @@ pub trait Payment {
     ) -> Result<Option<subscription::Subscription>, Error>;
 
     async fn get_price(&self, sku: &str) -> Result<price::Price, Error>;
+
+    async fn get_address(&self, customer_id: &str) -> Result<Option<address::Address>, Error>;
+
+    async fn set_address(
+        &self,
+        customer_id: &str,
+        addr: &address::Address,
+    ) -> Result<address::Address, Error>;
+
+    async fn delete_address(&self, customer_id: &str) -> Result<(), Error>;
 }
 
 impl Stripe {
@@ -218,6 +236,48 @@ impl Payment for Stripe {
             Err(Error::NoPrice(sku.to_string()))
         }
     }
+
+    async fn get_address(&self, customer_id: &str) -> Result<Option<address::Address>, Error> {
+        let req = customer::GetCustomer::new(customer_id);
+        let customer = self.client.request(&req).await.map_err(Error::GetAddress)?;
+        Ok(customer.address)
+    }
+
+    async fn set_address(
+        &self,
+        customer_id: &str,
+        address: &address::Address,
+    ) -> Result<address::Address, Error> {
+        let req = customer::UpdateCustomer::new(
+            customer_id,
+            address.city.as_deref(),
+            address.country.as_deref(),
+            address.line1.as_deref(),
+            address.line2.as_deref(),
+            address.postal_code.as_deref(),
+            address.state.as_deref(),
+        );
+        let customer = self.client.request(&req).await.map_err(Error::SetAddress)?;
+        customer.address.ok_or(Error::NoAddress)
+    }
+
+    async fn delete_address(&self, customer_id: &str) -> Result<(), Error> {
+        let req = customer::UpdateCustomer::new(customer_id, None, None, None, None, None, None);
+        let customer = self
+            .client
+            .request(&req)
+            .await
+            .map_err(Error::DeleteAddress)?;
+        if customer
+            .address
+            .as_ref()
+            .and_then(|add| add.line1.as_deref())
+            .is_some()
+        {
+            tracing::warn!("Address is still in place afer a delete: {customer:?}");
+        }
+        Ok(())
+    }
 }
 
 #[cfg(any(test, feature = "integration-test"))]
@@ -295,6 +355,22 @@ pub mod tests {
 
         async fn get_price(&self, sku: &str) -> Result<price::Price, Error> {
             self.stripe.get_price(sku).await
+        }
+
+        async fn get_address(&self, customer_id: &str) -> Result<Option<address::Address>, Error> {
+            self.stripe.get_address(customer_id).await
+        }
+
+        async fn set_address(
+            &self,
+            customer_id: &str,
+            addr: &address::Address,
+        ) -> Result<address::Address, Error> {
+            self.stripe.set_address(customer_id, addr).await
+        }
+
+        async fn delete_address(&self, customer_id: &str) -> Result<(), Error> {
+            self.stripe.delete_address(customer_id).await
         }
     }
 
