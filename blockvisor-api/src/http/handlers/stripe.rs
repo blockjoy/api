@@ -124,7 +124,7 @@ async fn setup_intent_succeeded_handler(
             .pop()
             .ok_or_else(|| Error::NoOwner(org_id))?;
         let customer_id = stripe
-            .create_customer(&org, &owner, &setup_intent.payment_method)
+            .create_customer(&org, &owner, Some(&setup_intent.payment_method))
             .await?
             .id;
         org.set_customer_id(&customer_id, &mut write).await?;

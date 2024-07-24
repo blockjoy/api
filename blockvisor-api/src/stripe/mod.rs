@@ -60,7 +60,7 @@ pub trait Payment {
         &self,
         org: &models::Org,
         user: &models::User,
-        payment_method_id: &api::PaymentMethodId,
+        payment_method_id: Option<&api::PaymentMethodId>,
     ) -> Result<customer::Customer, Error>;
 
     /// Attaches a payment method to a particular customer.
@@ -139,7 +139,7 @@ impl Payment for Stripe {
         &self,
         org: &models::Org,
         user: &models::User,
-        payment_method_id: &api::PaymentMethodId,
+        payment_method_id: Option<&api::PaymentMethodId>,
     ) -> Result<customer::Customer, Error> {
         let customer = customer::CreateCustomer::new(org, user, payment_method_id);
         self.client
@@ -305,7 +305,7 @@ pub mod tests {
             &self,
             org: &models::Org,
             user: &models::User,
-            payment_method_id: &api::PaymentMethodId,
+            payment_method_id: Option<&api::PaymentMethodId>,
         ) -> Result<customer::Customer, Error> {
             self.stripe
                 .create_customer(org, user, payment_method_id)
