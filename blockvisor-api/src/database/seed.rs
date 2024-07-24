@@ -457,6 +457,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-login', 'blockchain-get'),
         ('grpc-login', 'blockchain-list'),
         ('grpc-login', 'blockchain-view-public'),
+        ('grpc-login', 'blockchain-get-pricing'),
         ('grpc-login', 'bundle-list-bundle-versions'),
         ('grpc-login', 'bundle-retrieve'),
         ('grpc-login', 'command-ack'),

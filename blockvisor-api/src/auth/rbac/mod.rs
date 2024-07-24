@@ -81,6 +81,7 @@ define_perms! {
         ListImageVersions,
         ViewDevelopment,
         ViewPublic,
+        GetPricing,
     }
 
     BlockchainAdmin => {

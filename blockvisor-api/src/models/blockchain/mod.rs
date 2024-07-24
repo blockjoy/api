@@ -34,9 +34,10 @@ use crate::models::node::{ContainerStatus, NodeStatus, SyncStatus};
 use crate::models::schema::sql_types;
 use crate::util::{SearchOperator, SortOrder};
 
+use super::node::node_type::NodeNetwork;
 use super::schema::{blockchains, nodes};
-use super::Node;
 use super::Paginate;
+use super::{Node, RegionId};
 
 #[derive(Debug, DisplayDoc, Error)]
 pub enum Error {
@@ -56,6 +57,8 @@ pub enum Error {
     Paginate(#[from] crate::models::paginate::Error),
     /// Blockchain Property model error: {0}
     Property(#[from] property::Error),
+    /// The region `{0}` has no pricing set, so we cannot launch nodes here.
+    RegionWithoutPricing(RegionId),
     /// Failed to update blockchain id `{0}`: {1}
     Update(BlockchainId, diesel::result::Error),
 }
@@ -119,6 +122,33 @@ impl Blockchain {
             .get_results(conn)
             .await
             .map_err(|err| Error::FindIds(ids, err))
+    }
+
+    pub fn sku(
+        network: &NodeNetwork,
+        blockchain: &super::Blockchain,
+        region: &super::Region,
+    ) -> Result<String, Error> {
+        // FMN - hardcoded for Nodes (Fully-Managed Node)
+        // BLASTGETH - Node ticker (Blast Geth)
+        // A - Node Type (archive)
+        // MN - Net type (mainnet)
+        // USW1 - Region (US west)
+        // USD - hardcoded for now
+        // M - Billing cycle (monthly)
+        // FMN-BLASTGETH-A-MN-USW1-USD-M
+        let blockchain = &blockchain.ticker;
+        let full_network_name = network.to_lowercase();
+        let network = match full_network_name.as_str() {
+            "main" | "mainnet" => "MN",
+            "test" | "testnet" => "TN",
+            other => &other[0..std::cmp::min(other.len(), 3)],
+        };
+        let region = region
+            .pricing_tier
+            .as_deref()
+            .ok_or_else(|| Error::RegionWithoutPricing(region.id))?;
+        Ok(format!("FMN-{blockchain}-A-{network}-{region}-USD-M"))
     }
 }
 

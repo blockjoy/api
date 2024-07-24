@@ -125,8 +125,6 @@ pub enum Error {
     ParseIpAddr(std::net::AddrParseError),
     /// Node region error: {0}
     Region(#[from] crate::models::region::Error),
-    /// The region `{0}` has no pricing set, so we cannot launch nodes here.
-    RegionWithoutPricing(RegionId),
     /// Failed to regenerate node name. This should not happen.
     RegenerateName,
     /// Node report error: {0}
@@ -786,7 +784,7 @@ impl NewNode {
                 .stripe_customer_id
                 .as_ref()
                 .ok_or_else(|| Error::NoStripeCustomer(org.id))?;
-            let sku = self.sku(blockchain, region)?;
+            let sku = Blockchain::sku(&self.network, blockchain, region)?;
             let price = write.ctx.stripe.get_price(&sku).await?;
             if let Some(subscription) = write
                 .ctx
@@ -895,29 +893,6 @@ impl NewNode {
             similarity: self.scheduler_similarity,
             resource,
         }))
-    }
-
-    fn sku(&self, blockchain: &super::Blockchain, region: &super::Region) -> Result<String, Error> {
-        // FMN - hardcoded for Nodes (Fully-Managed Node)
-        // BLASTGETH - Node ticker (Blast Geth)
-        // A - Node Type (archive)
-        // MN - Net type (mainnet)
-        // USW1 - Region (US west)
-        // USD - hardcoded for now
-        // M - Billing cycle (monthly)
-        // FMN-BLASTGETH-A-MN-USW1-USD-M
-        let blockchain = &blockchain.ticker;
-        let full_network_name = self.network.to_lowercase();
-        let network = match full_network_name.as_str() {
-            "main" | "mainnet" => "MN",
-            "test" | "testnet" => "TN",
-            other => &other[0..std::cmp::min(other.len(), 3)],
-        };
-        let region = region
-            .pricing_tier
-            .as_deref()
-            .ok_or_else(|| Error::RegionWithoutPricing(region.id))?;
-        Ok(format!("FMN-{blockchain}-A-{network}-{region}-USD-M"))
     }
 }
 

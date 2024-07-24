@@ -17,6 +17,7 @@ use crate::models::blockchain::{
     NewBlockchainNodeType, NewProperty, NewVersion, NodeStats,
 };
 use crate::models::node::{NodeType, NodeVersion};
+use crate::models::Region;
 use crate::storage::image::ImageId;
 use crate::storage::Storage;
 use crate::util::{HashVec, NanosUtc};
@@ -48,6 +49,8 @@ pub enum Error {
     MissingModel,
     /// Missing BlockchainVersionId in networks. This should not happen.
     MissingNetworksVersion,
+    /// This blockchain config has a negative price: {0}
+    NegativePrice(i64),
     /// Blockchain node error: {0}
     Node(#[from] crate::models::node::Error),
     /// Unable to cast node count from i64 to u64: {0}
@@ -66,6 +69,8 @@ pub enum Error {
     NodeTypeExists,
     /// Blockchain node type error: {0}
     NodeType(#[from] crate::models::node::node_type::Error),
+    /// This blockchain config has no associated pricing.
+    NoPricing,
     /// Failed to parse BlockchainId: {0}
     ParseId(uuid::Error),
     /// Failed to parse ImageId: {0}
@@ -74,6 +79,8 @@ pub enum Error {
     ParseOrgId(uuid::Error),
     /// Blockchain property error: {0}
     Property(#[from] crate::models::blockchain::property::Error),
+    /// Region error: {0}
+    Region(#[from] crate::models::region::Error),
     /// Blockchain search failed: {0}
     SearchOperator(crate::util::search::Error),
     /// Sort order: {0}
@@ -82,6 +89,8 @@ pub enum Error {
     Storage(#[from] crate::storage::Error),
     /// Blockchain failed to get storage networks for `{0:?}`: {1}
     StorageNetworks(ImageId, crate::storage::Error),
+    /// Stripe error: {0}
+    Stripe(#[from] crate::stripe::Error),
     /// The requested sort field is unknown.
     UnknownSortField,
 }
@@ -98,8 +107,13 @@ impl From<Error> for Status {
             | NodeCountActive(_)
             | NodeCountSyncing(_)
             | NodeCountProvisioning(_)
-            | NodeCountFailed(_) => Status::internal("Internal error."),
+            | NodeCountFailed(_)
+            | Stripe(_) => Status::internal("Internal error."),
             NodeTypeExists => Status::already_exists("Already exists."),
+            NegativePrice(price) => {
+                Status::failed_precondition(format!("The price {price} is negative"))
+            }
+            NoPricing => Status::failed_precondition("No pricing configured for this config."),
             MissingImageId | ParseImageId(_) => Status::invalid_argument("id"),
             ParseId(_) => Status::invalid_argument("id"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
@@ -117,6 +131,7 @@ impl From<Error> for Status {
             NodeLog(err) => err.into(),
             NodeType(err) => err.into(),
             Property(err) => err.into(),
+            Region(err) => err.into(),
             Storage(err) => err.into(),
             StorageNetworks(_, err) => err.into(),
         }
@@ -192,6 +207,15 @@ impl BlockchainService for Grpc {
     ) -> Result<Response<api::BlockchainServiceAddVersionResponse>, Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| add_version(req, meta, write).scope_boxed())
+            .await
+    }
+
+    async fn pricing(
+        &self,
+        req: Request<api::BlockchainServicePricingRequest>,
+    ) -> Result<Response<api::BlockchainServicePricingResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| pricing(req, meta, read).scope_boxed())
             .await
     }
 }
@@ -410,6 +434,28 @@ async fn add_version(
         version: Some(api::BlockchainVersion::from_model(
             version, networks, properties,
         )),
+    })
+}
+
+async fn pricing(
+    req: api::BlockchainServicePricingRequest,
+    meta: MetadataMap,
+    mut read: ReadConn<'_, '_>,
+) -> Result<api::BlockchainServicePricingResponse, Error> {
+    let authz = read.auth_all(&meta, BlockchainPerm::GetPricing).await?;
+    let blockchain_id = req.blockchain_id.parse().map_err(Error::ParseId)?;
+    let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut read).await?;
+    let region = Region::by_name(&req.region, &mut read).await?;
+    let sku = Blockchain::sku(&req.network.into(), &blockchain, &region)?;
+    let price = read.ctx.stripe.get_price(&sku).await?;
+    let amount = price.unit_amount.ok_or(Error::NoPricing)?;
+    Ok(api::BlockchainServicePricingResponse {
+        currency: price
+            .currency
+            .map_or_else(|| "USD".to_string(), |cur| cur.to_string()),
+        price: amount
+            .try_into()
+            .map_err(|_| Error::NegativePrice(amount))?,
     })
 }
 
