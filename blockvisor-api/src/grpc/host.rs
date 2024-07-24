@@ -340,6 +340,7 @@ async fn delete(
         return Err(Error::HasNodes);
     }
     Host::delete(id, &mut write).await?;
+    IpAddress::delete_by_host_id(id, &mut write).await?;
 
     Ok(api::HostServiceDeleteResponse {})
 }

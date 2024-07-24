@@ -22,6 +22,8 @@ pub enum Error {
     Assigned(diesel::result::Error),
     /// Failed to create new ip address range: {0}
     Create(diesel::result::Error),
+    /// Failed to delete ip addresses for host {0}: {1}
+    DeleteByHostId(HostId, diesel::result::Error),
     /// Failed to find ip address for hosts `{0:?}`: {1}
     FindByHosts(HashSet<HostId>, diesel::result::Error),
     /// Failed to find ip address for ip `{0}`: {1}
@@ -126,6 +128,14 @@ impl IpAddress {
             .get_results(conn)
             .await
             .map_err(|err| Error::FindByHosts(host_ids.clone(), err))
+    }
+
+    pub async fn delete_by_host_id(host_id: HostId, conn: &mut Conn<'_>) -> Result<(), Error> {
+        diesel::delete(ip_addresses::table.filter(ip_addresses::host_id.eq(host_id)))
+            .execute(conn)
+            .await
+            .map_err(|err| Error::DeleteByHostId(host_id, err))?;
+        Ok(())
     }
 }
 
