@@ -71,6 +71,24 @@ pub mod sql_types {
 }
 
 diesel::table! {
+    addresses (id) {
+        id -> Uuid,
+        #[max_length = 256]
+        city -> Nullable<Varchar>,
+        #[max_length = 256]
+        country -> Nullable<Varchar>,
+        #[max_length = 256]
+        line1 -> Nullable<Varchar>,
+        #[max_length = 256]
+        line2 -> Nullable<Varchar>,
+        #[max_length = 256]
+        postal_code -> Nullable<Varchar>,
+        #[max_length = 256]
+        state -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::EnumResourceType;
 
@@ -347,6 +365,7 @@ diesel::table! {
         node_count -> Int4,
         member_count -> Int4,
         stripe_customer_id -> Nullable<Text>,
+        address_id -> Nullable<Uuid>,
     }
 }
 
@@ -465,6 +484,7 @@ diesel::joinable!(nodes -> blockchains (blockchain_id));
 diesel::joinable!(nodes -> hosts (host_id));
 diesel::joinable!(nodes -> orgs (org_id));
 diesel::joinable!(nodes -> regions (scheduler_region));
+diesel::joinable!(orgs -> addresses (address_id));
 diesel::joinable!(role_permissions -> permissions (permission));
 diesel::joinable!(role_permissions -> roles (role));
 diesel::joinable!(subscriptions -> orgs (org_id));
@@ -475,6 +495,7 @@ diesel::joinable!(user_roles -> users (user_id));
 diesel::joinable!(user_settings -> users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    addresses,
     api_keys,
     blockchain_node_types,
     blockchain_properties,

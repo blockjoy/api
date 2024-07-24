@@ -19,6 +19,7 @@ use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
 use crate::util::{SearchOperator, SortOrder};
 
+use super::address::AddressId;
 use super::rbac::RbacUser;
 use super::schema::{orgs, user_roles};
 use super::{Paginate, Token};
@@ -98,6 +99,7 @@ pub struct Org {
     pub node_count: i32,
     pub member_count: i32,
     pub stripe_customer_id: Option<String>,
+    pub address_id: Option<AddressId>,
 }
 
 impl Org {
@@ -456,6 +458,7 @@ impl<'a> NewOrg<'a> {
 pub struct UpdateOrg<'a> {
     pub id: OrgId,
     pub name: Option<&'a str>,
+    pub address_id: Option<AddressId>,
 }
 
 impl<'a> UpdateOrg<'a> {

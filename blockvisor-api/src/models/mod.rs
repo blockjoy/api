@@ -4,6 +4,9 @@
 //! used for updating rows often do not contain all of the columns, whereas models that are used
 //! for selecting usually do.
 
+pub mod address;
+pub use address::{Address, NewAddress};
+
 pub mod api_key;
 pub use api_key::ApiKey;
 

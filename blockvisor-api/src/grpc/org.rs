@@ -3,6 +3,7 @@ use std::collections::HashSet;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
+use futures::future::OptionFuture;
 use thiserror::Error;
 use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
@@ -14,7 +15,7 @@ use crate::auth::Authorize;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::org::{NewOrg, OrgFilter, OrgSearch, OrgSort, UpdateOrg};
 use crate::models::rbac::{OrgUsers, RbacUser};
-use crate::models::{Invitation, Org, Token, User};
+use crate::models::{Address, Invitation, NewAddress, Org, Token, User};
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::org_service_server::OrgService;
@@ -22,6 +23,8 @@ use super::{api, common, Grpc};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
+    /// Address error: {0}
+    Address(#[from] crate::models::address::Error),
     /// Auth check failed: {0}
     Auth(#[from] crate::auth::Error),
     /// Failed to remove user from org with permission `org-remove-self`, user to remove is not self
@@ -95,6 +98,7 @@ impl From<Error> for Status {
             MissingAddress => Status::failed_precondition("User has no address."),
             NoStripeCustomer(_) => Status::failed_precondition("No customer for that org."),
             NoStripeSubscription(_) => Status::failed_precondition("No subscription for that org."),
+            Address(err) => err.into(),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Invitation(err) => err.into(),
@@ -303,6 +307,7 @@ async fn update(
     let update = UpdateOrg {
         id: org_id,
         name: req.name.as_deref(),
+        address_id: None,
     };
     let org = update.update(&mut write).await?;
     let org = api::Org::from_model(&org, &mut write).await?;
@@ -581,11 +586,42 @@ async fn set_address(
         .stripe_customer_id
         .as_deref()
         .ok_or(Error::NoStripeCustomer(org_id))?;
-    write
+    let address = write
         .ctx
         .stripe
         .set_address(customer_id, &address.into())
         .await?;
+    let maybe_address = org.address_id.map(|a_id| Address::by_id(a_id, &mut write));
+    match OptionFuture::from(maybe_address).await {
+        Some(Ok(mut existing)) => {
+            existing.city = address.city;
+            existing.country = address.country;
+            existing.line1 = address.line1;
+            existing.line2 = address.line2;
+            existing.postal_code = address.postal_code;
+            existing.state = address.state;
+            existing.update(&mut write).await?;
+        }
+        None
+        | Some(Err(crate::models::address::Error::FindById(_, diesel::result::Error::NotFound))) => {
+            let new_address = NewAddress::new(
+                address.city.as_deref(),
+                address.country.as_deref(),
+                address.line1.as_deref(),
+                address.line2.as_deref(),
+                address.postal_code.as_deref(),
+                address.state.as_deref(),
+            );
+            let address = new_address.create(&mut write).await?;
+            let update_org = UpdateOrg {
+                id: org.id,
+                name: None,
+                address_id: Some(address.id),
+            };
+            update_org.update(&mut write).await?;
+        }
+        Some(Err(err)) => return Err(err.into()),
+    };
     Ok(api::OrgServiceSetAddressResponse {})
 }
 
