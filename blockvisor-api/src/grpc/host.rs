@@ -590,6 +590,19 @@ impl common::BillingAmount {
             period: common::Period::Monthly as i32,
         })
     }
+
+    pub fn from_stripe(price: &crate::stripe::api::price::Price) -> Option<Self> {
+        Some(Self {
+            amount: Some(common::Amount {
+                currency: price
+                    .currency
+                    .and_then(common::Currency::from_stripe)
+                    .unwrap_or(common::Currency::Usd) as i32,
+                value: price.unit_amount?,
+            }),
+            period: common::Period::Monthly as i32,
+        })
+    }
 }
 
 impl api::HostServiceCreateRequest {

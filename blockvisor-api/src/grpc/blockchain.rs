@@ -448,15 +448,8 @@ async fn pricing(
     let region = Region::by_name(&req.region, &mut read).await?;
     let sku = Blockchain::sku(&req.network.into(), &blockchain, &region)?;
     let price = read.ctx.stripe.get_price(&sku).await?;
-    let amount = price.unit_amount.ok_or(Error::NoPricing)?;
     Ok(api::BlockchainServicePricingResponse {
-        amount: amount
-            .try_into()
-            .map_err(|_| Error::NegativePrice(amount))?,
-        currency: price
-            .currency
-            .and_then(common::Currency::from_stripe)
-            .unwrap_or(common::Currency::Usd) as i32,
+        billing_amount: Some(common::BillingAmount::from_stripe(&price).ok_or(Error::NoPricing)?),
     })
 }
 
