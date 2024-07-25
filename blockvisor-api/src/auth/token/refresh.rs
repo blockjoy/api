@@ -233,7 +233,7 @@ mod tests {
 
     use super::*;
 
-    fn seconds(n: i64) -> chrono::Duration {
+    const fn seconds(n: i64) -> chrono::Duration {
         chrono::Duration::seconds(n)
     }
 

@@ -1,6 +1,6 @@
 use std::ops::{Add, Sub};
 
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use derive_more::{Deref, From, Into};
 use displaydoc::Display;
 use prost_types::Timestamp;
@@ -23,15 +23,16 @@ pub struct SecondsUtc(DateTime<Utc>);
 
 impl SecondsUtc {
     fn new(seconds: i64) -> Result<Self, Error> {
-        NaiveDateTime::from_timestamp_opt(seconds, 0)
+        DateTime::from_timestamp(seconds, 0)
+            .map(SecondsUtc)
             .ok_or(Error::ParseSeconds(seconds))
-            .map(|dt| SecondsUtc(Utc.from_utc_datetime(&dt)))
     }
 
     pub fn now() -> Self {
         let now = Utc::now().timestamp();
-        let naive = NaiveDateTime::from_timestamp_opt(now, 0).expect("valid timestamp");
-        SecondsUtc(Utc.from_utc_datetime(&naive))
+        DateTime::from_timestamp(now, 0)
+            .map(SecondsUtc)
+            .expect("valid timestamp")
     }
 }
 
@@ -93,9 +94,9 @@ pub struct NanosUtc(DateTime<Utc>);
 
 impl NanosUtc {
     pub fn new(seconds: i64, nanos: u32) -> Result<Self, Error> {
-        NaiveDateTime::from_timestamp_opt(seconds, nanos)
+        DateTime::from_timestamp(seconds, nanos)
+            .map(NanosUtc)
             .ok_or(Error::ParseNanos(seconds, nanos))
-            .map(|dt| NanosUtc(Utc.from_utc_datetime(&dt)))
     }
 }
 

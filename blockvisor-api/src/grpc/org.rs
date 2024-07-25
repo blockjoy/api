@@ -838,16 +838,9 @@ impl api::Invoice {
                     })
                 })
                 .collect::<Result<_, Error>>()?,
-            status: value.status.map(|status| {
-                use crate::stripe::api::invoice::InvoiceStatus::*;
-                match status {
-                    Draft => api::InvoiceStatus::Draft as i32,
-                    Open => api::InvoiceStatus::Open as i32,
-                    Paid => api::InvoiceStatus::Paid as i32,
-                    Uncollectible => api::InvoiceStatus::Uncollectible as i32,
-                    Void => api::InvoiceStatus::Void as i32,
-                }
-            }),
+            status: value
+                .status
+                .map(|status| api::InvoiceStatus::from_stripe(status) as i32),
             subtotal: value
                 .subtotal
                 .map(|sub| sub.try_into().map_err(Error::NegativePrice))
@@ -877,6 +870,19 @@ impl common::Address {
             line2: value.line2,
             postal_code: value.postal_code,
             state: value.state,
+        }
+    }
+}
+
+impl api::InvoiceStatus {
+    pub const fn from_stripe(value: crate::stripe::api::invoice::InvoiceStatus) -> Self {
+        use crate::stripe::api::invoice::InvoiceStatus::*;
+        match value {
+            Draft => api::InvoiceStatus::Draft,
+            Open => api::InvoiceStatus::Open,
+            Paid => api::InvoiceStatus::Paid,
+            Uncollectible => api::InvoiceStatus::Uncollectible,
+            Void => api::InvoiceStatus::Void,
         }
     }
 }
