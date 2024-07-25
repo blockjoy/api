@@ -1,5 +1,6 @@
 use std::cmp::max;
 use std::collections::HashSet;
+use std::num::TryFromIntError;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
@@ -45,6 +46,8 @@ pub enum Error {
     MissingAddress,
     /// Org model error: {0}
     Model(#[from] crate::models::org::Error),
+    /// Negative price encountered:
+    NegativePrice(TryFromIntError),
     /// No customer exists in stripe for org `{0}`.
     NoStripeCustomer(OrgId),
     /// No subscription exists in stripe for org `{0}`.
@@ -96,6 +99,7 @@ impl From<Error> for Status {
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
             MissingAddress => Status::failed_precondition("User has no address."),
+            NegativePrice(_) => Status::internal("Negative price encountered"),
             NoStripeCustomer(_) => Status::failed_precondition("No customer for that org."),
             NoStripeSubscription(_) => Status::failed_precondition("No subscription for that org."),
             Address(err) => err.into(),
@@ -234,6 +238,15 @@ impl OrgService for Grpc {
     ) -> Result<Response<api::OrgServiceDeleteAddressResponse>, Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| delete_address(req, meta, read).scope_boxed())
+            .await
+    }
+
+    async fn get_invoices(
+        &self,
+        req: Request<api::OrgServiceGetInvoicesRequest>,
+    ) -> Result<Response<api::OrgServiceGetInvoicesResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| get_invoices(req, meta, read).scope_boxed())
             .await
     }
 }
@@ -470,21 +483,10 @@ async fn list_payment_methods(
             org_id: Some(org_id.to_string()),
             user_id: pm.metadata.and_then(|meta| meta.get("user_id").cloned()),
             details: Some(api::BillingDetails {
-                address: pm
-                    .billing_details
-                    .address
-                    .as_ref()
-                    .map(|add| common::Address {
-                        city: add.city.clone(),
-                        country: add.country.clone(),
-                        line1: add.line1.clone(),
-                        line2: add.line2.clone(),
-                        postal_code: add.postal_code.clone(),
-                        state: add.state.clone(),
-                    }),
-                email: pm.billing_details.email.clone(),
-                name: pm.billing_details.name.clone(),
-                phone: pm.billing_details.phone.clone(),
+                address: pm.billing_details.address.map(common::Address::from_stripe),
+                email: pm.billing_details.email,
+                name: pm.billing_details.name,
+                phone: pm.billing_details.phone,
             }),
             created_at: chrono::DateTime::from_timestamp(pm.created.0, 0)
                 .map(NanosUtc::from)
@@ -527,7 +529,8 @@ async fn billing_details(
     };
 
     Ok(api::OrgServiceBillingDetailsResponse {
-        currency: subscription.currency.to_string(),
+        currency: common::Currency::from_stripe(subscription.currency)
+            .unwrap_or(common::Currency::Usd) as i32,
         current_period_start: chrono::DateTime::from_timestamp(
             subscription.current_period_start.0,
             0,
@@ -639,6 +642,26 @@ async fn delete_address(
         .ok_or(Error::NoStripeCustomer(org_id))?;
     write.ctx.stripe.delete_address(customer_id).await?;
     Ok(api::OrgServiceDeleteAddressResponse {})
+}
+
+async fn get_invoices(
+    req: api::OrgServiceGetInvoicesRequest,
+    meta: MetadataMap,
+    mut write: ReadConn<'_, '_>,
+) -> Result<api::OrgServiceGetInvoicesResponse, Error> {
+    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
+    write.auth(&meta, OrgAddressPerm::Delete, org_id).await?;
+    let org = Org::by_id(org_id, &mut write).await?;
+    let customer_id = org
+        .stripe_customer_id
+        .as_deref()
+        .ok_or(Error::NoStripeCustomer(org_id))?;
+    let invoices = write.ctx.stripe.get_invoices(customer_id).await?;
+    let invoices = invoices
+        .into_iter()
+        .map(api::Invoice::from_stripe)
+        .collect::<Result<_, _>>()?;
+    Ok(api::OrgServiceGetInvoicesResponse { invoices })
 }
 
 impl api::Org {
@@ -768,5 +791,92 @@ impl api::OrgServiceListRequest {
             search,
             sort,
         })
+    }
+}
+
+impl api::Invoice {
+    fn from_stripe(value: crate::stripe::api::invoice::Invoice) -> Result<Self, Error> {
+        Ok(Self {
+            number: value.number,
+            created_at: value
+                .created
+                .and_then(|value| chrono::DateTime::from_timestamp(value.0, 0))
+                .map(NanosUtc::from)
+                .map(Into::into),
+            discount: value.discount.map(api::Discount::from_stripe),
+            pdf_url: value.invoice_pdf,
+            line_items: value
+                .lines
+                .map(|lines| lines.data)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|item| {
+                    Ok(api::LineItem {
+                        subtotal: item.amount.try_into().map_err(Error::NegativePrice)?,
+                        total: item
+                            .price
+                            .and_then(|p| p.unit_amount)
+                            .map(|amount| amount.try_into().map_err(Error::NegativePrice))
+                            .transpose()?,
+                        description: item.description,
+                        start: item
+                            .period
+                            .as_ref()
+                            .and_then(|p| p.start.as_ref())
+                            .and_then(|start| chrono::DateTime::from_timestamp(start.0, 0))
+                            .map(NanosUtc::from)
+                            .map(Into::into),
+                        end: item
+                            .period
+                            .as_ref()
+                            .and_then(|p| p.end.as_ref())
+                            .and_then(|end| chrono::DateTime::from_timestamp(end.0, 0))
+                            .map(NanosUtc::from)
+                            .map(Into::into),
+                        plan: item.plan.and_then(|plan| plan.nickname),
+                        proration: item.proration,
+                    })
+                })
+                .collect::<Result<_, Error>>()?,
+            status: value.status.map(|status| {
+                use crate::stripe::api::invoice::InvoiceStatus::*;
+                match status {
+                    Draft => api::InvoiceStatus::Draft as i32,
+                    Open => api::InvoiceStatus::Open as i32,
+                    Paid => api::InvoiceStatus::Paid as i32,
+                    Uncollectible => api::InvoiceStatus::Uncollectible as i32,
+                    Void => api::InvoiceStatus::Void as i32,
+                }
+            }),
+            subtotal: value
+                .subtotal
+                .map(|sub| sub.try_into().map_err(Error::NegativePrice))
+                .transpose()?,
+            total: value
+                .total
+                .map(|tot| tot.try_into().map_err(Error::NegativePrice))
+                .transpose()?,
+        })
+    }
+}
+
+impl api::Discount {
+    fn from_stripe(value: crate::stripe::api::discount::Discount) -> Self {
+        Self {
+            name: value.coupon.name,
+        }
+    }
+}
+
+impl common::Address {
+    fn from_stripe(value: crate::stripe::api::address::Address) -> Self {
+        Self {
+            city: value.city,
+            country: value.country,
+            line1: value.line1,
+            line2: value.line2,
+            postal_code: value.postal_code,
+            state: value.state,
+        }
     }
 }

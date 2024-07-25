@@ -450,12 +450,13 @@ async fn pricing(
     let price = read.ctx.stripe.get_price(&sku).await?;
     let amount = price.unit_amount.ok_or(Error::NoPricing)?;
     Ok(api::BlockchainServicePricingResponse {
-        currency: price
-            .currency
-            .map_or_else(|| "USD".to_string(), |cur| cur.to_string()),
-        price: amount
+        amount: amount
             .try_into()
             .map_err(|_| Error::NegativePrice(amount))?,
+        currency: price
+            .currency
+            .and_then(common::Currency::from_stripe)
+            .unwrap_or(common::Currency::Usd) as i32,
     })
 }
 
@@ -748,5 +749,15 @@ impl api::BlockchainServiceListRequest {
             search,
             sort,
         })
+    }
+}
+
+impl common::Currency {
+    pub const fn from_stripe(value: crate::stripe::api::currency::Currency) -> Option<Self> {
+        use crate::stripe::api::currency::Currency::*;
+        match value {
+            USD => Some(common::Currency::Usd),
+            _ => None,
+        }
     }
 }

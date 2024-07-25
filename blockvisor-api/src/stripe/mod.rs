@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::auth::resource::OrgId;
 use crate::models;
 use crate::{auth::resource::UserId, config::stripe::Config};
-use api::{address, customer, payment_method, price, setup_intent, subscription};
+use api::{address, customer, invoice, payment_method, price, setup_intent, subscription};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -27,6 +27,8 @@ pub enum Error {
     CreateSubscriptionItem(client::Error),
     /// Failed to get address: {0}
     GetAddress(client::Error),
+    /// Failed to get invoices: {0}
+    GetInvoices(client::Error),
     /// Failed to delete address: {0}
     DeleteAddress(client::Error),
     /// Failed to list stripe payment methods: {0}
@@ -104,6 +106,8 @@ pub trait Payment {
     ) -> Result<address::Address, Error>;
 
     async fn delete_address(&self, customer_id: &str) -> Result<(), Error>;
+
+    async fn get_invoices(&self, customer_id: &str) -> Result<Vec<invoice::Invoice>, Error>;
 }
 
 impl Stripe {
@@ -278,6 +282,16 @@ impl Payment for Stripe {
         }
         Ok(())
     }
+
+    async fn get_invoices(&self, customer_id: &str) -> Result<Vec<invoice::Invoice>, Error> {
+        let req = invoice::ListInvoices::new(customer_id);
+        let resp = self
+            .client
+            .request(&req)
+            .await
+            .map_err(Error::GetInvoices)?;
+        Ok(resp.data)
+    }
 }
 
 #[cfg(any(test, feature = "integration-test"))]
@@ -371,6 +385,10 @@ pub mod tests {
 
         async fn delete_address(&self, customer_id: &str) -> Result<(), Error> {
             self.stripe.delete_address(customer_id).await
+        }
+
+        async fn get_invoices(&self, customer_id: &str) -> Result<Vec<invoice::Invoice>, Error> {
+            self.stripe.get_invoices(customer_id).await
         }
     }
 
