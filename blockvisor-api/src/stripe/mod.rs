@@ -27,17 +27,21 @@ pub enum Error {
     CreateSubscription(client::Error),
     /// Failed to create stripe subscription item: {0}
     CreateSubscriptionItem(client::Error),
-    /// Failed to delete stripe susbcription item: {0}
+    /// Failed to delete stripe subscription item: {0}
     DeleteSubscriptionItem(client::Error),
     /// Failed to get address: {0}
     GetAddress(client::Error),
     /// Failed to get invoices: {0}
     GetInvoices(client::Error),
+    /// Failed to get subscription item: {0}
+    GetSubscriptionItem(client::Error),
     /// Failed to delete address: {0}
     DeleteAddress(client::Error),
+    /// Failed to find subscription items: {0}
+    FindSubscriptionItems(client::Error),
     /// Failed to list stripe payment methods: {0}
     ListPaymentMethods(client::Error),
-    /// Failed to list stripe susbcriptions: {0}
+    /// Failed to list stripe subscriptions: {0}
     ListSubscriptions(client::Error),
     /// No address found for the current customer.
     NoAddress,
@@ -49,6 +53,8 @@ pub enum Error {
     SearchPrices(client::Error),
     /// Failed to set address: {0}
     SetAddress(client::Error),
+    /// Failed to update subscription item: {0}
+    UpdateSubscriptionItem(client::Error),
 }
 
 pub struct Stripe {
@@ -97,8 +103,27 @@ pub trait Payment {
 
     async fn create_subscription_item(
         &self,
-        susbcription_id: &subscription::SubscriptionId,
+        subscription_id: &subscription::SubscriptionId,
         price_id: &price::PriceId,
+    ) -> Result<subscription::SubscriptionItem, Error>;
+
+    async fn get_subscription_item(
+        &self,
+        item_id: &subscription::SubscriptionItemId,
+    ) -> Result<subscription::SubscriptionItem, Error>;
+
+    /// Find a subscription item within a specific subscription, with the subscription identified by
+    /// the susbcription id, and the item within identified by the price_id.
+    async fn find_subscription_item(
+        &self,
+        subscription_id: &subscription::SubscriptionId,
+        price_id: &price::PriceId,
+    ) -> Result<Option<subscription::SubscriptionItem>, Error>;
+
+    async fn update_subscription_item(
+        &self,
+        item_id: &subscription::SubscriptionItemId,
+        quantity: u64,
     ) -> Result<subscription::SubscriptionItem, Error>;
 
     async fn delete_subscription_item(
@@ -223,14 +248,55 @@ impl Payment for Stripe {
 
     async fn create_subscription_item(
         &self,
-        susbcription_id: &subscription::SubscriptionId,
+        subscription_id: &subscription::SubscriptionId,
         price_id: &price::PriceId,
     ) -> Result<subscription::SubscriptionItem, Error> {
-        let req = subscription::CreateSubscriptionItem::new(susbcription_id, price_id);
+        let req = subscription::CreateSubscriptionItem::new(subscription_id, price_id);
         self.client
             .request(&req)
             .await
             .map_err(Error::CreateSubscriptionItem)
+    }
+
+    async fn get_subscription_item(
+        &self,
+        item_id: &subscription::SubscriptionItemId,
+    ) -> Result<subscription::SubscriptionItem, Error> {
+        let req = subscription::GetSubscriptionItem::new(item_id);
+        self.client
+            .request(&req)
+            .await
+            .map_err(Error::GetSubscriptionItem)
+    }
+
+    async fn find_subscription_item(
+        &self,
+        subscription_id: &subscription::SubscriptionId,
+        price_id: &price::PriceId,
+    ) -> Result<Option<subscription::SubscriptionItem>, Error> {
+        let req = subscription::ListSubscriptionItems::new(subscription_id);
+        let items = self
+            .client
+            .request(&req)
+            .await
+            .map_err(Error::FindSubscriptionItems)?;
+        // TODO: this is silly, find a better way
+        Ok(items
+            .data
+            .into_iter()
+            .find(|item| item.price.as_ref().map(|price| &price.id) == Some(price_id)))
+    }
+
+    async fn update_subscription_item(
+        &self,
+        item_id: &subscription::SubscriptionItemId,
+        quantity: u64,
+    ) -> Result<subscription::SubscriptionItem, Error> {
+        let req = subscription::UpdateSubscriptionItem::new(item_id, quantity);
+        self.client
+            .request(&req)
+            .await
+            .map_err(Error::UpdateSubscriptionItem)
     }
 
     async fn delete_subscription_item(
@@ -384,11 +450,38 @@ pub mod tests {
 
         async fn create_subscription_item(
             &self,
-            susbcription_id: &subscription::SubscriptionId,
+            subscription_id: &subscription::SubscriptionId,
             price_id: &price::PriceId,
         ) -> Result<subscription::SubscriptionItem, Error> {
             self.stripe
-                .create_subscription_item(susbcription_id, price_id)
+                .create_subscription_item(subscription_id, price_id)
+                .await
+        }
+
+        async fn get_subscription_item(
+            &self,
+            item_id: &subscription::SubscriptionItemId,
+        ) -> Result<subscription::SubscriptionItem, Error> {
+            self.stripe.get_subscription_item(item_id).await
+        }
+
+        async fn find_subscription_item(
+            &self,
+            subscription_id: &subscription::SubscriptionId,
+            price_id: &price::PriceId,
+        ) -> Result<Option<subscription::SubscriptionItem>, Error> {
+            self.stripe
+                .find_subscription_item(subscription_id, price_id)
+                .await
+        }
+
+        async fn update_subscription_item(
+            &self,
+            item_id: &subscription::SubscriptionItemId,
+            quantity: u64,
+        ) -> Result<subscription::SubscriptionItem, Error> {
+            self.stripe
+                .update_subscription_item(item_id, quantity)
                 .await
         }
 

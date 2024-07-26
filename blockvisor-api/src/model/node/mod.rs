@@ -48,6 +48,8 @@ use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
 use crate::grpc::api;
 use crate::storage::image::ImageId;
+use crate::stripe::api::subscription::SubscriptionItem;
+use crate::stripe::Payment;
 use crate::util::{SearchOperator, SortOrder};
 
 use self::node_type::NodeNetwork;
@@ -114,7 +116,7 @@ pub enum Error {
     NoMatchingHost,
     /// Org with id `{0}` has no customer in stripe.
     NoStripeCustomer(OrgId),
-    /// Newly created susbcription has no items.
+    /// Newly created subscription has no items.
     NoSubscriptionItem,
     /// Cannot launch node without a region.
     NoRegion,
@@ -321,11 +323,25 @@ impl Node {
         }
 
         if let Some(stripe_item_id) = node.stripe_item_id {
-            write
+            let item = write
                 .ctx
                 .stripe
-                .delete_subscription_item(&stripe_item_id)
+                .get_subscription_item(&stripe_item_id)
                 .await?;
+            let quantity = item.quantity.unwrap_or(1);
+            if quantity > 1 {
+                write
+                    .ctx
+                    .stripe
+                    .update_subscription_item(&stripe_item_id, quantity - 1)
+                    .await?;
+            } else {
+                write
+                    .ctx
+                    .stripe
+                    .delete_subscription_item(&stripe_item_id)
+                    .await?;
+            }
         }
 
         Ok(())
@@ -791,36 +807,11 @@ impl NewNode {
         // Users that have the billing-exempt permission do not need billing
         let needs_billing = !authz.has_perm(BillingPerm::Exempt);
         let item_id = if needs_billing {
-            let stripe_customer_id = org
-                .stripe_customer_id
-                .as_ref()
-                .ok_or_else(|| Error::NoStripeCustomer(org.id))?;
             let sku = Blockchain::sku(&self.network, blockchain, region)?;
-            let price = write.ctx.stripe.get_price(&sku).await?;
-            if let Some(subscription) = write
-                .ctx
-                .stripe
-                .get_subscription(stripe_customer_id)
-                .await?
-            {
-                let item = write
-                    .ctx
-                    .stripe
-                    .create_subscription_item(&subscription.id, &price.id)
-                    .await?;
-                Some(item.id)
-            } else {
-                let item = write
-                    .ctx
-                    .stripe
-                    .create_subscription(stripe_customer_id, &price.id)
-                    .await?
-                    .items
-                    .data
-                    .pop()
-                    .ok_or(Error::NoSubscriptionItem)?;
-                Some(item.id)
-            }
+            let item = self
+                .create_subscription_item(org, &sku, &**write.ctx.stripe.as_ref())
+                .await?;
+            Some(item.id)
         } else {
             None
         };
@@ -869,6 +860,45 @@ impl NewNode {
                     return Err(Error::Create(err));
                 }
             }
+        }
+    }
+
+    async fn create_subscription_item(
+        &self,
+        org: &Org,
+        sku: &str,
+        stripe: &(dyn Payment + Sync),
+    ) -> Result<SubscriptionItem, Error> {
+        let stripe_customer_id = org
+            .stripe_customer_id
+            .as_ref()
+            .ok_or_else(|| Error::NoStripeCustomer(org.id))?;
+
+        let price = stripe.get_price(sku).await?;
+        if let Some(subscription) = stripe.get_subscription(stripe_customer_id).await? {
+            if let Some(item) = stripe
+                .find_subscription_item(&subscription.id, &price.id)
+                .await?
+            {
+                let item = stripe
+                    .update_subscription_item(&item.id, item.quantity.unwrap_or(1) + 1)
+                    .await?;
+                Ok(item)
+            } else {
+                let item = stripe
+                    .create_subscription_item(&subscription.id, &price.id)
+                    .await?;
+                Ok(item)
+            }
+        } else {
+            let item = stripe
+                .create_subscription(stripe_customer_id, &price.id)
+                .await?
+                .items
+                .data
+                .pop()
+                .ok_or(Error::NoSubscriptionItem)?;
+            Ok(item)
         }
     }
 

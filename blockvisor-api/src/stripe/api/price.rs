@@ -14,7 +14,7 @@ pub enum Error {
     MissingCurrency,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PriceId(pub String);
 
 /// The resource representing a Stripe "Price".

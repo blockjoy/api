@@ -101,6 +101,7 @@ pub enum SubscriptionStatus {
 
 #[derive(
     Debug,
+    serde::Serialize,
     serde::Deserialize,
     Clone,
     Display,
@@ -299,6 +300,83 @@ impl super::StripeEndpoint for CreateSubscriptionItem<'_> {
 
     fn body(&self) -> Option<&Self> {
         Some(self)
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct GetSubscriptionItem<'a> {
+    item_id: &'a SubscriptionItemId,
+}
+
+impl<'a> GetSubscriptionItem<'a> {
+    pub const fn new(item_id: &'a SubscriptionItemId) -> Self {
+        Self { item_id }
+    }
+}
+
+impl super::StripeEndpoint for GetSubscriptionItem<'_> {
+    type Result = SubscriptionItem;
+
+    fn method(&self) -> hyper::Method {
+        hyper::Method::GET
+    }
+
+    fn path(&self) -> String {
+        format!("subscription_items/{}", self.item_id)
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ListSubscriptionItems<'a> {
+    subscription: &'a SubscriptionId,
+}
+
+impl<'a> ListSubscriptionItems<'a> {
+    pub const fn new(id: &'a SubscriptionId) -> Self {
+        Self { subscription: id }
+    }
+}
+
+impl super::StripeEndpoint for ListSubscriptionItems<'_> {
+    type Result = super::ListResponse<SubscriptionItem>;
+
+    fn method(&self) -> hyper::Method {
+        reqwest::Method::GET
+    }
+
+    fn path(&self) -> String {
+        "subscription_items".to_string()
+    }
+
+    fn query(&self) -> Option<&Self> {
+        Some(self)
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct UpdateSubscriptionItem<'a> {
+    id: &'a SubscriptionItemId,
+    quantity: Option<u64>,
+}
+
+impl<'a> UpdateSubscriptionItem<'a> {
+    pub const fn new(id: &'a SubscriptionItemId, quantity: u64) -> Self {
+        Self {
+            id,
+            quantity: Some(quantity),
+        }
+    }
+}
+
+impl super::StripeEndpoint for UpdateSubscriptionItem<'_> {
+    type Result = SubscriptionItem;
+
+    fn method(&self) -> reqwest::Method {
+        reqwest::Method::POST
+    }
+
+    fn path(&self) -> String {
+        format!("subscription_items/{}", self.id)
     }
 }
 
