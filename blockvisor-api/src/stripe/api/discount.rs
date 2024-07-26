@@ -34,7 +34,8 @@ pub struct Discount {
     // pub promotion_code: Option<super::IdOrObject<String, PromotionCode>>,
     /// Date that the coupon was applied.
     pub start: super::Timestamp,
-    /// The subscription that this coupon is applied to, if it is applied to a particular subscription.
+    /// The subscription that this coupon is applied to, if it is applied to a particular
+    /// subscription.
     pub subscription: Option<String>,
 }
 

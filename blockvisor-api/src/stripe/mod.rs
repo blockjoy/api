@@ -83,7 +83,7 @@ pub trait Payment {
         price_id: &price::PriceId,
     ) -> Result<subscription::Subscription, Error>;
 
-    async fn create_item(
+    async fn create_subscription_item(
         &self,
         susbcription_id: &subscription::SubscriptionId,
         price_id: &price::PriceId,
@@ -189,7 +189,7 @@ impl Payment for Stripe {
             .map_err(Error::CreateSubscription)
     }
 
-    async fn create_item(
+    async fn create_subscription_item(
         &self,
         susbcription_id: &subscription::SubscriptionId,
         price_id: &price::PriceId,
@@ -284,7 +284,7 @@ impl Payment for Stripe {
     }
 
     async fn get_invoices(&self, customer_id: &str) -> Result<Vec<invoice::Invoice>, Error> {
-        let req = invoice::ListInvoices::new(customer_id);
+        let req = invoice::ListInvoices::new(customer_id, true);
         let resp = self
             .client
             .request(&req)
@@ -351,12 +351,14 @@ pub mod tests {
             self.stripe.create_subscription(customer_id, price_id).await
         }
 
-        async fn create_item(
+        async fn create_subscription_item(
             &self,
             susbcription_id: &subscription::SubscriptionId,
             price_id: &price::PriceId,
         ) -> Result<subscription::SubscriptionItem, Error> {
-            self.stripe.create_item(susbcription_id, price_id).await
+            self.stripe
+                .create_subscription_item(susbcription_id, price_id)
+                .await
         }
 
         /// Each org only has one subscription.

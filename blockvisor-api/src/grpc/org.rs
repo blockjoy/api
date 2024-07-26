@@ -19,6 +19,7 @@ use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::models::org::{NewOrg, OrgFilter, OrgSearch, OrgSort, UpdateOrg};
 use crate::models::rbac::{OrgUsers, RbacUser};
 use crate::models::{Address, Invitation, NewAddress, Org, Token, User};
+use crate::stripe::api::IdOrObject;
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::org_service_server::OrgService;
@@ -853,6 +854,30 @@ impl api::Invoice {
                             .map(Into::into),
                         plan: item.plan.and_then(|plan| plan.nickname),
                         proration: item.proration,
+                        quantity: item.quantity,
+                        discounts: item
+                            .discounts
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter_map(|id_or_discount| match id_or_discount {
+                                IdOrObject::Id(id) => {
+                                    tracing::warn!("Stripe discount not expanded! {id}");
+                                    None
+                                }
+                                IdOrObject::Object(discount) => Some(api::LineItemDiscount {
+                                    name: discount.coupon.name,
+                                    amount: Some(common::Amount {
+                                        currency: discount
+                                            .coupon
+                                            .currency
+                                            .and_then(common::Currency::from_stripe)
+                                            .unwrap_or(common::Currency::Unspecified)
+                                            as i32,
+                                        value: discount.coupon.amount_off.unwrap_or(0),
+                                    }),
+                                }),
+                            })
+                            .collect(),
                     })
                 })
                 .collect::<Result<_, Error>>()?,

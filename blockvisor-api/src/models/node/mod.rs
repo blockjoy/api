@@ -795,7 +795,7 @@ impl NewNode {
                 write
                     .ctx
                     .stripe
-                    .create_item(&subscription.id, &price.id)
+                    .create_subscription_item(&subscription.id, &price.id)
                     .await?;
             } else {
                 write

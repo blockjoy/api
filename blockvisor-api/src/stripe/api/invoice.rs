@@ -399,11 +399,18 @@ pub enum InvoiceStatus {
 #[derive(Debug, serde::Serialize)]
 pub struct ListInvoices<'a> {
     customer_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "expand[]")]
+    expand: Option<&'static str>,
 }
 
 impl<'a> ListInvoices<'a> {
-    pub const fn new(customer_id: &'a str) -> Self {
-        Self { customer_id }
+    pub fn new(customer_id: &'a str, expand_discounts: bool) -> Self {
+        let expand = expand_discounts.then_some("discounts");
+        Self {
+            customer_id,
+            expand,
+        }
     }
 }
 
