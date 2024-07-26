@@ -581,6 +581,16 @@ pub mod tests {
             .await;
 
         server
+            .mock(
+                "GET",
+                mockito::Matcher::Regex("^/v1/subscription_items".into()),
+            )
+            .with_status(200)
+            .with_body(mock_subscription_items())
+            .create_async()
+            .await;
+
+        server
             .mock("GET", mockito::Matcher::Regex(r"^/v1/prices/search".into()))
             .with_status(200)
             .with_body(mock_prices())
@@ -1125,6 +1135,53 @@ pub mod tests {
                 }
               },
               "trial_start": null
+            }
+          ]
+        }"#
+    }
+
+    const fn mock_subscription_items() -> &'static str {
+        r#"{
+          "object": "list",
+          "url": "/v1/subscription_items",
+          "has_more": false,
+          "data": [
+            {
+              "id": "si_OCgWsGlqpbN4EP",
+              "object": "subscription_item",
+              "billing_thresholds": null,
+              "created": 1688507587,
+              "metadata": {},
+              "price": {
+                "id": "price_1NQH9iLkdIwHu7ix3tkaSxhj",
+                "object": "price",
+                "active": true,
+                "billing_scheme": "per_unit",
+                "created": 1688507586,
+                "currency": "usd",
+                "custom_unit_amount": null,
+                "livemode": false,
+                "lookup_key": null,
+                "metadata": {},
+                "nickname": null,
+                "product": "prod_OCgWE6cbwiSu27",
+                "recurring": {
+                  "aggregate_usage": null,
+                  "interval": "month",
+                  "interval_count": 1,
+                  "trial_period_days": null,
+                  "usage_type": "licensed"
+                },
+                "tax_behavior": "unspecified",
+                "tiers_mode": null,
+                "transform_quantity": null,
+                "type": "recurring",
+                "unit_amount": 1000,
+                "unit_amount_decimal": "1000"
+              },
+              "quantity": 1,
+              "subscription": "sub_1NQH9iLkdIwHu7ixxhHui9yi",
+              "tax_rates": []
             }
           ]
         }"#
