@@ -282,8 +282,6 @@ define_perms! {
     }
 
     Billing => {
-        // Enabled by default, this perm does nothing
-        Enabled,
         Exempt,
     }
 }
