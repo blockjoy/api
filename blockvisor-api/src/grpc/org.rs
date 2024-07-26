@@ -75,7 +75,7 @@ pub enum Error {
     Stripe(#[from] crate::stripe::Error),
     /// Stripe currency error: {0}
     StripeCurrency(#[from] crate::stripe::api::currency::Error),
-    /// Stripe iurrency error: {0}
+    /// Stripe currency error: {0}
     StripeInvoice(#[from] crate::stripe::api::invoice::Error),
     /// Org token error: {0}
     Token(#[from] crate::model::token::Error),

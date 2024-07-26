@@ -13,8 +13,6 @@ pub enum Error {
     Currency(#[from] super::currency::Error),
     /// LineItemDiscount is missing Currency.
     DiscountMissingCurrency,
-    /// Negative price encountered on field {0}: {1}
-    NegativePrice(&'static str, i64),
 }
 
 #[derive(Debug, Deserialize)]
@@ -563,19 +561,8 @@ impl TryFrom<Invoice> for api::Invoice {
                 .into_iter()
                 .map(|item| {
                     Ok(api::LineItem {
-                        subtotal: item
-                            .amount
-                            .try_into()
-                            .map_err(|_| Error::NegativePrice("amount", item.amount))?,
-                        total: item
-                            .price
-                            .and_then(|p| p.unit_amount)
-                            .map(|amount| {
-                                amount
-                                    .try_into()
-                                    .map_err(|_| Error::NegativePrice("unit_amount", amount))
-                            })
-                            .transpose()?,
+                        subtotal: item.amount,
+                        total: item.price.and_then(|p| p.unit_amount),
                         description: item.description,
                         start: item
                             .period
@@ -629,20 +616,8 @@ impl TryFrom<Invoice> for api::Invoice {
             status: invoice
                 .status
                 .map(|status| api::InvoiceStatus::from(status) as i32),
-            subtotal: invoice
-                .subtotal
-                .map(|sub| {
-                    sub.try_into()
-                        .map_err(|_| Error::NegativePrice("subtotal", sub))
-                })
-                .transpose()?,
-            total: invoice
-                .total
-                .map(|tot| {
-                    tot.try_into()
-                        .map_err(|_| Error::NegativePrice("total", tot))
-                })
-                .transpose()?,
+            subtotal: invoice.subtotal,
+            total: invoice.total,
         })
     }
 }
