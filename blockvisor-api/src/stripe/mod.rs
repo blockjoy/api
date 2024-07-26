@@ -113,7 +113,7 @@ pub trait Payment {
     ) -> Result<subscription::SubscriptionItem, Error>;
 
     /// Find a subscription item within a specific subscription, with the subscription identified by
-    /// the susbcription id, and the item within identified by the price_id.
+    /// the subscription id, and the item within identified by the price_id.
     async fn find_subscription_item(
         &self,
         subscription_id: &subscription::SubscriptionId,

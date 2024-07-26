@@ -869,6 +869,7 @@ impl NewNode {
         sku: &str,
         stripe: &(dyn Payment + Sync),
     ) -> Result<SubscriptionItem, Error> {
+        // If there is no corresponding record in stripe for this org, we cannot continue.
         let stripe_customer_id = org
             .stripe_customer_id
             .as_ref()
@@ -876,21 +877,30 @@ impl NewNode {
 
         let price = stripe.get_price(sku).await?;
         if let Some(subscription) = stripe.get_subscription(stripe_customer_id).await? {
+            // If there is a subscription, we either need to increment the `quantity` of an existing
+            // `item`, or we need to create a new item.
             if let Some(item) = stripe
                 .find_subscription_item(&subscription.id, &price.id)
                 .await?
             {
+                // We found an item, so we will increase it's quantity by 1. Note that if no
+                // quantity is set, that is equivalent to the quantity being 1.
+                let quantity = item.quantity.unwrap_or(1);
                 let item = stripe
-                    .update_subscription_item(&item.id, item.quantity.unwrap_or(1) + 1)
+                    .update_subscription_item(&item.id, quantity + 1)
                     .await?;
                 Ok(item)
             } else {
+                // Since the subscription existed, but no item for the current `sku` already
+                // existed, we create a new item within this subscription.
                 let item = stripe
                     .create_subscription_item(&subscription.id, &price.id)
                     .await?;
                 Ok(item)
             }
         } else {
+            // There wasn't a subscription, so we create it and add the `item` for this node to it
+            // straight away.
             let item = stripe
                 .create_subscription(stripe_customer_id, &price.id)
                 .await?
