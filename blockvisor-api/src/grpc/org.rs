@@ -10,7 +10,9 @@ use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error};
 
-use crate::auth::rbac::{OrgAddressPerm, OrgAdminPerm, OrgBillingPerm, OrgPerm, OrgProvisionPerm};
+use crate::auth::rbac::{
+    OrgAddressPerm, OrgAdminPerm, OrgBillingPerm, OrgPerm, OrgProvisionPerm, OrgRole, Role,
+};
 use crate::auth::resource::{OrgId, UserId};
 use crate::auth::Authorize;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
@@ -48,6 +50,8 @@ pub enum Error {
     Model(#[from] crate::models::org::Error),
     /// Negative price encountered:
     NegativePrice(TryFromIntError),
+    /// Org `{0}` has no owner.
+    NoOwner(OrgId),
     /// No customer exists in stripe for org `{0}`.
     NoStripeCustomer(OrgId),
     /// No subscription exists in stripe for org `{0}`.
@@ -100,6 +104,7 @@ impl From<Error> for Status {
             UnknownSortField => Status::invalid_argument("sort.field"),
             MissingAddress => Status::failed_precondition("User has no address."),
             NegativePrice(_) => Status::internal("Negative price encountered"),
+            NoOwner(_) => Status::failed_precondition("Org has no owner."),
             NoStripeCustomer(_) => Status::failed_precondition("No customer for that org."),
             NoStripeSubscription(_) => Status::failed_precondition("No subscription for that org."),
             Address(err) => err.into(),
@@ -583,16 +588,29 @@ async fn set_address(
 ) -> Result<api::OrgServiceSetAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
     write.auth(&meta, OrgAddressPerm::Set, org_id).await?;
+
     let org = Org::by_id(org_id, &mut write).await?;
     let address = req.address.ok_or(Error::MissingAddress)?;
-    let customer_id = org
-        .stripe_customer_id
-        .as_deref()
-        .ok_or(Error::NoStripeCustomer(org_id))?;
+    let (org, customer_id) = if let Some(customer_id) = org.stripe_customer_id.clone() {
+        (org, customer_id)
+    } else {
+        let owner = User::by_org_role(org_id, Role::Org(OrgRole::Owner), &mut write)
+            .await?
+            .pop()
+            .ok_or_else(|| Error::NoOwner(org_id))?;
+        let customer_id = write
+            .ctx
+            .stripe
+            .create_customer(&org, &owner, None)
+            .await?
+            .id;
+        let org = org.set_customer_id(&customer_id, &mut write).await?;
+        (org, customer_id)
+    };
     let address = write
         .ctx
         .stripe
-        .set_address(customer_id, &address.into())
+        .set_address(&customer_id, &address.into())
         .await?;
     let maybe_address = org.address_id.map(|a_id| Address::by_id(a_id, &mut write));
     match OptionFuture::from(maybe_address).await {

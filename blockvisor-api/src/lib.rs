@@ -23,6 +23,7 @@
     clippy::similar_names,
     clippy::too_many_lines,
     clippy::use_self
+    // clippy::doc_lazy_continuation
 )]
 
 #[macro_use]
