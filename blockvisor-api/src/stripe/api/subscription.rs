@@ -1,3 +1,6 @@
+use derive_more::{Deref, Display, From, FromStr};
+use diesel_derive_newtype::DieselNewType;
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SubscriptionId(String);
 
@@ -96,8 +99,20 @@ pub enum SubscriptionStatus {
     Unpaid,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct SubscriptionItemId(pub String);
+#[derive(
+    Debug,
+    serde::Deserialize,
+    Clone,
+    Display,
+    Hash,
+    PartialEq,
+    Eq,
+    DieselNewType,
+    Deref,
+    From,
+    FromStr,
+)]
+pub struct SubscriptionItemId(String);
 
 /// The resource representing a Stripe "SubscriptionItem".
 ///
@@ -284,5 +299,28 @@ impl super::StripeEndpoint for CreateSubscriptionItem<'_> {
 
     fn body(&self) -> Option<&Self> {
         Some(self)
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct DeleteSubscriptionItem<'a> {
+    item_id: &'a str,
+}
+
+impl<'a> DeleteSubscriptionItem<'a> {
+    pub const fn new(item_id: &'a str) -> Self {
+        Self { item_id }
+    }
+}
+
+impl super::StripeEndpoint for DeleteSubscriptionItem<'_> {
+    type Result = super::DeleteResponse;
+
+    fn method(&self) -> reqwest::Method {
+        reqwest::Method::DELETE
+    }
+
+    fn path(&self) -> String {
+        format!("subscription_items/{}", self.item_id)
     }
 }

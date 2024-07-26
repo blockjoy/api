@@ -3,6 +3,7 @@ mod client;
 
 use std::sync::Arc;
 
+use api::subscription::SubscriptionItemId;
 use displaydoc::Display;
 use thiserror::Error;
 
@@ -26,6 +27,8 @@ pub enum Error {
     CreateSubscription(client::Error),
     /// Failed to create stripe subscription item: {0}
     CreateSubscriptionItem(client::Error),
+    /// Failed to delete stripe susbcription item: {0}
+    DeleteSubscriptionItem(client::Error),
     /// Failed to get address: {0}
     GetAddress(client::Error),
     /// Failed to get invoices: {0}
@@ -40,6 +43,8 @@ pub enum Error {
     NoAddress,
     /// No price found on stripe for sku `{0}`.
     NoPrice(String),
+    /// Subscription found without any items: {0}
+    NoSubscriptionItem(SubscriptionItemId),
     /// Failed to search stripe prices: {0}
     SearchPrices(client::Error),
     /// Failed to set address: {0}
@@ -84,17 +89,22 @@ pub trait Payment {
         price_id: &price::PriceId,
     ) -> Result<subscription::Subscription, Error>;
 
+    /// Each org only has one subscription.
+    async fn get_subscription(
+        &self,
+        customer_id: &str,
+    ) -> Result<Option<subscription::Subscription>, Error>;
+
     async fn create_subscription_item(
         &self,
         susbcription_id: &subscription::SubscriptionId,
         price_id: &price::PriceId,
     ) -> Result<subscription::SubscriptionItem, Error>;
 
-    /// Each org only has one subscription.
-    async fn get_subscription(
+    async fn delete_subscription_item(
         &self,
-        customer_id: &str,
-    ) -> Result<Option<subscription::Subscription>, Error>;
+        item_id: &subscription::SubscriptionItemId,
+    ) -> Result<(), Error>;
 
     async fn get_price(&self, sku: &str) -> Result<price::Price, Error>;
 
@@ -190,18 +200,6 @@ impl Payment for Stripe {
             .map_err(Error::CreateSubscription)
     }
 
-    async fn create_subscription_item(
-        &self,
-        susbcription_id: &subscription::SubscriptionId,
-        price_id: &price::PriceId,
-    ) -> Result<subscription::SubscriptionItem, Error> {
-        let req = subscription::CreateSubscriptionItem::new(susbcription_id, price_id);
-        self.client
-            .request(&req)
-            .await
-            .map_err(Error::CreateSubscriptionItem)
-    }
-
     async fn get_subscription(
         &self,
         customer_id: &str,
@@ -221,6 +219,30 @@ impl Payment for Stripe {
         } else {
             Ok(None)
         }
+    }
+
+    async fn create_subscription_item(
+        &self,
+        susbcription_id: &subscription::SubscriptionId,
+        price_id: &price::PriceId,
+    ) -> Result<subscription::SubscriptionItem, Error> {
+        let req = subscription::CreateSubscriptionItem::new(susbcription_id, price_id);
+        self.client
+            .request(&req)
+            .await
+            .map_err(Error::CreateSubscriptionItem)
+    }
+
+    async fn delete_subscription_item(
+        &self,
+        item_id: &subscription::SubscriptionItemId,
+    ) -> Result<(), Error> {
+        let req = subscription::DeleteSubscriptionItem::new(item_id);
+        self.client
+            .request(&req)
+            .await
+            .map_err(Error::DeleteSubscriptionItem)?;
+        Ok(())
     }
 
     async fn get_price(&self, sku: &str) -> Result<price::Price, Error> {
@@ -352,6 +374,14 @@ pub mod tests {
             self.stripe.create_subscription(customer_id, price_id).await
         }
 
+        /// Each org only has one subscription.
+        async fn get_subscription(
+            &self,
+            customer_id: &str,
+        ) -> Result<Option<subscription::Subscription>, Error> {
+            self.stripe.get_subscription(customer_id).await
+        }
+
         async fn create_subscription_item(
             &self,
             susbcription_id: &subscription::SubscriptionId,
@@ -362,12 +392,11 @@ pub mod tests {
                 .await
         }
 
-        /// Each org only has one subscription.
-        async fn get_subscription(
+        async fn delete_subscription_item(
             &self,
-            customer_id: &str,
-        ) -> Result<Option<subscription::Subscription>, Error> {
-            self.stripe.get_subscription(customer_id).await
+            item_id: &subscription::SubscriptionItemId,
+        ) -> Result<(), Error> {
+            self.stripe.delete_subscription_item(item_id).await
         }
 
         async fn get_price(&self, sku: &str) -> Result<price::Price, Error> {

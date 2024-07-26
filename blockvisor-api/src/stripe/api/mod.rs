@@ -69,3 +69,10 @@ pub struct ListResponse<T> {
     pub has_more: bool,
     pub data: Vec<T>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteResponse {
+    pub id: String,
+    pub object: String,
+    pub deleted: bool,
+}

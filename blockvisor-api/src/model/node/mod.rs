@@ -21,6 +21,7 @@ pub use status::{ContainerStatus, NodeStatus, StakingStatus, SyncStatus};
 
 use std::collections::{HashSet, VecDeque};
 
+use crate::stripe::api::subscription::SubscriptionItemId;
 use chrono::{DateTime, Utc};
 use diesel::dsl::{InnerJoinQuerySource, LeftJoinQuerySource};
 use diesel::expression::expression_types::NotSelectable;
@@ -113,6 +114,8 @@ pub enum Error {
     NoMatchingHost,
     /// Org with id `{0}` has no customer in stripe.
     NoStripeCustomer(OrgId),
+    /// Newly created susbcription has no items.
+    NoSubscriptionItem,
     /// Cannot launch node without a region.
     NoRegion,
     /// Node org error: {0}
@@ -206,6 +209,7 @@ pub struct Node {
     pub ip: IpNetwork,
     pub dns_name: String,
     pub display_name: String,
+    pub stripe_item_id: Option<SubscriptionItemId>,
 }
 
 impl Node {
@@ -314,6 +318,14 @@ impl Node {
 
         if let Err(err) = write.ctx.dns.delete(&node.dns_record_id).await {
             warn!("Failed to remove node dns: {err}");
+        }
+
+        if let Some(stripe_item_id) = node.stripe_item_id {
+            write
+                .ctx
+                .stripe
+                .delete_subscription_item(&stripe_item_id)
+                .await?;
         }
 
         Ok(())
@@ -776,10 +788,9 @@ impl NewNode {
             .await
             .map_err(Error::NextHostIp)?;
 
-        // We let superusers continue making new nodes unmolested so as not to interfere with any
-        // testing.
-        let needs_billing = authz.has_perm(BillingPerm::Enabled);
-        if needs_billing {
+        // Users that have the billing-exempt permission do not need billing
+        let needs_billing = !authz.has_perm(BillingPerm::Exempt);
+        let item_id = if needs_billing {
             let stripe_customer_id = org
                 .stripe_customer_id
                 .as_ref()
@@ -792,19 +803,27 @@ impl NewNode {
                 .get_subscription(stripe_customer_id)
                 .await?
             {
-                write
+                let item = write
                     .ctx
                     .stripe
                     .create_subscription_item(&subscription.id, &price.id)
                     .await?;
+                Some(item.id)
             } else {
-                write
+                let item = write
                     .ctx
                     .stripe
                     .create_subscription(stripe_customer_id, &price.id)
-                    .await?;
+                    .await?
+                    .items
+                    .data
+                    .pop()
+                    .ok_or(Error::NoSubscriptionItem)?;
+                Some(item.id)
             }
-        }
+        } else {
+            None
+        };
 
         loop {
             let name = Petnames::small()
@@ -824,6 +843,7 @@ impl NewNode {
                     nodes::ip.eq(node_ip.ip),
                     nodes::dns_record_id.eq(&dns_id),
                     nodes::url.eq(&dns_record.name),
+                    nodes::stripe_item_id.eq(&item_id),
                 ))
                 .get_result(&mut write)
                 .await

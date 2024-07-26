@@ -350,6 +350,7 @@ diesel::table! {
         ip -> Inet,
         dns_name -> Text,
         display_name -> Text,
+        stripe_item_id -> Nullable<Text>,
     }
 }
 
