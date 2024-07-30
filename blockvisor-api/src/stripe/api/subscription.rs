@@ -145,7 +145,7 @@ pub struct SubscriptionItem {
     pub subscription: Option<String>,
 }
 
-fn default_quantity() -> u64 {
+const fn default_quantity() -> u64 {
     1
 }
 

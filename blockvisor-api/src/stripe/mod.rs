@@ -19,8 +19,8 @@ pub enum Error {
     AttachPaymentMethod(client::Error),
     /// Failed to create stripe Client: {0}
     CreateClient(client::Error),
-    /// Failed to create stripe customer for org {0}, user {1}, payment: {2:?}: {3}
-    CreateCustomer(OrgId, UserId, Option<api::PaymentMethodId>, client::Error),
+    /// Failed to create stripe customer: {0}
+    CreateCustomer(client::Error),
     /// Failed to create stripe setup intent: {0}
     CreateSetupIntent(client::Error),
     /// Failed to create stripe subscription: {0}
@@ -185,7 +185,7 @@ impl Payment for Stripe {
         self.client
             .request(&customer)
             .await
-            .map_err(|err| Error::CreateCustomer(org.id, user.id, payment_method_id.cloned(), err))
+            .map_err(Error::CreateCustomer)
     }
 
     async fn attach_payment_method(
