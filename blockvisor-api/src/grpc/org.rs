@@ -512,7 +512,7 @@ async fn billing_details(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceBillingDetailsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    read.auth(&meta, OrgBillingPerm::ListPaymentMethods, org_id)
+    read.auth(&meta, OrgBillingPerm::GetBillingDetails, org_id)
         .await?;
 
     let org = Org::by_id(org_id, &mut read).await?;

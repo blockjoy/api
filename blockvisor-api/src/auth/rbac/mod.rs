@@ -231,6 +231,7 @@ define_perms! {
     }
 
     OrgBilling => {
+        GetBillingDetails,
         InitCard,
         ListPaymentMethods,
     }
