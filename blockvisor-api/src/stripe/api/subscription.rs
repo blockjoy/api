@@ -139,9 +139,14 @@ pub struct SubscriptionItem {
     pub price: Option<super::price::Price>,
     /// The [quantity](https://stripe.com/docs/subscriptions/quantities) of the plan to which the
     /// customer should be subscribed.
-    pub quantity: Option<u64>,
+    #[serde(default = "default_quantity")]
+    pub quantity: u64,
     /// The `subscription` this `subscription_item` belongs to.
     pub subscription: Option<String>,
+}
+
+fn default_quantity() -> u64 {
+    1
 }
 
 #[derive(Debug, serde::Deserialize)]

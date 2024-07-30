@@ -328,12 +328,11 @@ impl Node {
                 .stripe
                 .get_subscription_item(&stripe_item_id)
                 .await?;
-            let quantity = item.quantity.unwrap_or(1);
-            if quantity > 1 {
+            if item.quantity > 1 {
                 write
                     .ctx
                     .stripe
-                    .update_subscription_item(&stripe_item_id, quantity - 1)
+                    .update_subscription_item(&stripe_item_id, item.quantity - 1)
                     .await?;
             } else {
                 write
@@ -885,9 +884,8 @@ impl NewNode {
             {
                 // We found an item, so we will increase it's quantity by 1. Note that if no
                 // quantity is set, that is equivalent to the quantity being 1.
-                let quantity = item.quantity.unwrap_or(1);
                 let item = stripe
-                    .update_subscription_item(&item.id, quantity + 1)
+                    .update_subscription_item(&item.id, item.quantity + 1)
                     .await?;
                 Ok(item)
             } else {
