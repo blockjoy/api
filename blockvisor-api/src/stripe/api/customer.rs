@@ -102,13 +102,10 @@ pub struct CreateCustomer<'a> {
     email: Option<&'a str>,
     metadata: Option<super::Metadata>,
     payment_method: Option<&'a super::PaymentMethodId>,
-    invoice_settings: Option<InvoiceSettings<'a>>,
+    #[serde(rename = "invoice_settings[default_payment_method]")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    invoice_settings_default_payment_method: Option<&'a super::PaymentMethodId>,
     phone: Option<&'a str>,
-}
-
-#[derive(Debug, serde::Serialize)]
-struct InvoiceSettings<'a> {
-    default_payment_method: &'a super::PaymentMethodId,
 }
 
 impl<'a> CreateCustomer<'a> {
@@ -123,9 +120,7 @@ impl<'a> CreateCustomer<'a> {
             email: Some(&user.email),
             metadata: None,
             payment_method: payment_method_id,
-            invoice_settings: payment_method_id.map(|default_payment_method| InvoiceSettings {
-                default_payment_method,
-            }),
+            invoice_settings_default_payment_method: payment_method_id,
             phone: None,
         }
     }
@@ -234,6 +229,7 @@ impl super::StripeEndpoint for GetCustomer<'_> {
 
 #[derive(Debug, serde::Serialize)]
 pub struct UpdateCustomer<'a> {
+    #[serde(skip_serializing)]
     customer_id: &'a str,
 
     #[serde(rename = "address[city]")]

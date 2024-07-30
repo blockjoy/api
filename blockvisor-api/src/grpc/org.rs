@@ -75,7 +75,7 @@ pub enum Error {
     Stripe(#[from] crate::stripe::Error),
     /// Stripe currency error: {0}
     StripeCurrency(#[from] crate::stripe::api::currency::Error),
-    /// Stripe iurrency error: {0}
+    /// Stripe currency error: {0}
     StripeInvoice(#[from] crate::stripe::api::invoice::Error),
     /// Org token error: {0}
     Token(#[from] crate::model::token::Error),
@@ -486,12 +486,6 @@ async fn list_payment_methods(
         .map(|pm| api::PaymentMethod {
             org_id: Some(org_id.to_string()),
             user_id: pm.metadata.and_then(|meta| meta.get("user_id").cloned()),
-            details: Some(api::BillingDetails {
-                address: pm.billing_details.address.map(common::Address::from),
-                email: pm.billing_details.email,
-                name: pm.billing_details.name,
-                phone: pm.billing_details.phone,
-            }),
             created_at: chrono::DateTime::from_timestamp(pm.created.0, 0)
                 .map(NanosUtc::from)
                 .map(Into::into),
@@ -518,7 +512,7 @@ async fn billing_details(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceBillingDetailsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    read.auth(&meta, OrgBillingPerm::ListPaymentMethods, org_id)
+    read.auth(&meta, OrgBillingPerm::GetBillingDetails, org_id)
         .await?;
 
     let org = Org::by_id(org_id, &mut read).await?;
@@ -555,7 +549,7 @@ async fn billing_details(
             .map(|item| api::BillingItem {
                 name: item.price.as_ref().and_then(|price| price.nickname.clone()),
                 unit_amount: item.price.as_ref().and_then(|price| price.unit_amount),
-                quantity: item.quantity,
+                quantity: Some(item.quantity),
             })
             .collect(),
     })

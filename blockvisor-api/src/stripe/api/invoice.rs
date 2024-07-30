@@ -1,5 +1,3 @@
-use std::num::TryFromIntError;
-
 use displaydoc::Display;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -15,8 +13,6 @@ pub enum Error {
     Currency(#[from] super::currency::Error),
     /// LineItemDiscount is missing Currency.
     DiscountMissingCurrency,
-    /// Negative price encountered:
-    NegativePrice(TryFromIntError),
 }
 
 #[derive(Debug, Deserialize)]
@@ -565,12 +561,8 @@ impl TryFrom<Invoice> for api::Invoice {
                 .into_iter()
                 .map(|item| {
                     Ok(api::LineItem {
-                        subtotal: item.amount.try_into().map_err(Error::NegativePrice)?,
-                        total: item
-                            .price
-                            .and_then(|p| p.unit_amount)
-                            .map(|amount| amount.try_into().map_err(Error::NegativePrice))
-                            .transpose()?,
+                        subtotal: item.amount,
+                        total: item.price.and_then(|p| p.unit_amount),
                         description: item.description,
                         start: item
                             .period
@@ -624,14 +616,8 @@ impl TryFrom<Invoice> for api::Invoice {
             status: invoice
                 .status
                 .map(|status| api::InvoiceStatus::from(status) as i32),
-            subtotal: invoice
-                .subtotal
-                .map(|sub| sub.try_into().map_err(Error::NegativePrice))
-                .transpose()?,
-            total: invoice
-                .total
-                .map(|tot| tot.try_into().map_err(Error::NegativePrice))
-                .transpose()?,
+            subtotal: invoice.subtotal,
+            total: invoice.total,
         })
     }
 }

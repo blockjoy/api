@@ -59,7 +59,7 @@ pub struct Timestamp(pub i64);
 #[derive(Debug, Deref, Serialize, Deserialize)]
 pub struct Metadata(std::collections::HashMap<String, String>);
 
-#[derive(Debug, Display, Serialize, Deserialize)]
+#[derive(Debug, Display, Clone, Serialize, Deserialize)]
 pub struct PaymentMethodId(String);
 
 #[derive(Debug, Deserialize)]
