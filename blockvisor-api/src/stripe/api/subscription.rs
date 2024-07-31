@@ -385,7 +385,6 @@ impl super::StripeEndpoint for ListSubscriptionItems<'_> {
 pub struct UpdateSubscriptionItem<'a> {
     #[serde(skip_serializing)]
     item_id: &'a SubscriptionItemId,
-    #[serde(rename = "items[0][quantity]")]
     quantity: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     proration_behavior: Option<&'static str>,
