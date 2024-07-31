@@ -126,7 +126,7 @@ pub trait Payment {
     async fn update_subscription_item(
         &self,
         item_id: &subscription::SubscriptionItemId,
-        quantity: u64,
+        quantity: subscription::QuantityModification,
     ) -> Result<subscription::SubscriptionItem, Error>;
 
     async fn delete_subscription_item(
@@ -306,7 +306,7 @@ impl Payment for Stripe {
     async fn update_subscription_item(
         &self,
         item_id: &subscription::SubscriptionItemId,
-        quantity: u64,
+        quantity: subscription::QuantityModification,
     ) -> Result<subscription::SubscriptionItem, Error> {
         let req = subscription::UpdateSubscriptionItem::new(item_id, quantity);
         self.client
@@ -497,7 +497,7 @@ pub mod tests {
         async fn update_subscription_item(
             &self,
             item_id: &subscription::SubscriptionItemId,
-            quantity: u64,
+            quantity: subscription::QuantityModification,
         ) -> Result<subscription::SubscriptionItem, Error> {
             self.stripe
                 .update_subscription_item(item_id, quantity)

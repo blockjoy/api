@@ -21,7 +21,7 @@ pub use status::{ContainerStatus, NodeStatus, StakingStatus, SyncStatus};
 
 use std::collections::{HashSet, VecDeque};
 
-use crate::stripe::api::subscription::SubscriptionItemId;
+use crate::stripe::api::subscription::{QuantityModification, SubscriptionItemId};
 use chrono::{DateTime, Utc};
 use diesel::dsl::{InnerJoinQuerySource, LeftJoinQuerySource};
 use diesel::expression::expression_types::NotSelectable;
@@ -331,10 +331,13 @@ impl Node {
                 .get_subscription_item(&stripe_item_id)
                 .await?;
             if item.quantity > 1 {
+                let new_quantity = QuantityModification::Decrement {
+                    current_quantity: item.quantity,
+                };
                 write
                     .ctx
                     .stripe
-                    .update_subscription_item(&stripe_item_id, item.quantity - 1)
+                    .update_subscription_item(&stripe_item_id, new_quantity)
                     .await?;
             } else {
                 write
@@ -927,8 +930,11 @@ async fn create_subscription_item(
         {
             // We found an item, so we will increase it's quantity by 1. Note that if no
             // quantity is set, that is equivalent to the quantity being 1.
+            let new_quantity = QuantityModification::Increment {
+                current_quantity: item.quantity,
+            };
             let item = stripe
-                .update_subscription_item(&item.id, item.quantity + 1)
+                .update_subscription_item(&item.id, new_quantity)
                 .await?;
             Ok(item)
         } else {
