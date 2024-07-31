@@ -125,6 +125,7 @@ pub trait Payment {
 
     async fn update_subscription_item(
         &self,
+        subscription_id: &subscription::SubscriptionId,
         item_id: &subscription::SubscriptionItemId,
         quantity: u64,
     ) -> Result<subscription::SubscriptionItem, Error>;
@@ -136,7 +137,10 @@ pub trait Payment {
 
     async fn get_price(&self, sku: &str) -> Result<price::Price, Error>;
 
-    async fn get_address(&self, customer_id: &str) -> Result<Option<address::Address>, Error>;
+    async fn get_address(
+        &self,
+        customer_id: &customer::CustomerId,
+    ) -> Result<Option<address::Address>, Error>;
 
     async fn set_address(
         &self,
@@ -302,10 +306,11 @@ impl Payment for Stripe {
 
     async fn update_subscription_item(
         &self,
+        subscription_id: &subscription::SubscriptionId,
         item_id: &subscription::SubscriptionItemId,
         quantity: u64,
     ) -> Result<subscription::SubscriptionItem, Error> {
-        let req = subscription::UpdateSubscriptionItem::new(item_id, quantity);
+        let req = subscription::UpdateSubscriptionItem::new(subscription_id, item_id, quantity);
         self.client
             .request(&req)
             .await
@@ -343,7 +348,10 @@ impl Payment for Stripe {
         }
     }
 
-    async fn get_address(&self, customer_id: &str) -> Result<Option<address::Address>, Error> {
+    async fn get_address(
+        &self,
+        customer_id: &customer::CustomerId,
+    ) -> Result<Option<address::Address>, Error> {
         let req = customer::GetCustomer::new(customer_id);
         let customer = self.client.request(&req).await.map_err(Error::GetAddress)?;
         Ok(customer.address)
@@ -490,11 +498,12 @@ pub mod tests {
 
         async fn update_subscription_item(
             &self,
+            subscription_id: &subscription::SubscriptionId,
             item_id: &subscription::SubscriptionItemId,
             quantity: u64,
         ) -> Result<subscription::SubscriptionItem, Error> {
             self.stripe
-                .update_subscription_item(item_id, quantity)
+                .update_subscription_item(subscription_id, item_id, quantity)
                 .await
         }
 
@@ -509,7 +518,10 @@ pub mod tests {
             self.stripe.get_price(sku).await
         }
 
-        async fn get_address(&self, customer_id: &str) -> Result<Option<address::Address>, Error> {
+        async fn get_address(
+            &self,
+            customer_id: &customer::CustomerId,
+        ) -> Result<Option<address::Address>, Error> {
             self.stripe.get_address(customer_id).await
         }
 

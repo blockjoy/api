@@ -17,6 +17,7 @@ use crate::auth::rbac::OrgRole;
 use crate::auth::rbac::Role;
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
+use crate::stripe::api::customer::CustomerId;
 use crate::util::{SearchOperator, SortOrder};
 
 use super::address::AddressId;
@@ -98,7 +99,7 @@ pub struct Org {
     pub host_count: i32,
     pub node_count: i32,
     pub member_count: i32,
-    pub stripe_customer_id: Option<String>,
+    pub stripe_customer_id: Option<CustomerId>,
     pub address_id: Option<AddressId>,
 }
 

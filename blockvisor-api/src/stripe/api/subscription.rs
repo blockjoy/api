@@ -1,7 +1,20 @@
 use derive_more::{Deref, Display, From, FromStr};
 use diesel_derive_newtype::DieselNewType;
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Display,
+    Hash,
+    PartialEq,
+    Eq,
+    DieselNewType,
+    Deref,
+    From,
+    FromStr,
+)]
 pub struct SubscriptionId(String);
 
 #[derive(Debug, serde::Deserialize)]
@@ -142,7 +155,7 @@ pub struct SubscriptionItem {
     #[serde(default = "default_quantity")]
     pub quantity: u64,
     /// The `subscription` this `subscription_item` belongs to.
-    pub subscription: Option<String>,
+    pub subscription: SubscriptionId,
 }
 
 const fn default_quantity() -> u64 {
@@ -369,13 +382,29 @@ impl super::StripeEndpoint for ListSubscriptionItems<'_> {
 #[derive(Debug, serde::Serialize)]
 pub struct UpdateSubscriptionItem<'a> {
     #[serde(skip_serializing)]
+    subscription_id: &'a SubscriptionId,
+    items: [UpdateSubscriptionItemInner<'a>; 1],
+}
+
+#[derive(Debug, serde::Serialize)]
+struct UpdateSubscriptionItemInner<'a> {
     id: &'a SubscriptionItemId,
     quantity: u64,
 }
 
 impl<'a> UpdateSubscriptionItem<'a> {
-    pub const fn new(id: &'a SubscriptionItemId, quantity: u64) -> Self {
-        Self { id, quantity }
+    pub const fn new(
+        subscription_id: &'a SubscriptionId,
+        item_id: &'a SubscriptionItemId,
+        quantity: u64,
+    ) -> Self {
+        Self {
+            subscription_id,
+            items: [UpdateSubscriptionItemInner {
+                id: item_id,
+                quantity,
+            }],
+        }
     }
 }
 
@@ -387,7 +416,7 @@ impl super::StripeEndpoint for UpdateSubscriptionItem<'_> {
     }
 
     fn path(&self) -> String {
-        format!("subscription_items/{}", self.id)
+        format!("subscriptions/{}", self.subscription_id)
     }
 
     fn body(&self) -> Option<&Self> {

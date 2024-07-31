@@ -565,7 +565,7 @@ async fn get_address(
     let org = Org::by_id(org_id, &mut read).await?;
     let customer_id = org
         .stripe_customer_id
-        .as_deref()
+        .as_ref()
         .ok_or(Error::NoStripeCustomer(org_id))?;
     let address = read.ctx.stripe.get_address(customer_id).await?;
     Ok(api::OrgServiceGetAddressResponse {

@@ -1,4 +1,22 @@
 use crate::model::{Org, User};
+use derive_more::{Deref, Display, From, FromStr};
+use diesel_derive_newtype::DieselNewType;
+
+#[derive(
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Display,
+    Hash,
+    PartialEq,
+    Eq,
+    DieselNewType,
+    Deref,
+    From,
+    FromStr,
+)]
+pub struct CustomerId(String);
 
 /// The resource representing a Stripe "Customer".
 ///
@@ -6,7 +24,7 @@ use crate::model::{Org, User};
 #[derive(Debug, serde::Deserialize)]
 pub struct Customer {
     /// Unique identifier for the object.
-    pub id: String,
+    pub id: CustomerId,
     /// The customer's address.
     pub address: Option<super::address::Address>,
     /// The current balance, if any, that's stored on the customer.
@@ -198,11 +216,11 @@ pub enum PaymentSource {
 
 #[derive(Debug, serde::Serialize)]
 pub struct GetCustomer<'a> {
-    customer_id: &'a str,
+    customer_id: &'a CustomerId,
 }
 
 impl<'a> GetCustomer<'a> {
-    pub const fn new(customer_id: &'a str) -> Self {
+    pub const fn new(customer_id: &'a CustomerId) -> Self {
         Self { customer_id }
     }
 }
