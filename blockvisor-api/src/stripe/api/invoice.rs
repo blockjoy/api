@@ -586,7 +586,7 @@ impl TryFrom<Invoice> for api::Invoice {
                 .map(|item| {
                     Ok(api::LineItem {
                         subtotal: item.amount,
-                        total: item.price.and_then(|p| p.unit_amount),
+                        unit_amount: item.price.and_then(|p| p.unit_amount),
                         description: item.description,
                         start: item
                             .period
