@@ -514,15 +514,16 @@ async fn billing_details(
         .await?;
 
     let org = Org::by_id(org_id, &mut read).await?;
-    let subscription = if let Some(customer_id) = org.stripe_customer_id.as_deref() {
-        read.ctx
-            .stripe
-            .get_subscription(customer_id)
-            .await?
-            .ok_or_else(|| Error::NoStripeSubscription(org_id))?
-    } else {
-        return Err(Error::NoStripeCustomer(org_id));
+
+    let Some(customer_id) = org.stripe_customer_id.as_deref() else {
+        return Ok(Default::default());
     };
+    let subscription = read
+        .ctx
+        .stripe
+        .get_subscription(customer_id)
+        .await?
+        .ok_or_else(|| Error::NoStripeSubscription(org_id))?;
 
     Ok(api::OrgServiceBillingDetailsResponse {
         currency: common::Currency::try_from(subscription.currency)? as i32,
@@ -561,10 +562,9 @@ async fn get_address(
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
     read.auth(&meta, OrgAddressPerm::Get, org_id).await?;
     let org = Org::by_id(org_id, &mut read).await?;
-    let customer_id = org
-        .stripe_customer_id
-        .as_ref()
-        .ok_or(Error::NoStripeCustomer(org_id))?;
+    let Some(customer_id) = org.stripe_customer_id.as_ref() else {
+        return Ok(Default::default());
+    };
     let address = read.ctx.stripe.get_address(customer_id).await?;
     Ok(api::OrgServiceGetAddressResponse {
         address: address.map(Into::into),
@@ -657,10 +657,9 @@ async fn get_invoices(
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
     write.auth(&meta, OrgAddressPerm::Delete, org_id).await?;
     let org = Org::by_id(org_id, &mut write).await?;
-    let customer_id = org
-        .stripe_customer_id
-        .as_deref()
-        .ok_or(Error::NoStripeCustomer(org_id))?;
+    let Some(customer_id) = org.stripe_customer_id.as_deref() else {
+        return Ok(Default::default());
+    };
     let invoices = write.ctx.stripe.get_invoices(customer_id).await?;
     let invoices = invoices
         .into_iter()
