@@ -239,7 +239,13 @@ async fn list(
         return Err(Error::ListResource);
     };
 
-    read.auth(&meta, InvitationPerm::List, resource).await?;
+    read.auth_or_all(
+        &meta,
+        InvitationAdminPerm::List,
+        InvitationPerm::List,
+        resource,
+    )
+    .await?;
 
     let filter = req.as_filter()?;
     let invitations = Invitation::filter(filter, &mut read).await?;
@@ -345,7 +351,12 @@ async fn revoke(
     let invitation = Invitation::by_id(id, &mut write).await?;
 
     let authz = write
-        .auth(&meta, InvitationPerm::Revoke, invitation.org_id)
+        .auth_or_all(
+            &meta,
+            InvitationAdminPerm::Revoke,
+            InvitationPerm::Revoke,
+            invitation.org_id,
+        )
         .await?;
     authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
