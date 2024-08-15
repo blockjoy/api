@@ -86,7 +86,7 @@ fn new_roles(args: NewRolesArgs, cipher: &Cipher) -> Result<()> {
     };
 
     let duration = refresh.expirable().duration();
-    let new_refresh = Refresh::from_now(duration, resource.id());
+    let new_refresh = Refresh::from_now(duration, resource);
 
     config.token = cipher.jwt.encode(&new_claims)?.to_string();
     config.refresh_token = cipher.refresh.encode(&new_refresh)?.to_string();

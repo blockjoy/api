@@ -12,7 +12,7 @@ use tonic::Status;
 use tracing::warn;
 
 use crate::auth::claims::Expirable;
-use crate::auth::resource::ResourceId;
+use crate::auth::resource::{Resource, ResourceEntry, ResourceId, ResourceType};
 use crate::config::token::{RefreshSecret, RefreshSecrets};
 
 const ALGORITHM: Algorithm = Algorithm::HS512;
@@ -24,6 +24,8 @@ const COOKIE_EXPIRES: &str = "expires=";
 pub enum Error {
     /// Failed to decode refresh token: {0:?}
     Decode(ErrorKind),
+    /// Failed to decode possibly expired refresh token: {0:?}
+    DecodeExpired(ErrorKind),
     /// Failed to encode refresh token: {0:?}
     Encode(ErrorKind),
     /// Empty `{COOKIE_REFRESH:?}` value in `{COOKIE_HEADER:?}`.
@@ -40,6 +42,8 @@ pub enum Error {
     ParseCookieHeader(tonic::metadata::errors::ToStrError),
     /// Failed to create refresh cookie: {0}
     RefreshCookie(tonic::metadata::errors::InvalidMetadataValue),
+    /// The refresh token has expired.
+    TokenExpired,
 }
 
 impl From<Error> for Status {
@@ -60,6 +64,7 @@ impl From<Error> for Status {
 pub struct Cipher {
     header: Header,
     validation: Validation,
+    validation_expired: Validation,
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
     fallback_decoding_keys: Vec<DecodingKey>,
@@ -67,9 +72,13 @@ pub struct Cipher {
 
 impl Cipher {
     pub fn new(secret: &RefreshSecret, fallback_secrets: &RefreshSecrets) -> Self {
+        let validation = Validation::new(ALGORITHM);
+        let mut validation_expired = validation.clone();
+        validation_expired.validate_exp = false;
         Cipher {
             header: Header::new(ALGORITHM),
-            validation: Validation::new(ALGORITHM),
+            validation,
+            validation_expired,
             encoding_key: EncodingKey::from_secret(secret.as_bytes()),
             decoding_key: DecodingKey::from_secret(secret.as_bytes()),
             fallback_decoding_keys: fallback_secrets
@@ -96,8 +105,34 @@ impl Cipher {
                     }
                 }
 
-                Err(Error::Decode(err.into_kind()))
+                match err.into_kind() {
+                    ErrorKind::ExpiredSignature => Err(Error::TokenExpired),
+                    kind => Err(Error::Decode(kind)),
+                }
             })?;
+
+        if refresh.expirable.expires_at < refresh.expirable.issued_at {
+            return Err(Error::ExpiresBeforeIssued);
+        }
+
+        Ok(refresh)
+    }
+
+    pub fn decode_expired(&self, encoded: &Encoded) -> Result<Refresh, Error> {
+        let refresh: Refresh =
+            jsonwebtoken::decode(encoded, &self.decoding_key, &self.validation_expired)
+                .map(|data| data.claims)
+                .or_else(|err| {
+                    for key in &self.fallback_decoding_keys {
+                        if let Ok(data) =
+                            jsonwebtoken::decode(encoded, key, &self.validation_expired)
+                        {
+                            return Ok(data.claims);
+                        }
+                    }
+
+                    Err(Error::DecodeExpired(err.into_kind()))
+                })?;
 
         if refresh.expirable.expires_at < refresh.expirable.issued_at {
             return Err(Error::ExpiresBeforeIssued);
@@ -114,20 +149,28 @@ impl Cipher {
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Refresh {
     resource_id: ResourceId,
+    resource_type: Option<ResourceType>,
     #[serde(flatten)]
     expirable: Expirable,
 }
 
 impl Refresh {
-    pub fn from_now<R: Into<ResourceId>>(expires: chrono::Duration, resource_id: R) -> Self {
+    pub fn from_now<R: Into<Resource>>(expires: chrono::Duration, resource: R) -> Self {
+        let resource = resource.into();
+        let entry: ResourceEntry = resource.into();
         Refresh {
-            resource_id: resource_id.into(),
+            resource_id: entry.resource_id,
+            resource_type: Some(entry.resource_type),
             expirable: Expirable::from_now(expires),
         }
     }
 
     pub const fn resource_id(&self) -> ResourceId {
         self.resource_id
+    }
+
+    pub const fn resource_type(&self) -> Option<ResourceType> {
+        self.resource_type
     }
 
     pub const fn expirable(&self) -> Expirable {
@@ -240,7 +283,7 @@ mod tests {
     #[tokio::test]
     async fn test_refresh_encode_decode() {
         let ctx = Context::from_default_toml().await.unwrap();
-        let refresh = Refresh::from_now(seconds(60), Uuid::new_v4());
+        let refresh = Refresh::from_now(seconds(60), Resource::User(Uuid::new_v4().into()));
 
         let encoded = ctx.auth.cipher.refresh.encode(&refresh).unwrap();
         let decoded = ctx.auth.cipher.refresh.decode(&encoded).unwrap();
@@ -263,7 +306,7 @@ mod tests {
     #[tokio::test]
     async fn test_refresh_cookie() {
         let ctx = Context::from_default_toml().await.unwrap();
-        let refresh = Refresh::from_now(seconds(60), Uuid::new_v4());
+        let refresh = Refresh::from_now(seconds(60), Resource::Host(Uuid::new_v4().into()));
 
         let mut meta = MetadataMap::new();
         let cookie = ctx.auth.cipher.refresh.cookie(&refresh).unwrap();

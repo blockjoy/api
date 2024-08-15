@@ -219,6 +219,7 @@ async fn refresh(
         Resource::Node(id) => Node::by_id(id, &mut write).await.map(|_| id.into())?,
     };
 
+    // Check that the claims and the refresh token refer to the same user
     if resource_id != refresh.resource_id() {
         return Err(Error::RefreshResource);
     }
@@ -232,7 +233,7 @@ async fn refresh(
     let token = write.ctx.auth.cipher.jwt.encode(&new_claims)?;
 
     let expires = refresh.expirable().duration();
-    let refresh = Refresh::from_now(expires, resource_id);
+    let refresh = Refresh::from_now(expires, resource);
 
     let encoded = write.ctx.auth.cipher.refresh.encode(&refresh)?;
     let cookie = write.ctx.auth.cipher.refresh.cookie(&refresh)?;

@@ -93,6 +93,10 @@ pub enum Error {
     DecodeJwt(token::jwt::Error),
     /// Failed to decode refresh BearerToken: {0}
     DecodeRefresh(refresh::Error),
+    /// JWT for resource {0} has expired.
+    ExpiredJwt(String),
+    /// Refresh token for resource {0} has expired.
+    ExpiredRefresh(String),
     /// Failed to parse RequestToken: {0}
     ParseRequestToken(token::Error),
     /// Failed to parse refresh header: {0}
@@ -106,11 +110,12 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             Database(_) => Status::internal("Internal error."),
-            DecodeJwt(token::jwt::Error::TokenExpired) => Status::unauthenticated(TOKEN_EXPIRED),
             DecodeJwt(_) => Status::permission_denied("Invalid JWT token."),
             DecodeRefresh(_) | RefreshHeader(_) => {
                 Status::permission_denied("Invalid refresh token.")
             }
+            ExpiredJwt(_) => Status::unauthenticated(TOKEN_EXPIRED),
+            ExpiredRefresh(_) => Status::unauthenticated(TOKEN_EXPIRED),
             ValidateApiKey(_) => Status::permission_denied("Invalid API key."),
             Claims(err) => err.into(),
             ParseRequestToken(err) => err.into(),
@@ -158,7 +163,16 @@ impl Auth {
 
     pub async fn claims(&self, token: &RequestToken, conn: &mut Conn<'_>) -> Result<Claims, Error> {
         match token {
-            RequestToken::Bearer(token) => self.cipher.jwt.decode(token).map_err(Error::DecodeJwt),
+            RequestToken::Bearer(token) => self.cipher.jwt.decode(token).map_err(|e| match e {
+                token::jwt::Error::TokenExpired => {
+                    let claims = self.cipher.jwt.decode_expired(token).ok();
+                    Error::ExpiredJwt(
+                        claims
+                            .map_or_else(|| "unknown".to_string(), |c| format!("{}", c.resource())),
+                    )
+                }
+                other => Error::DecodeJwt(other),
+            }),
             RequestToken::ApiKey(token) => Validated::from_token(token, conn)
                 .await
                 .map_err(Error::ValidateApiKey)
@@ -204,7 +218,16 @@ impl Auth {
         self.cipher
             .refresh
             .decode(&cookie.encoded)
-            .map_err(Error::DecodeRefresh)
+            .map_err(|e| match e {
+                token::refresh::Error::TokenExpired => {
+                    let refresh = self.cipher.refresh.decode_expired(&cookie.encoded).ok();
+                    Error::ExpiredRefresh(refresh.map_or_else(
+                        || "unknown".to_string(),
+                        |r| format!("type: {:?}, id: {}", r.resource_type(), r.resource_id()),
+                    ))
+                }
+                other => Error::DecodeRefresh(other),
+            })
     }
 
     /// Try to get a `Refresh` token from the request headers.
