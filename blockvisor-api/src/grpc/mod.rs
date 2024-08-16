@@ -17,12 +17,12 @@ pub mod user;
 
 const MAX_ARCHIVE_MESSAGE_SIZE: usize = 150 * 1024 * 1024;
 
-#[allow(clippy::nursery, clippy::pedantic, clippy::doc_lazy_continuation)]
+#[allow(clippy::nursery, clippy::pedantic)]
 pub mod api {
     tonic::include_proto!("blockjoy.v1");
 }
 
-#[allow(clippy::nursery, clippy::pedantic, clippy::doc_lazy_continuation)]
+#[allow(clippy::nursery, clippy::pedantic)]
 pub mod common {
     tonic::include_proto!("blockjoy.common.v1");
 

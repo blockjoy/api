@@ -33,7 +33,7 @@ impl NodeScheduler {
     /// This string in intented to be embedded into the query used in
     /// `model::Host::host_candidates`.
     pub fn order_clause(&self) -> String {
-        let mut clause = "ORDER BY \n    ".to_string();
+        let mut clause = "ORDER BY \n$10 = ANY(tags),".to_string();
         if let Some(similarity) = &self.similarity {
             clause += similarity.order_clause();
         }

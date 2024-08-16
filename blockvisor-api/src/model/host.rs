@@ -300,7 +300,8 @@ impl Host {
                 (SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id AND blockchain_id = $4 AND node_type = $5 AND host_type = 'cloud') AS n_similar,
                 hosts.region_id AS region_id,
                 hosts.org_id AS org_id,
-                hosts.host_type AS host_type
+                hosts.host_type AS host_type,
+                hosts.tags AS tags
             FROM
                 hosts
             WHERE
