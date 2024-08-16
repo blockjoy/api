@@ -306,7 +306,7 @@ impl Host {
             WHERE
                 deleted_at IS NULL AND
                 managed_by = 'automatic' AND
-                $10 = ANY(tags)
+                ($10 = ANY(tags) OR CARDINALITY(tags) = 0)
         ) AS resouces
         WHERE
             -- These are our hard filters, we do not want any nodes that cannot satisfy the
