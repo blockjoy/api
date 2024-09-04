@@ -521,7 +521,7 @@ async fn billing_details(
     let subscription = read
         .ctx
         .stripe
-        .get_subscription(customer_id)
+        .get_subscription_by_customer(customer_id)
         .await?
         .ok_or_else(|| Error::NoStripeSubscription(org_id))?;
 

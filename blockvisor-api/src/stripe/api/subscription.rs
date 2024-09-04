@@ -19,7 +19,7 @@ pub struct SubscriptionId(String);
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Subscription {
-    /// Unique identifier for the object.
+    /// Unique identiLer for the object.
     pub id: SubscriptionId,
     /// Time at which the object was created.
     ///
@@ -261,6 +261,30 @@ impl super::StripeEndpoint for CreateSubscription<'_> {
     }
 }
 
+/// The parameters for `Subscription::get`.
+#[derive(Debug, serde::Serialize)]
+pub struct GetSubscription<'a> {
+    subscription_id: &'a SubscriptionId,
+}
+
+impl<'a> GetSubscription<'a> {
+    pub const fn new(subscription_id: &'a SubscriptionId) -> Self {
+        Self { subscription_id }
+    }
+}
+
+impl super::StripeEndpoint for GetSubscription<'_> {
+    type Result = Subscription;
+
+    fn method(&self) -> reqwest::Method {
+        reqwest::Method::GET
+    }
+
+    fn path(&self) -> String {
+        format!("subscriptions/{}", self.subscription_id)
+    }
+}
+
 /// The parameters for `Subscription::list`.
 #[derive(Debug, serde::Serialize, Default)]
 pub struct ListSubscriptions<'a> {
@@ -290,6 +314,30 @@ impl super::StripeEndpoint for ListSubscriptions<'_> {
 
     fn query(&self) -> Option<&Self> {
         Some(self)
+    }
+}
+
+/// The parameters for `Subscription::delete`.
+#[derive(Debug, serde::Serialize)]
+pub struct CancelSubscriptionRequest<'a> {
+    susbcription_id: &'a SubscriptionId,
+}
+
+impl<'a> CancelSubscriptionRequest<'a> {
+    pub const fn new(susbcription_id: &'a SubscriptionId) -> Self {
+        Self { susbcription_id }
+    }
+}
+
+impl super::StripeEndpoint for CancelSubscriptionRequest<'_> {
+    type Result = Subscription;
+
+    fn method(&self) -> reqwest::Method {
+        reqwest::Method::DELETE
+    }
+
+    fn path(&self) -> String {
+        format!("subscriptions/{}", self.susbcription_id)
     }
 }
 

@@ -18,6 +18,8 @@ use self::api::{address, customer, invoice, payment_method, price, setup_intent,
 pub enum Error {
     /// Failed to create stripe Client: {0}
     AttachPaymentMethod(client::Error),
+    /// Failed to cancel subscription: {0}
+    CancelSubscription(client::Error),
     /// Error handling datetimes
     Chrono,
     /// Failed to create stripe Client: {0}
@@ -30,18 +32,20 @@ pub enum Error {
     CreateSubscription(client::Error),
     /// Failed to create stripe subscription item: {0}
     CreateSubscriptionItem(client::Error),
+    /// Failed to delete address: {0}
+    DeleteAddress(client::Error),
     /// Failed to delete stripe subscription item: {0}
     DeleteSubscriptionItem(client::Error),
+    /// Failed to find subscription items: {0}
+    FindSubscriptionItems(client::Error),
     /// Failed to get address: {0}
     GetAddress(client::Error),
     /// Failed to get invoices: {0}
     GetInvoices(client::Error),
+    /// Failed to get subscription: {0}
+    GetSubscription(client::Error),
     /// Failed to get subscription item: {0}
     GetSubscriptionItem(client::Error),
-    /// Failed to delete address: {0}
-    DeleteAddress(client::Error),
-    /// Failed to find subscription items: {0}
-    FindSubscriptionItems(client::Error),
     /// Failed to list stripe payment methods: {0}
     ListPaymentMethods(client::Error),
     /// Failed to list stripe subscriptions: {0}
@@ -52,6 +56,8 @@ pub enum Error {
     NoPrice(String),
     /// Subscription found without any items: {0}
     NoSubscriptionItem(SubscriptionItemId),
+    /// Can't cancel a subscription for an org that doesn't have one.
+    NoSubscriptionToCancel,
     /// Failed to search stripe prices: {0}
     SearchPrices(client::Error),
     /// Failed to set address: {0}
@@ -98,11 +104,21 @@ pub trait Payment {
         price_id: &price::PriceId,
     ) -> Result<subscription::Subscription, Error>;
 
-    /// Each org only has one subscription.
     async fn get_subscription(
+        &self,
+        subscription_id: &subscription::SubscriptionId,
+    ) -> Result<subscription::Subscription, Error>;
+
+    /// Each org only has one subscription.
+    async fn get_subscription_by_customer(
         &self,
         customer_id: &str,
     ) -> Result<Option<subscription::Subscription>, Error>;
+
+    async fn cancel_subscription(
+        &self,
+        subscription_id: &subscription::SubscriptionId,
+    ) -> Result<(), Error>;
 
     async fn create_subscription_item(
         &self,
@@ -243,6 +259,17 @@ impl Payment for Stripe {
 
     async fn get_subscription(
         &self,
+        subscription_id: &subscription::SubscriptionId,
+    ) -> Result<subscription::Subscription, Error> {
+        let req = subscription::GetSubscription::new(subscription_id);
+        self.client
+            .request(&req)
+            .await
+            .map_err(Error::GetSubscription)
+    }
+
+    async fn get_subscription_by_customer(
+        &self,
         customer_id: &str,
     ) -> Result<Option<subscription::Subscription>, Error> {
         let req = subscription::ListSubscriptions::new(customer_id);
@@ -260,6 +287,18 @@ impl Payment for Stripe {
         } else {
             Ok(None)
         }
+    }
+
+    async fn cancel_subscription(
+        &self,
+        subscription_id: &subscription::SubscriptionId,
+    ) -> Result<(), Error> {
+        let req = subscription::CancelSubscriptionRequest::new(subscription_id);
+        self.client
+            .request(&req)
+            .await
+            .map_err(Error::CancelSubscription)?;
+        Ok(())
     }
 
     async fn create_subscription_item(
@@ -459,12 +498,26 @@ pub mod tests {
             self.stripe.create_subscription(customer_id, price_id).await
         }
 
-        /// Each org only has one subscription.
         async fn get_subscription(
+            &self,
+            subscription_id: &subscription::SubscriptionId,
+        ) -> Result<subscription::Subscription, Error> {
+            self.stripe.get_subscription(subscription_id).await
+        }
+
+        /// Each org only has one subscription.
+        async fn get_subscription_by_customer(
             &self,
             customer_id: &str,
         ) -> Result<Option<subscription::Subscription>, Error> {
-            self.stripe.get_subscription(customer_id).await
+            self.stripe.get_subscription_by_customer(customer_id).await
+        }
+
+        async fn cancel_subscription(
+            &self,
+            subscription_id: &subscription::SubscriptionId,
+        ) -> Result<(), Error> {
+            self.stripe.cancel_subscription(subscription_id).await
         }
 
         async fn create_subscription_item(

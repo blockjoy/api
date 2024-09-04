@@ -98,6 +98,8 @@ pub enum Error {
     Host(#[from] super::host::Error),
     /// Only available host candidate failed.
     HostCandidateFailed,
+    /// Found a stripe item that isn't in any extant subscription.
+    ItemWithoutSubscription,
     /// Ip address error: {0}
     IpAddr(#[from] super::ip_address::Error),
     /// Failed to get next host ip for node: {0}
@@ -340,11 +342,29 @@ impl Node {
                     .update_subscription_item(&stripe_item_id, new_quantity)
                     .await?;
             } else {
-                write
-                    .ctx
-                    .stripe
-                    .delete_subscription_item(&stripe_item_id)
-                    .await?;
+                let subscription_id = item.subscription.as_ref().ok_or(Error::NoSubscriptionId)?;
+                let subscription = write.ctx.stripe.get_subscription(subscription_id).await?;
+                match subscription.items.data.len() {
+                    // This item is in a subscription that doesn't have any items?
+                    0 => return Err(Error::ItemWithoutSubscription),
+                    // This is the final item of the subscription, lets cancel it
+                    1 => {
+                        write
+                            .ctx
+                            .stripe
+                            .cancel_subscription(subscription_id)
+                            .await?;
+                    }
+                    // There are other items left in this subscription, we can decrement the item
+                    // count to 0
+                    _ => {
+                        write
+                            .ctx
+                            .stripe
+                            .delete_subscription_item(&stripe_item_id)
+                            .await?;
+                    }
+                };
             }
         }
 
@@ -921,7 +941,10 @@ async fn create_subscription_item(
         .ok_or_else(|| Error::NoStripeCustomer(org.id))?;
 
     let price = stripe.get_price(sku).await?;
-    if let Some(subscription) = stripe.get_subscription(stripe_customer_id).await? {
+    if let Some(subscription) = stripe
+        .get_subscription_by_customer(stripe_customer_id)
+        .await?
+    {
         // If there is a subscription, we either need to increment the `quantity` of an existing
         // `item`, or we need to create a new item.
         if let Some(item) = stripe
