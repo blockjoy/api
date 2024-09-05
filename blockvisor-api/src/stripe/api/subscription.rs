@@ -19,7 +19,7 @@ pub struct SubscriptionId(String);
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Subscription {
-    /// Unique identiLer for the object.
+    /// Unique identifier for the object.
     pub id: SubscriptionId,
     /// Time at which the object was created.
     ///

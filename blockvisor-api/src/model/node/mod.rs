@@ -98,10 +98,10 @@ pub enum Error {
     Host(#[from] super::host::Error),
     /// Only available host candidate failed.
     HostCandidateFailed,
-    /// Found a stripe item that isn't in any extant subscription.
-    ItemWithoutSubscription,
     /// Ip address error: {0}
     IpAddr(#[from] super::ip_address::Error),
+    /// Found a stripe item that isn't in any extant subscription.
+    ItemWithoutSubscription,
     /// Failed to get next host ip for node: {0}
     NextHostIp(crate::model::ip_address::Error),
     /// Node log error: {0}
@@ -355,8 +355,8 @@ impl Node {
                             .cancel_subscription(subscription_id)
                             .await?;
                     }
-                    // There are other items left in this subscription, we can decrement the item
-                    // count to 0
+                    // There are other items left in this subscription, we can remove this item from
+                    // the subscription.
                     _ => {
                         write
                             .ctx
