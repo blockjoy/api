@@ -1,12 +1,9 @@
 use blockvisor_api::auth::resource::{OrgId, UserId};
 use blockvisor_api::grpc::api;
 use blockvisor_api::model::{Org, SubscriptionId};
-use tonic::transport::Channel;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{SocketRpc, SubscriptionService};
 use crate::setup::TestServer;
-
-type Service = api::subscription_service_client::SubscriptionServiceClient<Channel>;
 
 #[tokio::test]
 async fn subscription_service_api_requests() {
@@ -49,7 +46,7 @@ async fn create(
         external_id: external_id.to_string(),
     };
 
-    test.send_admin(Service::create, req).await
+    test.send_admin(SubscriptionService::create, req).await
 }
 
 async fn get(
@@ -59,7 +56,7 @@ async fn get(
     let req = api::SubscriptionServiceGetRequest {
         org_id: org_id.to_string(),
     };
-    test.send_admin(Service::get, req).await
+    test.send_admin(SubscriptionService::get, req).await
 }
 
 async fn list(
@@ -69,7 +66,7 @@ async fn list(
     let req = api::SubscriptionServiceListRequest {
         user_id: Some(user_id.to_string()),
     };
-    test.send_admin(Service::list, req).await
+    test.send_admin(SubscriptionService::list, req).await
 }
 
 async fn update(
@@ -79,7 +76,7 @@ async fn update(
     let req = api::SubscriptionServiceUpdateRequest {
         org_id: Some(org_id.to_string()),
     };
-    test.send_admin(Service::update, req).await
+    test.send_admin(SubscriptionService::update, req).await
 }
 
 async fn delete(
@@ -88,5 +85,5 @@ async fn delete(
 ) -> Result<api::SubscriptionServiceDeleteResponse, tonic::Status> {
     let req = api::SubscriptionServiceDeleteRequest { id: id.to_string() };
 
-    test.send_admin(Service::delete, req).await
+    test.send_admin(SubscriptionService::delete, req).await
 }

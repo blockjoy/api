@@ -1,19 +1,16 @@
 use blockvisor_api::grpc::{api, common};
 use blockvisor_api::model::User;
-use tonic::transport::Channel;
 use uuid::Uuid;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{SocketRpc, UserService};
 use crate::setup::TestServer;
-
-type Service = api::user_service_client::UserServiceClient<Channel>;
 
 #[tokio::test]
 async fn responds_ok_with_valid_token_for_get() {
     let test = TestServer::new().await;
     let id = test.seed().user.id.to_string();
     let req = api::UserServiceGetRequest { id };
-    test.send_admin(Service::get, req).await.unwrap();
+    test.send_admin(UserService::get, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -23,7 +20,7 @@ async fn responds_ok_with_valid_token_for_delete() {
     let req = api::UserServiceDeleteRequest {
         id: user.id.to_string(),
     };
-    test.send_admin(Service::delete, req).await.unwrap();
+    test.send_admin(UserService::delete, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -35,7 +32,7 @@ async fn responds_ok_without_token_for_create() {
         last_name: "The Bossman".to_string(),
         password: "abcde12345".to_string(),
     };
-    test.send_admin(Service::create, req).await.unwrap();
+    test.send_admin(UserService::create, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -48,7 +45,7 @@ async fn responds_error_with_existing_email_for_create() {
         last_name: user.last_name.clone(),
         password: "abcde12345".to_string(),
     };
-    let status = test.send_admin(Service::create, req).await.unwrap_err();
+    let status = test.send_admin(UserService::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::AlreadyExists);
 }
 
@@ -60,7 +57,7 @@ async fn responds_permission_denied_with_diff_users_for_update() {
         first_name: Some("Hugo".to_string()),
         last_name: Some("Boss".to_string()),
     };
-    let status = test.send_admin(Service::update, req).await.unwrap_err();
+    let status = test.send_admin(UserService::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::PermissionDenied);
 }
 
@@ -73,7 +70,7 @@ async fn responds_ok_with_equal_users_for_update() {
         first_name: Some("Hugo".to_string()),
         last_name: Some("Boss".to_string()),
     };
-    test.send_admin(Service::update, req).await.unwrap();
+    test.send_admin(UserService::update, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -141,7 +138,7 @@ async fn test_billing() {
         user_id: user.id.to_string(),
     };
     let resp = test
-        .send_admin(Service::get_billing, get.clone())
+        .send_admin(UserService::get_billing, get.clone())
         .await
         .unwrap();
     assert!(resp.billing_id.is_none());
@@ -152,14 +149,14 @@ async fn test_billing() {
         billing_id: Some(TOTALLY_REAL_BILLING_ID.to_string()),
     };
     let resp = test
-        .send_admin(Service::update_billing, update)
+        .send_admin(UserService::update_billing, update)
         .await
         .unwrap();
     assert!(resp.billing_id.is_some());
 
     // Test that we can retrieve said billing id
     let resp = test
-        .send_admin(Service::get_billing, get.clone())
+        .send_admin(UserService::get_billing, get.clone())
         .await
         .unwrap();
     assert!(resp.billing_id.is_some());
@@ -168,12 +165,15 @@ async fn test_billing() {
     let delete = api::UserServiceDeleteBillingRequest {
         user_id: user.id.to_string(),
     };
-    test.send_admin(Service::delete_billing, delete)
+    test.send_admin(UserService::delete_billing, delete)
         .await
         .unwrap();
 
     // Test that it indeed is gone
-    let resp = test.send_admin(Service::get_billing, get).await.unwrap();
+    let resp = test
+        .send_admin(UserService::get_billing, get)
+        .await
+        .unwrap();
     assert!(resp.billing_id.is_none());
 }
 
@@ -197,33 +197,33 @@ async fn test_list() {
 
     // Test that an org member can list our own org.
     let resp = test
-        .send_member(Service::list, req(Some(org_id), None))
+        .send_member(UserService::list, req(Some(org_id), None))
         .await
         .unwrap();
     assert_eq!(resp.users.len(), 3, "{resp:?}");
 
     // Test that an org member cannot list other organizations
-    test.send_member(Service::list, req(Some(fake_org_id.clone()), None))
+    test.send_member(UserService::list, req(Some(fake_org_id.clone()), None))
         .await
         .unwrap_err();
 
     // Test that a blockjoy admin can list for other organizations.
     let resp = test
-        .send_root(Service::list, req(Some(fake_org_id), None))
+        .send_root(UserService::list, req(Some(fake_org_id), None))
         .await
         .unwrap();
     assert_eq!(resp.users.len(), 0, "{resp:?}");
 
     // Test that root can list by email
     let resp = test
-        .send_root(Service::list, req(None, Some("admin%".to_string())))
+        .send_root(UserService::list, req(None, Some("admin%".to_string())))
         .await
         .unwrap();
     assert_eq!(resp.users.len(), 1, "{resp:?}");
 
     // Test that we don't get matches when there are none
     let resp = test
-        .send_root(Service::list, req(None, Some("admin".to_string())))
+        .send_root(UserService::list, req(None, Some("admin".to_string())))
         .await
         .unwrap();
     assert_eq!(resp.users.len(), 0, "{resp:?}");

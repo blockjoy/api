@@ -111,13 +111,13 @@ impl From<HostId> for Resource {
 
 impl fmt::Display for Resource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (resource_name, resource_id): (&str, ResourceId) = match *self {
+        let (resource, id): (&str, ResourceId) = match *self {
             Resource::User(id) => ("user", id.into()),
             Resource::Org(id) => ("org", id.into()),
             Resource::Host(id) => ("host", id.into()),
             Resource::Node(id) => ("node", id.into()),
         };
-        write!(f, "{resource_name} resource {resource_id}")
+        write!(f, "{resource}:{id}")
     }
 }
 
@@ -148,19 +148,10 @@ impl From<Resource> for ResourceType {
 /// These are in hierarchial order, where a user has access to multiple orgs,
 /// while an org has multiple hosts, and a host has multiple nodes.
 #[derive(
-    Clone,
-    Copy,
-    Debug,
-    Display,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    EnumString,
-    IntoStaticStr,
-    DbEnum,
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, EnumString, IntoStaticStr, DbEnum,
 )]
 #[ExistingTypePath = "sql_types::EnumResourceType"]
+#[strum(serialize_all = "kebab-case")]
 pub enum ResourceType {
     User,
     Org,
@@ -189,6 +180,17 @@ impl TryFrom<common::Resource> for ResourceType {
             common::Resource::Org => Ok(ResourceType::Org),
             common::Resource::Node => Ok(ResourceType::Node),
             common::Resource::Host => Ok(ResourceType::Host),
+        }
+    }
+}
+
+impl fmt::Display for ResourceType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ResourceType::User => write!(f, "user"),
+            ResourceType::Org => write!(f, "org"),
+            ResourceType::Host => write!(f, "host"),
+            ResourceType::Node => write!(f, "node"),
         }
     }
 }

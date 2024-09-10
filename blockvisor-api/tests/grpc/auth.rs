@@ -1,17 +1,13 @@
-use tonic::transport::Channel;
-
 use blockvisor_api::auth::claims::Claims;
 use blockvisor_api::auth::rbac::AuthPerm;
 use blockvisor_api::auth::token::refresh::Refresh;
 use blockvisor_api::auth::token::RequestToken;
 use blockvisor_api::database::seed::LOGIN_PASSWORD;
-use blockvisor_api::grpc::api::{self, auth_service_client};
+use blockvisor_api::grpc::api;
 use blockvisor_api::model::user::User;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{AuthService, SocketRpc};
 use crate::setup::TestServer;
-
-type Service = auth_service_client::AuthServiceClient<Channel>;
 
 #[tokio::test]
 async fn ok_with_valid_credentials_for_login() {
@@ -20,7 +16,7 @@ async fn ok_with_valid_credentials_for_login() {
         email: test.seed().user.email.clone(),
         password: LOGIN_PASSWORD.to_string(),
     };
-    test.send(Service::login, req).await.unwrap();
+    test.send(AuthService::login, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -32,7 +28,7 @@ async fn fails_with_valid_credentials_for_unconfirmed_user_login() {
         password: LOGIN_PASSWORD.to_string(),
     };
 
-    let status = test.send(Service::login, req).await.unwrap_err();
+    let status = test.send(AuthService::login, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::FailedPrecondition);
 }
 
@@ -43,7 +39,7 @@ async fn unauthenticated_with_invalid_credentials_for_login() {
         email: "foo@bar.com".to_string(),
         password: "eafe12345".to_string(),
     };
-    let status = test.send(Service::login, bogus).await.unwrap_err();
+    let status = test.send(AuthService::login, bogus).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
 }
 
@@ -57,7 +53,9 @@ async fn ok_with_valid_credentials_for_confirm() {
     let jwt = test.cipher().jwt.encode(&claims).unwrap();
 
     let req = api::AuthServiceConfirmRequest {};
-    test.send_with(Service::confirm, req, &jwt).await.unwrap();
+    test.send_with(AuthService::confirm, req, &jwt)
+        .await
+        .unwrap();
 
     let mut conn = test.conn().await;
     let confirmed = User::is_confirmed(user.id, &mut conn).await.unwrap();
@@ -74,7 +72,7 @@ async fn ok_for_refresh() {
         token: jwt.into(),
         refresh: Some(encoded.into()),
     };
-    let resp = test.send_admin(Service::refresh, req).await.unwrap();
+    let resp = test.send_admin(AuthService::refresh, req).await.unwrap();
 
     let RequestToken::Bearer(token) = resp.token.parse().unwrap() else {
         panic!("Unexpected RequestToken type")
@@ -93,7 +91,7 @@ async fn ok_with_valid_password_for_update_ui_password() {
         old_password: LOGIN_PASSWORD.to_string(),
         new_password: "hugo-boss".to_string(),
     };
-    test.send_admin(Service::update_ui_password, req)
+    test.send_admin(AuthService::update_ui_password, req)
         .await
         .unwrap();
 }
@@ -107,7 +105,7 @@ async fn unauthenticated_with_invalid_old_password_for_update_ui_password() {
         new_password: "hugo-boss".to_string(),
     };
     let status = test
-        .send_admin(Service::update_ui_password, req)
+        .send_admin(AuthService::update_ui_password, req)
         .await
         .unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
@@ -124,7 +122,7 @@ async fn refresh_works() {
         refresh: Some(encoded.into()),
     };
 
-    test.send(Service::refresh, req).await.unwrap();
+    test.send(AuthService::refresh, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -144,5 +142,5 @@ async fn refresh_works_from_cookie() {
     req.metadata_mut()
         .insert("cookie", format!("refresh={}", *encoded).parse().unwrap());
 
-    test.send(Service::refresh, req).await.unwrap();
+    test.send(AuthService::refresh, req).await.unwrap();
 }

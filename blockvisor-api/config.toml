@@ -73,3 +73,8 @@ refresh_user = "20h"
 password_reset = "5m"
 registration_confirmation = "30m"
 invitation = "168m"
+
+[vault]
+server_address = "http://localhost:28200"
+access_token = "vault-root-token"
+kv_mount = "blockjoy"

@@ -34,13 +34,18 @@ pub const HOST_2: &str = "Host-2";
 pub const BLOCKCHAIN_ID: &str = "ab5d8cfc-77b1-4265-9fee-ba71ba9de092";
 pub const BLOCKCHAIN_NAME: &str = "Ethereum";
 pub const BLOCKCHAIN_TICKER: &str = "ETH";
-pub const BLOCKCHAIN_VISIBILITY: &str = "development";
+pub const BLOCKCHAIN_VISIBILITY: &str = "public";
 pub const BLOCKCHAIN_NODE_TYPE: &str = "validator";
 pub const BLOCKCHAIN_NODE_TYPE_ID: &str = "fb56b151-443b-491a-a2a5-50fc12343a91";
 pub const BLOCKCHAIN_VERSION: &str = "3.3.0";
 pub const BLOCKCHAIN_VERSION_ID: &str = "a69e7195-8a78-4e3a-a79e-4ac89edf1d68";
 pub const BLOCKCHAIN_PROPERTY_KEYSTORE: &str = "5972a35a-333c-421f-ab64-a77f4ae17533";
 pub const BLOCKCHAIN_PROPERTY_SELF_HOSTED: &str = "a989ad08-b455-4a57-9fe0-696405947e48";
+
+pub const DEVELOP_BLOCKCHAIN_ID: &str = "9331899f-3b13-4d03-ade5-5580ca93ed01";
+pub const DEVELOP_BLOCKCHAIN_NAME: &str = "Solana";
+pub const DEVELOP_BLOCKCHAIN_TICKER: &str = "SOL";
+pub const DEVELOP_BLOCKCHAIN_VISIBILITY: &str = "development";
 
 pub const IP_RANGE: [&str; 10] = [
     "127.0.0.1",
@@ -94,6 +99,7 @@ impl Seed {
 async fn create_blockchains(conn: &mut Conn<'_>) -> Blockchain {
     let queries = [
         format!("INSERT INTO blockchains (id, name, display_name, visibility, ticker) VALUES ('{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NAME}', '{BLOCKCHAIN_NAME}', '{BLOCKCHAIN_VISIBILITY}', '{BLOCKCHAIN_TICKER}');"),
+        format!("INSERT INTO blockchains (id, name, display_name, visibility, ticker) VALUES ('{DEVELOP_BLOCKCHAIN_ID}', '{DEVELOP_BLOCKCHAIN_NAME}', '{DEVELOP_BLOCKCHAIN_NAME}', '{DEVELOP_BLOCKCHAIN_VISIBILITY}', '{DEVELOP_BLOCKCHAIN_TICKER}');"),
         format!("INSERT INTO blockchain_node_types (id, blockchain_id, node_type, visibility) VALUES ('{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NODE_TYPE}', '{BLOCKCHAIN_VISIBILITY}');"),
         format!("INSERT INTO blockchain_versions (id, blockchain_id, blockchain_node_type_id, version) VALUES ('{BLOCKCHAIN_VERSION_ID}', '{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION}');"),
         format!("INSERT INTO blockchain_properties VALUES ('{BLOCKCHAIN_PROPERTY_KEYSTORE}', '{BLOCKCHAIN_ID}', 'keystore-file', NULL, 'file_upload', FALSE, FALSE, '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION_ID}', 'Keystore file contents');"),
@@ -413,6 +419,8 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('api-key-node', 'command-list'),
         ('api-key-node', 'command-pending'),
         ('api-key-node', 'command-update'),
+        ('api-key-node', 'crypt-get-secret'),
+        ('api-key-node', 'crypt-put-secret'),
         ('api-key-node', 'discovery-services'),
         ('api-key-node', 'key-file-create'),
         ('api-key-node', 'key-file-list'),
@@ -506,6 +514,8 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-new-host', 'command-list'),
         ('grpc-new-host', 'command-pending'),
         ('grpc-new-host', 'command-update'),
+        ('grpc-new-host', 'crypt-get-secret'),
+        ('grpc-new-host', 'crypt-put-secret'),
         ('grpc-new-host', 'discovery-services'),
         ('grpc-new-host', 'host-get'),
         ('grpc-new-host', 'host-list'),
@@ -537,10 +547,15 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-owner', 'org-delete'),
         -- org-admin --
         ('org-admin', 'blockchain-get-pricing'),
+        ('org-admin', 'crypt-get-secret'),
+        ('org-admin', 'crypt-put-secret'),
         ('org-admin', 'host-billing-get'),
+        ('org-admin', 'host-create'),
+        ('org-admin', 'host-delete'),
         ('org-admin', 'invitation-create'),
         ('org-admin', 'invitation-revoke'),
         ('org-admin', 'node-create'),
+        ('org-admin', 'node-delete'),
         ('org-admin', 'org-address-delete'),
         ('org-admin', 'org-address-get'),
         ('org-admin', 'org-address-set'),
@@ -553,8 +568,6 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-admin', 'subscription-delete'),
         ('org-admin', 'subscription-update'),
         -- org-member --
-        ('org-member', 'host-create'),
-        ('org-member', 'host-delete'),
         ('org-member', 'host-get'),
         ('org-member', 'host-list'),
         ('org-member', 'host-provision-create'),
@@ -563,7 +576,6 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-member', 'host-restart'),
         ('org-member', 'host-start'),
         ('org-member', 'host-stop'),
-        ('org-member', 'node-delete'),
         ('org-member', 'node-get'),
         ('org-member', 'node-list'),
         ('org-member', 'node-report'),
@@ -580,6 +592,8 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-member', 'subscription-get'),
         -- org-personal --
         ('org-personal', 'blockchain-get-pricing'),
+        ('org-personal', 'crypt-get-secret'),
+        ('org-personal', 'crypt-put-secret'),
         ('org-personal', 'host-billing-get'),
         ('org-personal', 'host-create'),
         ('org-personal', 'host-delete'),

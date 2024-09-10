@@ -3,12 +3,9 @@ use std::collections::HashMap;
 use blockvisor_api::grpc::api;
 use blockvisor_api::model::node::{Node, NodeStatus, StakingStatus, SyncStatus};
 use blockvisor_api::model::Host;
-use tonic::transport::Channel;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{MetricsService, SocketRpc};
 use crate::setup::TestServer;
-
-type Service = api::metrics_service_client::MetricsServiceClient<Channel>;
 
 #[tokio::test]
 async fn responds_ok_for_write_node() {
@@ -42,7 +39,9 @@ async fn responds_ok_for_write_node() {
     };
     metrics.insert(node_id.to_string(), metric);
     let req = api::MetricsServiceNodeRequest { metrics };
-    test.send_with(Service::node, req, &jwt).await.unwrap();
+    test.send_with(MetricsService::node, req, &jwt)
+        .await
+        .unwrap();
 
     let mut conn = test.conn().await;
     let node = Node::by_id(node_id, &mut conn).await.unwrap();
@@ -66,7 +65,9 @@ async fn responds_ok_for_write_node_empty() {
     let jwt = test.host_jwt();
     let metrics = HashMap::new();
     let req = api::MetricsServiceNodeRequest { metrics };
-    test.send_with(Service::node, req, &jwt).await.unwrap();
+    test.send_with(MetricsService::node, req, &jwt)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -91,7 +92,9 @@ async fn responds_ok_for_write_host() {
     };
     metrics.insert(host_id.to_string(), metric);
     let req = api::MetricsServiceHostRequest { metrics };
-    test.send_with(Service::host, req, &jwt).await.unwrap();
+    test.send_with(MetricsService::host, req, &jwt)
+        .await
+        .unwrap();
 
     let mut conn = test.conn().await;
     let host = Host::by_id(host_id, &mut conn).await.unwrap();
@@ -113,7 +116,9 @@ async fn responds_ok_for_write_host_empty() {
     let jwt = test.host_jwt();
     let metrics = HashMap::new();
     let req = api::MetricsServiceHostRequest { metrics };
-    test.send_with(Service::host, req, &jwt).await.unwrap();
+    test.send_with(MetricsService::host, req, &jwt)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -147,7 +152,9 @@ async fn single_failure_doesnt_abort_all_updates() {
     metrics.insert(node_id.to_string(), metric.clone());
     metrics.insert(uuid::Uuid::from_u128(0).to_string(), metric);
     let req = api::MetricsServiceNodeRequest { metrics };
-    test.send_with(Service::node, req, &jwt).await.unwrap_err();
+    test.send_with(MetricsService::node, req, &jwt)
+        .await
+        .unwrap_err();
 
     let mut conn = test.conn().await;
     let node = Node::by_id(node_id, &mut conn).await.unwrap();

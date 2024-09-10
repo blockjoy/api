@@ -3,15 +3,11 @@ use blockvisor_api::grpc::{api, common};
 use blockvisor_api::model::api_key::ApiKey;
 use blockvisor_api::model::org::Org;
 use blockvisor_api::util::NanosUtc;
-use tonic::transport::Channel;
 use uuid::Uuid;
 
 use crate::setup::helper::rpc;
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{ApiKeyService, OrgService, SocketRpc};
 use crate::setup::TestServer;
-
-type ApiKeyService = api::api_key_service_client::ApiKeyServiceClient<Channel>;
-type OrgService = api::org_service_client::OrgServiceClient<Channel>;
 
 #[tokio::test]
 async fn user_can_create_and_list_api_keys() {

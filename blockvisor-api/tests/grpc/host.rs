@@ -4,13 +4,10 @@ use blockvisor_api::model::host::{Host, UpdateHost};
 use blockvisor_api::model::schema;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use tonic::transport::Channel;
+use tonic::Code;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{HostService, NodeService, OrgService, SocketRpc};
 use crate::setup::TestServer;
-
-type Service = api::host_service_client::HostServiceClient<Channel>;
-type OrgService = api::org_service_client::OrgServiceClient<Channel>;
 
 #[tokio::test]
 async fn unauthenticated_without_token_for_update() {
@@ -27,8 +24,8 @@ async fn unauthenticated_without_token_for_update() {
         managed_by: None,
         update_tags: None,
     };
-    let status = test.send(Service::update, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Unauthenticated);
+    let status = test.send(HostService::update, req).await.unwrap_err();
+    assert_eq!(status.code(), Code::Unauthenticated);
 }
 
 #[tokio::test]
@@ -51,10 +48,10 @@ async fn permission_denied_with_token_ownership_for_update() {
     };
 
     let status = test
-        .send_with(Service::update, req, &jwt)
+        .send_with(HostService::update, req, &jwt)
         .await
         .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    assert_eq!(status.code(), Code::PermissionDenied);
 }
 
 #[tokio::test]
@@ -75,8 +72,8 @@ async fn permission_denied_with_user_token_for_update() {
         update_tags: None,
     };
 
-    let status = test.send_admin(Service::update, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    let status = test.send_admin(HostService::update, req).await.unwrap_err();
+    assert_eq!(status.code(), Code::PermissionDenied);
 }
 
 #[tokio::test]
@@ -113,7 +110,7 @@ async fn ok_for_create() {
         managed_by: Some(api::ManagedBy::Automatic.into()),
         tags: None,
     };
-    test.send(Service::create, req).await.unwrap();
+    test.send(HostService::create, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -134,31 +131,34 @@ async fn ok_for_update() {
         update_tags: None,
     };
 
-    test.send_with(Service::update, req, &jwt).await.unwrap();
+    test.send_with(HostService::update, req, &jwt)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn ok_for_delete() {
     let test = TestServer::new().await;
 
-    let jwt = test.host_jwt();
     let req = api::HostServiceDeleteRequest {
         id: test.seed().host.id.to_string(),
     };
 
     // There is still a node. It shouldn't be possible to delete this host yet.
-    test.send_with(Service::delete, req.clone(), &jwt)
+    let status = test
+        .send_admin(HostService::delete, req.clone())
         .await
         .unwrap_err();
+    assert_eq!(status.code(), Code::FailedPrecondition);
 
-    type NodeService = api::node_service_client::NodeServiceClient<Channel>;
     let node_req = api::NodeServiceDeleteRequest {
         id: NODE_ID.to_string(),
     };
     test.send_admin(NodeService::delete, node_req)
         .await
         .unwrap();
-    test.send_with(Service::delete, req, &jwt).await.unwrap();
+
+    test.send_admin(HostService::delete, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -170,17 +170,19 @@ async fn ok_for_start_stop_restart() {
     let req = api::HostServiceStartRequest {
         id: host_id.to_string(),
     };
-    test.send_with(Service::start, req, &jwt).await.unwrap();
+    test.send_with(HostService::start, req, &jwt).await.unwrap();
 
     let req = api::HostServiceStopRequest {
         id: host_id.to_string(),
     };
-    test.send_with(Service::stop, req, &jwt).await.unwrap();
+    test.send_with(HostService::stop, req, &jwt).await.unwrap();
 
     let req = api::HostServiceRestartRequest {
         id: host_id.to_string(),
     };
-    test.send_with(Service::restart, req, &jwt).await.unwrap();
+    test.send_with(HostService::restart, req, &jwt)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -189,8 +191,8 @@ async fn unauthenticated_without_token_for_delete() {
     let req = api::HostServiceDeleteRequest {
         id: test.seed().host.id.to_string(),
     };
-    let status = test.send(Service::delete, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Unauthenticated);
+    let status = test.send(HostService::delete, req).await.unwrap_err();
+    assert_eq!(status.code(), Code::Unauthenticated);
 }
 
 #[tokio::test]
@@ -207,10 +209,10 @@ async fn permission_denied_for_delete() {
     let jwt = test.cipher().jwt.encode(&claims).unwrap();
 
     let status = test
-        .send_with(Service::delete, req, &jwt)
+        .send_with(HostService::delete, req, &jwt)
         .await
         .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    assert_eq!(status.code(), Code::PermissionDenied);
 }
 
 #[tokio::test]
@@ -257,7 +259,7 @@ async fn org_admin_can_view_billing_cost() {
 
     let id = test.seed().host.id.to_string();
     let req = api::HostServiceGetRequest { id };
-    let resp = test.send_admin(Service::get, req).await.unwrap();
+    let resp = test.send_admin(HostService::get, req).await.unwrap();
 
     let billing_amount = resp.host.unwrap().billing_amount.unwrap();
     assert_eq!(billing_amount.amount.unwrap().value, 123)
@@ -269,7 +271,7 @@ async fn org_member_cannot_view_billing_cost() {
 
     let id = test.seed().host.id.to_string();
     let req = api::HostServiceGetRequest { id };
-    let resp = test.send_member(Service::get, req).await.unwrap();
+    let resp = test.send_member(HostService::get, req).await.unwrap();
 
     assert!(resp.host.unwrap().billing_amount.is_none())
 }

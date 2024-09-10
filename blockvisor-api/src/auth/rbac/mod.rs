@@ -118,6 +118,11 @@ define_perms! {
         List,
     }
 
+    Crypt => {
+        GetSecret,
+        PutSecret,
+    }
+
     Discovery => {
         Services,
     }

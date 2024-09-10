@@ -9,7 +9,7 @@ use tonic::{Request, Response, Status};
 use tracing::error;
 use uuid::Uuid;
 
-use crate::auth::rbac::{NodeAdminPerm, NodePerm};
+use crate::auth::rbac::{CryptPerm, NodeAdminPerm, NodePerm, Perm};
 use crate::auth::resource::{
     NodeId, OrgId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
 };
@@ -111,6 +111,8 @@ pub enum Error {
     Resource(#[from] crate::auth::resource::Error),
     /// Node search failed: {0}
     SearchOperator(crate::util::search::Error),
+    /// Node failed to strip prefix `{0}` from vault path `{1}`
+    SecretPrefix(String, String),
     /// Sort order: {0}
     SortOrder(crate::util::search::Error),
     /// Node storage error: {0}
@@ -129,6 +131,8 @@ pub enum Error {
     UpdateStatusMissingNode(NodeId, ResourceType, ResourceId),
     /// Node user error: {0}
     User(#[from] crate::model::user::Error),
+    /// Node vault error: {0}
+    Vault(#[from] crate::storage::vault::Error),
 }
 
 impl From<Error> for Status {
@@ -136,8 +140,14 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            Diesel(_) | GenerateName | MissingPropertyId(_) | ModelProperty(_) | ParseIpAddr(_)
-            | PropertyNotFound(_) | Storage(_) => Status::internal("Internal error."),
+            Diesel(_)
+            | GenerateName
+            | MissingPropertyId(_)
+            | ModelProperty(_)
+            | ParseIpAddr(_)
+            | PropertyNotFound(_)
+            | SecretPrefix(_, _)
+            | Storage(_) => Status::internal("Internal error."),
             AllowIps(_) => Status::invalid_argument("allow_ips"),
             BlockHeight(_) => Status::invalid_argument("block_height"),
             DenyIps(_) => Status::invalid_argument("deny_ips"),
@@ -178,6 +188,7 @@ impl From<Error> for Status {
             Report(err) => err.into(),
             Resource(err) => err.into(),
             User(err) => err.into(),
+            Vault(err) => err.into(),
         }
     }
 }
@@ -324,21 +335,40 @@ async fn create(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceCreateResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let inner = req.placement.as_ref().ok_or(Error::MissingPlacement)?;
-    let placement = inner.placement.as_ref().ok_or(Error::MissingPlacement)?;
+    let mut perms = vec![Perm::from(NodePerm::Create)];
+    let mut resources = vec![Resource::from(org_id)];
+
+    let old_node_id = req
+        .old_node_id
+        .as_ref()
+        .map(|id| id.parse().map_err(Error::ParseId))
+        .transpose()?;
+    if let Some(old_id) = old_node_id {
+        perms.push(Perm::from(CryptPerm::GetSecret));
+        resources.push(Resource::from(old_id));
+    };
+
+    let placement = req
+        .placement
+        .as_ref()
+        .ok_or(Error::MissingPlacement)?
+        .placement
+        .as_ref()
+        .ok_or(Error::MissingPlacement)?;
 
     let (node_counts, authz) = match placement {
         Placement::Scheduler(_) => {
             let authz = write
-                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, org_id)
+                .auth_or_all(&meta, NodeAdminPerm::Create, perms, &resources)
                 .await?;
             (None, authz)
         }
 
         Placement::HostId(id) => {
             let host_id = id.parse().map_err(Error::ParseHostId)?;
+            resources.push(Resource::from(host_id));
             let authz = write
-                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, host_id)
+                .auth_or_all(&meta, NodeAdminPerm::Create, perms, &resources)
                 .await?;
             (Some(vec![NodeCount::one(host_id)]), authz)
         }
@@ -349,9 +379,11 @@ async fn create(
                 .iter()
                 .map(|nc| nc.try_into().map_err(Into::into))
                 .collect::<Result<Vec<NodeCount>, Error>>()?;
-            let host_ids = node_counts.iter().map(|nc| nc.host_id).collect::<Vec<_>>();
+            for node_count in &node_counts {
+                resources.push(Resource::from(node_count.host_id));
+            }
             let authz = write
-                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, &host_ids)
+                .auth_or_all(&meta, NodeAdminPerm::Create, perms, &resources)
                 .await?;
             (Some(node_counts), authz)
         }
@@ -362,20 +394,20 @@ async fn create(
         .parse()
         .map_err(Error::ParseBlockchainId)?;
     let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write).await?;
+
     let node_type = req.node_type().into();
     let image = ImageId::new(&blockchain.name, node_type, req.version.clone().into());
     let version =
         BlockchainVersion::find(blockchain_id, node_type, &image.node_version, &mut write).await?;
-
     let requirements = write.ctx.storage.rhai_metadata(&image).await?.requirements;
+
     let created_by = authz.resource();
     let new_node = req
-        .as_new(requirements, org_id, created_by, &mut write)
+        .as_new(requirements, old_node_id, org_id, created_by, &mut write)
         .await?;
     let created = new_node
         .create(node_counts, &blockchain, &authz, &mut write)
         .await?;
-    let mut nodes = Vec::with_capacity(created.len());
 
     let name_to_ids = BlockchainProperty::id_to_names(version.id, &mut write)
         .await?
@@ -383,6 +415,7 @@ async fn create(
         .map(|(id, name)| (name, id))
         .collect();
 
+    let mut nodes = Vec::with_capacity(created.len());
     for node in created {
         let properties = req.properties(&node, &name_to_ids)?;
         NodeProperty::bulk_create(properties, &mut write).await?;
@@ -892,7 +925,7 @@ impl api::Node {
                 .collect(),
             note: node.note,
             url: node.url,
-            old_node_id: None,
+            old_node_id: node.old_node_id.map(|id| id.to_string()),
             tags: Some(node.tags.into_iter().collect()),
         })
     }
@@ -902,6 +935,7 @@ impl api::NodeServiceCreateRequest {
     pub async fn as_new(
         &self,
         requirements: HardwareRequirements,
+        old_node_id: Option<NodeId>,
         org_id: OrgId,
         created_by: Resource,
         conn: &mut Conn<'_>,
@@ -934,6 +968,7 @@ impl api::NodeServiceCreateRequest {
         let entry = ResourceEntry::from(created_by);
 
         Ok(NewNode {
+            old_node_id,
             org_id,
             version: self.version.clone().into(),
             blockchain_id: self

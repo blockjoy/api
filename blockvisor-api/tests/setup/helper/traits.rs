@@ -19,6 +19,7 @@ grpc_clients! [
     blockchain_archive => BlockchainArchive,
     bundle => Bundle,
     command => Command,
+    crypt => Crypt,
     discovery => Discovery,
     host => Host,
     invitation => Invitation,

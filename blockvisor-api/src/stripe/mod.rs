@@ -443,7 +443,7 @@ impl Payment for Stripe {
 
 #[cfg(any(test, feature = "integration-test"))]
 pub mod tests {
-    use mockito::ServerGuard;
+    use mockito::{Matcher, ServerGuard};
 
     use super::*;
 
@@ -649,7 +649,7 @@ pub mod tests {
             .await;
 
         server
-            .mock("GET", mockito::Matcher::Regex("^/v1/subscriptions".into()))
+            .mock("GET", Matcher::Regex("^/v1/subscriptions".into()))
             .with_status(200)
             .with_body(mock_subscriptions())
             .create_async()
@@ -658,15 +658,32 @@ pub mod tests {
         server
             .mock(
                 "GET",
-                mockito::Matcher::Regex("^/v1/subscription_items".into()),
+                Matcher::Regex("^/v1/subscription_items/si_NcLYdDxLHxlFo7".into()),
             )
+            .with_status(200)
+            .with_body(mock_subscription_item())
+            .create_async()
+            .await;
+
+        server
+            .mock(
+                "POST",
+                Matcher::Regex("^/v1/subscription_items/si_NcLYdDxLHxlFo7".into()),
+            )
+            .with_status(200)
+            .with_body(mock_subscription_item())
+            .create_async()
+            .await;
+
+        server
+            .mock("GET", Matcher::Regex("^/v1/subscription_items".into()))
             .with_status(200)
             .with_body(mock_subscription_items())
             .create_async()
             .await;
 
         server
-            .mock("GET", mockito::Matcher::Regex(r"^/v1/prices/search".into()))
+            .mock("GET", Matcher::Regex(r"^/v1/prices/search".into()))
             .with_status(200)
             .with_body(mock_prices())
             .create_async()

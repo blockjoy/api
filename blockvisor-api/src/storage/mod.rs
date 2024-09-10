@@ -2,6 +2,7 @@ pub mod client;
 pub mod image;
 pub mod manifest;
 pub mod metadata;
+pub mod vault;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -292,10 +293,11 @@ impl Storage {
         let header_key = format!("{prefix}/{MANIFEST_HEADER}");
         let header = match self.read_manifest_header(&header_key).await {
             Ok(header) => header,
-            Err(Error::Client(client::Error::MissingKey(_, _))) => {
+            Err(err @ Error::Client(client::Error::MissingKey(_, _))) => {
                 let fallback_key = format!("{prefix}/{MANIFEST_FILE}");
                 self.read_download_manifest(&fallback_key)
                     .await
+                    .map_err(|_err| err)
                     .and_then(|ref manifest| manifest.try_into().map_err(Into::into))?
             }
             Err(err) => return Err(err),
@@ -360,11 +362,12 @@ impl Storage {
         let body_key = format!("{prefix}/{MANIFEST_BODY}");
         let body = match self.read_manifest_body(&body_key).await {
             Ok(header) => header,
-            Err(Error::Client(client::Error::MissingKey(_, _))) => {
+            Err(err @ Error::Client(client::Error::MissingKey(_, _))) => {
                 let fallback_key = format!("{prefix}/{MANIFEST_FILE}");
                 self.read_download_manifest(&fallback_key)
                     .await
-                    .map(Into::into)?
+                    .map(Into::into)
+                    .map_err(|_err| err)?
             }
             Err(err) => return Err(err),
         };

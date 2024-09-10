@@ -1,18 +1,13 @@
-use tonic::transport::Channel;
-
 use blockvisor_api::auth::claims::{Claims, Expirable};
 use blockvisor_api::auth::rbac::InvitationPerm;
 use blockvisor_api::auth::resource::ResourceEntry;
 use blockvisor_api::database::seed;
-use blockvisor_api::grpc::api::{self, invitation_service_client};
+use blockvisor_api::grpc::api;
 use blockvisor_api::model::invitation::NewInvitation;
 use blockvisor_api::model::org::Org;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{InvitationService, OrgService, SocketRpc};
 use crate::setup::TestServer;
-
-type Service = api::org_service_client::OrgServiceClient<Channel>;
-type InvitationService = invitation_service_client::InvitationServiceClient<Channel>;
 
 #[tokio::test]
 async fn can_create_new_org() {
@@ -20,7 +15,7 @@ async fn can_create_new_org() {
     let req = api::OrgServiceCreateRequest {
         name: "new-org".to_string(),
     };
-    test.send_admin(Service::create, req).await.unwrap();
+    test.send_admin(OrgService::create, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -28,7 +23,7 @@ async fn responds_ok_for_get() {
     let test = TestServer::new().await;
     let id = test.seed().org.id.to_string();
     let req = api::OrgServiceGetRequest { id };
-    test.send_admin(Service::get, req).await.unwrap();
+    test.send_admin(OrgService::get, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -38,7 +33,7 @@ async fn responds_ok_for_update() {
         id: test.seed().org.id.to_string(),
         name: Some("new-org-asdf".to_string()),
     };
-    test.send_admin(Service::update, req).await.unwrap();
+    test.send_admin(OrgService::update, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -47,12 +42,12 @@ async fn delete_org() {
     let req = api::OrgServiceCreateRequest {
         name: "new-org".to_string(),
     };
-    let org = test.send_admin(Service::create, req).await.unwrap();
+    let org = test.send_admin(OrgService::create, req).await.unwrap();
 
     let req = api::OrgServiceDeleteRequest {
         id: org.org.unwrap().id,
     };
-    test.send_admin(Service::delete, req).await.unwrap();
+    test.send_admin(OrgService::delete, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -66,7 +61,7 @@ async fn responds_error_for_delete_on_personal_org() {
     let req = api::OrgServiceDeleteRequest {
         id: org.id.to_string(),
     };
-    let status = test.send_admin(Service::delete, req).await.unwrap_err();
+    let status = test.send_admin(OrgService::delete, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::PermissionDenied);
 }
 
@@ -82,7 +77,7 @@ async fn member_count_works() {
     let req = api::OrgServiceGetRequest {
         id: org_id.to_string(),
     };
-    let resp = test.send_admin(Service::get, req).await.unwrap();
+    let resp = test.send_admin(OrgService::get, req).await.unwrap();
     let members = resp.org.unwrap().member_count;
 
     // Now we invite someone new.
@@ -108,7 +103,7 @@ async fn member_count_works() {
     let req = api::OrgServiceGetRequest {
         id: org_id.to_string(),
     };
-    let resp = test.send_admin(Service::get, req).await.unwrap();
+    let resp = test.send_admin(OrgService::get, req).await.unwrap();
     assert_eq!(resp.org.unwrap().member_count, members + 1);
 
     // Now we perform the same assertion for querying in bulk:
@@ -120,7 +115,7 @@ async fn member_count_works() {
         search: None,
         sort: vec![],
     };
-    let resp = test.send_admin(Service::list, req).await.unwrap();
+    let resp = test.send_admin(OrgService::list, req).await.unwrap();
     let org_resp = resp
         .orgs
         .into_iter()

@@ -1,13 +1,10 @@
 use blockvisor_api::database::seed::{BLOCKCHAIN_ID, BLOCKCHAIN_NODE_TYPE, BLOCKCHAIN_VERSION};
 use blockvisor_api::grpc::{api, common};
 use blockvisor_api::model::NodeType;
-use tonic::transport::Channel;
 use uuid::Uuid;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{BlockchainService, SocketRpc};
 use crate::setup::TestServer;
-
-type Service = api::blockchain_service_client::BlockchainServiceClient<Channel>;
 
 #[tokio::test]
 async fn responds_ok_for_get_existing() {
@@ -17,7 +14,7 @@ async fn responds_ok_for_get_existing() {
         id: BLOCKCHAIN_ID.to_string(),
         org_id: Some(org_id),
     };
-    test.send_admin(Service::get, req).await.unwrap();
+    test.send_admin(BlockchainService::get, req).await.unwrap();
 }
 
 #[tokio::test]
@@ -28,7 +25,10 @@ async fn responds_not_found_for_get_nonexisting() {
         id: Uuid::new_v4().to_string(),
         org_id: Some(org_id),
     };
-    let status = test.send_admin(Service::get, req).await.unwrap_err();
+    let status = test
+        .send_admin(BlockchainService::get, req)
+        .await
+        .unwrap_err();
     assert_eq!(status.code(), tonic::Code::NotFound);
 }
 
@@ -40,7 +40,10 @@ async fn responds_not_found_for_get_deleted() {
         id: Uuid::new_v4().to_string(),
         org_id: Some(org_id),
     };
-    let status = test.send_admin(Service::get, req).await.unwrap_err();
+    let status = test
+        .send_admin(BlockchainService::get, req)
+        .await
+        .unwrap_err();
     assert_eq!(status.code(), tonic::Code::NotFound);
 }
 
@@ -55,20 +58,26 @@ async fn can_list_blockchains() {
         search: None,
         sort: vec![],
     };
-    let resp = test.send_member(Service::list, req).await.unwrap();
-    assert_eq!(resp.blockchain_count, 0);
-    assert_eq!(resp.blockchains.len(), 0);
+    let resp = test
+        .send_member(BlockchainService::list, req)
+        .await
+        .unwrap();
+    assert_eq!(resp.blockchain_count, 1);
+    assert_eq!(resp.blockchains.len(), 1);
 
     let req = api::BlockchainServiceListRequest {
         org_ids: vec![],
         offset: 0,
         limit: 2,
         search: None,
-        sort: vec![],
+        sort: vec![api::BlockchainSort {
+            field: api::BlockchainSortField::Name as i32,
+            order: common::SortOrder::Ascending as i32,
+        }],
     };
-    let resp = test.send_admin(Service::list, req).await.unwrap();
-    assert_eq!(resp.blockchain_count, 1);
-    assert_eq!(resp.blockchains.len(), 1);
+    let resp = test.send_admin(BlockchainService::list, req).await.unwrap();
+    assert_eq!(resp.blockchain_count, 2);
+    assert_eq!(resp.blockchains.len(), 2);
     assert_eq!(resp.blockchains[0].node_types.len(), 1);
 }
 
@@ -83,12 +92,12 @@ async fn add_blockchain_node_type() {
 
     // can't add a node type that already exists
     let req = request(BLOCKCHAIN_NODE_TYPE.parse().unwrap());
-    let result = test.send_root(Service::add_node_type, req).await;
+    let result = test.send_root(BlockchainService::add_node_type, req).await;
     assert_eq!(result.unwrap_err().code(), tonic::Code::AlreadyExists);
 
     // but can add a new node type
     let req = request(NodeType::Oracle);
-    let result = test.send_root(Service::add_node_type, req).await;
+    let result = test.send_root(BlockchainService::add_node_type, req).await;
     assert!(result.is_ok());
 }
 
@@ -107,16 +116,16 @@ async fn add_blockchain_version() {
 
     // can't add a version that already exists
     let req = request(BLOCKCHAIN_VERSION, node_type);
-    let result = test.send_root(Service::add_version, req).await;
+    let result = test.send_root(BlockchainService::add_version, req).await;
     assert_eq!(result.unwrap_err().code(), tonic::Code::AlreadyExists);
 
     // can't add a new version to a node type that doesn't exist
     let req = request("1.33.7", NodeType::Oracle);
-    let result = test.send_root(Service::add_version, req).await;
+    let result = test.send_root(BlockchainService::add_version, req).await;
     assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
 
     // can add a new version to an existing node type
     let req = request("1.33.7", node_type);
-    let result = test.send_root(Service::add_version, req).await;
+    let result = test.send_root(BlockchainService::add_version, req).await;
     assert!(result.is_ok());
 }

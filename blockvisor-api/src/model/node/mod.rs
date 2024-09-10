@@ -19,9 +19,8 @@ pub use scheduler::{NodeScheduler, ResourceAffinity, SimilarNodeAffinity};
 pub mod status;
 pub use status::{ContainerStatus, NodeStatus, StakingStatus, SyncStatus};
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::stripe::api::subscription::{QuantityModification, SubscriptionItemId};
 use chrono::{DateTime, Utc};
 use diesel::dsl::{InnerJoinQuerySource, LeftJoinQuerySource};
 use diesel::expression::expression_types::NotSelectable;
@@ -48,7 +47,9 @@ use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
 use crate::grpc::api;
 use crate::storage::image::ImageId;
-use crate::stripe::api::subscription::SubscriptionItem;
+use crate::stripe::api::subscription::{
+    QuantityModification, SubscriptionItem, SubscriptionItemId,
+};
 use crate::stripe::Payment;
 use crate::util::{SearchOperator, SortOrder};
 
@@ -152,6 +153,8 @@ pub enum Error {
     UpgradeableByType(BlockchainId, NodeType, diesel::result::Error),
     /// Failed to parse the jobs column of the node table: {0}
     UnparsableJobs(serde_json::Error),
+    /// Node vault error: {0}
+    Vault(#[from] crate::storage::vault::Error),
 }
 
 impl From<Error> for Status {
@@ -167,6 +170,8 @@ impl From<Error> for Status {
             NoMatchingHost => Status::resource_exhausted("No matching host."),
             Org(err) => err.into(),
             Paginate(err) => err.into(),
+            Storage(err) => err.into(),
+            Vault(err) => err.into(),
             _ => Status::internal("Internal error."),
         }
     }
@@ -216,6 +221,7 @@ pub struct Node {
     pub dns_name: String,
     pub display_name: String,
     pub stripe_item_id: Option<SubscriptionItemId>,
+    pub old_node_id: Option<NodeId>,
     pub tags: Vec<Option<String>>,
 }
 
@@ -325,6 +331,19 @@ impl Node {
 
         if let Err(err) = write.ctx.dns.delete(&node.dns_record_id).await {
             warn!("Failed to remove node dns: {err}");
+        }
+
+        let prefix = format!("node/{id}/secret");
+        let secrets = write.ctx.vault.read().await.list_path(&prefix).await?;
+        if let Some(names) = secrets {
+            for name in names {
+                let path = format!("{prefix}/{name}");
+                let result = write.ctx.vault.read().await.delete_path(&path).await;
+                match result {
+                    Ok(()) | Err(crate::storage::vault::Error::PathNotFound) => (),
+                    Err(err) => return Err(err.into()),
+                }
+            }
         }
 
         if let Some(stripe_item_id) = node.stripe_item_id {
@@ -737,6 +756,7 @@ impl NodeSearch {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = nodes)]
 pub struct NewNode {
+    pub old_node_id: Option<NodeId>,
     pub org_id: OrgId,
     pub version: NodeVersion,
     pub blockchain_id: BlockchainId,
@@ -756,11 +776,8 @@ pub struct NewNode {
     pub node_type: NodeType,
     pub created_by: ResourceId,
     pub created_by_resource: ResourceType,
-    /// Controls whether to run the node on hosts that contain nodes similar to this one.
     pub scheduler_similarity: Option<SimilarNodeAffinity>,
-    /// Controls whether to run the node on hosts that are full or empty.
     pub scheduler_resource: Option<ResourceAffinity>,
-    /// The region where this node should be deployed.
     pub scheduler_region: Option<RegionId>,
     pub tags: Vec<Option<String>>,
 }
@@ -775,15 +792,45 @@ impl NewNode {
     ) -> Result<Vec<Node>, Error> {
         let org = Org::by_id(self.org_id, write).await?;
 
-        let mut created = Vec::new();
+        let secrets = if let Some(old_id) = self.old_node_id {
+            let prefix = format!("node/{old_id}/secret");
+            let names = write.ctx.vault.read().await.list_path(&prefix).await?;
 
+            if let Some(names) = names {
+                let mut secrets = HashMap::with_capacity(names.len());
+                for name in names {
+                    let path = format!("{prefix}/{name}");
+                    let result = write.ctx.vault.read().await.get_bytes(&path).await;
+                    let _ = match result {
+                        Ok(data) => secrets.insert(name.clone(), data),
+                        Err(crate::storage::vault::Error::PathNotFound) => None,
+                        Err(err) => return Err(err.into()),
+                    };
+                }
+                Some(secrets)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut created = Vec::new();
         if let Some(counts) = node_counts {
             for count in counts {
                 let host = Host::by_id(count.host_id, write).await?;
                 let region = Region::by_id(host.region_id.ok_or(Error::NoRegion)?, write).await?;
                 for _ in 0..count.node_count {
                     match self
-                        .create_node(&host, blockchain, &org, &region, authz, write)
+                        .create_node(
+                            &host,
+                            blockchain,
+                            &org,
+                            &region,
+                            secrets.as_ref(),
+                            authz,
+                            write,
+                        )
                         .await
                     {
                         Ok(node) => created.push(node),
@@ -808,7 +855,15 @@ impl NewNode {
             let region = scheduler.region.clone().ok_or(Error::NoRegion)?;
             let host = self.find_host(scheduler, blockchain, write).await?;
             let node = self
-                .create_node(&host, blockchain, &org, &region, authz, write)
+                .create_node(
+                    &host,
+                    blockchain,
+                    &org,
+                    &region,
+                    secrets.as_ref(),
+                    authz,
+                    write,
+                )
                 .await?;
             created.push(node);
         }
@@ -816,12 +871,14 @@ impl NewNode {
         Ok(created)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_node(
         &self,
         host: &Host,
         blockchain: &Blockchain,
         org: &Org,
         region: &Region,
+        secrets: Option<&HashMap<String, Vec<u8>>>,
         authz: &AuthZ,
         mut write: &mut WriteConn<'_, '_>,
     ) -> Result<Node, Error> {
@@ -860,12 +917,21 @@ impl NewNode {
                     nodes::url.eq(&dns_record.name),
                     nodes::stripe_item_id.eq(&item_id),
                 ))
-                .get_result(&mut write)
+                .get_result::<Node>(&mut write)
                 .await
             {
                 Ok(node) => {
                     Org::increment_node(self.org_id, write).await?;
                     Host::increment_node(host.id, write).await?;
+
+                    if let Some(secrets) = secrets {
+                        for (name, data) in secrets {
+                            let path = format!("node/{}/secret/{name}", node.id);
+                            let _version =
+                                write.ctx.vault.read().await.set_bytes(&path, data).await?;
+                        }
+                    }
+
                     return Ok(node);
                 }
 
@@ -1101,6 +1167,7 @@ mod tests {
         let blockchain_id = db.seed.blockchain.id;
 
         let req = NewNode {
+            old_node_id: None,
             org_id,
             blockchain_id,
             node_status: NodeStatus::Ingesting,

@@ -9,8 +9,8 @@ use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 
 use blockvisor_api::auth::claims::{Claims, Expirable};
-use blockvisor_api::auth::rbac::{ApiKeyRole, Roles, ViewRole};
-use blockvisor_api::auth::resource::{HostId, ResourceEntry};
+use blockvisor_api::auth::rbac::{ApiKeyRole, GrpcRole, Roles};
+use blockvisor_api::auth::resource::{HostId, NodeId, ResourceEntry};
 use blockvisor_api::auth::token::jwt::Jwt;
 use blockvisor_api::auth::token::refresh::{Encoded, Refresh};
 use blockvisor_api::auth::token::Cipher;
@@ -112,23 +112,35 @@ impl TestServer {
         User::by_email(email, &mut conn).await.unwrap()
     }
 
-    pub fn host_claims(&self) -> Claims {
-        self.host_claims_for(self.seed().host.id)
-    }
-
     pub fn host_claims_for(&self, host_id: HostId) -> Claims {
-        let roles = Roles::Many(hashset! {
-            ApiKeyRole::Host.into(),
-            ApiKeyRole::Node.into(),
-            ViewRole::DeveloperPreview.into(),
-        });
+        let roles = Roles::One(GrpcRole::NewHost.into());
         let resource = ResourceEntry::new_host(host_id).into();
         let expirable = Expirable::from_now(chrono::Duration::minutes(15));
         Claims::new(resource, expirable, roles.into())
     }
 
+    pub fn host_claims(&self) -> Claims {
+        self.host_claims_for(self.seed().host.id)
+    }
+
     pub fn host_jwt(&self) -> Jwt {
         let claims = self.host_claims();
+        self.cipher().jwt.encode(&claims).unwrap()
+    }
+
+    pub fn node_claims_for(&self, node_id: NodeId) -> Claims {
+        let roles = Roles::One(ApiKeyRole::Node.into());
+        let resource = ResourceEntry::new_node(node_id).into();
+        let expirable = Expirable::from_now(chrono::Duration::minutes(15));
+        Claims::new(resource, expirable, roles.into())
+    }
+
+    pub fn node_claims(&self) -> Claims {
+        self.node_claims_for(self.seed().node.id)
+    }
+
+    pub fn node_jwt(&self) -> Jwt {
+        let claims = self.node_claims();
         self.cipher().jwt.encode(&claims).unwrap()
     }
 

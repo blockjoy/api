@@ -4,10 +4,10 @@ pub mod blockchain;
 pub mod blockchain_archive;
 pub mod bundle;
 pub mod command;
+pub mod crypt;
 pub mod discovery;
 pub mod host;
 pub mod invitation;
-pub mod kernel;
 pub mod metrics;
 pub mod middleware;
 pub mod node;
@@ -52,10 +52,10 @@ use self::api::blockchain_archive_service_server::BlockchainArchiveServiceServer
 use self::api::blockchain_service_server::BlockchainServiceServer;
 use self::api::bundle_service_server::BundleServiceServer;
 use self::api::command_service_server::CommandServiceServer;
+use self::api::crypt_service_server::CryptServiceServer;
 use self::api::discovery_service_server::DiscoveryServiceServer;
 use self::api::host_service_server::HostServiceServer;
 use self::api::invitation_service_server::InvitationServiceServer;
-use self::api::kernel_service_server::KernelServiceServer;
 use self::api::metrics_service_server::MetricsServiceServer;
 use self::api::node_service_server::NodeServiceServer;
 use self::api::org_service_server::OrgServiceServer;
@@ -117,10 +117,10 @@ pub fn server(context: &Arc<Context>) -> Router<CorsServer> {
         )
         .add_service(gzip_service!(BundleServiceServer, grpc.clone()))
         .add_service(gzip_service!(CommandServiceServer, grpc.clone()))
+        .add_service(gzip_service!(CryptServiceServer, grpc.clone()))
         .add_service(gzip_service!(DiscoveryServiceServer, grpc.clone()))
         .add_service(gzip_service!(HostServiceServer, grpc.clone()))
         .add_service(gzip_service!(InvitationServiceServer, grpc.clone()))
-        .add_service(gzip_service!(KernelServiceServer, grpc.clone()))
         .add_service(gzip_service!(MetricsServiceServer, grpc.clone()))
         .add_service(gzip_service!(NodeServiceServer, grpc.clone()))
         .add_service(gzip_service!(OrgServiceServer, grpc.clone()))
