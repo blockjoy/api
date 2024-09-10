@@ -5,8 +5,8 @@ use thiserror::Error;
 use tonic::{Request, Response};
 use tracing::error;
 
-use crate::auth::rbac::{InvitationAdminPerm, InvitationPerm};
-use crate::auth::resource::{OrgId, Resource, ResourceType};
+use crate::auth::rbac::{InvitationAdminPerm, InvitationPerm, OrgRole};
+use crate::auth::resource::{OrgId, Resource};
 use crate::auth::Authorize;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::email::Recipient;
@@ -150,7 +150,7 @@ pub async fn create(
 ) -> Result<api::InvitationServiceCreateResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
     let authz = write
-        .auth_or_all(
+        .auth_or_for(
             &meta,
             InvitationAdminPerm::Create,
             InvitationPerm::Create,
@@ -209,7 +209,7 @@ pub async fn create(
     }
 
     let org = Org::by_id(invitation.org_id, &mut write).await?;
-    let invitation = api::Invitation::from_model(invitation, &org, &mut write).await?;
+    let invitation = api::Invitation::from(invitation, &org);
 
     let created = api::OrgMessage::invitation_created(invitation.clone(), &org);
     write.mqtt(created);
@@ -239,7 +239,7 @@ pub async fn list(
         return Err(Error::ListResource);
     };
 
-    read.auth_or_all(
+    read.auth_or_for(
         &meta,
         InvitationAdminPerm::List,
         InvitationPerm::List,
@@ -263,7 +263,7 @@ pub async fn accept(
     let invitation = Invitation::by_id(id, &mut write).await?;
 
     // First validate claims for all resources, then apply additional constraints.
-    let authz = write.auth_all(&meta, InvitationPerm::Accept).await?;
+    let authz = write.auth(&meta, InvitationPerm::Accept).await?;
     let user = match authz.resource() {
         Resource::User(user_id) => Ok(User::by_id(user_id, &mut write).await?),
 
@@ -289,9 +289,9 @@ pub async fn accept(
 
     // Only registered users can accept an invitation
     let user = User::by_email(&invitation.invitee_email, &mut write).await?;
-    let org = Org::add_member(user.id, invitation.org_id, &mut write).await?;
+    let org = Org::add_user(user.id, invitation.org_id, OrgRole::Member, &mut write).await?;
 
-    let invitation = api::Invitation::from_model(invitation, &org, &mut write).await?;
+    let invitation = api::Invitation::from(invitation, &org);
     let accepted = api::OrgMessage::invitation_accepted(invitation, &org, user);
     write.mqtt(accepted);
 
@@ -307,7 +307,7 @@ pub async fn decline(
     let invitation = Invitation::by_id(id, &mut write).await?;
 
     // First validate claims for all resources, then apply additional constraints.
-    let authz = write.auth_all(&meta, InvitationPerm::Decline).await?;
+    let authz = write.auth(&meta, InvitationPerm::Decline).await?;
     let email = match authz.resource() {
         Resource::User(user_id) => User::by_id(user_id, &mut write)
             .await
@@ -334,7 +334,7 @@ pub async fn decline(
 
     let org = Org::by_id(invitation.org_id, &mut write).await?;
     let invitation = invitation.decline(&mut write).await?;
-    let invitation = api::Invitation::from_model(invitation, &org, &mut write).await?;
+    let invitation = api::Invitation::from(invitation, &org);
 
     let declined = api::OrgMessage::invitation_declined(invitation, &org);
     write.mqtt(declined);
@@ -351,7 +351,7 @@ pub async fn revoke(
     let invitation = Invitation::by_id(id, &mut write).await?;
 
     let authz = write
-        .auth_or_all(
+        .auth_or_for(
             &meta,
             InvitationAdminPerm::Revoke,
             InvitationPerm::Revoke,
@@ -369,7 +369,7 @@ pub async fn revoke(
     invitation.revoke(&mut write).await?;
 
     let org = Org::by_id(invitation.org_id, &mut write).await?;
-    let invitation = api::Invitation::from_model(invitation, &org, &mut write).await?;
+    let invitation = api::Invitation::from(invitation, &org);
     let declined = api::OrgMessage::invitation_declined(invitation, &org);
     write.mqtt(declined);
 
@@ -377,27 +377,26 @@ pub async fn revoke(
 }
 
 impl api::Invitation {
-    async fn from_models(models: Vec<Invitation>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
-        let org_ids = models.iter().map(|i| i.org_id).collect();
-        let orgs = Org::by_ids(org_ids, conn)
+    async fn from_models(
+        invitations: Vec<Invitation>,
+        conn: &mut Conn<'_>,
+    ) -> Result<Vec<Self>, Error> {
+        let org_ids = invitations.iter().map(|inv| inv.org_id).collect();
+        let orgs = Org::by_ids(&org_ids, conn)
             .await?
-            .to_map_keep_last(|o| (o.id, o));
+            .to_map_keep_last(|org| (org.id, org));
 
-        let mut invitations = Vec::with_capacity(models.len());
-        for model in models {
-            if let Some(org) = orgs.get(&model.org_id) {
-                invitations.push(Self::from_model(model, org, conn).await?);
-            }
-        }
-
-        Ok(invitations)
+        Ok(invitations
+            .into_iter()
+            .filter_map(|invitation| {
+                orgs.get(&invitation.org_id)
+                    .map(|org| api::Invitation::from(invitation, org))
+            })
+            .collect())
     }
 
-    async fn from_model(
-        invitation: Invitation,
-        org: &Org,
-        conn: &mut Conn<'_>,
-    ) -> Result<Self, Error> {
+    fn from(invitation: Invitation, org: &Org) -> Self {
+        let invited_by = invitation.invited_by();
         let status = match (invitation.accepted_at, invitation.declined_at) {
             (None, None) => api::InvitationStatus::Open,
             (Some(_), None) => api::InvitationStatus::Accepted,
@@ -405,28 +404,17 @@ impl api::Invitation {
             (Some(_), Some(_)) => api::InvitationStatus::Unspecified,
         };
 
-        let invited_by = match invitation.invited_by_resource {
-            ResourceType::User => {
-                let user = User::by_id((*invitation.invited_by).into(), conn).await?;
-                Some(common::EntityUpdate::from_user(&user))
-            }
-            ResourceType::Org => Some(common::EntityUpdate::from_org(
-                (*invitation.invited_by).into(),
-            )),
-            _ => None,
-        };
-
-        Ok(api::Invitation {
-            id: invitation.id.to_string(),
+        api::Invitation {
+            invitation_id: invitation.id.to_string(),
             org_id: invitation.org_id.to_string(),
             org_name: org.name.clone(),
             invitee_email: invitation.invitee_email,
-            invited_by,
+            invited_by: Some(common::Resource::from(invited_by)),
             created_at: Some(NanosUtc::from(invitation.created_at).into()),
             status: status.into(),
             accepted_at: invitation.accepted_at.map(NanosUtc::from).map(Into::into),
             declined_at: invitation.declined_at.map(NanosUtc::from).map(Into::into),
-        })
+        }
     }
 }
 

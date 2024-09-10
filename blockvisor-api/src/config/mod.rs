@@ -1,4 +1,3 @@
-pub mod chargebee;
 pub mod cloudflare;
 pub mod database;
 pub mod email;
@@ -6,9 +5,10 @@ pub mod grpc;
 pub mod log;
 pub mod mqtt;
 pub mod server;
-pub mod storage;
+pub mod store;
 pub mod stripe;
 pub mod token;
+pub mod vault;
 
 mod context;
 pub use context::Context;
@@ -34,8 +34,6 @@ const CONFIG_FILE_DEFAULT: &str = "config.toml";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to parse Chargebee Config: {0}
-    Chargebee(chargebee::Error),
     /// Failed to convert to chrono::Duration: {0}
     ChronoDuration(chrono::OutOfRangeError),
     /// Failed to parse Cloudflare Config: {0}
@@ -63,18 +61,19 @@ pub enum Error {
     ),
     /// Failed to parse server Config: {0}
     Server(server::Error),
-    /// Failed to parse storage Config: {0}
-    Storage(storage::Error),
+    /// Failed to parse store Config: {0}
+    Store(store::Error),
     /// Failed to parse stripe Config: {0}
     Stripe(stripe::Error),
     /// Failed to parse token Config: {0}
     Token(token::Error),
+    /// Failed to parse vault Config: {0}
+    Vault(vault::Error),
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    pub chargebee: Arc<chargebee::Config>,
     pub cloudflare: Arc<cloudflare::Config>,
     pub database: Arc<database::Config>,
     pub email: Arc<email::Config>,
@@ -82,9 +81,10 @@ pub struct Config {
     pub log: Arc<log::Config>,
     pub mqtt: Arc<mqtt::Config>,
     pub server: Arc<server::Config>,
-    pub storage: Arc<storage::Config>,
+    pub store: Arc<store::Config>,
     pub stripe: Arc<stripe::Config>,
     pub token: Arc<token::Config>,
+    pub vault: Arc<vault::Config>,
 }
 
 impl Config {
@@ -120,9 +120,6 @@ impl TryFrom<&Provider> for Config {
     type Error = Error;
 
     fn try_from(provider: &Provider) -> Result<Self, Self::Error> {
-        let chargebee = chargebee::Config::try_from(provider)
-            .map(Arc::new)
-            .map_err(Error::Chargebee)?;
         let cloudflare = cloudflare::Config::try_from(provider)
             .map(Arc::new)
             .map_err(Error::Cloudflare)?;
@@ -144,18 +141,20 @@ impl TryFrom<&Provider> for Config {
         let server = server::Config::try_from(provider)
             .map(Arc::new)
             .map_err(Error::Server)?;
-        let storage = storage::Config::try_from(provider)
+        let store = store::Config::try_from(provider)
             .map(Arc::new)
-            .map_err(Error::Storage)?;
+            .map_err(Error::Store)?;
         let stripe = stripe::Config::try_from(provider)
             .map(Arc::new)
             .map_err(Error::Stripe)?;
         let token = token::Config::try_from(provider)
             .map(Arc::new)
             .map_err(Error::Token)?;
+        let vault = vault::Config::try_from(provider)
+            .map(Arc::new)
+            .map_err(Error::Vault)?;
 
         Ok(Config {
-            chargebee,
             cloudflare,
             database,
             email,
@@ -163,9 +162,10 @@ impl TryFrom<&Provider> for Config {
             log,
             mqtt,
             server,
-            storage,
+            store,
             stripe,
             token,
+            vault,
         })
     }
 }

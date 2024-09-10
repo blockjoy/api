@@ -10,9 +10,10 @@ use axum::routing::{post, Router};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
+use tonic::Status;
 use tracing::{debug, error};
 
-use crate::auth::resource::{OrgId, UserId};
+use crate::auth::resource::OrgId;
 use crate::config::Context;
 use crate::database::{Transaction, WriteConn};
 use crate::grpc::Status;
@@ -23,24 +24,18 @@ use crate::stripe::api::event;
 pub enum Error {
     /// Stripe database error: {0}
     Database(#[from] diesel::result::Error),
-    /// Stripe subscription: {0}
-    Stripe(#[from] crate::stripe::Error),
-    /// Stripe subscription: {0}
-    Subscription(#[from] crate::model::subscription::Error),
-    /// Stripe event has an unparsable org_id in its metadata.
-    BadOrgId(<OrgId as std::str::FromStr>::Err),
-    /// Stripe event has an unparsable user_id in its metadata.
-    BadUserId(<UserId as std::str::FromStr>::Err),
     /// Stripe event is missing the metadata field.
     MissingMetadata,
     /// Stripe event is missing a org_id in its metadata.
     MissingOrgId,
-    /// Stripe event is missing a user_id in its metadata.
-    MissingUserId,
     /// Org `{0}` has no owner.
     NoOwner(OrgId),
     /// Stripe org: {0}
     Org(#[from] crate::model::org::Error),
+    /// Stripe event has an unparsable org_id in its metadata.
+    ParseOrgId(uuid::Error),
+    /// Stripe handler: {0}
+    Stripe(#[from] crate::stripe::Error),
     /// Stripe user: {0}
     User(#[from] crate::model::user::Error),
     /// Could not parse stripe body: {0}
@@ -52,15 +47,15 @@ impl From<Error> for Status {
         use Error::*;
         error!("Stripe webhook: {err:?}");
         match err {
-            MissingMetadata => Status::invalid_argument("Metadata field not set"),
-            MissingUserId => Status::invalid_argument("User id missing from metadata"),
-            BadUserId(_) => Status::invalid_argument("Could not parse user id"),
-            MissingOrgId => Status::invalid_argument("Org id missing from metadata"),
-            BadOrgId(_) => Status::invalid_argument("Could not parse org id"),
-            NoOwner(_) => Status::failed_precondition("Org has no owner"),
             Database(_) | Subscription(_) | Org(_) | Stripe(_) | User(_) => {
                 Status::internal("Internal error.")
             }
+            BadOrgId(_) => Status::invalid_argument("Could not parse org id"),
+            BadUserId(_) => Status::invalid_argument("Could not parse user id"),
+            MissingMetadata => Status::invalid_argument("Metadata field not set"),
+            MissingOrgId => Status::invalid_argument("Org id missing from metadata"),
+            MissingUserId => Status::invalid_argument("User id missing from metadata"),
+            NoOwner(_) => Status::failed_precondition("Org has no owner"),
             UnparseableStripeBody(_) => Status::invalid_argument("Unparseable request"),
         }
     }
@@ -81,7 +76,7 @@ async fn setup_intent_succeeded(
 ) -> Result<axum::Json<serde_json::Value>, super::Error> {
     // FIXME: this bastard needs auth.
 
-    let event: event::Event = match serde_json::from_str(&body) {
+    let event: Event = match serde_json::from_str(&body) {
         Ok(body) => body,
         Err(err) => {
             return Err(Status::from(Error::UnparseableStripeBody(err)).into());
@@ -101,7 +96,7 @@ async fn setup_intent_succeeded(
 }
 
 async fn setup_intent_succeeded_handler(
-    setup_intent: event::SetupIntent,
+    setup_intent: SetupIntent,
     mut write: WriteConn<'_, '_>,
 ) -> Result<serde_json::Value, Error> {
     let stripe = &write.ctx.stripe;
@@ -109,10 +104,12 @@ async fn setup_intent_succeeded_handler(
         .metadata
         .ok_or_else(|| Error::MissingMetadata)?
         .get("org_id")
-        .ok_or_else(|| Error::MissingOrgId)?
+        .ok_or(Error::MissingOrgId)?
         .parse()
-        .map_err(Error::BadOrgId)?;
-    let org = model::Org::by_id(org_id, &mut write).await?;
+        .map_err(Error::ParseOrgId)?;
+    let org = Org::by_id(org_id, &mut write).await?;
+    let stripe = &write.ctx.stripe;
+
     if let Some(stripe_customer_id) = org.stripe_customer_id.as_ref() {
         stripe
             .attach_payment_method(&setup_intent.payment_method, stripe_customer_id)

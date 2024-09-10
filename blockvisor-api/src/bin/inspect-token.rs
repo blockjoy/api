@@ -71,7 +71,7 @@ fn new_roles(args: NewRolesArgs, cipher: &Cipher) -> Result<()> {
     let refresh = cipher.refresh.decode(&encoded)?;
     let resource = claims.resource();
     ensure!(
-        resource.id() == refresh.resource_id(),
+        resource.id() == refresh.resource().id(),
         "claims resource does not match refresh"
     );
 

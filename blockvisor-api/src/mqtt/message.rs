@@ -19,15 +19,33 @@ pub enum Error {
 
 #[derive(From)]
 pub enum Message {
-    Command(api::Command),
-    OrgMessage(api::OrgMessage),
-    HostMessage(api::HostMessage),
+    Command(Box<api::Command>),
+    OrgMessage(Box<api::OrgMessage>),
+    HostMessage(Box<api::HostMessage>),
     NodeMessage(Box<api::NodeMessage>),
+}
+
+impl From<api::Command> for Message {
+    fn from(value: api::Command) -> Self {
+        Message::Command(Box::new(value))
+    }
+}
+
+impl From<api::OrgMessage> for Message {
+    fn from(value: api::OrgMessage) -> Self {
+        Message::OrgMessage(Box::new(value))
+    }
+}
+
+impl From<api::HostMessage> for Message {
+    fn from(value: api::HostMessage) -> Self {
+        Message::HostMessage(Box::new(value))
+    }
 }
 
 impl From<api::NodeMessage> for Message {
     fn from(value: api::NodeMessage) -> Self {
-        Self::NodeMessage(Box::new(value))
+        Message::NodeMessage(Box::new(value))
     }
 }
 
@@ -89,8 +107,8 @@ impl api::OrgMessage {
     fn org_id(&self) -> Option<OrgId> {
         use api::org_message::Message::*;
         match self.message.as_ref()? {
-            Created(api::OrgCreated { org, .. }) => org.as_ref()?.id.parse().ok(),
-            Updated(api::OrgUpdated { org, .. }) => org.as_ref()?.id.parse().ok(),
+            Created(api::OrgCreated { org, .. }) => org.as_ref()?.org_id.parse().ok(),
+            Updated(api::OrgUpdated { org, .. }) => org.as_ref()?.org_id.parse().ok(),
             Deleted(api::OrgDeleted { org_id, .. }) => org_id.parse().ok(),
             InvitationCreated(api::InvitationCreated { org_id, .. }) => org_id.parse().ok(),
             InvitationAccepted(api::InvitationAccepted { org_id, .. }) => org_id.parse().ok(),
@@ -98,7 +116,7 @@ impl api::OrgMessage {
         }
     }
 
-    pub const fn created(org: api::Org, created_by: common::EntityUpdate) -> Self {
+    pub const fn created(org: api::Org, created_by: common::Resource) -> Self {
         api::OrgMessage {
             message: Some(api::org_message::Message::Created(api::OrgCreated {
                 org: Some(org),
@@ -107,7 +125,7 @@ impl api::OrgMessage {
         }
     }
 
-    pub const fn updated(org: api::Org, updated_by: common::EntityUpdate) -> Self {
+    pub const fn updated(org: api::Org, updated_by: common::Resource) -> Self {
         api::OrgMessage {
             message: Some(api::org_message::Message::Updated(api::OrgUpdated {
                 org: Some(org),
@@ -116,7 +134,7 @@ impl api::OrgMessage {
         }
     }
 
-    pub fn deleted(org: &Org, deleted_by: common::EntityUpdate) -> Self {
+    pub fn deleted(org: &Org, deleted_by: common::Resource) -> Self {
         api::OrgMessage {
             message: Some(api::org_message::Message::Deleted(api::OrgDeleted {
                 org_id: org.id.to_string(),
@@ -142,7 +160,7 @@ impl api::OrgMessage {
                 api::InvitationAccepted {
                     org_id: org.id.to_string(),
                     invitation: Some(invitation),
-                    user: Some(api::User::from_model(user)),
+                    user: Some(user.into()),
                 },
             )),
         }
@@ -163,20 +181,19 @@ impl api::OrgMessage {
 impl api::HostMessage {
     fn channels(&self) -> Result<Vec<String>, Error> {
         let host_id = self.host_id().ok_or(Error::MissingHostId)?;
-
         Ok(vec![format!("/hosts/{host_id}")])
     }
 
     fn host_id(&self) -> Option<HostId> {
         use api::host_message::Message::*;
         match self.message.as_ref()? {
-            Created(api::HostCreated { host, .. }) => host.as_ref()?.id.parse().ok(),
-            Updated(api::HostUpdated { host, .. }) => host.as_ref()?.id.parse().ok(),
+            Created(api::HostCreated { host, .. }) => host.as_ref()?.host_id.parse().ok(),
+            Updated(api::HostUpdated { host, .. }) => host.as_ref()?.host_id.parse().ok(),
             Deleted(api::HostDeleted { host_id, .. }) => host_id.parse().ok(),
         }
     }
 
-    pub const fn created(host: api::Host, created_by: common::EntityUpdate) -> Self {
+    pub const fn created(host: api::Host, created_by: common::Resource) -> Self {
         api::HostMessage {
             message: Some(api::host_message::Message::Created(api::HostCreated {
                 host: Some(host),
@@ -185,7 +202,7 @@ impl api::HostMessage {
         }
     }
 
-    pub const fn updated(host: api::Host, updated_by: common::EntityUpdate) -> Self {
+    pub const fn updated(host: api::Host, updated_by: common::Resource) -> Self {
         api::HostMessage {
             message: Some(api::host_message::Message::Updated(api::HostUpdated {
                 host: Some(host),
@@ -194,7 +211,7 @@ impl api::HostMessage {
         }
     }
 
-    pub fn updated_many(hosts: Vec<api::Host>, updated_by: &common::EntityUpdate) -> Vec<Self> {
+    pub fn updated_many(hosts: Vec<api::Host>, updated_by: &common::Resource) -> Vec<Self> {
         hosts
             .into_iter()
             .map(|host| api::HostMessage {
@@ -206,7 +223,7 @@ impl api::HostMessage {
             .collect()
     }
 
-    pub fn deleted(host: &Host, deleted_by: common::EntityUpdate) -> Self {
+    pub fn deleted(host: &Host, deleted_by: common::Resource) -> Self {
         Self {
             message: Some(api::host_message::Message::Deleted(api::HostDeleted {
                 host_id: host.id.to_string(),
@@ -229,12 +246,12 @@ impl api::NodeMessage {
         ])
     }
 
-    fn node_id(&self) -> Option<NodeId> {
+    fn org_id(&self) -> Option<OrgId> {
         use api::node_message::Message::*;
         match self.message.as_ref()? {
-            Created(api::NodeCreated { node, .. }) => node.as_ref()?.id.parse().ok(),
-            Updated(api::NodeUpdated { node, .. }) => node.as_ref()?.id.parse().ok(),
-            Deleted(api::NodeDeleted { node_id, .. }) => node_id.parse().ok(),
+            Created(api::NodeCreated { node, .. }) => node.as_ref()?.org_id.parse().ok(),
+            Updated(api::NodeUpdated { node, .. }) => node.as_ref()?.org_id.parse().ok(),
+            Deleted(api::NodeDeleted { org_id, .. }) => org_id.parse().ok(),
         }
     }
 
@@ -247,16 +264,16 @@ impl api::NodeMessage {
         }
     }
 
-    fn org_id(&self) -> Option<OrgId> {
+    fn node_id(&self) -> Option<NodeId> {
         use api::node_message::Message::*;
         match self.message.as_ref()? {
-            Created(api::NodeCreated { node, .. }) => node.as_ref()?.org_id.parse().ok(),
-            Updated(api::NodeUpdated { node, .. }) => node.as_ref()?.org_id.parse().ok(),
-            Deleted(api::NodeDeleted { org_id, .. }) => org_id.parse().ok(),
+            Created(api::NodeCreated { node, .. }) => node.as_ref()?.node_id.parse().ok(),
+            Updated(api::NodeUpdated { node, .. }) => node.as_ref()?.node_id.parse().ok(),
+            Deleted(api::NodeDeleted { node_id, .. }) => node_id.parse().ok(),
         }
     }
 
-    pub const fn created(node: api::Node, created_by: common::EntityUpdate) -> Self {
+    pub const fn created(node: api::Node, created_by: common::Resource) -> Self {
         api::NodeMessage {
             message: Some(api::node_message::Message::Created(api::NodeCreated {
                 node: Some(node),
@@ -265,7 +282,7 @@ impl api::NodeMessage {
         }
     }
 
-    pub const fn updated(node: api::Node, updated_by: common::EntityUpdate) -> Self {
+    pub const fn updated(node: api::Node, updated_by: common::Resource) -> Self {
         api::NodeMessage {
             message: Some(api::node_message::Message::Updated(api::NodeUpdated {
                 node: Some(node),
@@ -274,7 +291,7 @@ impl api::NodeMessage {
         }
     }
 
-    pub fn updated_many(nodes: Vec<api::Node>, updated_by: &common::EntityUpdate) -> Vec<Self> {
+    pub fn updated_many(nodes: Vec<api::Node>, updated_by: &common::Resource) -> Vec<Self> {
         nodes
             .into_iter()
             .map(|node| api::NodeMessage {
@@ -286,7 +303,7 @@ impl api::NodeMessage {
             .collect()
     }
 
-    pub fn deleted(node: &Node, deleted_by: Option<common::EntityUpdate>) -> Self {
+    pub fn deleted(node: &Node, deleted_by: Option<common::Resource>) -> Self {
         api::NodeMessage {
             message: Some(api::node_message::Message::Deleted(api::NodeDeleted {
                 node_id: node.id.to_string(),
@@ -304,25 +321,19 @@ mod tests {
 
     use crate::auth::rbac::access::tests::view_authz;
     use crate::config::Context;
+    use crate::grpc::command::node_delete;
     use crate::model::{Command, CommandType};
 
     use super::*;
 
-    fn user_update(user: &User) -> common::EntityUpdate {
-        common::EntityUpdate {
-            resource: common::Resource::User.into(),
-            resource_id: Some(user.id.to_string()),
-            name: Some(user.name()),
-            email: Some(user.email.clone()),
-        }
-    }
-
     #[tokio::test]
     async fn test_send_command() {
         let (ctx, db) = Context::with_mocked().await.unwrap();
+        let mut conn = db.conn().await;
+
         let command = Command {
             id: Uuid::new_v4().into(),
-            host_id: db.seed.host.id,
+            host_id: db.seed.host1.id,
             exit_message: None,
             created_at: chrono::Utc::now(),
             completed_at: None,
@@ -333,9 +344,7 @@ mod tests {
             command_type: CommandType::NodeDelete,
         };
 
-        let command =
-            crate::grpc::command::node_delete(&command, db.seed.node.clone(), db.seed.host.clone())
-                .unwrap();
+        let command = node_delete(&command, None, &mut conn).await.unwrap();
         ctx.notifier.send(command).await.unwrap();
     }
 
@@ -344,13 +353,14 @@ mod tests {
         let (ctx, db) = Context::with_mocked().await.unwrap();
         let mut conn = db.conn().await;
 
-        let host = db.seed.host.clone();
-        let user = db.seed.user.clone();
+        let host = db.seed.host1.clone();
+        let user = db.seed.member.clone();
 
-        let api_host = api::Host::from_host(host.clone(), None, &mut conn)
-            .await
-            .unwrap();
-        let resource = user_update(&user);
+        let api_host = api::Host::from_host(host.clone(), &mut conn).await.unwrap();
+        let resource = common::Resource {
+            resource_type: common::ResourceType::User.into(),
+            resource_id: user.id.to_string(),
+        };
 
         let msg = api::HostMessage::created(api_host.clone(), resource.clone());
         ctx.notifier.send(msg).await.unwrap();
@@ -367,14 +377,17 @@ mod tests {
         let (ctx, db) = Context::with_mocked().await.unwrap();
         let mut conn = db.conn().await;
 
-        let authz = view_authz(&ctx, db.seed.node.id, &mut conn).await;
         let node = db.seed.node.clone();
-        let user = db.seed.user.clone();
+        let user = db.seed.member.clone();
+        let authz = view_authz(db.seed.node.id);
 
         let api_node = api::Node::from_model(node.clone(), &authz, &mut conn)
             .await
             .unwrap();
-        let resource = user_update(&user);
+        let resource = common::Resource {
+            resource_type: common::ResourceType::User.into(),
+            resource_id: user.id.to_string(),
+        };
 
         let msg = api::NodeMessage::created(api_node.clone(), resource.clone());
         ctx.notifier.send(msg).await.unwrap();

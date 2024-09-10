@@ -5,10 +5,10 @@ use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::ApiKeyPerm;
-use crate::auth::resource::{ResourceEntry, ResourceType};
+use crate::auth::resource::Resource;
 use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction, WriteConn};
-use crate::model::api_key::{ApiKey, NewApiKey, UpdateLabel, UpdateScope};
+use crate::model::api_key::{ApiKey, NewApiKey, UpdateLabel};
 use crate::util::NanosUtc;
 
 use super::api::api_key_service_server::ApiKeyService;
@@ -24,10 +24,8 @@ pub enum Error {
     ClaimsNotUser,
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
-    /// Create API key request missing scope.
-    MissingCreateScope,
-    /// ApiKeyScope missing `resource_id`.
-    MissingScopeResourceId,
+    /// Request is missing the resource.
+    MissingResource,
     /// Missing API key `updated_at`.
     MissingUpdatedAt,
     /// Database model error: {0}
@@ -36,10 +34,8 @@ pub enum Error {
     NothingToUpdate,
     /// Failed to parse KeyId: {0}
     ParseKeyId(crate::auth::token::api_key::Error),
-    /// Failed to parse ResourceId: {0}
-    ParseResourceId(uuid::Error),
-    /// Failed to parse ResourceType: {0}
-    ParseResourceType(crate::auth::resource::Error),
+    /// API key resource error: {0}
+    Resource(#[from] crate::auth::resource::Error),
 }
 
 impl From<Error> for Status {
@@ -49,14 +45,13 @@ impl From<Error> for Status {
         match err {
             ClaimsNotUser => Status::forbidden("Access denied."),
             Diesel(_) | MissingUpdatedAt => Status::internal("Internal error."),
-            MissingCreateScope => Status::invalid_argument("scope"),
-            MissingScopeResourceId | ParseResourceId(_) => Status::invalid_argument("resource_id"),
+            MissingResource => Status::invalid_argument("resource"),
             NothingToUpdate => Status::failed_precondition("Nothing to update."),
             ParseKeyId(_) => Status::invalid_argument("id"),
-            ParseResourceType(_) => Status::invalid_argument("resource"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Model(err) => err.into(),
+            Resource(err) => err.into(),
         }
     }
 }
@@ -114,13 +109,12 @@ pub async fn create(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceCreateResponse, Error> {
-    let scope = req.scope.ok_or(Error::MissingCreateScope)?;
-    let entry = ResourceEntry::try_from(scope)?;
+    let resource = req.resource.ok_or(Error::MissingResource)?;
+    let resource = Resource::try_from(&resource)?;
+    let authz = write.auth_for(&meta, ApiKeyPerm::Create, resource).await?;
 
-    let authz = write.auth(&meta, ApiKeyPerm::Create, entry).await?;
     let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
-
-    let created = NewApiKey::create(user_id, req.label, entry, &mut write).await?;
+    let created = NewApiKey::create(user_id, req.label, resource, &mut write).await?;
 
     Ok(api::ApiKeyServiceCreateResponse {
         api_key: Some(created.secret.into()),
@@ -133,11 +127,11 @@ pub async fn list(
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceListResponse, Error> {
-    let authz = read.auth_all(&meta, ApiKeyPerm::List).await?;
+    let authz = read.auth(&meta, ApiKeyPerm::List).await?;
     let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
     let keys = ApiKey::by_user_id(user_id, &mut read).await?;
-    let api_keys = keys.into_iter().map(api::ListApiKey::from_model).collect();
+    let api_keys = keys.into_iter().map(api::ListApiKey::from).collect();
 
     Ok(api::ApiKeyServiceListResponse { api_keys })
 }
@@ -147,23 +141,14 @@ pub async fn update(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceUpdateResponse, Error> {
-    let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
+    let key_id = req.api_key_id.parse().map_err(Error::ParseKeyId)?;
     let existing = ApiKey::by_id(key_id, &mut write).await?;
-
-    let entry = ResourceEntry::from(&existing);
-    write.auth(&meta, ApiKeyPerm::Update, entry).await?;
+    write.auth_for(&meta, ApiKeyPerm::Update, &existing).await?;
 
     let mut updated_at = None;
 
     if let Some(label) = req.label {
         updated_at = UpdateLabel::new(key_id, label)
-            .update(&mut write)
-            .await
-            .map(Some)?;
-    }
-
-    if let Some(scope) = req.scope {
-        updated_at = UpdateScope::new(key_id, scope.try_into()?)
             .update(&mut write)
             .await
             .map(Some)?;
@@ -184,11 +169,11 @@ pub async fn regenerate(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceRegenerateResponse, Error> {
-    let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
+    let key_id = req.api_key_id.parse().map_err(Error::ParseKeyId)?;
     let existing = ApiKey::by_id(key_id, &mut write).await?;
-    let entry = ResourceEntry::from(&existing);
-
-    write.auth(&meta, ApiKeyPerm::Regenerate, entry).await?;
+    write
+        .auth_for(&meta, ApiKeyPerm::Regenerate, &existing)
+        .await?;
 
     let new_key = NewApiKey::regenerate(key_id, &mut write).await?;
     let updated_at = new_key.api_key.updated_at.ok_or(Error::MissingUpdatedAt)?;
@@ -204,65 +189,24 @@ pub async fn delete(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceDeleteResponse, Error> {
-    let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
+    let key_id = req.api_key_id.parse().map_err(Error::ParseKeyId)?;
     let existing = ApiKey::by_id(key_id, &mut write).await?;
-    let entry = ResourceEntry::from(&existing);
-
-    write.auth(&meta, ApiKeyPerm::Delete, entry).await?;
+    write.auth_for(&meta, ApiKeyPerm::Delete, &existing).await?;
 
     ApiKey::delete(key_id, &mut write).await?;
 
     Ok(api::ApiKeyServiceDeleteResponse {})
 }
 
-impl api::ListApiKey {
-    fn from_model(api_key: ApiKey) -> Self {
-        let scope = api::ApiKeyScope::from_model(&api_key);
-
+impl From<ApiKey> for api::ListApiKey {
+    fn from(api_key: ApiKey) -> Self {
+        let resource = Resource::from(&api_key);
         api::ListApiKey {
-            id: Some(api_key.id.to_string()),
+            api_key_id: Some(api_key.id.to_string()),
             label: Some(api_key.label),
-            scope: Some(scope),
+            resource: Some(common::Resource::from(resource)),
             created_at: Some(NanosUtc::from(api_key.created_at).into()),
             updated_at: api_key.updated_at.map(NanosUtc::from).map(Into::into),
         }
-    }
-}
-
-impl api::ApiKeyScope {
-    fn from_model(api_key: &ApiKey) -> Self {
-        api::ApiKeyScope {
-            resource: common::Resource::from(api_key.resource).into(),
-            resource_id: Some(api_key.resource_id.to_string()),
-        }
-    }
-
-    #[cfg(any(test, feature = "integration-test"))]
-    pub fn from_entry(entry: ResourceEntry) -> Self {
-        api::ApiKeyScope {
-            resource: common::Resource::from(entry.resource_type).into(),
-            resource_id: Some(entry.resource_id.to_string()),
-        }
-    }
-}
-
-impl TryFrom<api::ApiKeyScope> for ResourceEntry {
-    type Error = Error;
-
-    fn try_from(scope: api::ApiKeyScope) -> Result<Self, Self::Error> {
-        let resource_type: ResourceType = scope
-            .resource()
-            .try_into()
-            .map_err(Error::ParseResourceType)?;
-        let resource_id = scope
-            .resource_id
-            .ok_or(Error::MissingScopeResourceId)?
-            .parse()
-            .map_err(Error::ParseResourceId)?;
-
-        Ok(ResourceEntry {
-            resource_type,
-            resource_id,
-        })
     }
 }

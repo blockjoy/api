@@ -9,8 +9,8 @@ use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 
 use blockvisor_api::auth::claims::{Claims, Expirable};
-use blockvisor_api::auth::rbac::{ApiKeyRole, Roles, ViewRole};
-use blockvisor_api::auth::resource::{HostId, ResourceEntry};
+use blockvisor_api::auth::rbac::{ApiKeyRole, GrpcRole, Roles};
+use blockvisor_api::auth::resource::{HostId, NodeId, Resource};
 use blockvisor_api::auth::token::jwt::Jwt;
 use blockvisor_api::auth::token::refresh::{Encoded, Refresh};
 use blockvisor_api::auth::token::Cipher;
@@ -18,21 +18,18 @@ use blockvisor_api::config::Context;
 use blockvisor_api::database::seed::{self, Seed};
 use blockvisor_api::database::tests::TestDb;
 use blockvisor_api::database::Conn;
-use blockvisor_api::model::{Host, Org, User};
+use blockvisor_api::model::User;
 
 use self::helper::rpc;
 use self::helper::traits::SocketRpc;
 
 /// Spawns an instance of blockvisor-api for running integration tests.
-///
-/// Implements `SocketRpc` for making RPC requests to the running instance.
 pub struct TestServer {
     db: TestDb,
     context: Arc<Context>,
     addr: SocketAddr,
 }
 
-#[allow(dead_code)]
 impl TestServer {
     pub async fn new() -> Self {
         let (context, db) = Context::with_mocked().await.unwrap();
@@ -69,12 +66,12 @@ impl TestServer {
         &self.db.seed
     }
 
-    pub async fn root_claims(&self) -> Claims {
-        rpc::login(self, seed::ROOT_EMAIL).await
+    pub async fn super_claims(&self) -> Claims {
+        rpc::login(self, seed::SUPER_EMAIL).await
     }
 
-    pub async fn root_jwt(&self) -> Jwt {
-        let claims = self.root_claims().await;
+    pub async fn super_jwt(&self) -> Jwt {
+        let claims = self.super_claims().await;
         self.cipher().jwt.encode(&claims).unwrap()
     }
 
@@ -87,16 +84,6 @@ impl TestServer {
         self.cipher().jwt.encode(&claims).unwrap()
     }
 
-    pub fn admin_refresh(&self) -> Refresh {
-        let admin_id = self.seed().user.id;
-        Refresh::from_now(chrono::Duration::minutes(15), admin_id)
-    }
-
-    pub fn admin_encoded(&self) -> Encoded {
-        let refresh = self.admin_refresh();
-        self.cipher().refresh.encode(&refresh).unwrap()
-    }
-
     pub async fn member_claims(&self) -> Claims {
         rpc::login(self, seed::MEMBER_EMAIL).await
     }
@@ -106,25 +93,40 @@ impl TestServer {
         self.cipher().jwt.encode(&claims).unwrap()
     }
 
+    pub fn member_refresh(&self) -> Refresh {
+        let member_id = self.seed().member.id;
+        Refresh::from_now(chrono::Duration::minutes(15), member_id)
+    }
+
+    pub fn member_encoded(&self) -> Encoded {
+        let refresh = self.member_refresh();
+        self.cipher().refresh.encode(&refresh).unwrap()
+    }
+
+    pub async fn unknown_claims(&self) -> Claims {
+        rpc::login(self, seed::UNKNOWN_EMAIL).await
+    }
+
+    pub async fn unknown_jwt(&self) -> Jwt {
+        let claims = self.unknown_claims().await;
+        self.cipher().jwt.encode(&claims).unwrap()
+    }
+
     pub async fn unconfirmed_user(&self) -> User {
         let email = seed::UNCONFIRMED_EMAIL;
         let mut conn = self.conn().await;
         User::by_email(email, &mut conn).await.unwrap()
     }
 
-    pub fn host_claims(&self) -> Claims {
-        self.host_claims_for(self.seed().host.id)
-    }
-
     pub fn host_claims_for(&self, host_id: HostId) -> Claims {
-        let roles = Roles::Many(hashset! {
-            ApiKeyRole::Host.into(),
-            ApiKeyRole::Node.into(),
-            ViewRole::DeveloperPreview.into(),
-        });
-        let resource = ResourceEntry::new_host(host_id).into();
+        let roles = Roles::One(GrpcRole::NewHost.into());
+        let resource = Resource::Host(host_id);
         let expirable = Expirable::from_now(chrono::Duration::minutes(15));
         Claims::new(resource, expirable, roles.into())
+    }
+
+    pub fn host_claims(&self) -> Claims {
+        self.host_claims_for(self.seed().host1.id)
     }
 
     pub fn host_jwt(&self) -> Jwt {
@@ -132,20 +134,20 @@ impl TestServer {
         self.cipher().jwt.encode(&claims).unwrap()
     }
 
-    pub async fn host1(&self) -> Host {
-        let mut conn = self.conn().await;
-        Host::by_name(seed::HOST_1, &mut conn).await.unwrap()
+    pub fn node_claims_for(&self, node_id: NodeId) -> Claims {
+        let roles = Roles::One(ApiKeyRole::Node.into());
+        let resource = Resource::Node(node_id);
+        let expirable = Expirable::from_now(chrono::Duration::minutes(15));
+        Claims::new(resource, expirable, roles.into())
     }
 
-    pub async fn host2(&self) -> Host {
-        let mut conn = self.conn().await;
-        Host::by_name(seed::HOST_2, &mut conn).await.unwrap()
+    pub fn node_claims(&self) -> Claims {
+        self.node_claims_for(self.seed().node.id)
     }
 
-    pub async fn org(&self) -> Org {
-        let mut conn = self.conn().await;
-        let org_id = seed::ORG_ID.parse().unwrap();
-        Org::by_id(org_id, &mut conn).await.unwrap()
+    pub fn node_jwt(&self) -> Jwt {
+        let claims = self.node_claims();
+        self.cipher().jwt.encode(&claims).unwrap()
     }
 
     pub async fn rng(&mut self) -> OsRng {
@@ -169,8 +171,8 @@ impl SocketRpc for TestServer {
         self.addr
     }
 
-    async fn root_jwt(&self) -> Jwt {
-        self.root_jwt().await
+    async fn super_jwt(&self) -> Jwt {
+        self.super_jwt().await
     }
 
     async fn admin_jwt(&self) -> Jwt {
@@ -179,5 +181,9 @@ impl SocketRpc for TestServer {
 
     async fn member_jwt(&self) -> Jwt {
         self.member_jwt().await
+    }
+
+    async fn unknown_jwt(&self) -> Jwt {
+        self.unknown_jwt().await
     }
 }

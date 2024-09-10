@@ -12,7 +12,7 @@ use rand::Rng;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::auth::resource::{OrgId, ResourceId, ResourceType, UserId};
+use crate::auth::resource::{OrgId, Resource, ResourceId, ResourceType, UserId};
 use crate::database::Conn;
 use crate::grpc::Status;
 
@@ -62,9 +62,9 @@ pub struct Token {
     pub id: TokenId,
     pub token_type: TokenType,
     pub token: TokenValue,
-    pub created_by_resource: ResourceType,
-    pub created_by: ResourceId,
-    pub org_id: Option<OrgId>,
+    pub created_by_type: ResourceType,
+    pub created_by_id: ResourceId,
+    pub org_id: OrgId,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
 }
@@ -81,8 +81,8 @@ impl Token {
             .values((
                 tokens::token_type.eq(TokenType::HostProvision),
                 tokens::token.eq(token),
-                tokens::created_by_resource.eq(ResourceType::User),
-                tokens::created_by.eq(user_id),
+                tokens::created_by_type.eq(ResourceType::User),
+                tokens::created_by_id.eq(user_id),
                 tokens::org_id.eq(org_id),
             ))
             .get_result(conn)
@@ -97,8 +97,8 @@ impl Token {
     ) -> Result<Self, Error> {
         tokens::table
             .filter(tokens::token_type.eq(TokenType::HostProvision))
-            .filter(tokens::created_by_resource.eq(ResourceType::User))
-            .filter(tokens::created_by.eq(user_id))
+            .filter(tokens::created_by_type.eq(ResourceType::User))
+            .filter(tokens::created_by_id.eq(user_id))
             .filter(tokens::org_id.eq(org_id))
             .get_result(conn)
             .await
@@ -122,8 +122,8 @@ impl Token {
         let token = TokenValue::new(HOST_PROVISION_LEN);
         let filter = tokens::table
             .filter(tokens::token_type.eq(TokenType::HostProvision))
-            .filter(tokens::created_by_resource.eq(ResourceType::User))
-            .filter(tokens::created_by.eq(user_id))
+            .filter(tokens::created_by_type.eq(ResourceType::User))
+            .filter(tokens::created_by_id.eq(user_id))
             .filter(tokens::org_id.eq(org_id));
 
         diesel::update(filter)
@@ -142,8 +142,8 @@ impl Token {
     ) -> Result<(), Error> {
         let filter = tokens::table
             .filter(tokens::token_type.eq(TokenType::HostProvision))
-            .filter(tokens::created_by_resource.eq(ResourceType::User))
-            .filter(tokens::created_by.eq(user_id))
+            .filter(tokens::created_by_type.eq(ResourceType::User))
+            .filter(tokens::created_by_id.eq(user_id))
             .filter(tokens::org_id.eq(org_id));
 
         diesel::delete(filter)
@@ -154,12 +154,8 @@ impl Token {
         Ok(())
     }
 
-    pub fn user(&self) -> Option<UserId> {
-        if self.created_by_resource == ResourceType::User {
-            Some((*self.created_by).into())
-        } else {
-            None
-        }
+    pub fn resource(&self) -> Resource {
+        Resource::new(self.created_by_type, self.created_by_id)
     }
 }
 

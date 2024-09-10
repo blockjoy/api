@@ -13,7 +13,7 @@ use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::auth::resource::{OrgId, Resource, ResourceEntry, ResourceId, ResourceType};
+use crate::auth::resource::{OrgId, Resource, ResourceId, ResourceType};
 use crate::database::Conn;
 use crate::grpc::Status;
 
@@ -100,7 +100,7 @@ impl Invitation {
         conn: &mut Conn<'_>,
     ) -> Result<HashMap<OrgId, Vec<Self>>, Error> {
         let invitations: Vec<Self> = invitations::table
-            .filter(invitations::org_id.eq_any(org_ids.iter()))
+            .filter(invitations::org_id.eq_any(org_ids))
             .get_results(conn)
             .await
             .map_err(|err| Error::FindForOrgIds(org_ids.clone(), err))?;
@@ -141,9 +141,8 @@ impl Invitation {
             query = query.filter(invitations::invitee_email.eq(invitee_email));
         }
         if let Some(resource) = filter.invited_by {
-            let entry = ResourceEntry::from(resource);
-            query = query.filter(invitations::invited_by.eq(entry.resource_id));
-            query = query.filter(invitations::invited_by_resource.eq(entry.resource_type));
+            query = query.filter(invitations::invited_by_resource.eq(resource.typ()));
+            query = query.filter(invitations::invited_by.eq(resource.id()));
         }
 
         let query = match filter.accepted {
@@ -222,13 +221,20 @@ impl Invitation {
             .map_err(|err| Error::RemoveOrgUser(user_email.into(), err))
     }
 
-    pub async fn bulk_delete(ids: HashSet<InvitationId>, conn: &mut Conn<'_>) -> Result<(), Error> {
-        let to_delete = invitations::table.filter(invitations::id.eq_any(ids.iter()));
+    pub async fn bulk_delete(
+        ids: &HashSet<InvitationId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<(), Error> {
+        let to_delete = invitations::table.filter(invitations::id.eq_any(ids));
         diesel::delete(to_delete)
             .execute(conn)
             .await
             .map(|_| ())
-            .map_err(|err| Error::BulkDelete(ids, err))
+            .map_err(|err| Error::BulkDelete(ids.clone(), err))
+    }
+
+    pub fn invited_by(&self) -> Resource {
+        Resource::new(self.invited_by_resource, self.invited_by)
     }
 }
 
@@ -245,8 +251,8 @@ pub struct InvitationFilter<'a> {
 pub struct NewInvitation {
     pub org_id: OrgId,
     pub invitee_email: String,
-    pub invited_by: ResourceId,
     pub invited_by_resource: ResourceType,
+    pub invited_by: ResourceId,
 }
 
 impl NewInvitation {
@@ -254,12 +260,12 @@ impl NewInvitation {
     where
         R: Into<Resource>,
     {
-        let entry = ResourceEntry::from(invited_by.into());
+        let invited_by = invited_by.into();
         NewInvitation {
             org_id,
             invitee_email: invitee_email.trim().to_lowercase(),
-            invited_by: entry.resource_id,
-            invited_by_resource: entry.resource_type,
+            invited_by_resource: invited_by.typ(),
+            invited_by: invited_by.id(),
         }
     }
 

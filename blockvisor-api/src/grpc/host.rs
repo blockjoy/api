@@ -9,17 +9,18 @@ use tracing::error;
 
 use crate::auth::claims::Claims;
 use crate::auth::rbac::{GrpcRole, HostAdminPerm, HostPerm};
-use crate::auth::resource::{HostId, OrgId, UserId};
+use crate::auth::resource::{HostId, OrgId, Resource};
 use crate::auth::token::refresh::Refresh;
-use crate::auth::{AuthZ, Authorize};
+use crate::auth::Authorize;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::model::command::NewCommand;
 use crate::model::host::{
-    ConnectionStatus, Host, HostFilter, HostSearch, HostSort, HostType, ManagedBy, MonthlyCostUsd,
-    NewHost, UpdateHost,
+    Host, HostFilter, HostRequirements, HostSearch, HostSort, NewHost, UpdateHost,
 };
-use crate::model::{Blockchain, CommandType, IpAddress, Node, Org, Region, RegionId, Token};
-use crate::storage::image::ImageId;
+use crate::model::node::NodeScheduler;
+use crate::model::protocol::ProtocolVersion;
+use crate::model::{CommandType, Image, IpAddress, Node, Org, Protocol, Region, RegionId, Token};
+use crate::util::sql::{Tag, Tags, Version};
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::host_service_server::HostService;
@@ -29,58 +30,56 @@ use super::{api, common, Grpc, Metadata, Status};
 pub enum Error {
     /// Auth check failed: {0}
     Auth(#[from] crate::auth::Error),
-    /// Host blockchain error: {0}
-    Blockchain(#[from] crate::model::blockchain::Error),
     /// Claims check failed: {0}
     Claims(#[from] crate::auth::claims::Error),
     /// Host command error: {0}
     Command(#[from] crate::model::command::Error),
     /// Host command API error: {0}
     CommandApi(#[from] crate::grpc::command::Error),
-    /// Failed to parse cpu count: {0}
-    CpuCount(std::num::TryFromIntError),
-    /// Host provisioning token is not for a user. This should not happen.
-    CreateTokenNotUser,
+    /// Failed to parse cpu cores: {0}
+    CpuCores(std::num::TryFromIntError),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
-    /// Failed to parse disk size: {0}
-    DiskSize(std::num::TryFromIntError),
+    /// Failed to parse disk bytes: {0}
+    DiskBytes(std::num::TryFromIntError),
     /// This host cannot be deleted because it still has nodes.
     HasNodes,
     /// Host model error: {0}
     Host(#[from] crate::model::host::Error),
     /// Host token error: {0}
     HostProvisionByToken(crate::model::token::Error),
-    /// Invalid value for ManagedBy enum: {0}.
-    InvalidManagedBy(i32),
-    /// Host model error: {0}
+    /// Host image error: {0}
+    Image(#[from] crate::model::image::Error),
+    /// Host ip address error: {0}
     IpAddress(#[from] crate::model::ip_address::Error),
     /// Host JWT failure: {0}
     Jwt(#[from] crate::auth::token::jwt::Error),
-    /// Looking is missing org id: {0}
-    LookupMissingOrg(OrgId),
-    /// Failed to parse mem size: {0}
-    MemSize(std::num::TryFromIntError),
-    /// Missing org_id for host provisioning token. This should not happen.
-    MissingTokenOrgId,
+    /// Failed to parse memory bytes: {0}
+    MemoryBytes(std::num::TryFromIntError),
     /// Node model error: {0}
     Node(#[from] crate::model::node::Error),
     /// Host org error: {0}
     Org(#[from] crate::model::org::Error),
-    /// Failed to parse BlockchainId: {0}
-    ParseBlockchainId(uuid::Error),
+    /// Failed to parse bv_version: {0}
+    ParseBvVersion(crate::util::sql::Error),
     /// Failed to parse HostId: {0}
     ParseId(uuid::Error),
-    /// Failed to parse entry from IP's list: {0}
-    ParseIp(ipnetwork::IpNetworkError),
+    /// Failed to parse ImageId: {0}
+    ParseImageId(uuid::Error),
+    /// Failed to parse ip: {0}
+    ParseIps(crate::util::sql::Error),
+    /// Failed to parse IP address: {0}
+    ParseIpAddress(crate::util::sql::Error),
     /// Failed to parse IP gateway: {0}
-    ParseIpGateway(ipnetwork::IpNetworkError),
+    ParseIpGateway(crate::util::sql::Error),
     /// Failed to parse non-zero host node_count as u64: {0}
     ParseNodeCount(std::num::TryFromIntError),
     /// Failed to parse OrgId: {0}
     ParseOrgId(uuid::Error),
-    /// Provision token is for a different organization.
-    ProvisionOrg,
+    /// Host protocol error: {0}
+    Protocol(#[from] crate::model::protocol::Error),
+    /// Host protocol version error: {0}
+    ProtocolVersion(#[from] crate::model::protocol::version::Error),
     /// Host Refresh token failure: {0}
     Refresh(#[from] crate::auth::token::refresh::Error),
     /// Host region error: {0}
@@ -89,8 +88,12 @@ pub enum Error {
     SearchOperator(crate::util::search::Error),
     /// Sort order: {0}
     SortOrder(crate::util::search::Error),
-    /// Host storage error: {0}
-    Storage(#[from] crate::storage::Error),
+    /// Host SQL error: {0}
+    Sql(#[from] crate::util::sql::Error),
+    /// Host store error: {0}
+    Store(#[from] crate::store::Error),
+    /// Org id `{0}` does not match token org id `{1}`.
+    TokenOrgId(OrgId, OrgId),
     /// The requested sort field is unknown.
     UnknownSortField,
 }
@@ -100,32 +103,39 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            CreateTokenNotUser | Diesel(_) | Jwt(_) | LookupMissingOrg(_) | MissingTokenOrgId
-            | ParseNodeCount(_) | Refresh(_) => Status::internal("Internal error."),
-            CpuCount(_) | DiskSize(_) | MemSize(_) => Status::out_of_range("Host resource."),
+            Diesel(_) | Jwt(_) | ParseNodeCount(_) | Refresh(_) => {
+                Status::internal("Internal error.")
+            }
+            CpuCores(_) => Status::out_of_range("cpu_cores"),
+            DiskBytes(_) => Status::out_of_range("disk_bytes"),
             HasNodes => Status::failed_precondition("This host still has nodes."),
             HostProvisionByToken(_) => Status::forbidden("Invalid token."),
-            ParseBlockchainId(_) => Status::invalid_argument("blockchain_id"),
+            MemoryBytes(_) => Status::out_of_range("memory_bytes"),
+            ParseBvVersion(_) => Status::invalid_argument("bv_version"),
             ParseId(_) => Status::invalid_argument("id"),
-            ParseIp(_) => Status::invalid_argument("ips"),
+            ParseImageId(_) => Status::invalid_argument("image_id"),
+            ParseIps(_) => Status::invalid_argument("ips"),
+            ParseIpAddress(_) => Status::invalid_argument("ip_address"),
             ParseIpGateway(_) => Status::invalid_argument("ip_gateway"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
-            ProvisionOrg => Status::failed_precondition("Wrong org."),
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
+            TokenOrgId(_, _) => Status::failed_precondition("org_id"),
             UnknownSortField => Status::invalid_argument("sort.field"),
-            InvalidManagedBy(_) => Status::invalid_argument("managed_by"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
-            Blockchain(err) => err.into(),
             Command(err) => err.into(),
             CommandApi(err) => err.into(),
             Host(err) => err.into(),
+            Image(err) => err.into(),
             IpAddress(err) => err.into(),
             Node(err) => err.into(),
             Org(err) => err.into(),
+            Protocol(err) => err.into(),
+            ProtocolVersion(err) => err.into(),
             Region(err) => err.into(),
-            Storage(err) => err.into(),
+            Sql(err) => err.into(),
+            Store(err) => err.into(),
         }
     }
 }
@@ -216,21 +226,28 @@ impl HostService for Grpc {
 
 pub async fn create(
     req: api::HostServiceCreateRequest,
-    _: Metadata,
+    _meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceCreateResponse, Error> {
     let token = Token::host_provision_by_token(&req.provision_token, &mut write)
         .await
         .map_err(Error::HostProvisionByToken)?;
-    let user_id = token.user().ok_or(Error::CreateTokenNotUser)?;
-    let org_id = token.org_id.ok_or(Error::MissingTokenOrgId)?;
 
-    if let Some(ref id) = req.org_id {
-        let request_org: OrgId = id.parse().map_err(Error::ParseOrgId)?;
-        if request_org != org_id {
-            return Err(Error::ProvisionOrg);
+    let org_id = if let Some(ref org_id) = req.org_id {
+        let org_id = org_id.parse().map_err(Error::ParseOrgId)?;
+        if org_id != token.org_id {
+            return Err(Error::TokenOrgId(org_id, token.org_id));
         }
-    }
+        Some(org_id)
+    } else {
+        None
+    };
+
+    let host_ips: Vec<_> = req
+        .ips
+        .iter()
+        .map(|ip| ip.parse().map_err(Error::ParseIps))
+        .collect::<Result<_, _>>()?;
 
     let region = if let Some(ref region) = req.region {
         Region::get_or_create(region, None, &mut write)
@@ -240,15 +257,35 @@ pub async fn create(
         None
     };
 
-    let ips: Vec<_> = req
-        .ips
-        .iter()
-        .map(|ip| ip.parse().map_err(Error::ParseIp))
-        .collect::<Result<_, _>>()?;
-    let host = req
-        .as_new(user_id, org_id, region.as_ref())?
-        .create(&ips, &mut write)
-        .await?;
+    let tags = if let Some(ref tags) = req.tags {
+        tags.tags
+            .iter()
+            .map(|tag| Tag::new(tag.name.clone()).map_err(Into::into))
+            .collect::<Result<Vec<_>, Error>>()
+            .map(Tags)?
+    } else {
+        Default::default()
+    };
+
+    let new_host = NewHost {
+        org_id,
+        network_name: &req.network_name,
+        display_name: req.display_name.as_deref(),
+        region_id: region.map(|region| region.id),
+        schedule_type: req.schedule_type().try_into()?,
+        os: &req.os,
+        os_version: &req.os_version,
+        bv_version: &req.bv_version.parse().map_err(Error::ParseBvVersion)?,
+        ip_address: req.ip_address.parse().map_err(Error::ParseIpAddress)?,
+        ip_gateway: req.ip_gateway.parse().map_err(Error::ParseIpGateway)?,
+        cpu_cores: req.cpu_cores.try_into().map_err(Error::CpuCores)?,
+        memory_bytes: req.memory_bytes.try_into().map_err(Error::MemoryBytes)?,
+        disk_bytes: req.disk_bytes.try_into().map_err(Error::DiskBytes)?,
+        tags,
+        created_by_type: token.created_by_type,
+        created_by_id: token.created_by_id,
+    };
+    let host = new_host.create(&host_ips, &mut write).await?;
 
     let expire_token = write.ctx.config.token.expire.token;
     let expire_refresh = write.ctx.config.token.expire.refresh_host;
@@ -259,7 +296,7 @@ pub async fn create(
     let refresh = Refresh::from_now(expire_refresh, host.id);
     let encoded = write.ctx.auth.cipher.refresh.encode(&refresh)?;
 
-    let host = api::Host::from_host(host, None, &mut write).await?;
+    let host = api::Host::from_host(host, &mut write).await?;
 
     Ok(api::HostServiceCreateResponse {
         host: Some(host),
@@ -273,13 +310,24 @@ pub async fn get(
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceGetResponse, Error> {
-    let id = req.id.parse().map_err(Error::ParseId)?;
-    let authz = read
-        .auth_or_all(&meta, HostAdminPerm::Get, HostPerm::Get, id)
+    let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
+    let mut resources = vec![Resource::from(id)];
+
+    let org_id = req
+        .org_id
+        .as_ref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
+    if let Some(org_id) = org_id {
+        resources.push(Resource::from(org_id));
+    };
+
+    let _authz = read
+        .auth_or_for(&meta, HostAdminPerm::Get, HostPerm::Get, &resources)
         .await?;
 
-    let host = Host::by_id(id, &mut read).await?;
-    let host = api::Host::from_host(host, Some(&authz), &mut read).await?;
+    let host = Host::by_id(id, org_id, &mut read).await?;
+    let host = api::Host::from_host(host, &mut read).await?;
 
     Ok(api::HostServiceGetResponse { host: Some(host) })
 }
@@ -290,17 +338,17 @@ pub async fn list(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceListResponse, Error> {
     let filter = req.into_filter()?;
-    let authz = if filter.org_ids.is_empty() {
-        read.auth_all(&meta, HostAdminPerm::List).await?
+    let _authz = if filter.org_ids.is_empty() {
+        read.auth(&meta, HostAdminPerm::List).await?
     } else {
-        read.auth_or_all(&meta, HostAdminPerm::List, HostPerm::List, &filter.org_ids)
+        read.auth_or_for(&meta, HostAdminPerm::List, HostPerm::List, &filter.org_ids)
             .await?
     };
 
-    let (hosts, host_count) = filter.query(&mut read).await?;
-    let hosts = api::Host::from_hosts(hosts, Some(&authz), &mut read).await?;
+    let (hosts, _) = filter.query(&mut read).await?;
+    let hosts = api::Host::from_hosts(hosts, &mut read).await?;
 
-    Ok(api::HostServiceListResponse { hosts, host_count })
+    Ok(api::HostServiceListResponse { hosts })
 }
 
 pub async fn update(
@@ -308,12 +356,32 @@ pub async fn update(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceUpdateResponse, Error> {
-    let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    write
-        .auth_or_all(&meta, HostAdminPerm::Update, HostPerm::Update, id)
-        .await?;
-    let host = Host::by_id(id, &mut write).await?;
+    let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
+    let mut resources = vec![Resource::from(id)];
 
+    let org_id = req
+        .org_id
+        .as_ref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
+    if let Some(org_id) = org_id {
+        resources.push(Resource::from(org_id));
+    };
+
+    let _authz = write
+        .auth_or_for(&meta, HostAdminPerm::Update, HostPerm::Update, &resources)
+        .await?;
+    let host = Host::by_id(id, org_id, &mut write).await?;
+
+    let bv_version = req
+        .bv_version
+        .as_ref()
+        .map(|bv| bv.parse::<Version>().map_err(Error::ParseBvVersion))
+        .transpose()?;
+    let disk_bytes = req
+        .disk_bytes
+        .map(|space| space.try_into().map_err(Error::DiskBytes))
+        .transpose()?;
     let region = if let Some(ref region) = req.region {
         Region::get_or_create(region, None, &mut write)
             .await
@@ -322,11 +390,34 @@ pub async fn update(
         None
     };
 
-    req.as_update(&host, region.as_ref())?
-        .update(&mut write)
-        .await?;
+    let update_host = UpdateHost {
+        id: req.host_id.parse().map_err(Error::ParseId)?,
+        network_name: req.network_name.as_deref(),
+        display_name: req.display_name.as_deref(),
+        region_id: region.map(|r| r.id),
+        schedule_type: req
+            .schedule_type
+            .map(|_| req.schedule_type().try_into())
+            .transpose()?,
+        connection_status: None,
+        os: req.os.as_deref(),
+        os_version: req.os_version.as_deref(),
+        bv_version: bv_version.as_ref(),
+        ip_address: None,
+        ip_gateway: None,
+        cpu_cores: None,
+        memory_bytes: None,
+        disk_bytes,
+        tags: req
+            .update_tags
+            .map(|tags| tags.into_update(host.tags))
+            .transpose()?
+            .flatten(),
+    };
+    let updated = update_host.update(&mut write).await?;
+    let host = api::Host::from_host(updated, &mut write).await?;
 
-    Ok(api::HostServiceUpdateResponse {})
+    Ok(api::HostServiceUpdateResponse { host: Some(host) })
 }
 
 pub async fn delete(
@@ -334,13 +425,25 @@ pub async fn delete(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceDeleteResponse, Error> {
-    let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    write.auth(&meta, HostPerm::Delete, id).await?;
+    let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
+    let mut resources = vec![Resource::from(id)];
+
+    let org_id = req
+        .org_id
+        .as_ref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
+    if let Some(org_id) = org_id {
+        resources.push(Resource::from(org_id));
+    };
+
+    write.auth_for(&meta, HostPerm::Delete, &resources).await?;
 
     if !Node::by_host_id(id, &mut write).await?.is_empty() {
         return Err(Error::HasNodes);
     }
-    Host::delete(id, &mut write).await?;
+
+    Host::delete(id, org_id, &mut write).await?;
     IpAddress::delete_by_host_id(id, &mut write).await?;
 
     Ok(api::HostServiceDeleteResponse {})
@@ -351,14 +454,23 @@ pub async fn start(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceStartResponse, Error> {
-    let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    let authz = write.auth(&meta, HostPerm::Start, id).await?;
+    let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
+    let mut resources = vec![Resource::from(id)];
 
-    let _host = Host::by_id(id, &mut write).await?;
-    let command = NewCommand::host(id, CommandType::HostStart)?
-        .create(&mut write)
-        .await?;
-    let message = api::Command::from_model(&command, &authz, &mut write).await?;
+    let org_id = req
+        .org_id
+        .as_ref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
+    if let Some(org_id) = org_id {
+        resources.push(Resource::from(org_id));
+    };
+
+    let authz = write.auth_for(&meta, HostPerm::Start, &resources).await?;
+
+    let command = NewCommand::host(id, CommandType::HostStart)?;
+    let command = command.create(&mut write).await?;
+    let message = api::Command::from(&command, org_id, &authz, &mut write).await?;
     write.mqtt(message);
 
     Ok(api::HostServiceStartResponse {})
@@ -369,14 +481,23 @@ pub async fn stop(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceStopResponse, Error> {
-    let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    let authz = write.auth(&meta, HostPerm::Stop, id).await?;
+    let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
+    let mut resources = vec![Resource::from(id)];
 
-    let _host = Host::by_id(id, &mut write).await?;
-    let command = NewCommand::host(id, CommandType::HostStop)?
-        .create(&mut write)
-        .await?;
-    let message = api::Command::from_model(&command, &authz, &mut write).await?;
+    let org_id = req
+        .org_id
+        .as_ref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
+    if let Some(org_id) = org_id {
+        resources.push(Resource::from(org_id));
+    };
+
+    let authz = write.auth_for(&meta, HostPerm::Stop, &resources).await?;
+
+    let command = NewCommand::host(id, CommandType::HostStop)?;
+    let command = command.create(&mut write).await?;
+    let message = api::Command::from(&command, org_id, &authz, &mut write).await?;
     write.mqtt(message);
 
     Ok(api::HostServiceStopResponse {})
@@ -387,14 +508,23 @@ pub async fn restart(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceRestartResponse, Error> {
-    let id: HostId = req.id.parse().map_err(Error::ParseId)?;
-    let authz = write.auth(&meta, HostPerm::Restart, id).await?;
+    let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
+    let mut resources = vec![Resource::from(id)];
 
-    let _host = Host::by_id(id, &mut write).await?;
-    let command = NewCommand::host(id, CommandType::HostRestart)?
-        .create(&mut write)
-        .await?;
-    let message = api::Command::from_model(&command, &authz, &mut write).await?;
+    let org_id = req
+        .org_id
+        .as_ref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
+    if let Some(org_id) = org_id {
+        resources.push(Resource::from(org_id));
+    };
+
+    let authz = write.auth_for(&meta, HostPerm::Restart, &resources).await?;
+
+    let command = NewCommand::host(id, CommandType::HostRestart)?;
+    let command = command.create(&mut write).await?;
+    let message = api::Command::from(&command, org_id, &authz, &mut write).await?;
     write.mqtt(message);
 
     Ok(api::HostServiceRestartResponse {})
@@ -405,44 +535,46 @@ pub async fn regions(
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceRegionsResponse, Error> {
-    let (org_id, authz) = if let Some(org_id) = &req.org_id {
-        let org_id: OrgId = org_id.parse().map_err(Error::ParseOrgId)?;
+    let (authz, org_id) = if let Some(ref org_id) = req.org_id {
+        let org_id = org_id.parse().map_err(Error::ParseOrgId)?;
         let authz = read
-            .auth_or_all(&meta, HostAdminPerm::Regions, HostPerm::Regions, org_id)
+            .auth_or_for(&meta, HostAdminPerm::Regions, HostPerm::Regions, org_id)
             .await?;
-        (Some(org_id), authz)
+        (authz, Some(org_id))
     } else {
-        (None, read.auth_all(&meta, HostAdminPerm::Regions).await?)
+        let authz = read.auth(&meta, HostAdminPerm::Regions).await?;
+        (authz, None)
     };
 
-    let blockchain_id = req
-        .blockchain_id
-        .parse()
-        .map_err(Error::ParseBlockchainId)?;
-    let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut read).await?;
+    let image_id = req.image_id.parse().map_err(Error::ParseImageId)?;
+    let image = Image::by_id(image_id, org_id, &authz, &mut read).await?;
+    let version =
+        ProtocolVersion::by_id(image.protocol_version_id, org_id, &authz, &mut read).await?;
+    let protocol = Protocol::by_id(version.protocol_id, org_id, &authz, &mut read).await?;
 
-    let node_type = req.node_type().into();
-    let host_type = req.host_type().into_model();
-
-    let image = ImageId::new(&blockchain.name, node_type, req.version.into());
-    let requirements = read.ctx.storage.rhai_metadata(&image).await?.requirements;
-
-    let mut regions = Host::regions_for(
+    let requirements = HostRequirements {
+        scheduler: NodeScheduler::least_resources(),
+        protocol: &protocol,
         org_id,
-        blockchain,
-        node_type,
-        requirements,
-        host_type,
-        &mut read,
-    )
-    .await?;
+        cpu_cores: image.min_cpu_cores,
+        memory_bytes: image.min_memory_bytes,
+        disk_bytes: image.min_disk_bytes,
+    };
+
+    let candidates = Host::candidates(requirements, None, &mut read).await?;
+    let region_ids = candidates
+        .into_iter()
+        .filter_map(|host| host.region_id)
+        .collect();
+
+    let mut regions = Region::by_ids(&region_ids, &mut read).await?;
     regions.sort_by(|r1, r2| r1.name.cmp(&r2.name));
 
     let regions = regions
         .into_iter()
-        .map(|r| api::Region {
-            name: Some(r.name),
-            pricing_tier: r.pricing_tier,
+        .map(|region| api::Region {
+            name: Some(region.name),
+            pricing_tier: region.pricing_tier,
         })
         .collect();
 
@@ -450,67 +582,63 @@ pub async fn regions(
 }
 
 impl api::Host {
-    pub async fn from_host(
-        host: Host,
-        authz: Option<&AuthZ>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Self, Error> {
+    pub async fn from_host(host: Host, conn: &mut Conn<'_>) -> Result<Self, Error> {
         let lookup = Lookup::from_host(&host, conn).await?;
-
-        Self::from_model(host, authz, &lookup)
+        Self::from_model(host, &lookup)
     }
 
-    pub async fn from_hosts(
-        hosts: Vec<Host>,
-        authz: Option<&AuthZ>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Self>, Error> {
+    pub async fn from_hosts(hosts: Vec<Host>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         let lookup = Lookup::from_hosts(&hosts, conn).await?;
 
         let mut out = Vec::new();
         for host in hosts {
-            out.push(Self::from_model(host, authz, &lookup)?);
+            out.push(Self::from_model(host, &lookup)?);
         }
 
         Ok(out)
     }
 
-    fn from_model(host: Host, authz: Option<&AuthZ>, lookup: &Lookup) -> Result<Self, Error> {
+    fn from_model(host: Host, lookup: &Lookup) -> Result<Self, Error> {
+        let created_by = host.created_by();
+        let org = host.org_id.and_then(|id| lookup.orgs.get(&id));
+        let org_name = org.map(|org| org.name.clone());
+        let region = host.region_id.and_then(|id| lookup.regions.get(&id));
+        let region = region.map(|region| region.name.clone());
+
         let no_ips = vec![];
         let no_nodes = vec![];
-        let billing_amount =
-            authz.and_then(|authz| common::BillingAmount::from_model(&host, authz));
+        let ips = lookup.ip_addresses.get(&host.id).unwrap_or(&no_ips);
+        let nodes = lookup.nodes.get(&host.id).unwrap_or(&no_nodes);
+        let ip_addresses = ips
+            .iter()
+            .map(|ip_address| api::HostIpAddress {
+                ip: ip_address.ip.to_string(),
+                assigned: nodes.iter().any(|node| node.ip_address == ip_address.ip),
+            })
+            .collect();
 
-        Ok(Self {
-            id: host.id.to_string(),
-            name: host.name,
-            version: host.version,
-            cpu_count: host.cpu_count.try_into().map_err(Error::CpuCount)?,
-            mem_size_bytes: host.mem_size_bytes.try_into().map_err(Error::MemSize)?,
-            disk_size_bytes: host.disk_size_bytes.try_into().map_err(Error::DiskSize)?,
+        Ok(api::Host {
+            host_id: host.id.to_string(),
+            org_id: host.org_id.map(|id| id.to_string()),
+            org_name,
+            region,
+            network_name: host.network_name,
+            display_name: host.display_name,
+            schedule_type: api::ScheduleType::from(host.schedule_type).into(),
             os: host.os,
             os_version: host.os_version,
-            ip: host.ip_addr,
-            created_at: Some(NanosUtc::from(host.created_at).into()),
-            ip_gateway: host.ip_gateway.ip().to_string(),
-            org_id: host.org_id.to_string(),
+            bv_version: host.bv_version.to_string(),
+            ip_address: host.ip_address.to_string(),
+            ip_gateway: host.ip_gateway.to_string(),
+            ip_addresses,
+            cpu_cores: host.cpu_cores.try_into().map_err(Error::CpuCores)?,
+            memory_bytes: host.memory_bytes.try_into().map_err(Error::MemoryBytes)?,
+            disk_bytes: host.disk_bytes.try_into().map_err(Error::DiskBytes)?,
             node_count: u64::try_from(max(0, host.node_count)).map_err(Error::ParseNodeCount)?,
-            org_name: lookup
-                .orgs
-                .get(&host.org_id)
-                .map(|org| org.name.clone())
-                .ok_or(Error::LookupMissingOrg(host.org_id))?,
-            region: host
-                .region_id
-                .and_then(|id| lookup.regions.get(&id).map(|region| region.name.clone())),
-            billing_amount,
-            vmm_mountpoint: host.vmm_mountpoint,
-            ip_addresses: api::HostIpAddress::from_models(
-                lookup.ip_addresses.get(&host.id).unwrap_or(&no_ips),
-                lookup.nodes.get(&host.id).unwrap_or(&no_nodes),
-            ),
-            managed_by: api::ManagedBy::from_model(host.managed_by).into(),
-            tags: Some(host.tags.into_iter().collect()),
+            tags: Some(host.tags.into()),
+            created_by: Some(common::Resource::from(created_by)),
+            created_at: Some(NanosUtc::from(host.created_at).into()),
+            updated_at: host.updated_at.map(|at| NanosUtc::from(at).into()),
         })
     }
 }
@@ -533,23 +661,23 @@ impl Lookup {
     {
         let host_ids: HashSet<HostId> = hosts.iter().map(|h| h.as_ref().id).collect();
 
-        let org_ids = hosts.iter().map(|h| h.as_ref().org_id).collect();
-        let orgs = Org::by_ids(org_ids, conn)
+        let org_ids = hosts.iter().filter_map(|h| h.as_ref().org_id).collect();
+        let orgs = Org::by_ids(&org_ids, conn)
             .await?
             .to_map_keep_last(|org| (org.id, org));
 
         let region_ids = hosts.iter().filter_map(|h| h.as_ref().region_id).collect();
-        let regions = Region::by_ids(region_ids, conn)
+        let regions = Region::by_ids(&region_ids, conn)
             .await?
             .to_map_keep_last(|region| (region.id, region));
 
         let ip_addresses = IpAddress::by_host_ids(&host_ids, conn)
             .await?
             .into_iter()
-            .filter_map(|ip| ip.host_id.map(|host_id| (host_id, ip)))
+            .map(|ip| (ip.host_id, ip))
             .to_map_keep_all(|(host_id, ip)| (host_id, ip));
 
-        let nodes = Node::by_hosts(&host_ids, conn)
+        let nodes = Node::by_host_ids(&host_ids, conn)
             .await?
             .to_map_keep_all(|node| (node.host_id, node));
 
@@ -562,137 +690,56 @@ impl Lookup {
     }
 }
 
-impl api::HostIpAddress {
-    fn from_models(models: &[IpAddress], nodes: &[Node]) -> Vec<Self> {
-        models
-            .iter()
-            .map(|ip| Self {
-                ip: ip.ip().to_string(),
-                assigned: nodes.iter().any(|n| n.ip == ip.ip),
-            })
-            .collect()
-    }
-}
-
-impl common::BillingAmount {
-    pub fn from_model(host: &Host, authz: &AuthZ) -> Option<Self> {
-        Some(common::BillingAmount {
-            amount: Some(common::Amount {
-                currency: common::Currency::Usd as i32,
-                value: host.monthly_cost_in_usd(authz)?,
-            }),
-            period: common::Period::Monthly as i32,
-        })
-    }
-
-    pub fn from_stripe(price: &crate::stripe::api::price::Price) -> Option<Self> {
-        Some(Self {
-            amount: Some(common::Amount {
-                currency: price
-                    .currency
-                    .and_then(common::Currency::from_stripe)
-                    .unwrap_or(common::Currency::Usd) as i32,
-                value: price.unit_amount?,
-            }),
-            period: common::Period::Monthly as i32,
-        })
-    }
-}
-
-impl api::HostServiceCreateRequest {
-    fn as_new(
-        &self,
-        user_id: UserId,
-        org_id: OrgId,
-        region: Option<&Region>,
-    ) -> Result<NewHost<'_>, Error> {
-        Ok(NewHost {
-            name: &self.name,
-            version: &self.version,
-            cpu_count: self.cpu_count.try_into().map_err(Error::CpuCount)?,
-            mem_size_bytes: self.mem_size_bytes.try_into().map_err(Error::MemSize)?,
-            disk_size_bytes: self.disk_size_bytes.try_into().map_err(Error::DiskSize)?,
-            os: &self.os,
-            os_version: &self.os_version,
-            ip_addr: &self.ip_addr,
-            status: ConnectionStatus::Online,
-            ip_gateway: self.ip_gateway.parse().map_err(Error::ParseIpGateway)?,
-            org_id,
-            created_by: user_id,
-            region_id: region.map(|r| r.id),
-            host_type: HostType::Cloud,
-            monthly_cost_in_usd: self
-                .billing_amount
-                .as_ref()
-                .map(MonthlyCostUsd::from_proto)
-                .transpose()?,
-            vmm_mountpoint: self.vmm_mountpoint.as_deref(),
-            managed_by: self
-                .managed_by()
-                .into_model()
-                .ok_or(Error::InvalidManagedBy(self.managed_by.unwrap_or(0)))?,
-            tags: self
-                .tags
-                .as_ref()
-                .map(|tags| tags.tags.as_slice())
-                .unwrap_or_default()
-                .iter()
-                .map(|tag| Some(tag.name.trim().to_lowercase()))
-                .collect(),
-        })
-    }
-}
-
 impl api::HostServiceListRequest {
     fn into_filter(self) -> Result<HostFilter, Error> {
-        let Self {
-            org_ids,
-            versions,
-            offset,
-            limit,
-            search,
-            sort,
-        } = self;
-
-        let org_ids = org_ids
+        let org_ids = self
+            .org_ids
             .into_iter()
             .map(|id| id.parse().map_err(Error::ParseOrgId))
             .collect::<Result<_, _>>()?;
-        let versions = versions
+        let versions = self
+            .bv_versions
             .into_iter()
             .map(|v| v.trim().to_lowercase())
             .collect();
 
-        let search = search
+        let search = self
+            .search
             .map(|search| {
                 Ok::<_, Error>(HostSearch {
                     operator: search
                         .operator()
                         .try_into()
                         .map_err(Error::SearchOperator)?,
-                    id: search.id.map(|id| id.trim().to_lowercase()),
-                    name: search.name.map(|name| name.trim().to_lowercase()),
-                    version: search.version.map(|version| version.trim().to_lowercase()),
+                    id: search.host_id.map(|id| id.trim().to_lowercase()),
+                    network_name: search.network_name.map(|name| name.trim().to_lowercase()),
+                    display_name: search.display_name.map(|name| name.trim().to_lowercase()),
+                    bv_version: search
+                        .bv_version
+                        .map(|version| version.trim().to_lowercase()),
                     os: search.os.map(|os| os.trim().to_lowercase()),
                     ip: search.ip.map(|ip| ip.trim().to_lowercase()),
                 })
             })
             .transpose()?;
-        let sort = sort
+        let sort = self
+            .sort
             .into_iter()
             .map(|sort| {
                 let order = sort.order().try_into().map_err(Error::SortOrder)?;
                 match sort.field() {
                     api::HostSortField::Unspecified => Err(Error::UnknownSortField),
-                    api::HostSortField::HostName => Ok(HostSort::HostName(order)),
-                    api::HostSortField::CreatedAt => Ok(HostSort::CreatedAt(order)),
-                    api::HostSortField::Version => Ok(HostSort::Version(order)),
+                    api::HostSortField::NetworkName => Ok(HostSort::NetworkName(order)),
+                    api::HostSortField::DisplayName => Ok(HostSort::DisplayName(order)),
                     api::HostSortField::Os => Ok(HostSort::Os(order)),
                     api::HostSortField::OsVersion => Ok(HostSort::OsVersion(order)),
-                    api::HostSortField::CpuCount => Ok(HostSort::CpuCount(order)),
-                    api::HostSortField::MemSizeBytes => Ok(HostSort::MemSizeBytes(order)),
-                    api::HostSortField::DiskSizeBytes => Ok(HostSort::DiskSizeBytes(order)),
+                    api::HostSortField::BvVersion => Ok(HostSort::BvVersion(order)),
+                    api::HostSortField::CpuCores => Ok(HostSort::CpuCores(order)),
+                    api::HostSortField::MemoryBytes => Ok(HostSort::MemoryBytes(order)),
+                    api::HostSortField::DiskBytes => Ok(HostSort::DiskBytes(order)),
                     api::HostSortField::NodeCount => Ok(HostSort::NodeCount(order)),
+                    api::HostSortField::CreatedAt => Ok(HostSort::CreatedAt(order)),
+                    api::HostSortField::UpdatedAt => Ok(HostSort::UpdatedAt(order)),
                 }
             })
             .collect::<Result<_, _>>()?;
@@ -700,106 +747,10 @@ impl api::HostServiceListRequest {
         Ok(HostFilter {
             org_ids,
             versions,
-            offset,
-            limit,
+            offset: self.offset,
+            limit: self.limit,
             search,
             sort,
         })
-    }
-}
-
-impl api::HostServiceUpdateRequest {
-    pub fn as_update(&self, host: &Host, region: Option<&Region>) -> Result<UpdateHost<'_>, Error> {
-        Ok(UpdateHost {
-            id: self.id.parse().map_err(Error::ParseId)?,
-            name: self.name.as_deref(),
-            version: self.version.as_deref(),
-            cpu_count: None,
-            mem_size_bytes: None,
-            disk_size_bytes: self
-                .total_disk_space
-                .map(|space| space.try_into().map_err(Error::DiskSize))
-                .transpose()?,
-            os: self.os.as_deref(),
-            os_version: self.os_version.as_deref(),
-            ip_addr: None,
-            status: None,
-            ip_gateway: None,
-            region_id: region.map(|r| r.id),
-            managed_by: self.managed_by().into(),
-            tags: self
-                .update_tags
-                .as_ref()
-                .and_then(|ut| ut.as_update(host.tags.iter().flatten())),
-        })
-    }
-}
-
-impl api::HostType {
-    const fn into_model(self) -> Option<HostType> {
-        match self {
-            api::HostType::Unspecified => None,
-            api::HostType::Cloud => Some(HostType::Cloud),
-            api::HostType::Private => Some(HostType::Private),
-        }
-    }
-}
-
-impl api::ManagedBy {
-    const fn from_model(model: ManagedBy) -> Self {
-        match model {
-            ManagedBy::Automatic => Self::Automatic,
-            ManagedBy::Manual => Self::Manual,
-        }
-    }
-
-    const fn into_model(self) -> Option<ManagedBy> {
-        match self {
-            Self::Unspecified => None,
-            Self::Automatic => Some(ManagedBy::Automatic),
-            Self::Manual => Some(ManagedBy::Manual),
-        }
-    }
-}
-
-impl common::UpdateTags {
-    pub fn as_update<S: AsRef<str>>(
-        &self,
-        existing_tags: impl Iterator<Item = S>,
-    ) -> Option<Vec<Option<String>>> {
-        use common::update_tags::Update;
-
-        match self {
-            common::UpdateTags {
-                update: Some(Update::OverwriteTags(tags)),
-            } => Some(
-                tags.tags
-                    .iter()
-                    .map(|tag| Some(tag.name.trim().to_lowercase()))
-                    .collect(),
-            ),
-            common::UpdateTags {
-                update: Some(Update::AddTag(new_tag)),
-            } => Some(
-                existing_tags
-                    .map(|s| s.as_ref().trim().to_lowercase())
-                    .chain([new_tag.name.trim().to_lowercase()])
-                    .map(Some)
-                    .collect(),
-            ),
-            common::UpdateTags { update: None } => None,
-        }
-    }
-}
-
-impl FromIterator<Option<String>> for common::Tags {
-    fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
-        Self {
-            tags: iter
-                .into_iter()
-                .flatten()
-                .map(|name| common::Tag { name })
-                .collect(),
-        }
     }
 }

@@ -42,6 +42,6 @@ pub mod http;
 pub mod model;
 pub mod mqtt;
 pub mod server;
-pub mod storage;
+pub mod store;
 pub mod stripe;
 pub mod util;

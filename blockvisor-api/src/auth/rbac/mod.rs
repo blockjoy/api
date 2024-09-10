@@ -55,6 +55,20 @@ define_perms! {
         Delete,
     }
 
+    Archive => {
+        GetDownloadMetadata,
+        GetDownloadChunks,
+        GetUploadSlots,
+        PutDownloadManifest,
+    }
+
+    ArchiveAdmin => {
+        GetDownloadMetadata,
+        GetDownloadChunks,
+        GetUploadSlots,
+        PutDownloadManifest,
+    }
+
     Auth => {
         Confirm,
         ListPermissions,
@@ -68,54 +82,32 @@ define_perms! {
         ListPermissions,
     }
 
-    Babel => {
-        Notify,
-    }
-
-    Blockchain => {
-        Get,
-        GetImage,
-        GetPlugin,
-        GetRequirements,
-        List,
-        ListImageVersions,
-        ViewDevelopment,
-        ViewPublic,
-        GetPricing,
-    }
-
-    BlockchainAdmin => {
-        AddNodeType,
-        AddVersion,
-        Get,
-        List,
-        ViewPrivate,
-    }
-
-    BlockchainArchive => {
-        GetDownloadMetadata,
-        GetDownloadChunks,
-        GetUploadSlots,
-        PutDownloadManifest,
+    Billing => {
+        Exempt,
     }
 
     Bundle => {
+        ListVersions,
         Retrieve,
-        ListBundleVersions,
-        Delete,
     }
 
     Command => {
+        Ack,
         Create,
         Get,
         List,
-        Update,
         Pending,
-        Ack,
+        Update,
     }
 
     CommandAdmin => {
         List,
+        Pending,
+    }
+
+    Crypt => {
+        GetSecret,
+        PutSecret,
     }
 
     Discovery => {
@@ -123,22 +115,21 @@ define_perms! {
     }
 
     Host => {
-        Create,
+        Delete,
         Get,
         List,
-        Update,
-        Delete,
+        Regions,
+        Restart,
         Start,
         Stop,
-        Restart,
-        Regions,
+        Update,
     }
 
     HostAdmin => {
         Get,
         List,
-        Update,
         Regions,
+        Update,
     }
 
     HostBilling => {
@@ -146,8 +137,21 @@ define_perms! {
     }
 
     HostProvision => {
-        Get,
         Create,
+        Get,
+    }
+
+    Image => {
+        Get,
+        ListArchives,
+    }
+
+    ImageAdmin => {
+        Add,
+        Get,
+        ListArchives,
+        UpdateArchive,
+        UpdateImage,
     }
 
     Invitation => {
@@ -164,18 +168,9 @@ define_perms! {
         Revoke,
     }
 
-    Kernel => {
-        Retrieve,
-    }
-
-    KeyFile => {
-        Create,
-        List,
-    }
-
     Metrics => {
-        Node,
         Host,
+        Node,
     }
 
     Mqtt => {
@@ -191,13 +186,13 @@ define_perms! {
         Delete,
         Get,
         List,
-        Report,
+        ReportError,
+        ReportStatus,
         Restart,
         Start,
         Stop,
-        Upgrade,
         UpdateConfig,
-        UpdateStatus,
+        Upgrade,
     }
 
     NodeAdmin => {
@@ -205,14 +200,14 @@ define_perms! {
         Delete,
         Get,
         List,
-        Report,
+        ReportError,
+        ReportStatus,
         Restart,
         Start,
         Stop,
-        Upgrade,
-        UpdateConfig,
-        UpdateStatus,
         Transfer,
+        UpdateConfig,
+        Upgrade,
     }
 
     Org => {
@@ -248,12 +243,28 @@ define_perms! {
         Delete,
     }
 
-    Subscription => {
-        Create,
-        Get,
-        List,
-        Update,
-        Delete,
+    Protocol => {
+        GetProtocol,
+        GetLatest,
+        GetPricing,
+        GetStats,
+        ListProtocols,
+        ListVersions,
+        ViewDevelopment,
+        ViewPublic,
+    }
+
+    ProtocolAdmin => {
+        AddProtocol,
+        AddVersion,
+        GetProtocol,
+        GetLatest,
+        ListProtocols,
+        ListVersions,
+        UpdateProtocol,
+        UpdateVersion,
+        ViewAllStats,
+        ViewPrivate,
     }
 
     User => {
@@ -270,12 +281,6 @@ define_perms! {
         Update,
     }
 
-    UserBilling => {
-        Get,
-        Update,
-        Delete,
-    }
-
     UserSettings => {
         Get,
         Update,
@@ -286,9 +291,5 @@ define_perms! {
         Get,
         Update,
         Delete,
-    }
-
-    Billing => {
-        Exempt,
     }
 }

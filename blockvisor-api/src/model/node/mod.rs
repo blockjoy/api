@@ -1,14 +1,8 @@
 pub mod job;
-pub use job::{NodeJob, NodeJobProgress, NodeJobStatus};
+pub use job::{NodeJob, NodeJobProgress, NodeJobStatus, NodeJobs};
 
 pub mod log;
-pub use log::{NewNodeLog, NodeLog, NodeLogEvent};
-
-pub mod node_type;
-pub use node_type::{NodeType, NodeVersion};
-
-pub mod property;
-pub use property::NodeProperty;
+pub use log::{LogEvent, NewNodeLog, NodeEvent, NodeEventData, NodeLog};
 
 pub mod report;
 pub use report::{NewNodeReport, NodeReport};
@@ -17,113 +11,94 @@ pub mod scheduler;
 pub use scheduler::{NodeScheduler, ResourceAffinity, SimilarNodeAffinity};
 
 pub mod status;
-pub use status::{ContainerStatus, NodeStatus, StakingStatus, SyncStatus};
+pub use status::{NextState, NodeHealth, NodeState, NodeStatus, ProtocolStatus};
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::stripe::api::subscription::{QuantityModification, SubscriptionItemId};
 use chrono::{DateTime, Utc};
-use diesel::dsl::{InnerJoinQuerySource, LeftJoinQuerySource};
+use diesel::dsl;
 use diesel::expression::expression_types::NotSelectable;
 use diesel::pg::Pg;
+use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
 use diesel::sql_types::Bool;
-use diesel::{dsl, prelude::*};
 use diesel_async::RunQueryDsl;
 use displaydoc::Display;
 use futures_util::future::OptionFuture;
-use ipnetwork::IpNetwork;
 use petname::{Generator, Petnames};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 
-use crate::auth::rbac::BillingPerm;
-use crate::auth::resource::{
-    HostId, NodeId, OrgId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
-};
+use crate::auth::rbac::{BillingPerm, NodeAdminPerm};
+use crate::auth::resource::{HostId, NodeId, OrgId, Resource, ResourceId, ResourceType, UserId};
 use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
-use crate::grpc::api;
-use crate::grpc::Status;
-use crate::storage::image::ImageId;
-use crate::stripe::api::subscription::SubscriptionItem;
-use crate::stripe::Payment;
+use crate::grpc::common;
+use crate::stripe::api::subscription::SubscriptionItemId;
+use crate::util::sql::{self, IpNetwork, Tags, Version};
 use crate::util::{SearchOperator, SortOrder};
 
-use self::node_type::NodeNetwork;
-
-use super::abbrev;
-use super::blockchain::{Blockchain, BlockchainId};
-use super::host::{Host, HostRequirements, HostType};
-use super::schema::{hosts, nodes, regions};
+use super::host::{Host, HostRequirements};
+use super::image::config::{ConfigType, NewConfig};
+use super::image::{Config, ConfigId, Image, ImageId, NodeConfig};
+use super::protocol::version::{ProtocolVersion, VersionId};
+use super::protocol::{Protocol, ProtocolId};
+use super::schema::nodes;
 use super::{Command, IpAddress, Org, Paginate, Region, RegionId};
-
-type NotDeleted = dsl::Filter<nodes::table, dsl::IsNull<nodes::deleted_at>>;
-
-const DELETED_STATUSES: [NodeStatus; 3] = [
-    NodeStatus::DeletePending,
-    NodeStatus::Deleting,
-    NodeStatus::Deleted,
-];
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Blockchain error for node: {0}
-    Blockchain(#[from] super::blockchain::Error),
-    /// Node Command error: {0}
-    Command(Box<super::command::Error>),
     /// Node Cloudflare error: {0}
     Cloudflare(#[from] crate::cloudflare::Error),
+    /// Node Command error: {0}
+    Command(Box<crate::model::command::Error>),
+    /// Node image config error: {0}
+    Config(#[from] crate::model::image::config::Error),
     /// Failed to create node: {0}
     Create(diesel::result::Error),
     /// Failed to delete node `{0}`: {1}
     Delete(NodeId, diesel::result::Error),
-    /// Failed to parse filtered IP addresses: {0}
-    FilteredIps(serde_json::Error),
+    /// Failed to find deleted node by id `{0}`: {1}
+    FindDeletedById(NodeId, diesel::result::Error),
     /// Failed to find nodes by host id {0}: {1}
     FindByHostId(HostId, diesel::result::Error),
-    /// Failed to find nodes by host id {0:?}: {1}
-    FindByHostIds(Vec<HostId>, diesel::result::Error),
+    /// Failed to find nodes by host ids `{0:?}`: {1}
+    FindByHostIds(HashSet<HostId>, diesel::result::Error),
     /// Failed to find node by id `{0}`: {1}
     FindById(NodeId, diesel::result::Error),
-    /// Failed to find nodes by id `{0:?}`: {1}
+    /// Failed to find nodes by ids `{0:?}`: {1}
     FindByIds(HashSet<NodeId>, diesel::result::Error),
     /// Failed to find nodes by org id {0}: {1}
     FindByOrgId(OrgId, diesel::result::Error),
-    /// Failed to find node ids `{0:?}`: {1}
-    FindExistingIds(HashSet<NodeId>, diesel::result::Error),
-    /// Host error for node: {0}
-    Host(#[from] super::host::Error),
-    /// Only available host candidate failed.
-    HostCandidateFailed,
-    /// Ip address error: {0}
-    IpAddr(#[from] super::ip_address::Error),
-    /// Found a stripe item that isn't in any extant subscription.
-    ItemWithoutSubscription,
-    /// Failed to get next host ip for node: {0}
-    NextHostIp(crate::model::ip_address::Error),
+    /// Failed to generate node name. This should not happen.
+    GenerateName,
+    /// Node host error: {0}
+    Host(#[from] crate::model::host::Error),
+    /// Host doesn't have enough free CPU: {0}
+    HostFreeCpu(HostId),
+    /// Host doesn't have enough free disk: {0}
+    HostFreeDisk(HostId),
+    /// Host has no free IP addresses: {0}
+    HostFreeIp(HostId),
+    /// Host doesn't have enough free memory: {0}
+    HostFreeMem(HostId),
+    /// Node image error: {0},
+    Image(#[from] crate::model::image::Error),
+    /// Node ip address error: {0},
+    IpAddress(#[from] crate::model::ip_address::Error),
+    /// Missing node-admin-transfer permission.
+    MissingTransferPerm,
     /// Node log error: {0}
-    NodeLog(#[from] log::Error),
-    /// Node property error: {0}
-    NodeProperty(property::Error),
-    /// No available host candidates.
-    NoHostCandidates,
-    /// No available hosts.
-    NoHosts,
+    NodeLog(#[from] self::log::Error),
     /// No host id or scheduler.
     NoHostOrScheduler,
     /// Failed to find a matching host.
     NoMatchingHost,
-    /// Org with id `{0}` has no customer in stripe.
-    NoStripeCustomer(OrgId),
-    /// Stripe responded with a susbcription item that has no subscription id set.
-    NoSubscriptionId,
-    /// Newly created subscription has no items.
-    NoSubscriptionItem,
     /// Cannot launch node without a region.
     NoRegion,
+    /// No host id or scheduler.
+    NoScheduler,
     /// Node org error: {0}
     Org(#[from] crate::model::org::Error),
     /// Node pagination: {0}
@@ -132,26 +107,36 @@ pub enum Error {
     ParseHostId(uuid::Error),
     /// Failed to parse IpAddr: {0}
     ParseIpAddr(std::net::AddrParseError),
+    /// Node protocol error: {0}
+    Protocol(#[from] crate::model::protocol::Error),
+    /// Node protocol version error: {0}
+    ProtocolVersion(#[from] crate::model::protocol::version::Error),
     /// Node region error: {0}
     Region(#[from] crate::model::region::Error),
-    /// Failed to regenerate node name. This should not happen.
-    RegenerateName,
     /// Node report error: {0}
-    Report(report::Error),
-    /// Storage error for node: {0}
-    Storage(#[from] crate::storage::Error),
-    /// Stripe error for node: {0}
+    Report(#[from] self::report::Error),
+    /// Store error for node: {0}
+    Store(#[from] crate::store::Error),
+    /// Node stripe error: {0}
     Stripe(#[from] crate::stripe::Error),
-    /// Failed to update node: {0}
-    Update(diesel::result::Error),
-    /// Failed to update node `{0}`: {1}
-    UpdateById(NodeId, diesel::result::Error),
-    /// Failed to update node {1}'s metrics: {0}
-    UpdateMetrics(diesel::result::Error, NodeId),
-    /// Failed to find upgradeable nodes for blockchain id `{0}` and node type `{1}`: {2}
-    UpgradeableByType(BlockchainId, NodeType, diesel::result::Error),
-    /// Failed to parse the jobs column of the node table: {0}
-    UnparsableJobs(serde_json::Error),
+    /// Failed to update the node config: {0}
+    UpdateConfig(diesel::result::Error),
+    /// Failed to update the node status: {0}
+    UpdateStatus(diesel::result::Error),
+    /// Failed to update metrics for node {0}: {1}
+    UpdateMetrics(NodeId, diesel::result::Error),
+    /// Failed to upgrade the node: {0}
+    Upgrade(diesel::result::Error),
+    /// The node is already using the requested image_id.
+    UpgradeSameImage,
+    /// Store error for node: {0}
+    Vault(#[from] crate::store::vault::Error),
+    /// Failed to parse VM cpu count: {0}
+    VmCpu(std::num::TryFromIntError),
+    /// Failed to parse VM memory bytes: {0}
+    VmMemory(std::num::TryFromIntError),
+    /// Failed to parse VM disk bytes: {0}
+    VmDisk(std::num::TryFromIntError),
 }
 
 impl From<Error> for Status {
@@ -161,12 +146,30 @@ impl From<Error> for Status {
         match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             Delete(_, NotFound)
+            | FindByHostId(_, NotFound)
             | FindById(_, NotFound)
-            | FindByIds(_, NotFound)
-            | UpgradeableByType(_, _, NotFound) => Status::not_found("Not found."),
-            NoMatchingHost => Status::failed_precondition("No matching host."),
+            | FindByOrgId(_, NotFound) => Status::not_found("Not found."),
+            HostFreeCpu(_) => Status::failed_precondition("Host cpu."),
+            HostFreeDisk(_) => Status::failed_precondition("Host memory."),
+            HostFreeIp(_) => Status::failed_precondition("Host IP."),
+            HostFreeMem(_) => Status::failed_precondition("Host disk."),
+            MissingTransferPerm => Status::forbidden("Missing permission."),
+            NoMatchingHost => Status::resource_exhausted("No matching host."),
+            UpgradeSameImage => Status::already_exists("image_id"),
+            Command(err) => (*err).into(),
+            Config(err) => err.into(),
+            Host(err) => err.into(),
+            Image(err) => err.into(),
+            IpAddress(err) => err.into(),
+            NodeLog(err) => err.into(),
             Org(err) => err.into(),
             Paginate(err) => err.into(),
+            Protocol(err) => err.into(),
+            ProtocolVersion(err) => err.into(),
+            Region(err) => err.into(),
+            Report(err) => err.into(),
+            Store(err) => err.into(),
+            Vault(err) => err.into(),
             _ => Status::internal("Internal error."),
         }
     }
@@ -175,138 +178,102 @@ impl From<Error> for Status {
 #[derive(Clone, Debug, Queryable, AsChangeset, Selectable)]
 pub struct Node {
     pub id: NodeId,
+    pub node_name: String,
+    pub display_name: Option<String>,
+    pub old_node_id: Option<NodeId>,
     pub org_id: OrgId,
     pub host_id: HostId,
-    pub node_name: String,
-    pub version: NodeVersion,
-    pub address: Option<String>,
-    pub wallet_address: Option<String>,
+    pub image_id: ImageId,
+    pub config_id: ConfigId,
+    pub protocol_id: ProtocolId,
+    pub protocol_version_id: VersionId,
+    pub semantic_version: Version,
+    pub auto_upgrade: bool,
+    pub node_state: NodeState,
+    pub next_state: Option<NextState>,
+    pub protocol_state: Option<String>,
+    pub protocol_health: Option<NodeHealth>,
+    pub jobs: Option<NodeJobs>,
+    pub note: Option<String>,
+    pub tags: Tags,
+    pub ip_address: IpNetwork,
+    pub ip_gateway: IpNetwork,
+    pub p2p_address: Option<String>,
+    pub dns_id: String,
+    pub dns_name: String,
+    pub dns_url: Option<String>,
+    pub cpu_cores: i64,
+    pub memory_bytes: i64,
+    pub disk_bytes: i64,
     pub block_height: Option<i64>,
-    pub node_data: Option<serde_json::Value>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub blockchain_id: BlockchainId,
-    pub ip_gateway: String,
-    pub self_update: bool,
     pub block_age: Option<i64>,
     pub consensus: Option<bool>,
-    pub vcpu_count: i64,
-    pub mem_size_bytes: i64,
-    pub disk_size_bytes: i64,
-    pub network: String,
-    pub created_by: Option<ResourceId>,
-    pub dns_record_id: String,
-    allow_ips: serde_json::Value,
-    deny_ips: serde_json::Value,
     pub scheduler_similarity: Option<SimilarNodeAffinity>,
     pub scheduler_resource: Option<ResourceAffinity>,
-    pub scheduler_region: Option<RegionId>,
-    pub data_directory_mountpoint: Option<String>,
-    pub jobs: serde_json::Value,
-    pub created_by_resource: Option<ResourceType>,
-    pub deleted_at: Option<DateTime<Utc>>,
-    pub node_type: NodeType,
-    pub container_status: ContainerStatus,
-    pub sync_status: SyncStatus,
-    pub staking_status: Option<StakingStatus>,
-    pub note: Option<String>,
-    pub node_status: NodeStatus,
-    pub url: String,
-    pub ip: IpNetwork,
-    pub dns_name: String,
-    pub display_name: String,
+    pub scheduler_region_id: Option<RegionId>,
     pub stripe_item_id: Option<SubscriptionItemId>,
-    pub tags: Vec<Option<String>>,
+    pub created_by_type: ResourceType,
+    pub created_by_id: ResourceId,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 impl Node {
     pub async fn by_id(id: NodeId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         nodes::table
             .find(id)
+            .filter(nodes::deleted_at.is_null())
             .get_result(conn)
             .await
             .map_err(|err| Error::FindById(id, err))
     }
 
+    pub async fn deleted_by_id(id: NodeId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        nodes::table
+            .find(id)
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::FindDeletedById(id, err))
+    }
+
     pub async fn by_ids(ids: &HashSet<NodeId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         nodes::table
-            .filter(nodes::id.eq_any(ids.iter()))
+            .filter(nodes::id.eq_any(ids))
+            .filter(nodes::deleted_at.is_null())
             .get_results(conn)
             .await
             .map_err(|err| Error::FindByIds(ids.clone(), err))
     }
 
     pub async fn by_org_id(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
-        Self::not_deleted()
+        nodes::table
             .filter(nodes::org_id.eq(org_id))
+            .filter(nodes::deleted_at.is_null())
             .get_results(conn)
             .await
             .map_err(|err| Error::FindByOrgId(org_id, err))
     }
 
     pub async fn by_host_id(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
-        Self::not_deleted()
+        nodes::table
             .filter(nodes::host_id.eq(host_id))
+            .filter(nodes::deleted_at.is_null())
             .get_results(conn)
             .await
             .map_err(|err| Error::FindByHostId(host_id, err))
     }
 
-    pub async fn by_hosts(
+    pub async fn by_host_ids(
         host_ids: &HashSet<HostId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
-        Self::not_deleted()
+        nodes::table
             .filter(nodes::host_id.eq_any(host_ids))
+            .filter(nodes::deleted_at.is_null())
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindByHostIds(host_ids.iter().copied().collect(), err))
-    }
-
-    /// Filters out any node ids that do no exist.
-    pub async fn existing_ids(
-        ids: HashSet<NodeId>,
-        conn: &mut Conn<'_>,
-    ) -> Result<HashSet<NodeId>, Error> {
-        let ids = Node::not_deleted()
-            .filter(nodes::id.eq_any(ids.iter()))
-            .select(nodes::id)
-            .get_results(conn)
-            .await
-            .map_err(|err| Error::FindExistingIds(ids, err))?;
-        Ok(ids.into_iter().collect())
-    }
-
-    pub async fn properties(&self, conn: &mut Conn<'_>) -> Result<Vec<NodeProperty>, Error> {
-        NodeProperty::by_node_id(self.id, conn)
-            .await
-            .map_err(Error::NodeProperty)
-    }
-
-    pub async fn update(self, update: &UpdateNode<'_>, conn: &mut Conn<'_>) -> Result<Node, Error> {
-        if let Some(new_org_id) = update.org_id {
-            if new_org_id != self.org_id {
-                let new_node_log = NewNodeLog {
-                    host_id: self.host_id,
-                    node_id: self.id,
-                    event: NodeLogEvent::TransferredToOrg,
-                    blockchain_id: self.blockchain_id,
-                    node_type: self.node_type,
-                    version: self.version.clone(),
-                    created_at: Utc::now(),
-                    org_id: new_org_id,
-                };
-                new_node_log.create(conn).await?;
-                Org::decrement_node(self.org_id, conn).await?;
-                Org::increment_node(new_org_id, conn).await?;
-            }
-        }
-
-        diesel::update(nodes::table.find(self.id))
-            .set((update, nodes::updated_at.eq(Utc::now())))
-            .get_result(conn)
-            .await
-            .map_err(Error::Update)
+            .map_err(|err| Error::FindByHostIds(host_ids.clone(), err))
     }
 
     pub async fn delete(id: NodeId, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
@@ -316,115 +283,98 @@ impl Node {
             .await
             .map_err(|err| Error::Delete(id, err))?;
 
-        Org::decrement_node(node.org_id, write).await?;
-        Host::decrement_node(node.host_id, write).await?;
+        Org::remove_node(node.org_id, write).await?;
+        Host::remove_node(&node, write).await?;
 
         Command::delete_node_pending(node.id, write)
             .await
             .map_err(|err| Error::Command(Box::new(err)))?;
 
-        if let Err(err) = write.ctx.dns.delete(&node.dns_record_id).await {
+        if let Err(err) = write.ctx.dns.delete(&node.dns_id).await {
             warn!("Failed to remove node dns: {err}");
         }
 
-        if let Some(stripe_item_id) = node.stripe_item_id {
-            let item = write
-                .ctx
-                .stripe
-                .get_subscription_item(&stripe_item_id)
-                .await?;
-            if item.quantity > 1 {
-                let new_quantity = QuantityModification::Decrement {
-                    current_quantity: item.quantity,
-                };
-                write
-                    .ctx
-                    .stripe
-                    .update_subscription_item(&stripe_item_id, new_quantity)
-                    .await?;
-            } else {
-                let subscription_id = item.subscription.as_ref().ok_or(Error::NoSubscriptionId)?;
-                let subscription = write.ctx.stripe.get_subscription(subscription_id).await?;
-                match subscription.items.data.len() {
-                    // This item is in a subscription that doesn't have any items?
-                    0 => return Err(Error::ItemWithoutSubscription),
-                    // This is the final item of the subscription, lets cancel it
-                    1 => {
-                        write
-                            .ctx
-                            .stripe
-                            .cancel_subscription(subscription_id)
-                            .await?;
-                    }
-                    // There are other items left in this subscription, we can remove this item from
-                    // the subscription.
-                    _ => {
-                        write
-                            .ctx
-                            .stripe
-                            .delete_subscription_item(&stripe_item_id)
-                            .await?;
-                    }
-                };
+        let prefix = format!("node/{id}/secret");
+        let secrets = write.ctx.vault.read().await.list_path(&prefix).await?;
+        if let Some(names) = secrets {
+            for name in names {
+                let path = format!("{prefix}/{name}");
+                let result = write.ctx.vault.read().await.delete_path(&path).await;
+                match result {
+                    Ok(()) | Err(crate::store::vault::Error::PathNotFound) => (),
+                    Err(err) => return Err(err.into()),
+                }
             }
+        }
+
+        if let Some(item_id) = node.stripe_item_id {
+            write.ctx.stripe.remove_subscription(&item_id).await?;
         }
 
         Ok(())
     }
 
-    /// Finds the next possible host for this node to be tried on.
-    pub async fn find_host(
+    pub async fn next_host(
         &self,
-        authz: &AuthZ,
+        protocol: &Protocol,
         write: &mut WriteConn<'_, '_>,
-    ) -> Result<Host, Error> {
-        let chain = Blockchain::by_id(self.blockchain_id, authz, write).await?;
-
-        let image = ImageId::new(chain.name.clone(), self.node_type, self.version.clone());
-        let meta = write.ctx.storage.rhai_metadata(&image).await?;
-
+    ) -> Result<Option<Host>, Error> {
         let candidates = match self.scheduler(write).await? {
             Some(scheduler) => {
-                let reqs = HostRequirements {
-                    requirements: meta.requirements,
-                    node_type: self.node_type,
-                    host_type: Some(HostType::Cloud),
+                let requirements = HostRequirements {
                     scheduler,
+                    protocol,
                     org_id: None,
+                    cpu_cores: self.cpu_cores,
+                    memory_bytes: self.memory_bytes,
+                    disk_bytes: self.disk_bytes,
                 };
-                Host::host_candidates(reqs, &chain, Some(2), write).await?
+
+                Host::candidates(requirements, Some(2), write).await?
             }
-            None => vec![Host::by_id(self.host_id, write).await?],
+            None => vec![Host::by_id(self.host_id, None, write).await?],
         };
 
-        // We now have a list of host candidates for our nodes. Now the only thing left to do is to
-        // make a decision about where to place the node.
-        let deployments = NodeLog::by_node_id(self.id, write).await?;
-        let hosts_tried = NodeLog::hosts_tried(&deployments, write).await?;
+        let mut counts: HashMap<HostId, usize> = HashMap::new();
+        for log in NodeLog::by_node_id(self.id, write).await? {
+            if log.event == NodeEvent::CreateStarted {
+                *counts.entry(log.host_id).or_insert(0) += 1;
+            }
+        }
+
+        let host_ids = counts.keys().copied().collect();
+        let org_ids = hashset! {};
+        let hosts_tried: Vec<_> = Host::by_ids(&host_ids, &org_ids, write)
+            .await?
+            .into_iter()
+            .map(|host @ Host { id, .. }| (host, counts[&id]))
+            .collect();
+
         let best = match (hosts_tried.as_slice(), candidates.len()) {
-            // If there are 0 hosts to try, we return an error.
-            (_, 0) => return Err(Error::NoHostCandidates),
+            // If there are 0 hosts to try, we return None.
+            (_, 0) => return Ok(None),
             // If we are on the first host to try we just take the first candidate.
             ([], _) => candidates[0].clone(),
             // If we are on the first host to try and we tried once, we try that host again.
             ([(host, 1)], 1) => host.clone(),
             // Now we need at least two candidates, so lets check for that.
-            (_, 1) => return Err(Error::HostCandidateFailed),
+            (_, 1) => return Ok(None),
             // If there is 1 host that we tried so far, we can try a new one
             ([_], _) => candidates[1].clone(),
             // If we are on the second host to try and we tried once, we try that host again.
             ([_, (host, 1)], _) => host.clone(),
-            // Otherwise we exhausted our our options and return an error.
-            (_, _) => return Err(Error::NoHosts),
+            // Otherwise we exhausted our our options and return None
+            (_, _) => return Ok(None),
         };
 
-        Ok(best)
+        Ok(Some(best))
     }
 
     pub async fn scheduler(&self, conn: &mut Conn<'_>) -> Result<Option<NodeScheduler>, Error> {
         let Some(resource) = self.scheduler_resource else {
             return Ok(None);
         };
+
         Ok(Some(NodeScheduler {
             region: self.region(conn).await?,
             similarity: self.scheduler_similarity,
@@ -433,71 +383,58 @@ impl Node {
     }
 
     pub async fn region(&self, conn: &mut Conn<'_>) -> Result<Option<Region>, Error> {
-        let region = self.scheduler_region.map(|r| Region::by_id(r, conn));
-        OptionFuture::from(region)
+        let Some(region_id) = self.scheduler_region_id else {
+            return Ok(None);
+        };
+
+        Region::by_id(region_id, conn)
             .await
-            .transpose()
+            .map(Some)
             .map_err(Error::Region)
     }
 
-    pub fn allow_ips(&self) -> Result<Vec<FilteredIpAddr>, Error> {
-        Self::filtered_ip_addrs(self.allow_ips.clone())
-    }
-
-    pub fn deny_ips(&self) -> Result<Vec<FilteredIpAddr>, Error> {
-        Self::filtered_ip_addrs(self.deny_ips.clone())
-    }
-
-    fn filtered_ip_addrs(value: serde_json::Value) -> Result<Vec<FilteredIpAddr>, Error> {
-        serde_json::from_value(value).map_err(Error::FilteredIps)
-    }
-
-    pub fn jobs(&self) -> Result<Vec<NodeJob>, Error> {
-        serde_json::from_value(self.jobs.clone()).map_err(Error::UnparsableJobs)
-    }
-
-    pub fn not_deleted() -> NotDeleted {
-        nodes::table.filter(nodes::deleted_at.is_null())
+    pub fn status(&self) -> NodeStatus {
+        NodeStatus {
+            state: self.node_state,
+            next: self.next_state,
+            protocol: match (&self.protocol_state, self.protocol_health) {
+                (Some(state), Some(health)) => Some(ProtocolStatus {
+                    state: state.clone(),
+                    health,
+                }),
+                _ => None,
+            },
+        }
     }
 
     pub async fn report(
         &self,
-        resource: Resource,
+        created_by: Resource,
         message: String,
         conn: &mut Conn<'_>,
     ) -> Result<NodeReport, Error> {
-        let entry = ResourceEntry::from(resource);
         let report = NewNodeReport {
             node_id: self.id,
-            created_by: entry.resource_id,
-            created_by_resource: entry.resource_type,
+            created_by_type: created_by.typ(),
+            created_by_id: created_by.id(),
             message,
         };
         report.create(conn).await.map_err(Error::Report)
     }
 
-    pub const fn created_by_user(&self) -> Option<UserId> {
-        let (Some(resource_type), Some(id)) = (self.created_by_resource, self.created_by) else {
-            return None;
-        };
-        ResourceEntry::new(resource_type, id).user_id()
+    pub fn created_by(&self) -> Resource {
+        Resource::new(self.created_by_type, self.created_by_id)
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FilteredIpAddr {
-    pub ip: String,
-    pub description: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct NodeSearch {
     pub operator: SearchOperator,
     pub id: Option<String>,
-    pub ip: Option<String>,
     pub node_name: Option<String>,
-    pub dns_name: Option<String>,
     pub display_name: Option<String>,
+    pub dns_name: Option<String>,
+    pub ip: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -505,15 +442,13 @@ pub enum NodeSort {
     NodeName(SortOrder),
     DnsName(SortOrder),
     DisplayName(SortOrder),
-    HostName(SortOrder),
+    NodeState(SortOrder),
+    NextState(SortOrder),
+    ProtocolState(SortOrder),
+    ProtocolHealth(SortOrder),
+    BlockHeight(SortOrder),
     CreatedAt(SortOrder),
     UpdatedAt(SortOrder),
-    NodeType(SortOrder),
-    NodeStatus(SortOrder),
-    SyncStatus(SortOrder),
-    ContainerStatus(SortOrder),
-    StakingStatus(SortOrder),
-    BlockHeight(SortOrder),
 }
 
 impl NodeSort {
@@ -522,14 +457,12 @@ impl NodeSort {
         nodes::node_name: SelectableExpression<T>,
         nodes::dns_name: SelectableExpression<T>,
         nodes::display_name: SelectableExpression<T>,
-        hosts::name: SelectableExpression<T>,
         nodes::created_at: SelectableExpression<T>,
         nodes::updated_at: SelectableExpression<T>,
-        nodes::node_type: SelectableExpression<T>,
-        nodes::node_status: SelectableExpression<T>,
-        nodes::container_status: SelectableExpression<T>,
-        nodes::sync_status: SelectableExpression<T>,
-        nodes::staking_status: SelectableExpression<T>,
+        nodes::node_state: SelectableExpression<T>,
+        nodes::next_state: SelectableExpression<T>,
+        nodes::protocol_state: SelectableExpression<T>,
+        nodes::protocol_health: SelectableExpression<T>,
         nodes::block_height: SelectableExpression<T>,
     {
         use NodeSort::*;
@@ -545,32 +478,26 @@ impl NodeSort {
             DisplayName(Asc) => Box::new(nodes::display_name.asc()),
             DisplayName(Desc) => Box::new(nodes::display_name.desc()),
 
-            HostName(Asc) => Box::new(hosts::name.asc()),
-            HostName(Desc) => Box::new(hosts::name.desc()),
+            NodeState(Asc) => Box::new(nodes::node_state.asc()),
+            NodeState(Desc) => Box::new(nodes::node_state.desc()),
+
+            NextState(Asc) => Box::new(nodes::next_state.asc()),
+            NextState(Desc) => Box::new(nodes::next_state.desc()),
+
+            ProtocolState(Asc) => Box::new(nodes::protocol_state.asc()),
+            ProtocolState(Desc) => Box::new(nodes::protocol_state.desc()),
+
+            ProtocolHealth(Asc) => Box::new(nodes::protocol_health.asc()),
+            ProtocolHealth(Desc) => Box::new(nodes::protocol_health.desc()),
+
+            BlockHeight(Asc) => Box::new(nodes::block_height.asc()),
+            BlockHeight(Desc) => Box::new(nodes::block_height.desc()),
 
             CreatedAt(Asc) => Box::new(nodes::created_at.asc()),
             CreatedAt(Desc) => Box::new(nodes::created_at.desc()),
 
             UpdatedAt(Asc) => Box::new(nodes::updated_at.asc()),
             UpdatedAt(Desc) => Box::new(nodes::updated_at.desc()),
-
-            NodeType(Asc) => Box::new(nodes::node_type.asc()),
-            NodeType(Desc) => Box::new(nodes::node_type.desc()),
-
-            NodeStatus(Asc) => Box::new(nodes::node_status.asc()),
-            NodeStatus(Desc) => Box::new(nodes::node_status.desc()),
-
-            SyncStatus(Asc) => Box::new(nodes::sync_status.asc()),
-            SyncStatus(Desc) => Box::new(nodes::sync_status.desc()),
-
-            ContainerStatus(Asc) => Box::new(nodes::container_status.asc()),
-            ContainerStatus(Desc) => Box::new(nodes::container_status.desc()),
-
-            StakingStatus(Asc) => Box::new(nodes::staking_status.asc()),
-            StakingStatus(Desc) => Box::new(nodes::staking_status.desc()),
-
-            BlockHeight(Asc) => Box::new(nodes::block_height.asc()),
-            BlockHeight(Desc) => Box::new(nodes::block_height.desc()),
         }
     }
 }
@@ -578,29 +505,24 @@ impl NodeSort {
 #[derive(Debug)]
 pub struct NodeFilter {
     pub org_ids: Vec<OrgId>,
-    pub offset: u64,
-    pub limit: u64,
-    pub statuses: Vec<NodeStatus>,
-    pub sync_statuses: Vec<SyncStatus>,
-    pub container_statuses: Vec<ContainerStatus>,
-    pub node_types: Vec<NodeType>,
-    pub blockchain_ids: Vec<BlockchainId>,
+    pub protocol_ids: Vec<ProtocolId>,
     pub host_ids: Vec<HostId>,
     pub user_ids: Vec<UserId>,
     pub ip_addresses: Vec<IpNetwork>,
-    pub versions: Vec<String>,
-    pub networks: Vec<String>,
-    pub regions: Vec<String>,
+    pub node_states: Vec<NodeState>,
+    pub next_states: Vec<NextState>,
+    pub semantic_versions: Vec<String>,
     pub search: Option<NodeSearch>,
     pub sort: VecDeque<NodeSort>,
+    pub offset: u64,
+    pub limit: u64,
 }
 
 impl NodeFilter {
+    const DELETED_STATES: &[NodeState] = &[NodeState::Deleting, NodeState::Deleted];
+
     pub async fn query(mut self, conn: &mut Conn<'_>) -> Result<(Vec<Node>, u64), Error> {
-        let mut query = nodes::table
-            .inner_join(hosts::table)
-            .left_join(regions::table)
-            .into_boxed();
+        let mut query = nodes::table.into_boxed();
 
         if let Some(search) = self.search {
             query = query.filter(search.into_expression());
@@ -615,48 +537,36 @@ impl NodeFilter {
         }
 
         if !self.user_ids.is_empty() {
-            query = query.filter(nodes::created_by.eq_any(self.user_ids));
+            query = query.filter(nodes::created_by_id.eq_any(self.user_ids));
         }
 
-        if !self.blockchain_ids.is_empty() {
-            query = query.filter(nodes::blockchain_id.eq_any(self.blockchain_ids));
+        if !self.protocol_ids.is_empty() {
+            query = query.filter(nodes::protocol_id.eq_any(self.protocol_ids));
         }
 
         if !self.ip_addresses.is_empty() {
-            query = query.filter(nodes::ip.eq_any(self.ip_addresses));
+            query = query.filter(nodes::ip_address.eq_any(self.ip_addresses));
         }
 
-        if !self.versions.is_empty() {
-            query = query.filter(nodes::version.eq_any(self.versions));
+        if !self.semantic_versions.is_empty() {
+            query = query.filter(nodes::semantic_version.eq_any(self.semantic_versions));
         }
 
-        if !self.networks.is_empty() {
-            query = query.filter(nodes::network.eq_any(self.networks));
-        }
-
-        if !self.regions.is_empty() {
-            query = query.filter(regions::name.eq_any(self.regions));
-        }
-
-        // If the user requested a deleted status, we include deleted records with the response.
-        // Conversely, if no such request is made, we exlude all deleted rows.
-        if !self.statuses.iter().any(|s| DELETED_STATUSES.contains(s)) {
+        // exclude deleted nodes unless a deleted state is requested.
+        if !self
+            .node_states
+            .iter()
+            .any(|s| Self::DELETED_STATES.contains(s))
+        {
             query = query.filter(nodes::deleted_at.is_null());
         }
-        if !self.statuses.is_empty() {
-            query = query.filter(nodes::node_status.eq_any(self.statuses));
+
+        if !self.node_states.is_empty() {
+            query = query.filter(nodes::node_state.eq_any(self.node_states));
         }
 
-        if !self.sync_statuses.is_empty() {
-            query = query.filter(nodes::sync_status.eq_any(self.sync_statuses));
-        }
-
-        if !self.container_statuses.is_empty() {
-            query = query.filter(nodes::container_status.eq_any(self.container_statuses));
-        }
-
-        if !self.node_types.is_empty() {
-            query = query.filter(nodes::node_type.eq_any(self.node_types));
+        if !self.next_states.is_empty() {
+            query = query.filter(nodes::next_state.eq_any(self.next_states));
         }
 
         if let Some(sort) = self.sort.pop_front() {
@@ -678,55 +588,51 @@ impl NodeFilter {
     }
 }
 
-type NodesHostsAndRegions =
-    LeftJoinQuerySource<InnerJoinQuerySource<nodes::table, hosts::table>, regions::table>;
-
 impl NodeSearch {
-    fn into_expression(
-        self,
-    ) -> Box<dyn BoxableExpression<NodesHostsAndRegions, Pg, SqlType = Bool>> {
+    fn into_expression(self) -> Box<dyn BoxableExpression<nodes::table, Pg, SqlType = Bool>> {
         match self.operator {
             SearchOperator::Or => {
-                let mut predicate: Box<
-                    dyn BoxableExpression<NodesHostsAndRegions, Pg, SqlType = Bool>,
-                > = Box::new(false.into_sql::<Bool>());
+                let mut predicate: Box<dyn BoxableExpression<nodes::table, Pg, SqlType = Bool>> =
+                    Box::new(false.into_sql::<Bool>());
                 if let Some(id) = self.id {
-                    predicate = Box::new(predicate.or(super::text(nodes::id).like(id)));
-                }
-                if let Some(ip) = self.ip {
-                    predicate = Box::new(predicate.or(abbrev(nodes::ip).like(ip)));
+                    predicate = Box::new(predicate.or(sql::text(nodes::id).like(id)));
                 }
                 if let Some(name) = self.node_name {
-                    predicate = Box::new(predicate.or(super::lower(nodes::node_name).like(name)));
-                }
-                if let Some(name) = self.dns_name {
-                    predicate = Box::new(predicate.or(super::lower(nodes::dns_name).like(name)));
+                    predicate = Box::new(predicate.or(sql::lower(nodes::node_name).like(name)));
                 }
                 if let Some(name) = self.display_name {
-                    predicate =
-                        Box::new(predicate.or(super::lower(nodes::display_name).like(name)));
+                    predicate = Box::new(
+                        predicate.or(sql::lower(sql::coalesce(nodes::display_name, "")).like(name)),
+                    );
+                }
+                if let Some(name) = self.dns_name {
+                    predicate = Box::new(predicate.or(sql::lower(nodes::dns_name).like(name)));
+                }
+                if let Some(ip) = self.ip {
+                    predicate = Box::new(predicate.or(dsl::abbrev(nodes::ip_address).like(ip)));
                 }
                 predicate
             }
             SearchOperator::And => {
-                let mut predicate: Box<
-                    dyn BoxableExpression<NodesHostsAndRegions, Pg, SqlType = Bool>,
-                > = Box::new(true.into_sql::<Bool>());
+                let mut predicate: Box<dyn BoxableExpression<nodes::table, Pg, SqlType = Bool>> =
+                    Box::new(true.into_sql::<Bool>());
                 if let Some(id) = self.id {
-                    predicate = Box::new(predicate.and(super::text(nodes::id).like(id)));
-                }
-                if let Some(ip) = self.ip {
-                    predicate = Box::new(predicate.and(abbrev(nodes::ip).like(ip)));
+                    predicate = Box::new(predicate.and(sql::text(nodes::id).like(id)));
                 }
                 if let Some(name) = self.node_name {
-                    predicate = Box::new(predicate.and(super::lower(nodes::node_name).like(name)));
-                }
-                if let Some(name) = self.dns_name {
-                    predicate = Box::new(predicate.and(super::lower(nodes::dns_name).like(name)));
+                    predicate = Box::new(predicate.and(sql::lower(nodes::node_name).like(name)));
                 }
                 if let Some(name) = self.display_name {
-                    predicate =
-                        Box::new(predicate.and(super::lower(nodes::display_name).like(name)));
+                    predicate = Box::new(
+                        predicate
+                            .and(sql::lower(sql::coalesce(nodes::display_name, "")).like(name)),
+                    );
+                }
+                if let Some(name) = self.dns_name {
+                    predicate = Box::new(predicate.and(sql::lower(nodes::dns_name).like(name)));
+                }
+                if let Some(ip) = self.ip {
+                    predicate = Box::new(predicate.and(dsl::abbrev(nodes::ip_address).like(ip)));
                 }
                 predicate
             }
@@ -738,60 +644,81 @@ impl NodeSearch {
 #[diesel(table_name = nodes)]
 pub struct NewNode {
     pub org_id: OrgId,
-    pub version: NodeVersion,
-    pub blockchain_id: BlockchainId,
-    pub block_height: Option<i64>,
-    pub node_data: Option<serde_json::Value>,
-    pub node_status: NodeStatus,
-    pub sync_status: SyncStatus,
-    pub staking_status: StakingStatus,
-    pub container_status: ContainerStatus,
-    pub self_update: bool,
-    pub vcpu_count: i64,
-    pub mem_size_bytes: i64,
-    pub disk_size_bytes: i64,
-    pub network: NodeNetwork,
-    pub allow_ips: serde_json::Value,
-    pub deny_ips: serde_json::Value,
-    pub node_type: NodeType,
-    pub created_by: ResourceId,
-    pub created_by_resource: ResourceType,
-    /// Controls whether to run the node on hosts that contain nodes similar to this one.
+    pub image_id: ImageId,
+    pub config_id: ConfigId,
+    pub old_node_id: Option<NodeId>,
+    pub protocol_id: ProtocolId,
+    pub protocol_version_id: VersionId,
+    pub semantic_version: Version,
+    pub auto_upgrade: bool,
     pub scheduler_similarity: Option<SimilarNodeAffinity>,
-    /// Controls whether to run the node on hosts that are full or empty.
     pub scheduler_resource: Option<ResourceAffinity>,
-    /// The region where this node should be deployed.
-    pub scheduler_region: Option<RegionId>,
-    pub tags: Vec<Option<String>>,
+    pub scheduler_region_id: Option<RegionId>,
+    pub tags: Tags,
 }
 
 impl NewNode {
     pub async fn create(
         &self,
         node_counts: Option<Vec<NodeCount>>,
-        blockchain: &Blockchain,
+        created_by: Resource,
         authz: &AuthZ,
         write: &mut WriteConn<'_, '_>,
     ) -> Result<Vec<Node>, Error> {
+        let config = Config::by_id(self.config_id, write).await?;
+        let node_config = config.node_config()?;
+
         let org = Org::by_id(self.org_id, write).await?;
+        let version =
+            ProtocolVersion::by_id(self.protocol_version_id, Some(self.org_id), authz, write)
+                .await?;
+
+        let secrets = if let Some(old_id) = self.old_node_id {
+            let prefix = format!("node/{old_id}/secret");
+            let names = write.ctx.vault.read().await.list_path(&prefix).await?;
+
+            if let Some(names) = names {
+                let mut secrets = HashMap::with_capacity(names.len());
+                for name in names {
+                    let path = format!("{prefix}/{name}");
+                    let result = write.ctx.vault.read().await.get_bytes(&path).await;
+                    let _ = match result {
+                        Ok(data) => secrets.insert(name.clone(), data),
+                        Err(crate::store::vault::Error::PathNotFound) => None,
+                        Err(err) => return Err(err.into()),
+                    };
+                }
+                Some(secrets)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         let mut created = Vec::new();
-
         if let Some(counts) = node_counts {
             for count in counts {
-                let host = Host::by_id(count.host_id, write).await?;
-                let region = Region::by_id(host.region_id.ok_or(Error::NoRegion)?, write).await?;
+                let host = Host::by_id(count.host_id, None, write).await?;
                 for _ in 0..count.node_count {
                     match self
-                        .create_node(&host, blockchain, &org, &region, authz, write)
+                        .create_node(
+                            &host,
+                            &org,
+                            &version,
+                            &node_config,
+                            secrets.as_ref(),
+                            created_by,
+                            authz,
+                            write,
+                        )
                         .await
                     {
                         Ok(node) => created.push(node),
                         Err(err) => {
                             for node in created {
-                                let dns_id = &node.dns_record_id;
-                                if let Err(err) = write.ctx.dns.delete(dns_id).await {
-                                    warn!("Failed to delete DNS record {dns_id}: {err}");
+                                if let Err(err) = write.ctx.dns.delete(&node.dns_id).await {
+                                    warn!("Failed to delete DNS record {}: {err}", node.dns_id);
                                 }
                             }
 
@@ -805,10 +732,18 @@ impl NewNode {
                 .scheduler(write)
                 .await?
                 .ok_or(Error::NoHostOrScheduler)?;
-            let region = scheduler.region.clone().ok_or(Error::NoRegion)?;
-            let host = self.find_host(scheduler, blockchain, write).await?;
+            let host = self.find_host(scheduler, authz, write).await?;
             let node = self
-                .create_node(&host, blockchain, &org, &region, authz, write)
+                .create_node(
+                    &host,
+                    &org,
+                    &version,
+                    &node_config,
+                    secrets.as_ref(),
+                    created_by,
+                    authz,
+                    write,
+                )
                 .await?;
             created.push(node);
         }
@@ -816,56 +751,85 @@ impl NewNode {
         Ok(created)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_node(
         &self,
         host: &Host,
-        blockchain: &Blockchain,
         org: &Org,
-        region: &Region,
+        version: &ProtocolVersion,
+        node_config: &NodeConfig,
+        secrets: Option<&HashMap<String, Vec<u8>>>,
+        created_by: Resource,
         authz: &AuthZ,
         mut write: &mut WriteConn<'_, '_>,
     ) -> Result<Node, Error> {
-        let ip_gateway = host.ip_gateway.ip().to_string();
-        let node_ip = IpAddress::by_host_unassigned(host.id, write)
-            .await
-            .map_err(Error::NextHostIp)?;
+        let cpu_cores = i64::try_from(node_config.vm.cpu_cores).map_err(Error::VmCpu)?;
+        let memory_bytes = i64::try_from(node_config.vm.memory_bytes).map_err(Error::VmMemory)?;
+        let disk_bytes = i64::try_from(node_config.vm.disk_bytes).map_err(Error::VmDisk)?;
 
-        // Users that have the billing-exempt permission do not need billing
-        let needs_billing = !authz.has_perm(BillingPerm::Exempt);
-        let item_id = if needs_billing {
-            let sku = Blockchain::sku(&self.network, blockchain, region)?;
-            let item = create_subscription_item(org, &sku, &**write.ctx.stripe.as_ref()).await?;
-            Some(item.id)
-        } else {
+        if cpu_cores + host.node_cpu_cores > host.cpu_cores {
+            return Err(Error::HostFreeCpu(host.id));
+        } else if memory_bytes + host.node_memory_bytes > host.memory_bytes {
+            return Err(Error::HostFreeMem(host.id));
+        } else if disk_bytes + host.node_disk_bytes > host.disk_bytes {
+            return Err(Error::HostFreeDisk(host.id));
+        }
+
+        let ip_address = IpAddress::next_for_host(host.id, write)
+            .await?
+            .ok_or_else(|| Error::HostFreeIp(host.id))?;
+
+        let stripe_item_id = if authz.has_perm(BillingPerm::Exempt) {
             None
+        } else {
+            let region = Region::by_id(host.region_id.ok_or(Error::NoRegion)?, write).await?;
+            if let Some(sku) = version.sku(&region) {
+                let item = write.ctx.stripe.add_subscription(org, &sku).await?;
+                Some(item.id)
+            } else {
+                None
+            }
         };
 
         loop {
             let name = Petnames::small()
                 .generate_one(3, "-")
-                .ok_or(Error::RegenerateName)?;
-            let dns_record = write.ctx.dns.create(&name, node_ip.ip()).await?;
-            let dns_id = dns_record.id;
+                .ok_or(Error::GenerateName)?;
+            let dns_id = write.ctx.dns.create(&name, ip_address.ip.ip()).await?.id;
 
             match diesel::insert_into(nodes::table)
                 .values((
                     self,
                     nodes::node_name.eq(&name),
-                    nodes::dns_name.eq(&name),
-                    nodes::display_name.eq(&name),
                     nodes::host_id.eq(host.id),
-                    nodes::ip_gateway.eq(&ip_gateway),
-                    nodes::ip.eq(node_ip.ip),
-                    nodes::dns_record_id.eq(&dns_id),
-                    nodes::url.eq(&dns_record.name),
-                    nodes::stripe_item_id.eq(&item_id),
+                    nodes::node_state.eq(NodeState::Starting),
+                    nodes::ip_address.eq(&ip_address.ip),
+                    nodes::ip_gateway.eq(&host.ip_gateway),
+                    nodes::dns_id.eq(&dns_id),
+                    nodes::dns_name.eq(&name),
+                    nodes::cpu_cores.eq(cpu_cores),
+                    nodes::memory_bytes.eq(memory_bytes),
+                    nodes::disk_bytes.eq(disk_bytes),
+                    nodes::stripe_item_id.eq(&stripe_item_id),
+                    nodes::created_by_type.eq(created_by.typ()),
+                    nodes::created_by_id.eq(created_by.id()),
+                    nodes::created_at.eq(Utc::now()),
                 ))
-                .get_result(&mut write)
+                .get_result::<Node>(&mut write)
                 .await
             {
                 Ok(node) => {
-                    Org::increment_node(self.org_id, write).await?;
-                    Host::increment_node(host.id, write).await?;
+                    Org::add_node(self.org_id, write).await?;
+                    Host::add_node(&node, write).await?;
+
+                    if let Some(secrets) = secrets {
+                        for (name, data) in secrets {
+                            let path = format!("node/{}/secret/{name}", node.id);
+                            let _version =
+                                write.ctx.vault.read().await.set_bytes(&path, data).await?;
+                        }
+                    }
+
                     return Ok(node);
                 }
 
@@ -887,29 +851,27 @@ impl NewNode {
         }
     }
 
-    /// Finds the most suitable host to initially place the node on.
-    ///
-    /// Since this is a freshly created node, we do not need to worry about
-    /// logic regarding where to retry placing the node. We simply ask for an
-    /// ordered list of the most suitable hosts, and pick the first one.
+    /// Finds the most suitable host to place the node on.
     async fn find_host(
         &self,
         scheduler: NodeScheduler,
-        blockchain: &Blockchain,
-        write: &mut WriteConn<'_, '_>,
+        authz: &AuthZ,
+        conn: &mut Conn<'_>,
     ) -> Result<Host, Error> {
-        let image = ImageId::new(&blockchain.name, self.node_type, self.version.clone());
-        let metadata = write.ctx.storage.rhai_metadata(&image).await?;
+        let config = Config::by_id(self.config_id, conn).await?;
+        let node_config = config.node_config()?;
+        let protocol = Protocol::by_id(self.protocol_id, Some(self.org_id), authz, conn).await?;
 
         let requirements = HostRequirements {
-            requirements: metadata.requirements,
-            node_type: self.node_type,
-            host_type: Some(HostType::Cloud),
             scheduler,
+            protocol: &protocol,
             org_id: None,
+            cpu_cores: i64::try_from(node_config.vm.cpu_cores).map_err(Error::VmCpu)?,
+            memory_bytes: i64::try_from(node_config.vm.memory_bytes).map_err(Error::VmMemory)?,
+            disk_bytes: i64::try_from(node_config.vm.disk_bytes).map_err(Error::VmDisk)?,
         };
 
-        let candidates = Host::host_candidates(requirements, blockchain, Some(1), write).await?;
+        let candidates = Host::candidates(requirements, Some(1), conn).await?;
         candidates.into_iter().next().ok_or(Error::NoMatchingHost)
     }
 
@@ -917,70 +879,14 @@ impl NewNode {
         let Some(resource) = self.scheduler_resource else {
             return Ok(None);
         };
-        let region = self.scheduler_region.map(|id| Region::by_id(id, conn));
-        let region = OptionFuture::from(region)
-            .await
-            .transpose()
-            .map_err(Error::Region)?;
+        let region = self.scheduler_region_id.map(|id| Region::by_id(id, conn));
+        let region = OptionFuture::from(region).await.transpose()?;
 
         Ok(Some(NodeScheduler {
             region,
             similarity: self.scheduler_similarity,
             resource,
         }))
-    }
-}
-
-async fn create_subscription_item(
-    org: &Org,
-    sku: &str,
-    stripe: &(dyn Payment + Sync),
-) -> Result<SubscriptionItem, Error> {
-    // If there is no corresponding record in stripe for this org, we cannot continue.
-    let stripe_customer_id = org
-        .stripe_customer_id
-        .as_ref()
-        .ok_or_else(|| Error::NoStripeCustomer(org.id))?;
-
-    let price = stripe.get_price(sku).await?;
-    if let Some(subscription) = stripe
-        .get_subscription_by_customer(stripe_customer_id)
-        .await?
-    {
-        // If there is a subscription, we either need to increment the `quantity` of an existing
-        // `item`, or we need to create a new item.
-        if let Some(item) = stripe
-            .find_subscription_item(&subscription.id, &price.id)
-            .await?
-        {
-            // We found an item, so we will increase it's quantity by 1. Note that if no
-            // quantity is set, that is equivalent to the quantity being 1.
-            let new_quantity = QuantityModification::Increment {
-                current_quantity: item.quantity,
-            };
-            let item = stripe
-                .update_subscription_item(&item.id, new_quantity)
-                .await?;
-            Ok(item)
-        } else {
-            // Since the subscription existed, but no item for the current `sku` already
-            // existed, we create a new item within this subscription.
-            let item = stripe
-                .create_subscription_item(&subscription.id, &price.id)
-                .await?;
-            Ok(item)
-        }
-    } else {
-        // There wasn't a subscription, so we create it and add the `item` for this node to it
-        // straight away.
-        let item = stripe
-            .create_subscription(stripe_customer_id, &price.id)
-            .await?
-            .items
-            .data
-            .pop()
-            .ok_or(Error::NoSubscriptionItem)?;
-        Ok(item)
     }
 }
 
@@ -998,92 +904,164 @@ impl NodeCount {
     }
 }
 
-impl TryFrom<&api::NodeCount> for NodeCount {
+impl TryFrom<&common::NodeCount> for NodeCount {
     type Error = Error;
 
-    fn try_from(api: &api::NodeCount) -> Result<Self, Self::Error> {
+    fn try_from(count: &common::NodeCount) -> Result<Self, Self::Error> {
         Ok(NodeCount {
-            host_id: api.host_id.parse().map_err(Error::ParseHostId)?,
-            node_count: api.node_count,
+            host_id: count.host_id.parse().map_err(Error::ParseHostId)?,
+            node_count: count.node_count,
         })
     }
 }
 
-#[derive(Debug, Default, AsChangeset)]
+#[derive(Debug, AsChangeset)]
 #[diesel(table_name = nodes)]
-pub struct UpdateNode<'a> {
+pub struct UpdateNode<'u> {
+    pub id: NodeId,
     pub org_id: Option<OrgId>,
     pub host_id: Option<HostId>,
-    pub display_name: Option<&'a str>,
-    pub version: Option<NodeVersion>,
-    pub ip: Option<IpNetwork>,
-    pub ip_gateway: Option<&'a str>,
-    pub block_height: Option<i64>,
-    pub node_data: Option<serde_json::Value>,
-    pub node_status: Option<NodeStatus>,
-    pub sync_status: Option<SyncStatus>,
-    pub staking_status: Option<StakingStatus>,
-    pub container_status: Option<ContainerStatus>,
-    pub self_update: Option<bool>,
-    pub address: Option<&'a str>,
-    pub note: Option<&'a str>,
-    pub tags: Option<Vec<Option<String>>>,
+    pub display_name: Option<&'u str>,
+    pub auto_upgrade: Option<bool>,
+    pub ip_address: Option<IpNetwork>,
+    pub ip_gateway: Option<IpNetwork>,
+    pub note: Option<&'u str>,
+    pub tags: Option<Tags>,
 }
 
-/// Update node columns related to metrics.
-#[derive(Debug, Insertable, AsChangeset)]
+impl<'u> UpdateNode<'u> {
+    pub async fn apply(self, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Node, Error> {
+        let node = Node::by_id(self.id, conn).await?;
+
+        if let Some(org_id) = self.org_id {
+            if org_id != node.org_id {
+                if !authz.has_perm(NodeAdminPerm::Transfer) {
+                    return Err(Error::MissingTransferPerm);
+                }
+
+                let event = LogEvent::OrgTransferred(log::OrgTransferred {
+                    old: node.org_id,
+                    new: org_id,
+                });
+                NewNodeLog::from(&node, authz, event).create(conn).await?;
+            }
+        }
+
+        diesel::update(nodes::table.find(self.id))
+            .set((self, nodes::updated_at.eq(Utc::now())))
+            .get_result(conn)
+            .await
+            .map_err(Error::UpdateConfig)
+    }
+}
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = nodes)]
+pub struct UpdateNodeState<'u> {
+    pub id: NodeId,
+    pub node_state: Option<NodeState>,
+    pub next_state: Option<Option<NextState>>,
+    pub protocol_state: Option<String>,
+    pub protocol_health: Option<NodeHealth>,
+    pub p2p_address: Option<&'u str>,
+}
+
+impl<'u> UpdateNodeState<'u> {
+    pub async fn apply(self, conn: &mut Conn<'_>) -> Result<Node, Error> {
+        diesel::update(nodes::table.find(self.id))
+            .set((self, nodes::updated_at.eq(Utc::now())))
+            .get_result(conn)
+            .await
+            .map_err(Error::UpdateStatus)
+    }
+}
+
+#[derive(Debug, AsChangeset)]
 #[diesel(table_name = nodes)]
 pub struct UpdateNodeMetrics {
     pub id: NodeId,
+    pub node_state: Option<NodeState>,
+    pub protocol_state: Option<String>,
+    pub protocol_health: Option<NodeHealth>,
     pub block_height: Option<i64>,
     pub block_age: Option<i64>,
-    pub staking_status: Option<StakingStatus>,
     pub consensus: Option<bool>,
-    pub node_status: Option<NodeStatus>,
-    pub sync_status: Option<SyncStatus>,
-    pub jobs: Option<serde_json::Value>,
+    pub jobs: Option<NodeJobs>,
 }
 
 impl UpdateNodeMetrics {
     pub async fn apply(&self, conn: &mut Conn<'_>) -> Result<Node, Error> {
-        diesel::update(Node::not_deleted().find(self.id))
+        let row = nodes::table
+            .find(self.id)
+            .filter(nodes::deleted_at.is_null());
+
+        diesel::update(row)
             .set(self)
             .get_result(conn)
             .await
-            .map_err(|err| Error::UpdateMetrics(err, self.id))
+            .map_err(|err| Error::UpdateMetrics(self.id, err))
     }
 
-    pub async fn update_metrics(
-        mut updates: Vec<Self>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Node>, Error> {
-        // We do this for determinism in our tests.
-        updates.sort_by_key(|u| u.id);
-
+    pub async fn apply_all(updates: Vec<Self>, conn: &mut Conn<'_>) -> Result<Vec<Node>, Error> {
         let mut results = Vec::with_capacity(updates.len());
-        for update in updates.into_iter().filter(Self::has_field) {
+        for update in updates {
             let updated = update.apply(conn).await?;
             results.push(updated);
         }
-
         Ok(results)
     }
+}
 
-    const fn has_field(&self) -> bool {
-        self.block_height.is_some()
-            || self.block_age.is_some()
-            || self.staking_status.is_some()
-            || self.consensus.is_some()
-            || self.node_status.is_some()
-            || self.sync_status.is_some()
-            || self.jobs.is_some()
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = nodes)]
+pub struct UpgradeNode {
+    pub id: NodeId,
+    pub org_id: Option<OrgId>,
+    pub image_id: ImageId,
+}
+
+impl UpgradeNode {
+    pub async fn apply(self, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Node, Error> {
+        let node = Node::by_id(self.id, conn).await?;
+        let config = Config::by_id(node.config_id, conn).await?;
+        let org_id = Some(self.org_id.unwrap_or(node.org_id));
+
+        if self.image_id == config.image_id {
+            return Err(Error::UpgradeSameImage);
+        }
+
+        let image = Image::by_id(self.image_id, org_id, authz, conn).await?;
+        let old_config = config.node_config()?;
+        let new_config = old_config.upgrade(image, org_id, conn).await?;
+
+        let new_config = NewConfig {
+            image_id: self.image_id,
+            archive_id: new_config.image.archive_id,
+            config_type: ConfigType::Node,
+            config: new_config.into(),
+        };
+        let config = new_config.create(authz, conn).await?;
+
+        let event = LogEvent::UpgradeStarted(log::UpgradeStarted {
+            old: node.image_id,
+            new: self.image_id,
+        });
+        NewNodeLog::from(&node, authz, event).create(conn).await?;
+
+        diesel::update(nodes::table.find(self.id))
+            .set((
+                nodes::image_id.eq(self.image_id),
+                nodes::config_id.eq(config.id),
+                nodes::updated_at.eq(Utc::now()),
+            ))
+            .get_result(conn)
+            .await
+            .map_err(Error::Upgrade)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use diesel_async::scoped_futures::ScopedFutureExt;
-    use diesel_async::AsyncConnection;
     use tokio::sync::mpsc;
 
     use crate::auth::rbac::access::tests::view_authz;
@@ -1094,38 +1072,6 @@ mod tests {
     #[tokio::test]
     async fn can_filter_nodes() {
         let (ctx, db) = Context::with_mocked().await.unwrap();
-
-        let user_id = db.seed.user.id;
-        let org_id = db.seed.org.id;
-        let host_id = db.seed.host.id;
-        let blockchain_id = db.seed.blockchain.id;
-
-        let req = NewNode {
-            org_id,
-            blockchain_id,
-            node_status: NodeStatus::Ingesting,
-            sync_status: SyncStatus::Syncing,
-            container_status: ContainerStatus::Installing,
-            block_height: None,
-            node_data: None,
-            version: "3.3.0".to_string().into(),
-            staking_status: StakingStatus::Staked,
-            self_update: false,
-            vcpu_count: 0,
-            mem_size_bytes: 0,
-            disk_size_bytes: 0,
-            network: "some network".to_string().into(),
-            node_type: NodeType::Validator,
-            created_by: user_id.into(),
-            created_by_resource: ResourceType::User,
-            scheduler_similarity: None,
-            scheduler_resource: Some(ResourceAffinity::MostResources),
-            scheduler_region: None,
-            allow_ips: serde_json::json!([]),
-            deny_ips: serde_json::json!([]),
-            tags: vec![Some("nicenode".to_string())],
-        };
-
         let (meta_tx, _meta_rx) = mpsc::unbounded_channel();
         let (mqtt_tx, _mqtt_rx) = mpsc::unbounded_channel();
         let mut write = WriteConn {
@@ -1135,41 +1081,43 @@ mod tests {
             mqtt_tx,
         };
 
-        let node_counts = Some(vec![NodeCount::one(host_id)]);
-        let authz = view_authz(&ctx, db.seed.node.id, &mut write).await;
-        let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write)
+        let new_node = NewNode {
+            org_id: db.seed.org.id,
+            image_id: db.seed.image.id,
+            config_id: db.seed.config.id,
+            old_node_id: None,
+            protocol_id: db.seed.protocol.id,
+            protocol_version_id: db.seed.version.id,
+            semantic_version: "1.2.3".parse().unwrap(),
+            auto_upgrade: false,
+            scheduler_similarity: None,
+            scheduler_resource: Some(ResourceAffinity::MostResources),
+            scheduler_region_id: None,
+            tags: Default::default(),
+        };
+
+        let node_counts = Some(vec![NodeCount::one(db.seed.host1.id)]);
+        let authz = view_authz(db.seed.node.id);
+        let created_by = Resource::from(&authz);
+
+        new_node
+            .create(node_counts, created_by, &authz, &mut write)
             .await
             .unwrap();
 
-        write
-            .transaction(|conn| {
-                async move {
-                    req.create(node_counts, &blockchain, &authz, conn)
-                        .await
-                        .unwrap();
-                    Ok(()) as Result<(), diesel::result::Error>
-                }
-                .scope_boxed()
-            })
-            .await
-            .unwrap();
         let filter = NodeFilter {
-            org_ids: vec![org_id],
-            offset: 0,
-            limit: 10,
-            statuses: vec![NodeStatus::Ingesting],
-            sync_statuses: vec![],
-            container_statuses: vec![],
-            node_types: vec![],
-            blockchain_ids: vec![blockchain_id],
-            host_ids: vec![host_id],
+            org_ids: vec![db.seed.org.id],
+            protocol_ids: vec![db.seed.protocol.id],
+            host_ids: vec![db.seed.host1.id],
             user_ids: vec![],
             ip_addresses: vec![],
-            versions: vec![],
-            networks: vec![],
-            regions: vec![],
+            node_states: vec![NodeState::Running],
+            next_states: vec![],
+            semantic_versions: vec![],
             search: None,
             sort: VecDeque::new(),
+            offset: 0,
+            limit: 10,
         };
 
         let (nodes, _count) = filter.query(&mut write).await.unwrap();

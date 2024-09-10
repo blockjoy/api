@@ -133,6 +133,21 @@ impl Provider {
 
     /// Parse the config variable defined by `var` or `entry`.
     ///
+    /// If the config variable does not exist, return None instead.
+    pub fn maybe_read<T, E>(&self, var: &str, entry: &'static str) -> Result<Option<T>, Error>
+    where
+        T: FromStr<Err = E>,
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        match self.read_fn(var, entry, None::<Box<dyn FnOnce() -> Result<T, E>>>) {
+            Ok(val) => Ok(Some(val)),
+            Err(Error::NoEntry(_)) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Parse the config variable defined by `var` or `entry`.
+    ///
     /// If the config variable does not exist, return the default value instead.
     pub fn read_or<S, T, E>(&self, default: S, var: &str, entry: &'static str) -> Result<T, Error>
     where

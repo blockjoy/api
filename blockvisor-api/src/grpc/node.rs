@@ -1,53 +1,40 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
-use futures_util::future::OptionFuture;
 use thiserror::Error;
 use tonic::{Request, Response};
 use tracing::error;
-use uuid::Uuid;
 
-use crate::auth::rbac::{NodeAdminPerm, NodePerm};
-use crate::auth::resource::{
-    NodeId, OrgId, Resource, ResourceEntry, ResourceId, ResourceType, UserId,
-};
+use crate::auth::rbac::{CryptPerm, NodeAdminPerm, NodePerm, Perm};
+use crate::auth::resource::{NodeId, OrgId, Resource};
 use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
-use crate::model::blockchain::{
-    BlockchainNodeType, BlockchainProperty, BlockchainPropertyId, BlockchainVersion,
-};
 use crate::model::command::NewCommand;
+use crate::model::image::config::{Config, ConfigType, NewConfig, NodeConfig};
+use crate::model::image::ConfigId;
 use crate::model::node::{
-    ContainerStatus, FilteredIpAddr, NewNode, Node, NodeCount, NodeFilter, NodeJob,
-    NodeJobProgress, NodeJobStatus, NodeProperty, NodeReport, NodeScheduler, NodeSearch, NodeSort,
-    NodeStatus, NodeType, NodeVersion, StakingStatus, SyncStatus, UpdateNode,
+    NewNode, NextState, Node, NodeCount, NodeFilter, NodeReport, NodeScheduler, NodeSearch,
+    NodeSort, NodeState, NodeStatus, UpdateNode, UpdateNodeState, UpgradeNode,
 };
-use crate::model::{Blockchain, CommandType, Host, Org, Region, User};
-use crate::storage::image::ImageId;
-use crate::storage::metadata::HardwareRequirements;
+use crate::model::protocol::ProtocolVersion;
+use crate::model::{CommandType, Host, Image, Org, Protocol, Region};
+use crate::util::sql::{Tag, Tags};
 use crate::util::{HashVec, NanosUtc};
 
-use super::api::node_placement::Placement;
 use super::api::node_service_server::NodeService;
-use super::{api, common, Grpc, Metadata, Status};
+use super::command::node_update;
+use super::common::node_placement::Placement;
+use super::{api, common, Grpc};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to parse allow ips: {0}
-    AllowIps(serde_json::Error),
     /// Auth check failed: {0}
     Auth(#[from] crate::auth::Error),
     /// Auth token parsing failed: {0}
     AuthToken(#[from] crate::auth::token::Error),
-    /// Node blockchain error: {0}
-    Blockchain(#[from] crate::model::blockchain::Error),
-    /// Node blockchain node type error: {0}
-    BlockchainNodeType(#[from] crate::model::blockchain::node_type::Error),
-    /// Node blockchain property error: {0}
-    BlockchainProperty(#[from] crate::model::blockchain::property::Error),
-    /// Node blockchain property error: {0}
-    BlockchainVersion(#[from] crate::model::blockchain::version::Error),
+    /// Failed to parse block age: {0}
+    BlockAge(std::num::TryFromIntError),
     /// Failed to parse block height: {0}
     BlockHeight(std::num::TryFromIntError),
     /// Claims check failed: {0}
@@ -56,78 +43,78 @@ pub enum Error {
     Command(#[from] crate::model::command::Error),
     /// Node grpc command error: {0}
     CommandGrpc(#[from] crate::grpc::command::Error),
-    /// Failed to parse deny ips: {0}
-    DenyIps(serde_json::Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
-    /// Failed to parse disk size bytes: {0}
-    DiskSize(std::num::TryFromIntError),
-    /// Failed to generate node name. This should not happen.
-    GenerateName,
     /// Node host error: {0}
     Host(#[from] crate::model::host::Error),
+    /// Node image error: {0}
+    Image(#[from] crate::model::image::Error),
+    /// Node image config error: {0}
+    ImageConfig(#[from] crate::model::image::config::Error),
+    /// Node image property error: {0}
+    ImageProperty(#[from] crate::model::image::property::Error),
     /// Node ip address error: {0}
     IpAddress(#[from] crate::model::ip_address::Error),
-    /// Failed to parse mem size bytes: {0}
-    MemSize(std::num::TryFromIntError),
     /// No node ids given.
     MissingIds,
     /// Missing placement.
     MissingPlacement,
-    /// Missing blockchain property id: {0}.
-    MissingPropertyId(BlockchainPropertyId),
     /// Node model error: {0}
-    Model(#[from] crate::model::node::Error),
-    /// Node model property error: {0}
-    ModelProperty(#[from] crate::model::node::property::Error),
-    /// Node type model error: {0}
-    NodeType(#[from] crate::model::node::node_type::Error),
+    Node(#[from] crate::model::node::Error),
+    /// Node model status error: {0}
+    NodeStatus(#[from] crate::model::node::status::Error),
     /// No ResourceAffinity.
     NoResourceAffinity,
     /// Node org error: {0}
     Org(#[from] crate::model::org::Error),
-    /// Failed to parse BlockchainId: {0}
-    ParseBlockchainId(uuid::Error),
+    /// Failed to parse ConfigId: {0}
+    ParseConfigId(uuid::Error),
     /// Failed to parse HostId: {0}
     ParseHostId(uuid::Error),
     /// Failed to parse NodeId: {0}
     ParseId(uuid::Error),
-    /// Failed to parse IpAddr: {0}
-    ParseIpAddr(std::net::AddrParseError),
-    /// Failed to parse IpNetwork: {0}
-    ParseIpNetwork(ipnetwork::IpNetworkError),
-    /// Unable to parse node version: {0}
-    ParseNodeVersion(crate::model::node::node_type::Error),
+    /// Failed to parse ImageId: {0}
+    ParseImageId(uuid::Error),
+    /// Failed to parse ip: {0}
+    ParseIp(crate::util::sql::Error),
     /// Failed to parse OrgId: {0}
     ParseOrgId(uuid::Error),
-    /// Blockchain property not found: {0}
-    PropertyNotFound(String),
+    /// Failed to parse ProtocolId: {0}
+    ParseProtocolId(uuid::Error),
+    /// Failed to parse RegionId: {0}
+    ParseRegionId(uuid::Error),
+    /// Failed to parse UserId: {0}
+    ParseUserId(uuid::Error),
+    /// Node protocol error: {0}
+    Protocol(#[from] crate::model::protocol::Error),
+    /// Node protocol version error: {0}
+    ProtocolVersion(#[from] crate::model::protocol::version::Error),
     /// Node region error: {0}
     Region(#[from] crate::model::region::Error),
     /// Node report error: {0}
     Report(#[from] crate::model::node::report::Error),
+    /// Report config id `{0}` does not match node config id `{1}`.
+    ReportConfigId(ConfigId, ConfigId),
+    /// Report status has next_state which is only set by the server.
+    ReportNextState,
     /// Node resource error: {0}
     Resource(#[from] crate::auth::resource::Error),
+    /// Node firewall rule error: {0}
+    Rule(#[from] crate::model::image::rule::Error),
     /// Node search failed: {0}
     SearchOperator(crate::util::search::Error),
     /// Sort order: {0}
     SortOrder(crate::util::search::Error),
-    /// Node storage error: {0}
-    Storage(#[from] crate::storage::Error),
-    /// Failed to parse current data sync progress: {0}
-    SyncCurrent(std::num::TryFromIntError),
-    /// Failed to parse total data sync progress: {0}
-    SyncTotal(std::num::TryFromIntError),
-    /// Not all nodes to upgrade are for the same blockchain.
-    UpgradeBlockchain,
-    /// Not all nodes to upgrade are for the same node type.
-    UpgradeNodeType,
+    /// Node SQL error: {0}
+    Sql(#[from] crate::util::sql::Error),
+    /// Node store error: {0}
+    Store(#[from] crate::store::Error),
     /// The requested sort field is unknown.
     UnknownSortField,
-    /// Attempt to update status by {1} {2} of node `{0}`, which doesn't exist.
-    UpdateStatusMissingNode(NodeId, ResourceType, ResourceId),
     /// Node user error: {0}
     User(#[from] crate::model::user::Error),
+    /// Node vault error: {0}
+    Vault(#[from] crate::store::vault::Error),
 }
 
 impl From<Error> for Status {
@@ -135,48 +122,48 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            Diesel(_) | GenerateName | MissingPropertyId(_) | ModelProperty(_) | ParseIpAddr(_)
-            | PropertyNotFound(_) | Storage(_) => Status::internal("Internal error."),
-            AllowIps(_) => Status::invalid_argument("allow_ips"),
+            Diesel(_) | Store(_) => Status::internal("Internal error."),
+            BlockAge(_) => Status::invalid_argument("block_age"),
             BlockHeight(_) => Status::invalid_argument("block_height"),
-            DenyIps(_) => Status::invalid_argument("deny_ips"),
-            DiskSize(_) => Status::invalid_argument("disk_size_bytes"),
-            MemSize(_) => Status::invalid_argument("mem_size_bytes"),
             MissingIds => Status::invalid_argument("ids"),
             MissingPlacement => Status::invalid_argument("placement"),
             NoResourceAffinity => Status::invalid_argument("resource"),
-            ParseBlockchainId(_) => Status::invalid_argument("blockchain_id"),
+            ParseConfigId(_) => Status::invalid_argument("config_id"),
             ParseHostId(_) => Status::invalid_argument("host_id"),
             ParseId(_) => Status::invalid_argument("id"),
-            ParseIpNetwork(_) => Status::invalid_argument("ip_addresses"),
+            ParseImageId(_) => Status::invalid_argument("image_id"),
+            ParseIp(_) => Status::invalid_argument("ip_addresses"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
+            ParseProtocolId(_) => Status::invalid_argument("protocol_id"),
+            ParseRegionId(_) => Status::invalid_argument("region_id"),
+            ParseUserId(_) => Status::invalid_argument("user_id"),
+            ReportConfigId(_, _) => Status::failed_precondition("config_id"),
+            ReportNextState => Status::invalid_argument("status.next"),
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
-            SyncCurrent(_) => Status::invalid_argument("data_sync_progress_current"),
-            SyncTotal(_) => Status::invalid_argument("data_sync_progress_total"),
             UnknownSortField => Status::invalid_argument("sort.field"),
-            UpgradeBlockchain => Status::failed_precondition("Same blockchain."),
-            UpgradeNodeType => Status::failed_precondition("Same node type."),
-            UpdateStatusMissingNode(_, _, _) => Status::not_found("No such node"),
             Auth(err) => err.into(),
             AuthToken(err) => err.into(),
-            Blockchain(err) => err.into(),
-            BlockchainNodeType(err) => err.into(),
-            BlockchainProperty(err) => err.into(),
-            BlockchainVersion(err) => err.into(),
             Claims(err) => err.into(),
             Command(err) => err.into(),
             CommandGrpc(err) => err.into(),
             Host(err) => err.into(),
+            Image(err) => err.into(),
+            ImageConfig(err) => err.into(),
+            ImageProperty(err) => err.into(),
             IpAddress(err) => err.into(),
-            Model(err) => err.into(),
-            NodeType(err) => err.into(),
+            Node(err) => err.into(),
+            NodeStatus(err) => err.into(),
             Org(err) => err.into(),
-            ParseNodeVersion(err) => err.into(),
+            Protocol(err) => err.into(),
+            ProtocolVersion(err) => err.into(),
             Region(err) => err.into(),
             Report(err) => err.into(),
             Resource(err) => err.into(),
+            Rule(err) => err.into(),
+            Sql(err) => err.into(),
             User(err) => err.into(),
+            Vault(err) => err.into(),
         }
     }
 }
@@ -210,12 +197,21 @@ impl NodeService for Grpc {
             .await
     }
 
-    async fn upgrade(
+    async fn report_status(
         &self,
-        req: Request<api::NodeServiceUpgradeRequest>,
-    ) -> Result<Response<api::NodeServiceUpgradeResponse>, tonic::Status> {
+        req: Request<api::NodeServiceReportStatusRequest>,
+    ) -> Result<Response<api::NodeServiceReportStatusResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| upgrade(req, meta.into(), write).scope_boxed())
+        self.write(|write| report_status(req, meta.into(), write).scope_boxed())
+            .await
+    }
+
+    async fn report_error(
+        &self,
+        req: Request<api::NodeServiceReportErrorRequest>,
+    ) -> Result<Response<api::NodeServiceReportErrorResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| report_error(req, meta, write).scope_boxed())
             .await
     }
 
@@ -228,30 +224,12 @@ impl NodeService for Grpc {
             .await
     }
 
-    async fn update_status(
+    async fn upgrade_image(
         &self,
-        req: Request<api::NodeServiceUpdateStatusRequest>,
-    ) -> Result<Response<api::NodeServiceUpdateStatusResponse>, tonic::Status> {
+        req: Request<api::NodeServiceUpgradeImageRequest>,
+    ) -> Result<Response<api::NodeServiceUpgradeImageResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_status(req, meta.into(), write).scope_boxed())
-            .await
-    }
-
-    async fn delete(
-        &self,
-        req: Request<api::NodeServiceDeleteRequest>,
-    ) -> Result<Response<api::NodeServiceDeleteResponse>, tonic::Status> {
-        let (meta, _, req) = req.into_parts();
-        self.write(|write| delete(req, meta.into(), write).scope_boxed())
-            .await
-    }
-
-    async fn report(
-        &self,
-        req: Request<api::NodeServiceReportRequest>,
-    ) -> Result<Response<api::NodeServiceReportResponse>, tonic::Status> {
-        let (meta, _, req) = req.into_parts();
-        self.write(|write| report(req, meta.into(), write).scope_boxed())
+        self.write(|write| upgrade_image(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -281,6 +259,153 @@ impl NodeService for Grpc {
         self.write(|write| restart(req, meta.into(), write).scope_boxed())
             .await
     }
+
+    async fn delete(
+        &self,
+        req: Request<api::NodeServiceDeleteRequest>,
+    ) -> Result<Response<api::NodeServiceDeleteResponse>, Status> {
+        let (meta, _, req) = req.into_parts();
+        self.write(|write| delete(req, meta, write).scope_boxed())
+            .await
+    }
+}
+
+async fn create(
+    req: api::NodeServiceCreateRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::NodeServiceCreateResponse, Error> {
+    let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
+    let mut perms = vec![Perm::from(NodePerm::Create)];
+    let mut resources = vec![Resource::from(org_id)];
+
+    let old_node_id = req
+        .old_node_id
+        .as_ref()
+        .map(|id| id.parse().map_err(Error::ParseId))
+        .transpose()?;
+    if let Some(old_id) = old_node_id {
+        perms.push(Perm::from(CryptPerm::GetSecret));
+        resources.push(Resource::from(old_id));
+    };
+
+    let placement = req
+        .placement
+        .as_ref()
+        .ok_or(Error::MissingPlacement)?
+        .placement
+        .as_ref()
+        .ok_or(Error::MissingPlacement)?;
+
+    let (node_counts, scheduler, authz) = match placement {
+        Placement::Scheduler(scheduler) => {
+            let authz = write
+                .auth_or_for(&meta, NodeAdminPerm::Create, perms, &resources)
+                .await?;
+            (None, Some(scheduler), authz)
+        }
+
+        Placement::HostId(id) => {
+            let host_id = id.parse().map_err(Error::ParseHostId)?;
+            resources.push(Resource::from(host_id));
+            let authz = write
+                .auth_or_for(&meta, NodeAdminPerm::Create, perms, &resources)
+                .await?;
+            (Some(vec![NodeCount::one(host_id)]), None, authz)
+        }
+
+        Placement::Multiple(hosts) => {
+            let node_counts = hosts
+                .node_counts
+                .iter()
+                .map(|nc| nc.try_into().map_err(Into::into))
+                .collect::<Result<Vec<NodeCount>, Error>>()?;
+            for node_count in &node_counts {
+                resources.push(Resource::from(node_count.host_id));
+            }
+            let authz = write
+                .auth_or_for(&meta, NodeAdminPerm::Create, perms, &resources)
+                .await?;
+            (Some(node_counts), None, authz)
+        }
+    };
+
+    let image_id = req.image_id.parse().map_err(Error::ParseImageId)?;
+    let image = Image::by_id(image_id, Some(org_id), &authz, &mut write).await?;
+
+    let version =
+        ProtocolVersion::by_id(image.protocol_version_id, Some(org_id), &authz, &mut write).await?;
+
+    let new_values = req.new_values.into_iter().map(Into::into).collect();
+    let add_rules = req
+        .add_rules
+        .into_iter()
+        .map(TryFrom::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    let config = NodeConfig::new(image, Some(org_id), new_values, add_rules, &mut write).await?;
+
+    let new_config = NewConfig {
+        image_id,
+        archive_id: config.image.archive_id,
+        config_type: ConfigType::Node,
+        config: config.into(),
+    };
+    let config = new_config.create(&authz, &mut write).await?;
+
+    let region = match scheduler.as_ref().and_then(|s| s.region.as_ref()) {
+        Some(region) => Some(Region::by_name(region, &mut write).await?),
+        None => None,
+    };
+
+    let tags = if let Some(ref tags) = req.tags {
+        tags.tags
+            .iter()
+            .map(|tag| Tag::new(tag.name.clone()).map_err(Into::into))
+            .collect::<Result<Vec<_>, Error>>()
+            .map(Tags)?
+    } else {
+        Default::default()
+    };
+
+    let new_node = NewNode {
+        org_id,
+        image_id,
+        config_id: config.id,
+        old_node_id,
+        protocol_id: version.protocol_id,
+        protocol_version_id: version.id,
+        semantic_version: version.semantic_version,
+        auto_upgrade: true,
+        scheduler_similarity: scheduler.and_then(|s| s.similarity().into()),
+        scheduler_resource: scheduler
+            .map(|s| Option::from(s.resource()).ok_or(Error::NoResourceAffinity))
+            .transpose()?,
+        scheduler_region_id: region.map(|r| r.id),
+        tags,
+    };
+
+    let created_by = Resource::from(&authz);
+    let created = new_node
+        .create(node_counts, created_by, &authz, &mut write)
+        .await?;
+
+    let mut nodes = Vec::with_capacity(created.len());
+    for node in created {
+        let node_create = NewCommand::node(&node, CommandType::NodeCreate)?
+            .create(&mut write)
+            .await?;
+        let api_cmd = api::Command::from(&node_create, Some(org_id), &authz, &mut write).await?;
+        let api_node = api::Node::from_model(node, &authz, &mut write).await?;
+
+        let created_by = common::Resource::from(created_by);
+        let created = api::NodeMessage::created(api_node.clone(), created_by);
+
+        write.mqtt(api_cmd);
+        write.mqtt(created);
+        nodes.push(api_node);
+    }
+
+    Ok(api::NodeServiceCreateResponse { nodes })
 }
 
 pub async fn get(
@@ -288,11 +413,11 @@ pub async fn get(
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::NodeServiceGetResponse, Error> {
-    let node_id = req.id.parse().map_err(Error::ParseId)?;
+    let node_id = req.node_id.parse().map_err(Error::ParseId)?;
     let node = Node::by_id(node_id, &mut read).await?;
 
     let authz = read
-        .auth_or_all(&meta, NodeAdminPerm::Get, NodePerm::Get, node_id)
+        .auth_or_for(&meta, NodeAdminPerm::Get, NodePerm::Get, node_id)
         .await?;
 
     Ok(api::NodeServiceGetResponse {
@@ -307,20 +432,25 @@ pub async fn list(
 ) -> Result<api::NodeServiceListResponse, Error> {
     let filter = req.into_filter()?;
     let authz = if filter.org_ids.is_empty() {
-        read.auth_all(&meta, NodeAdminPerm::List).await?
+        read.auth(&meta, NodeAdminPerm::List).await?
     } else {
-        read.auth_or_all(&meta, NodeAdminPerm::List, NodePerm::List, &filter.org_ids)
-            .await?
+        read.auth_or_for(
+            &meta,
+            NodeAdminPerm::List,
+            NodePerm::List,
+            &filter.org_ids[..],
+        )
+        .await?
     };
 
-    let (nodes, node_count) = filter.query(&mut read).await?;
+    let (nodes, _) = filter.query(&mut read).await?;
     let nodes = api::Node::from_models(nodes, &authz, &mut read).await?;
 
-    Ok(api::NodeServiceListResponse { nodes, node_count })
+    Ok(api::NodeServiceListResponse { nodes })
 }
 
-pub async fn create(
-    req: api::NodeServiceCreateRequest,
+async fn report_status(
+    req: api::NodeServiceReportStatusRequest,
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceCreateResponse, Error> {
@@ -418,40 +548,175 @@ pub async fn upgrade(
     if ids.is_empty() {
         return Err(Error::MissingIds);
     }
+||||||| parent of f902df2d (Add an implemention of the CryptService)
+) -> Result<api::NodeServiceCreateResponse, Error> {
+    let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
+    let inner = req.placement.as_ref().ok_or(Error::MissingPlacement)?;
+    let placement = inner.placement.as_ref().ok_or(Error::MissingPlacement)?;
 
-    let authz = write
-        .auth_or_all(&meta, NodeAdminPerm::Upgrade, NodePerm::Upgrade, &ids)
-        .await?;
+    let (node_counts, authz) = match placement {
+        Placement::Scheduler(_) => {
+            let authz = write
+                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, org_id)
+                .await?;
+            (None, authz)
+        }
 
-    let nodes = Node::by_ids(&ids, &mut write).await?;
-    let (blockchain_id, node_type) = (nodes[0].blockchain_id, nodes[0].node_type);
-    if !nodes.iter().all(|node| node.blockchain_id == blockchain_id) {
-        return Err(Error::UpgradeBlockchain);
-    } else if !nodes.iter().all(|node| node.node_type == node_type) {
-        return Err(Error::UpgradeNodeType);
-    }
+        Placement::HostId(id) => {
+            let host_id = id.parse().map_err(Error::ParseHostId)?;
+            let authz = write
+                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, host_id)
+                .await?;
+            (Some(vec![NodeCount::one(host_id)]), authz)
+        }
 
-    let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write).await?;
-    let node_type =
-        BlockchainNodeType::by_node_type(blockchain.id, node_type, &authz, &mut write).await?;
-    let new_version =
-        BlockchainVersion::by_node_type_version(node_type.id, &req.version, &mut write).await?;
-
-    let update = UpdateNode {
-        version: Some(NodeVersion::new(&new_version.version).map_err(Error::ParseNodeVersion)?),
-        ..Default::default()
+        Placement::Multiple(hosts) => {
+            let node_counts = hosts
+                .node_counts
+                .iter()
+                .map(|nc| nc.try_into().map_err(Into::into))
+                .collect::<Result<Vec<NodeCount>, Error>>()?;
+            let host_ids = node_counts.iter().map(|nc| nc.host_id).collect::<Vec<_>>();
+            let authz = write
+                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, &host_ids)
+                .await?;
+            (Some(node_counts), authz)
+        }
     };
 
-    for node in nodes {
-        let node = node.update(&update, &mut write).await?;
-        let cmd = NewCommand::node(&node, CommandType::NodeUpgrade)?
+    let blockchain_id = req
+        .blockchain_id
+        .parse()
+        .map_err(Error::ParseBlockchainId)?;
+    let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write).await?;
+    let node_type = req.node_type().into();
+    let image = ImageId::new(&blockchain.name, node_type, req.version.clone().into());
+    let version =
+        BlockchainVersion::find(blockchain_id, node_type, &image.node_version, &mut write).await?;
+
+    let requirements = write.ctx.storage.rhai_metadata(&image).await?.requirements;
+    let created_by = authz.resource();
+    let new_node = req
+        .as_new(requirements, org_id, created_by, &mut write)
+        .await?;
+    let created = new_node
+        .create(node_counts, &blockchain, &authz, &mut write)
+        .await?;
+    let mut nodes = Vec::with_capacity(created.len());
+
+    let name_to_ids = BlockchainProperty::id_to_names(version.id, &mut write)
+        .await?
+        .into_iter()
+        .map(|(id, name)| (name, id))
+        .collect();
+
+    for node in created {
+        let properties = req.properties(&node, &name_to_ids)?;
+        NodeProperty::bulk_create(properties, &mut write).await?;
+
+        let node_create = NewCommand::node(&node, CommandType::NodeCreate)?
             .create(&mut write)
             .await?;
-        let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
-        write.mqtt(cmd);
+        let api_cmd = api::Command::from_model(&node_create, &authz, &mut write).await?;
+        let api_node = api::Node::from_model(node, &authz, &mut write).await?;
+
+        let created_by = common::EntityUpdate::from_resource(created_by, &mut write).await?;
+        let created = api::NodeMessage::created(api_node.clone(), created_by);
+
+        write.mqtt(api_cmd);
+        write.mqtt(created);
+        nodes.push(api_node);
     }
 
-    Ok(api::NodeServiceUpgradeResponse {})
+    Ok(api::NodeServiceCreateResponse { nodes })
+}
+
+async fn upgrade(
+    req: api::NodeServiceUpgradeRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::NodeServiceUpgradeResponse, Error> {
+    let ids = req
+        .ids
+        .iter()
+        .map(|id| id.parse().map_err(Error::ParseId))
+        .collect::<Result<HashSet<_>, _>>()?;
+    if ids.is_empty() {
+        return Err(Error::MissingIds);
+    }
+=======
+) -> Result<api::NodeServiceReportStatusResponse, Error> {
+    let node_id = req.node_id.parse().map_err(Error::ParseId)?;
+>>>>>>> f902df2d (Add an implemention of the CryptService)
+
+    let authz = write
+        .auth_or_for(
+            &meta,
+            NodeAdminPerm::ReportStatus,
+            NodePerm::ReportStatus,
+            node_id,
+        )
+        .await?;
+
+    let node = Node::by_id(node_id, &mut write).await?;
+    let config_id: ConfigId = req.config_id.parse().map_err(Error::ParseConfigId)?;
+    let status: Option<NodeStatus> = req.status.map(TryInto::try_into).transpose()?;
+
+    if node.config_id != config_id {
+        return Err(Error::ReportConfigId(config_id, node.config_id));
+    } else if status.as_ref().and_then(|status| status.next).is_some() {
+        return Err(Error::ReportNextState);
+    }
+
+    let update = UpdateNodeState {
+        id: node.id,
+        node_state: status.as_ref().map(|status| status.state),
+        next_state: None,
+        protocol_state: status
+            .as_ref()
+            .and_then(|status| status.protocol.as_ref())
+            .map(|protocol| protocol.state.clone()),
+        protocol_health: status
+            .as_ref()
+            .and_then(|status| status.protocol.as_ref())
+            .map(|protocol| protocol.health),
+        p2p_address: req.p2p_address.as_deref(),
+    };
+
+    let node = update.apply(&mut write).await?;
+    let node = api::Node::from_model(node, &authz, &mut write).await?;
+
+    let updated_by = common::Resource::from(&authz);
+    let updated = api::NodeMessage::updated(node, updated_by);
+
+    write.mqtt(updated);
+
+    Ok(api::NodeServiceReportStatusResponse {})
+}
+
+async fn report_error(
+    req: api::NodeServiceReportErrorRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::NodeServiceReportErrorResponse, Error> {
+    let node_id: NodeId = req.node_id.parse().map_err(Error::ParseId)?;
+
+    let authz = write
+        .auth_or_for(
+            &meta,
+            NodeAdminPerm::ReportError,
+            NodePerm::ReportError,
+            node_id,
+        )
+        .await?;
+    let node = Node::by_id(node_id, &mut write).await?;
+
+    let resource = authz.resource();
+    let report = node.report(resource, req.message, &mut write).await?;
+
+    Ok(api::NodeServiceReportErrorResponse {
+        report_id: report.id.to_string(),
+    })
 }
 
 pub async fn update_config(
@@ -459,57 +724,77 @@ pub async fn update_config(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateConfigResponse, Error> {
-    let ids = req
-        .ids
-        .iter()
-        .map(|id| id.parse().map_err(Error::ParseId))
-        .collect::<Result<HashSet<_>, _>>()?;
-    if ids.is_empty() {
-        return Err(Error::MissingIds);
-    }
+    let node_id = req.node_id.parse().map_err(Error::ParseId)?;
 
     let authz = if req.new_org_id.is_some() {
         let perms = [NodeAdminPerm::UpdateConfig, NodeAdminPerm::Transfer];
         write.auth_all(&meta, perms).await?
     } else {
         write
-            .auth_or_all(
+            .auth_or_for(
                 &meta,
                 NodeAdminPerm::UpdateConfig,
                 NodePerm::UpdateConfig,
-                &ids,
+                node_id,
             )
             .await?
     };
 
-    let nodes = Node::by_ids(&ids, &mut write).await?;
+    let org_id = req
+        .new_org_id
+        .as_deref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
 
-    for node in nodes {
-        let update = req.as_update(&node)?;
-        let node = node.update(&update, &mut write).await?;
-        let updated = NewCommand::node(&node, CommandType::NodeUpdate)?
-            .create(&mut write)
-            .await?;
+    let node = Node::by_id(node_id, &mut write).await?;
+    let update = UpdateNode {
+        id: node.id,
+        org_id,
+        host_id: None,
+        display_name: req.new_display_name.as_deref(),
+        auto_upgrade: req.auto_upgrade,
+        ip_address: None,
+        ip_gateway: None,
+        note: req.new_note.as_deref(),
+        tags: req
+            .update_tags
+            .map(|tags| tags.into_update(node.tags))
+            .transpose()?
+            .flatten(),
+    };
+    let node = update.apply(&authz, &mut write).await?;
 
-        let cmd = api::Command::from_model(&updated, &authz, &mut write).await?;
-        let node = api::Node::from_model(node, &authz, &mut write).await?;
-        let updated_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
-        let updated = api::NodeMessage::updated(node, updated_by);
+    let node_cmd = NewCommand::node(&node, CommandType::NodeUpdate)?
+        .create(&mut write)
+        .await?;
+    let api_update = api::NodeUpdate {
+        node_id: node.id.to_string(),
+        auto_upgrade: req.auto_upgrade,
+        new_org_id: org_id.map(|id| id.to_string()),
+        new_org_name: None,
+        new_display_name: req.new_display_name,
+        new_note: req.new_note,
+        new_values: vec![],
+        new_firewall: None,
+    };
+    let update_cmd = node_update(&node_cmd, Some(node.org_id), api_update, &mut write).await?;
+    write.mqtt(update_cmd);
 
-        write.mqtt(cmd);
-        write.mqtt(updated);
-    }
+    let api_node = api::Node::from_model(node, &authz, &mut write).await?;
+    let updated_by = common::Resource::from(&authz);
+    let updated_msg = api::NodeMessage::updated(api_node, updated_by);
+    write.mqtt(updated_msg);
 
     Ok(api::NodeServiceUpdateConfigResponse {})
 }
 
-pub async fn update_status(
-    req: api::NodeServiceUpdateStatusRequest,
+async fn upgrade_image(
+    req: api::NodeServiceUpgradeImageRequest,
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
-) -> Result<api::NodeServiceUpdateStatusResponse, Error> {
+) -> Result<api::NodeServiceUpgradeImageResponse, Error> {
     let ids = req
-        .ids
+        .node_ids
         .iter()
         .map(|id| id.parse().map_err(Error::ParseId))
         .collect::<Result<HashSet<_>, _>>()?;
@@ -517,80 +802,39 @@ pub async fn update_status(
         return Err(Error::MissingIds);
     }
 
+    let mut resources = ids.iter().map(|id| Resource::from(*id)).collect::<Vec<_>>();
+    let org_id = req
+        .org_id
+        .map(|id| {
+            let org_id = id.parse().map_err(Error::ParseOrgId)?;
+            resources.push(Resource::from(org_id));
+            Ok::<OrgId, Error>(org_id)
+        })
+        .transpose()?;
+
     let authz = write
-        .auth_or_all(
-            &meta,
-            NodeAdminPerm::UpdateStatus,
-            NodePerm::UpdateStatus,
-            &ids,
-        )
+        .auth_or_for(&meta, NodeAdminPerm::Upgrade, NodePerm::Upgrade, &resources)
         .await?;
 
     let nodes = Node::by_ids(&ids, &mut write).await?;
-    let update = req.as_update()?;
+    let image_id = req.image_id.parse().map_err(Error::ParseImageId)?;
 
     for node in nodes {
-        let node = node.update(&update, &mut write).await?;
-        let node = api::Node::from_model(node, &authz, &mut write).await?;
-        let updated_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
-        let updated = api::NodeMessage::updated(node, updated_by);
-        write.mqtt(updated);
+        let upgrade = UpgradeNode {
+            id: node.id,
+            org_id,
+            image_id,
+        };
+        let node = upgrade.apply(&authz, &mut write).await?;
+
+        let cmd = NewCommand::node(&node, CommandType::NodeUpgrade)?
+            .create(&mut write)
+            .await?;
+        let cmd = api::Command::from(&cmd, Some(node.org_id), &authz, &mut write).await?;
+        write.mqtt(cmd);
     }
 
-    Ok(api::NodeServiceUpdateStatusResponse {})
-}
-
-pub async fn delete(
-    req: api::NodeServiceDeleteRequest,
-    meta: Metadata,
-    mut write: WriteConn<'_, '_>,
-) -> Result<api::NodeServiceDeleteResponse, Error> {
-    let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    let node = Node::by_id(node_id, &mut write).await?;
-
-    let authz = write
-        .auth_or_all(&meta, NodeAdminPerm::Delete, NodePerm::Delete, node_id)
-        .await?;
-
-    let update = UpdateNode {
-        node_status: Some(NodeStatus::DeletePending),
-        ..Default::default()
-    };
-    let node = node.update(&update, &mut write).await?;
-    Node::delete(node.id, &mut write).await?;
-
-    // Send delete node command
-    let new_command = NewCommand::node(&node, CommandType::NodeDelete)?;
-    let cmd = new_command.create(&mut write).await?;
-    let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
-
-    let deleted_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
-    let deleted = api::NodeMessage::deleted(&node, Some(deleted_by));
-
-    write.mqtt(cmd);
-    write.mqtt(deleted);
-
-    Ok(api::NodeServiceDeleteResponse {})
-}
-
-pub async fn report(
-    req: api::NodeServiceReportRequest,
-    meta: Metadata,
-    mut write: WriteConn<'_, '_>,
-) -> Result<api::NodeServiceReportResponse, Error> {
-    let node_id: NodeId = req.node_id.parse().map_err(Error::ParseId)?;
-
-    let authz = write
-        .auth_or_all(&meta, NodeAdminPerm::Report, NodePerm::Report, node_id)
-        .await?;
-    let node = Node::by_id(node_id, &mut write).await?;
-
-    let resource = authz.resource();
-    let report = node.report(resource, req.message, &mut write).await?;
-
-    Ok(api::NodeServiceReportResponse {
-        id: report.id.to_string(),
-    })
+    Ok(api::NodeServiceUpgradeImageResponse {})
 }
 
 pub async fn start(
@@ -598,19 +842,16 @@ pub async fn start(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceStartResponse, Error> {
-    let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
-    let node = Node::by_id(node_id, &mut write).await?;
-
+    let node_id: NodeId = req.node_id.parse().map_err(Error::ParseId)?;
     let authz = write
-        .auth_or_all(&meta, NodeAdminPerm::Start, NodePerm::Start, node_id)
+        .auth_or_for(&meta, NodeAdminPerm::Start, NodePerm::Start, node_id)
         .await?;
 
-    let cmd = NewCommand::node(&node, CommandType::NodeRestart)?
-        .create(&mut write)
-        .await?;
-    let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
-
-    write.mqtt(cmd);
+    let node = Node::by_id(node_id, &mut write).await?;
+    let command = NewCommand::node(&node, CommandType::NodeStart)?;
+    let command = command.create(&mut write).await?;
+    let api_cmd = api::Command::from(&command, Some(node.org_id), &authz, &mut write).await?;
+    write.mqtt(api_cmd);
 
     Ok(api::NodeServiceStartResponse {})
 }
@@ -620,19 +861,16 @@ pub async fn stop(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceStopResponse, Error> {
-    let node_id = req.id.parse().map_err(Error::ParseId)?;
-    let node = Node::by_id(node_id, &mut write).await?;
-
+    let node_id = req.node_id.parse().map_err(Error::ParseId)?;
     let authz = write
-        .auth_or_all(&meta, NodeAdminPerm::Stop, NodePerm::Stop, node_id)
+        .auth_or_for(&meta, NodeAdminPerm::Stop, NodePerm::Stop, node_id)
         .await?;
 
-    let cmd = NewCommand::node(&node, CommandType::NodeStop)?
-        .create(&mut write)
-        .await?;
-    let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
-
-    write.mqtt(cmd);
+    let node = Node::by_id(node_id, &mut write).await?;
+    let command = NewCommand::node(&node, CommandType::NodeStop)?;
+    let command = command.create(&mut write).await?;
+    let api_cmd = api::Command::from(&command, Some(node.org_id), &authz, &mut write).await?;
+    write.mqtt(api_cmd);
 
     Ok(api::NodeServiceStopResponse {})
 }
@@ -642,116 +880,111 @@ pub async fn restart(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceRestartResponse, Error> {
-    let node_id = req.id.parse().map_err(Error::ParseId)?;
-    let node = Node::by_id(node_id, &mut write).await?;
-
+    let node_id = req.node_id.parse().map_err(Error::ParseId)?;
     let authz = write
-        .auth_or_all(&meta, NodeAdminPerm::Restart, NodePerm::Restart, node_id)
+        .auth_or_for(&meta, NodeAdminPerm::Restart, NodePerm::Restart, node_id)
         .await?;
 
-    let cmd = NewCommand::node(&node, CommandType::NodeRestart)?
-        .create(&mut write)
-        .await?;
-    let cmd = api::Command::from_model(&cmd, &authz, &mut write).await?;
-
-    write.mqtt(cmd);
+    let node = Node::by_id(node_id, &mut write).await?;
+    let command = NewCommand::node(&node, CommandType::NodeRestart)?;
+    let command = command.create(&mut write).await?;
+    let api_cmd = api::Command::from(&command, Some(node.org_id), &authz, &mut write).await?;
+    write.mqtt(api_cmd);
 
     Ok(api::NodeServiceRestartResponse {})
 }
 
+async fn delete(
+    req: api::NodeServiceDeleteRequest,
+    meta: MetadataMap,
+    mut write: WriteConn<'_, '_>,
+) -> Result<api::NodeServiceDeleteResponse, Error> {
+    let node_id: NodeId = req.node_id.parse().map_err(Error::ParseId)?;
+    let authz = write
+        .auth_or_for(&meta, NodeAdminPerm::Delete, NodePerm::Delete, node_id)
+        .await?;
+
+    let update = UpdateNodeState {
+        id: node_id,
+        node_state: None,
+        next_state: Some(Some(NextState::Deleting)),
+        protocol_state: None,
+        protocol_health: None,
+        p2p_address: None,
+    };
+    let node = update.apply(&mut write).await?;
+    Node::delete(node.id, &mut write).await?;
+
+    let node_cmd = NewCommand::node(&node, CommandType::NodeDelete)?
+        .create(&mut write)
+        .await?;
+    let delete_cmd = api::Command::from(&node_cmd, Some(node.org_id), &authz, &mut write).await?;
+    write.mqtt(delete_cmd);
+
+    let deleted_by = common::Resource::from(&authz);
+    let deleted = api::NodeMessage::deleted(&node, Some(deleted_by));
+    write.mqtt(deleted);
+
+    Ok(api::NodeServiceDeleteResponse {})
+}
+
 impl api::Node {
-    /// This function is used to create a ui node from a database node. We want to include the
-    /// `database_name` in the ui representation, but it is not in the node model. Therefore we
-    /// perform a seperate query to the blockchains table.
     pub async fn from_model(node: Node, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let blockchain = Blockchain::by_id(node.blockchain_id, authz, conn).await?;
-
-        // We need to get both the node properties and the blockchain properties to construct the
-        // final dto. First we query both, and then we zip them together.
-        let node_props = NodeProperty::by_node_id(node.id, conn).await?;
-        let property_ids = node_props
-            .iter()
-            .map(|np| np.blockchain_property_id)
-            .collect();
-        let block_props = BlockchainProperty::by_property_ids(property_ids, conn)
-            .await?
-            .to_map_keep_last(|prop| (prop.id, prop));
-        let properties = node_props
-            .into_iter()
-            .map(|node_prop| {
-                let id = node_prop.blockchain_property_id;
-                let block_prop = block_props.get(&id).ok_or(Error::MissingPropertyId(id))?;
-                Ok::<_, Error>(api::NodeProperty::from_model(node_prop, block_prop.clone()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let host = Host::by_id(node.host_id, conn).await?;
+        let config = Config::by_id(node.config_id, conn).await?;
         let org = Org::by_id(node.org_id, conn).await?;
+        let host = Host::by_id(node.host_id, Some(node.org_id), conn).await?;
+        let protocol = Protocol::by_id(node.protocol_id, Some(org.id), authz, conn).await?;
+        let version =
+            ProtocolVersion::by_id(node.protocol_version_id, Some(org.id), authz, conn).await?;
         let region = node.region(conn).await?;
         let reports = NodeReport::by_node(node.id, conn).await?;
-        let user_ids = reports
-            .iter()
-            .filter_map(NodeReport::user_id)
-            .chain(node.created_by_user())
-            .collect();
-        let users = User::by_ids(user_ids, conn)
-            .await?
-            .to_map_keep_last(|u| (u.id, u));
 
         api::Node::new(
             node,
+            &config,
             &org,
             &host,
-            &blockchain,
-            properties,
+            &protocol,
+            &version,
             region.as_ref(),
             reports,
-            &users,
         )
     }
 
-    /// This function is used to create many ui nodes from many database nodes. The same
-    /// justification as above applies. Note that this function does not simply defer to the
-    /// function above, but rather it performs 1 query for n nodes. We like it this way :)
     pub async fn from_models(
         nodes: Vec<Node>,
         authz: &AuthZ,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         let node_ids = nodes.iter().map(|n| n.id).collect();
-        let node_props = NodeProperty::by_node_ids(&node_ids, conn).await?;
-        let property_ids = node_props
-            .iter()
-            .map(|np| np.blockchain_property_id)
-            .collect();
 
-        let blockchain_ids = nodes.iter().map(|n| n.blockchain_id).collect();
-        let blockchains = Blockchain::by_ids(blockchain_ids, authz, conn)
+        let config_ids = nodes.iter().map(|n| n.config_id).collect();
+        let configs = Config::by_ids(&config_ids, conn)
             .await?
-            .to_map_keep_last(|b| (b.id, b));
-
-        let block_props = BlockchainProperty::by_property_ids(property_ids, conn)
-            .await?
-            .to_map_keep_last(|prop| (prop.id, prop));
-        let mut properties = node_props.to_map_keep_all(|node_prop| {
-            let node_id = node_prop.node_id;
-            let prop_id = node_prop.blockchain_property_id;
-            let property = api::NodeProperty::from_model(node_prop, block_props[&prop_id].clone());
-            (node_id, property)
-        });
+            .to_map_keep_last(|config| (config.id, config));
 
         let org_ids = nodes.iter().map(|n| n.org_id).collect();
-        let orgs = Org::by_ids(org_ids, conn)
+        let orgs = Org::by_ids(&org_ids, conn)
             .await?
             .to_map_keep_last(|org| (org.id, org));
 
         let host_ids = nodes.iter().map(|n| n.host_id).collect();
-        let hosts = Host::by_ids(host_ids, conn)
+        let hosts = Host::by_ids(&host_ids, &org_ids, conn)
             .await?
             .to_map_keep_last(|host| (host.id, host));
 
-        let region_ids = nodes.iter().filter_map(|n| n.scheduler_region).collect();
-        let regions = Region::by_ids(region_ids, conn)
+        let protocol_ids = nodes.iter().map(|n| n.protocol_id).collect();
+        let protocol = Protocol::by_ids(&protocol_ids, &org_ids, authz, conn)
+            .await?
+            .to_map_keep_last(|chain| (chain.id, chain));
+
+        let version_ids = nodes.iter().map(|n| n.protocol_version_id).collect();
+        let versions = ProtocolVersion::by_ids(&version_ids, &org_ids, authz, conn)
+            .await?
+            .to_map_keep_last(|version| (version.id, version));
+
+        let region_ids = nodes.iter().filter_map(|n| n.scheduler_region_id).collect();
+        let regions = Region::by_ids(&region_ids, conn)
             .await?
             .to_map_keep_last(|region| (region.id, region));
 
@@ -759,43 +992,48 @@ impl api::Node {
             .await?
             .to_map_keep_all(|report| (report.node_id, report));
 
-        let user_ids = nodes
-            .iter()
-            .filter_map(Node::created_by_user)
-            .chain(reports.values().flatten().filter_map(NodeReport::user_id))
-            .collect();
-        let users = User::by_ids(user_ids, conn)
-            .await?
-            .to_map_keep_last(|user| (user.id, user));
-
         nodes
             .into_iter()
             .filter_map(|node| {
+                let config = configs.get(&node.config_id)?;
                 let org = orgs.get(&node.org_id)?;
                 let host = hosts.get(&node.host_id)?;
-                let blockchain = blockchains.get(&node.blockchain_id)?;
-                let properties = properties.remove(&node.id).unwrap_or_default();
-                let region = node.scheduler_region.map(|id| &regions[&id]);
+                let protocol = protocol.get(&node.protocol_id)?;
+                let version = versions.get(&node.protocol_version_id)?;
+                let region = node.scheduler_region_id.map(|id| &regions[&id]);
                 let reports = reports.remove(&node.id).unwrap_or_default();
 
                 Some(api::Node::new(
-                    node, org, host, blockchain, properties, region, reports, &users,
+                    node, config, org, host, protocol, version, region, reports,
                 ))
             })
             .collect()
     }
 
-    #[allow(clippy::too_many_arguments)] // not now please
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         node: Node,
+        config: &Config,
         org: &Org,
         host: &Host,
-        blockchain: &Blockchain,
-        properties: Vec<api::NodeProperty>,
+        protocol: &Protocol,
+        version: &ProtocolVersion,
         region: Option<&Region>,
         reports: Vec<NodeReport>,
-        users: &HashMap<UserId, User>,
     ) -> Result<Self, Error> {
+        let config = config.node_config()?;
+        let status = node.status();
+        let created_by = node.created_by();
+
+        let block_height = node
+            .block_height
+            .map(|height| u64::try_from(height).map_err(Error::BlockHeight))
+            .transpose()?;
+        let block_age = node
+            .block_height
+            .map(|age| u64::try_from(age).map_err(Error::BlockAge))
+            .transpose()?;
+
         let scheduler = node
             .scheduler_resource
             .zip(region)
@@ -804,504 +1042,161 @@ impl api::Node {
                 resource,
                 region: Some(region.clone()),
             });
-
-        let user = node.created_by.and_then(|id| users.get(&(*id).into()));
-        let created_by = common::EntityUpdate::from_node_user(&node, user);
-
-        // If there is a scheduler we return the node placement variant,
-        // otherwise we return the host id variant.
-        let placement = scheduler.map(api::NodeScheduler::new).map_or_else(
-            || Placement::HostId(node.host_id.to_string()),
-            Placement::Scheduler,
-        );
-
-        let block_height = node
-            .block_height
-            .map(u64::try_from)
-            .transpose()
-            .map_err(Error::BlockHeight)?;
-        let staking_status = node
-            .staking_status
-            .map(common::StakingStatus::from)
-            .map(Into::into);
-
-        let allow_ips = node
-            .allow_ips()?
-            .into_iter()
-            .map(api::FilteredIpAddr::from_model)
-            .collect();
-        let deny_ips = node
-            .deny_ips()?
-            .into_iter()
-            .map(api::FilteredIpAddr::from_model)
-            .collect();
-
-        let jobs = node.jobs()?;
-        let jobs = jobs.into_iter().map(api::NodeJob::from_model).collect();
-
-        Ok(api::Node {
-            id: node.id.to_string(),
-            org_id: node.org_id.to_string(),
-            host_id: node.host_id.to_string(),
-            host_name: host.name.clone(),
-            blockchain_id: node.blockchain_id.to_string(),
-            node_name: node.node_name,
-            dns_name: node.dns_name,
-            display_name: node.display_name,
-            address: node.address,
-            version: node.version.into(),
-            ip: node.ip.ip().to_string(),
-            ip_gateway: node.ip_gateway,
-            node_type: common::NodeType::from(node.node_type).into(),
-            properties,
-            block_height,
-            created_at: Some(NanosUtc::from(node.created_at).into()),
-            updated_at: Some(NanosUtc::from(node.updated_at).into()),
-            status: common::NodeStatus::from(node.node_status).into(),
-            staking_status,
-            container_status: common::ContainerStatus::from(node.container_status).into(),
-            sync_status: common::SyncStatus::from(node.sync_status).into(),
-            self_update: node.self_update,
-            network: node.network,
-            blockchain_name: blockchain.display_name.clone(),
-            created_by,
-            allow_ips,
-            deny_ips,
-            placement: Some(api::NodePlacement {
-                placement: Some(placement),
-            }),
-            org_name: org.name.clone(),
-            host_org_id: host.org_id.to_string(),
-            data_directory_mountpoint: node.data_directory_mountpoint,
-            jobs,
-            reports: reports
-                .into_iter()
-                .map(|report| {
-                    let created_by = report.user_id().and_then(|id| users.get(&id));
-                    api::NodeReport {
-                        id: report.id.to_string(),
-                        message: report.message,
-                        created_by: Some(common::EntityUpdate {
-                            resource: common::Resource::from(report.created_by_resource) as i32,
-                            resource_id: Some(report.created_by.to_string()),
-                            name: created_by.map(User::name),
-                            email: created_by.map(|u| u.email.clone()),
-                        }),
-                        created_at: Some(NanosUtc::from(report.created_at).into()),
-                    }
-                })
-                .collect(),
-            note: node.note,
-            url: node.url,
-            old_node_id: None,
-            tags: Some(node.tags.into_iter().collect()),
-        })
-    }
-}
-
-impl api::NodeServiceCreateRequest {
-    pub async fn as_new(
-        &self,
-        requirements: HardwareRequirements,
-        org_id: OrgId,
-        created_by: Resource,
-        conn: &mut Conn<'_>,
-    ) -> Result<NewNode, Error> {
-        let placement = self
-            .placement
-            .as_ref()
-            .and_then(|p| p.placement.as_ref())
-            .ok_or(Error::MissingPlacement)?;
-        let scheduler = match placement {
-            Placement::Scheduler(s) => Some(s),
-            Placement::HostId(_) | Placement::Multiple(_) => None,
+        let placement = match scheduler {
+            Some(scheduler) => common::node_placement::Placement::Scheduler(scheduler.into()),
+            None => common::node_placement::Placement::HostId(node.host_id.to_string()),
+        };
+        let placement = common::NodePlacement {
+            placement: Some(placement),
         };
 
-        let allow_ips: Vec<FilteredIpAddr> = self
-            .allow_ips
-            .iter()
-            .map(api::FilteredIpAddr::as_model)
-            .collect();
-        let deny_ips: Vec<FilteredIpAddr> = self
-            .deny_ips
-            .iter()
-            .map(api::FilteredIpAddr::as_model)
-            .collect();
-
-        let region = scheduler.map(|s| &s.region);
-        let region = region.map(|id| Region::by_name(id, conn));
-        let region = OptionFuture::from(region).await.transpose()?;
-
-        let entry = ResourceEntry::from(created_by);
-
-        Ok(NewNode {
-            org_id,
-            version: self.version.clone().into(),
-            blockchain_id: self
-                .blockchain_id
-                .parse()
-                .map_err(Error::ParseBlockchainId)?,
-            block_height: None,
-            node_data: None,
-            node_status: NodeStatus::ProvisioningPending,
-            sync_status: SyncStatus::Unknown,
-            staking_status: StakingStatus::Unknown,
-            container_status: ContainerStatus::Unknown,
-            self_update: true,
-            vcpu_count: requirements.vcpu_count.into(),
-            mem_size_bytes: (requirements.mem_size_mb * 1000 * 1000)
-                .try_into()
-                .map_err(Error::MemSize)?,
-            disk_size_bytes: (requirements.disk_size_gb * 1000 * 1000 * 1000)
-                .try_into()
-                .map_err(Error::DiskSize)?,
-            network: self.network.clone().into(),
-            node_type: self.node_type().into(),
-            allow_ips: serde_json::to_value(allow_ips).map_err(Error::AllowIps)?,
-            deny_ips: serde_json::to_value(deny_ips).map_err(Error::DenyIps)?,
-            created_by: entry.resource_id,
-            created_by_resource: entry.resource_type,
-            // We use and_then here to coalesce the scheduler being None and the similarity being
-            // None. This is because both the scheduler and the similarity are optional.
-            scheduler_similarity: scheduler.and_then(|s| s.similarity().into_model()),
-            // Here we use `map` and `transpose`, because the scheduler is optional, but if it is
-            // provided, the `resource` is not optional.
-            scheduler_resource: scheduler
-                .map(|s| s.resource().into_model().ok_or(Error::NoResourceAffinity))
-                .transpose()?,
-            scheduler_region: region.map(|r| r.id),
-            tags: self
-                .tags
-                .as_ref()
-                .map(|tags| tags.tags.as_slice())
-                .unwrap_or_default()
-                .iter()
-                .map(|tag| Some(tag.name.trim().to_lowercase()))
-                .collect(),
-        })
-    }
-
-    fn properties(
-        &self,
-        node: &Node,
-        name_to_ids: &HashMap<String, BlockchainPropertyId>,
-    ) -> Result<Vec<NodeProperty>, Error> {
-        self.properties
-            .iter()
-            .map(|prop| {
-                let blockchain_property_id = name_to_ids
-                    .get(&prop.name)
-                    .copied()
-                    .ok_or_else(|| Error::PropertyNotFound(prop.name.clone()))?;
-
-                Ok(NodeProperty {
-                    id: Uuid::new_v4().into(),
-                    node_id: node.id,
-                    blockchain_property_id,
-                    value: prop.value.clone(),
-                })
+        let jobs = node
+            .jobs
+            .map(|jobs| jobs.into_iter().map(Into::into).collect())
+            .unwrap_or_default();
+        let reports = reports
+            .into_iter()
+            .map(|report| {
+                let created_by = report.created_by();
+                common::NodeReport {
+                    report_id: report.id.to_string(),
+                    message: report.message,
+                    created_by: Some(common::Resource::from(created_by)),
+                    created_at: Some(NanosUtc::from(report.created_at).into()),
+                }
             })
-            .collect()
+            .collect();
+
+        Ok(api::Node {
+            node_id: node.id.to_string(),
+            node_name: node.node_name,
+            display_name: node.display_name,
+            old_node_id: node.old_node_id.map(|id| id.to_string()),
+            image_id: node.image_id.to_string(),
+            config_id: node.config_id.to_string(),
+            config: Some(config.into()),
+            org_id: node.org_id.to_string(),
+            org_name: org.name.clone(),
+            host_id: node.host_id.to_string(),
+            host_org_id: host.org_id.map(|id| id.to_string()),
+            host_network_name: host.network_name.clone(),
+            host_display_name: host.display_name.clone(),
+            protocol_id: node.protocol_id.to_string(),
+            protocol_name: protocol.name.clone(),
+            protocol_version_id: node.protocol_version_id.to_string(),
+            version_key: Some(common::ProtocolVersionKey {
+                protocol_key: version.protocol_key.to_string(),
+                variant_key: version.variant_key.to_string(),
+            }),
+            semantic_version: node.semantic_version.to_string(),
+            auto_upgrade: node.auto_upgrade,
+            ip_address: node.ip_address.to_string(),
+            ip_gateway: node.ip_gateway.to_string(),
+            dns_name: node.dns_name,
+            p2p_address: node.p2p_address,
+            dns_url: node.dns_url,
+            block_height,
+            block_age,
+            note: node.note,
+            placement: Some(placement),
+            node_status: Some(status.into()),
+            jobs,
+            reports,
+            tags: Some(node.tags.into()),
+            created_by: Some(common::Resource::from(created_by)),
+            created_at: Some(NanosUtc::from(node.created_at).into()),
+            updated_at: node.updated_at.map(NanosUtc::from).map(Into::into),
+        })
     }
 }
 
 impl api::NodeServiceListRequest {
     fn into_filter(self) -> Result<NodeFilter, Error> {
-        let statuses = self
-            .statuses()
-            .filter_map(common::NodeStatus::into_model)
-            .collect();
-        let node_types = self.node_types().map(NodeType::from).collect();
-        let container_statuses = self
-            .container_statuses()
-            .map(ContainerStatus::from)
-            .collect();
-        let sync_statuses = self
-            .sync_statuses()
-            .filter_map(common::SyncStatus::into_model)
-            .collect();
-
-        let Self {
-            org_ids,
-            offset,
-            limit,
-            statuses: _,
-            node_types: _,
-            blockchain_ids,
-            host_ids,
-            user_ids,
-            ip_addresses,
-            versions,
-            networks,
-            regions,
-            container_statuses: _,
-            sync_statuses: _,
-            search,
-            sort,
-        } = self;
-
-        let org_ids = org_ids
+        let org_ids = self
+            .org_ids
             .iter()
             .map(|id| id.parse().map_err(Error::ParseOrgId))
             .collect::<Result<_, _>>()?;
-        let blockchain_ids = blockchain_ids
-            .iter()
-            .map(|id| id.parse().map_err(Error::ParseBlockchainId))
-            .collect::<Result<_, _>>()?;
-        let host_ids = host_ids
+        let host_ids = self
+            .host_ids
             .iter()
             .map(|id| id.parse().map_err(Error::ParseHostId))
             .collect::<Result<_, _>>()?;
-        let user_ids = user_ids
+        let protocol_ids = self
+            .protocol_ids
             .iter()
-            .map(|id| id.parse().map_err(Error::ParseHostId))
+            .map(|id| id.parse().map_err(Error::ParseProtocolId))
             .collect::<Result<_, _>>()?;
-        let search = search
+        let user_ids = self
+            .user_ids
+            .iter()
+            .map(|id| id.parse().map_err(Error::ParseUserId))
+            .collect::<Result<_, _>>()?;
+        let node_states = self
+            .node_states()
+            .map(NodeState::try_from)
+            .collect::<Result<_, _>>()?;
+        let next_states = self
+            .next_states()
+            .map(NextState::try_from)
+            .collect::<Result<_, _>>()?;
+
+        let search = self
+            .search
             .map(|search| {
                 Ok::<_, Error>(NodeSearch {
                     operator: search
                         .operator()
                         .try_into()
                         .map_err(Error::SearchOperator)?,
-                    id: search.id.map(|id| id.trim().to_lowercase()),
-                    ip: search.ip.map(|ip| ip.trim().to_lowercase()),
+                    id: search.node_id.map(|id| id.trim().to_lowercase()),
                     node_name: search.node_name.map(|name| name.trim().to_lowercase()),
-                    dns_name: search.dns_name.map(|name| name.trim().to_lowercase()),
                     display_name: search.display_name.map(|name| name.trim().to_lowercase()),
+                    dns_name: search.dns_name.map(|name| name.trim().to_lowercase()),
+                    ip: search.ip.map(|ip| ip.trim().to_lowercase()),
                 })
             })
             .transpose()?;
-        let sort = sort
+        let sort = self
+            .sort
             .into_iter()
             .map(|sort| {
                 let order = sort.order().try_into().map_err(Error::SortOrder)?;
                 match sort.field() {
                     api::NodeSortField::Unspecified => Err(Error::UnknownSortField),
-                    api::NodeSortField::HostName => Ok(NodeSort::HostName(order)),
                     api::NodeSortField::NodeName => Ok(NodeSort::NodeName(order)),
                     api::NodeSortField::DnsName => Ok(NodeSort::DnsName(order)),
                     api::NodeSortField::DisplayName => Ok(NodeSort::DisplayName(order)),
-                    api::NodeSortField::NodeType => Ok(NodeSort::NodeType(order)),
+                    api::NodeSortField::NodeState => Ok(NodeSort::NodeState(order)),
+                    api::NodeSortField::NextState => Ok(NodeSort::NextState(order)),
+                    api::NodeSortField::ProtocolState => Ok(NodeSort::ProtocolState(order)),
+                    api::NodeSortField::ProtocolHealth => Ok(NodeSort::ProtocolHealth(order)),
+                    api::NodeSortField::BlockHeight => Ok(NodeSort::BlockHeight(order)),
                     api::NodeSortField::CreatedAt => Ok(NodeSort::CreatedAt(order)),
                     api::NodeSortField::UpdatedAt => Ok(NodeSort::UpdatedAt(order)),
-                    api::NodeSortField::NodeStatus => Ok(NodeSort::NodeStatus(order)),
-                    api::NodeSortField::SyncStatus => Ok(NodeSort::SyncStatus(order)),
-                    api::NodeSortField::ContainerStatus => Ok(NodeSort::ContainerStatus(order)),
-                    api::NodeSortField::StakingStatus => Ok(NodeSort::StakingStatus(order)),
-                    api::NodeSortField::BlockHeight => Ok(NodeSort::BlockHeight(order)),
                 }
             })
             .collect::<Result<_, _>>()?;
 
-        let ip_addresses = ip_addresses
+        let ip_addresses = self
+            .ip_addresses
             .iter()
-            .map(|ip| ip.parse().map_err(Error::ParseIpNetwork))
+            .map(|ip| ip.parse().map_err(Error::ParseIp))
             .collect::<Result<_, _>>()?;
 
         Ok(NodeFilter {
             org_ids,
-            offset,
-            limit,
-            statuses,
-            sync_statuses,
-            container_statuses,
-            node_types,
-            blockchain_ids,
+            offset: self.offset,
+            limit: self.limit,
+            protocol_ids,
             host_ids,
             user_ids,
             ip_addresses,
-            versions,
-            networks,
-            regions,
+            node_states,
+            next_states,
+            semantic_versions: self.semantic_versions,
             search,
             sort,
-        })
-    }
-}
-
-impl api::NodeServiceUpdateConfigRequest {
-    pub fn as_update(&self, node: &Node) -> Result<UpdateNode<'_>, Error> {
-        Ok(UpdateNode {
-            org_id: self
-                .new_org_id
-                .as_deref()
-                .map(str::parse)
-                .transpose()
-                .map_err(Error::ParseOrgId)?,
-            host_id: None,
-            display_name: self.display_name.as_deref(),
-            version: None,
-            ip: None,
-            ip_gateway: None,
-            block_height: None,
-            node_data: None,
-            node_status: None,
-            sync_status: None,
-            staking_status: None,
-            container_status: None,
-            self_update: self.self_update,
-            address: None,
-            note: self.note.as_deref(),
-            tags: self
-                .update_tags
-                .as_ref()
-                .and_then(|ut| ut.as_update(node.tags.iter().flatten())),
-        })
-    }
-}
-
-impl api::NodeServiceUpdateStatusRequest {
-    pub fn as_update(&self) -> Result<UpdateNode<'_>, Error> {
-        Ok(UpdateNode {
-            org_id: None,
-            host_id: None,
-            display_name: None,
-            version: self.version.as_deref().map(NodeVersion::new).transpose()?,
-            ip: None,
-            ip_gateway: None,
-            block_height: None,
-            node_data: None,
-            node_status: None,
-            sync_status: None,
-            staking_status: None,
-            container_status: Some(self.container_status().into()),
-            self_update: None,
-            address: self.address.as_deref(),
-            note: None,
-            tags: None,
-        })
-    }
-}
-
-impl api::NodeProperty {
-    fn from_model(node_prop: NodeProperty, blockchain_prop: BlockchainProperty) -> Self {
-        api::NodeProperty {
-            name: blockchain_prop.name,
-            display_name: blockchain_prop.display_name,
-            ui_type: common::UiType::from(blockchain_prop.ui_type).into(),
-            disabled: blockchain_prop.disabled,
-            required: blockchain_prop.required,
-            value: node_prop.value,
-        }
-    }
-}
-
-impl api::NodeScheduler {
-    fn new(node: NodeScheduler) -> Self {
-        use api::node_scheduler::{ResourceAffinity, SimilarNodeAffinity};
-
-        let mut scheduler = Self {
-            similarity: None,
-            resource: 0,
-            region: node.region.map(|r| r.name).unwrap_or_default(),
-        };
-        scheduler.set_resource(ResourceAffinity::from_model(node.resource));
-        if let Some(similarity) = node.similarity {
-            scheduler.set_similarity(SimilarNodeAffinity::from_model(similarity));
-        }
-        scheduler
-    }
-}
-
-impl api::FilteredIpAddr {
-    fn from_model(model: FilteredIpAddr) -> Self {
-        Self {
-            ip: model.ip,
-            description: model.description,
-        }
-    }
-
-    fn as_model(&self) -> FilteredIpAddr {
-        FilteredIpAddr {
-            ip: self.ip.clone(),
-            description: self.description.clone(),
-        }
-    }
-}
-
-impl api::NodeJob {
-    pub fn into_model(self) -> NodeJob {
-        let status = self.status().into_model();
-        NodeJob {
-            name: self.name,
-            status,
-            exit_code: self.exit_code,
-            message: self.message,
-            logs: self.logs,
-            restarts: self.restarts,
-            progress: self.progress.map(api::NodeJobProgress::into_model),
-        }
-    }
-
-    pub fn from_model(model: NodeJob) -> Self {
-        let mut node_job = Self {
-            name: model.name,
-            status: 0,
-            exit_code: model.exit_code,
-            message: model.message,
-            logs: model.logs,
-            restarts: model.restarts,
-            progress: model.progress.map(api::NodeJobProgress::from_model),
-        };
-        if let Some(status) = model.status {
-            node_job.set_status(api::NodeJobStatus::from_model(status));
-        }
-        node_job
-    }
-}
-
-impl api::NodeJobProgress {
-    pub fn into_model(self) -> NodeJobProgress {
-        NodeJobProgress {
-            total: self.total,
-            current: self.current,
-            message: self.message,
-        }
-    }
-
-    fn from_model(model: NodeJobProgress) -> Self {
-        Self {
-            total: model.total,
-            current: model.current,
-            message: model.message,
-        }
-    }
-}
-
-impl api::NodeJobStatus {
-    pub const fn into_model(self) -> Option<NodeJobStatus> {
-        match self {
-            Self::Unspecified => None,
-            Self::Pending => Some(NodeJobStatus::Pending),
-            Self::Running => Some(NodeJobStatus::Running),
-            Self::Finished => Some(NodeJobStatus::Finished),
-            Self::Failed => Some(NodeJobStatus::Failed),
-            Self::Stopped => Some(NodeJobStatus::Stopped),
-        }
-    }
-
-    const fn from_model(model: NodeJobStatus) -> Self {
-        match model {
-            NodeJobStatus::Pending => Self::Pending,
-            NodeJobStatus::Running => Self::Running,
-            NodeJobStatus::Finished => Self::Finished,
-            NodeJobStatus::Failed => Self::Failed,
-            NodeJobStatus::Stopped => Self::Stopped,
-        }
-    }
-}
-
-impl common::EntityUpdate {
-    pub fn from_node_user(node: &Node, user: Option<&User>) -> Option<Self> {
-        let (Some(created_by), Some(resource)) = (node.created_by, node.created_by_resource) else {
-            return None;
-        };
-
-        Some(common::EntityUpdate {
-            resource: common::Resource::from(resource).into(),
-            resource_id: Some(created_by.to_string()),
-            name: user.map(User::name),
-            email: user.map(|u| u.email.clone()),
         })
     }
 }

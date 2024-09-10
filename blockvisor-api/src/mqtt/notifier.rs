@@ -108,10 +108,11 @@ impl Notifier {
         let mut conn = pool.conn().await.map_err(Error::PoolConnection)?;
 
         let host_id = status.host_id.parse().map_err(Error::ParseHostId)?;
-        let conn_status = ConnectionStatus::from(status.connection_status());
+        let org_id = Host::org_id(host_id, &mut conn).await?;
+        let conn_status = status.connection_status().try_into()?;
 
         UpdateHost::new(host_id)
-            .with_status(conn_status)
+            .with_connection_status(conn_status)
             .update(&mut conn)
             .await
             .map_err(Error::UpdateHostStatus)?;
@@ -120,9 +121,9 @@ impl Notifier {
             && Command::has_host_pending(host_id, &mut conn).await?
         {
             let pending = NewCommand::host(host_id, CommandType::HostPending)?;
-            let host = Host::by_id(host_id, &mut conn).await?;
             let command = pending.create(&mut conn).await?;
-            self.send(host_pending(&command, host)?).await?;
+            let api_cmd = host_pending(&command, org_id, &mut conn).await?;
+            self.send(api_cmd).await?;
         }
 
         Ok(())

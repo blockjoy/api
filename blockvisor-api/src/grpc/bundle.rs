@@ -1,14 +1,17 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response};
-use tracing::error;
+use tonic::metadata::MetadataMap;
+use tonic::{Request, Response, Status};
+use tracing::{error, warn};
 
 use crate::auth::rbac::BundlePerm;
 use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction};
 use crate::grpc::api::bundle_service_server::BundleService;
-use crate::grpc::{api, common, Grpc};
+use crate::grpc::{api, Grpc};
+use crate::store::BUNDLE_FILE;
+use crate::util::sql::Version;
 
 use super::{Metadata, Status};
 
@@ -20,12 +23,14 @@ pub enum Error {
     Claims(#[from] crate::auth::claims::Error),
     /// Diesel failure: {0}
     Diesel(#[from] diesel::result::Error),
-    /// Missing image identifier.
+    /// Missing bundle identifier.
     MissingId,
-    /// This endpoint is not currently used.
-    NotUsed,
-    /// Storage failed: {0}
-    Storage(#[from] crate::storage::Error),
+    /// Failed to parse version from key `{0}`: {1}
+    ParseVersion(String, crate::util::sql::Error),
+    /// Store failed: {0}
+    Store(#[from] crate::store::Error),
+    /// File name should end in `/{BUNDLE_FILE:?}` but is `{0}`.
+    Suffix(String),
 }
 
 impl From<Error> for Status {
@@ -33,8 +38,10 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            Diesel(_) | NotUsed | Storage(_) => Status::internal("Internal error."),
-            MissingId => Status::invalid_argument("id"),
+            Diesel(_) | ParseVersion(_, _) | Store(_) | Suffix(_) => {
+                Status::internal("Internal error.")
+            }
+            MissingId => Status::invalid_argument("bundle_id"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
         }
@@ -52,62 +59,88 @@ impl BundleService for Grpc {
             .await
     }
 
-    async fn list_bundle_versions(
+    async fn list_versions(
         &self,
-        req: Request<api::BundleServiceListBundleVersionsRequest>,
-    ) -> Result<Response<api::BundleServiceListBundleVersionsResponse>, tonic::Status> {
+        req: Request<api::BundleServiceListVersionsRequest>,
+    ) -> Result<Response<api::BundleServiceListVersionsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list_bundle_versions(req, meta.into(), read).scope_boxed())
-            .await
-    }
-
-    async fn delete(
-        &self,
-        req: Request<api::BundleServiceDeleteRequest>,
-    ) -> Result<Response<api::BundleServiceDeleteResponse>, tonic::Status> {
-        let (meta, _, req) = req.into_parts();
-        self.read(|read| delete(req, meta.into(), read).scope_boxed())
+        self.read(|read| list_versions(req, meta.into(), read).scope_boxed())
             .await
     }
 }
 
-/// Retrieve image for specific version and state.
-pub async fn retrieve(
+async fn retrieve(
     req: api::BundleServiceRetrieveRequest,
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BundleServiceRetrieveResponse, Error> {
-    read.auth_all(&meta, BundlePerm::Retrieve).await?;
+    read.auth(&meta, BundlePerm::Retrieve).await?;
 
-    let id = req.id.ok_or(Error::MissingId)?;
-    let url = read.ctx.storage.download_bundle(&id.version).await?;
+    let id = req.bundle_id.ok_or(Error::MissingId)?;
+    let url = read.ctx.store.download_bundle(&id.version).await?;
 
     Ok(api::BundleServiceRetrieveResponse {
-        location: Some(common::ArchiveLocation {
-            url: url.to_string(),
-        }),
+        url: url.to_string(),
     })
 }
 
-/// List all available bundle versions.
-pub async fn list_bundle_versions(
-    _: api::BundleServiceListBundleVersionsRequest,
-    meta: Metadata,
+async fn list_versions(
+    _: api::BundleServiceListVersionsRequest,
+    meta: MetadataMap,
     mut read: ReadConn<'_, '_>,
-) -> Result<api::BundleServiceListBundleVersionsResponse, Error> {
-    read.auth_all(&meta, BundlePerm::ListBundleVersions).await?;
-    let identifiers = read.ctx.storage.list_bundles().await?;
+) -> Result<api::BundleServiceListVersionsResponse, Error> {
+    read.auth(&meta, BundlePerm::ListVersions).await?;
+    let bundle_ids = read.ctx.store.list_bundles().await?;
 
-    Ok(api::BundleServiceListBundleVersionsResponse { identifiers })
+    Ok(api::BundleServiceListVersionsResponse { bundle_ids })
 }
 
-/// Delete bundle from storage.
-pub async fn delete(
-    _: api::BundleServiceDeleteRequest,
-    meta: Metadata,
-    mut read: ReadConn<'_, '_>,
-) -> Result<api::BundleServiceDeleteResponse, Error> {
-    read.auth_all(&meta, BundlePerm::Delete).await?;
+impl api::BundleIdentifier {
+    /// Extract the bundle version from a key.
+    ///
+    /// Example key format: `0.1.0/bvd-bundle.tgz`
+    pub fn from_key<K: AsRef<str>>(key: K) -> Result<Self, Error> {
+        let key = key.as_ref();
+        let version: Version = key
+            .strip_suffix(&format!("/{BUNDLE_FILE}"))
+            .ok_or_else(|| Error::Suffix(key.into()))?
+            .parse()
+            .map_err(|err| Error::ParseVersion(key.into(), err))?;
 
-    Err(Error::NotUsed)
+        Ok(api::BundleIdentifier {
+            version: version.to_string(),
+        })
+    }
+
+    /// Try and parse a `BundleIdentifier` from a key, or return None otherwise.
+    pub fn maybe_from_key<K: AsRef<str>>(key: K) -> Option<Self> {
+        let key = key.as_ref();
+        Self::from_key(key)
+            .map_err(|err| warn!("Failed to parse bundle key `{key}`: {err}"))
+            .ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bundles_from_key() {
+        let tests = [
+            ("/bvd-bundle.tgz", false),
+            ("0.0.0/tester.txt", false),
+            ("0.1.0/bvd-bundle.tgz", true),
+            ("0.10.0/bvd-bundle.tgz", true),
+        ];
+
+        for (test, pass) in tests {
+            let result = api::BundleIdentifier::from_key(test);
+            if pass {
+                assert!(result.is_ok());
+            } else {
+                assert!(result.is_err());
+            }
+        }
+    }
 }

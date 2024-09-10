@@ -195,7 +195,6 @@ mod test {
             last_name: "Tester".to_string(),
             confirmed_at: None,
             deleted_at: None,
-            chargebee_billing_id: None,
         };
         let recipient = Recipient::from(&user);
         let invitation = Invitation {

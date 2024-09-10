@@ -6,7 +6,7 @@ use diesel_async::RunQueryDsl;
 use displaydoc::Display;
 use thiserror::Error;
 
-use crate::auth::resource::{Resource, ResourceEntry, ResourceId, ResourceType, UserId};
+use crate::auth::resource::{Resource, ResourceId, ResourceType, UserId};
 use crate::auth::token::api_key::{BearerSecret, KeyHash, KeyId, Salt, Secret};
 use crate::database::{Conn, WriteConn};
 use crate::grpc::Status;
@@ -107,17 +107,15 @@ impl ApiKey {
                 n => Err(Error::MultipleKeysDeleted(n)),
             })
     }
-}
 
-impl From<&ApiKey> for ResourceEntry {
-    fn from(key: &ApiKey) -> Self {
-        ResourceEntry::new(key.resource, key.resource_id)
+    pub fn resource(&self) -> Resource {
+        Resource::new(self.resource, self.resource_id)
     }
 }
 
 impl From<&ApiKey> for Resource {
-    fn from(key: &ApiKey) -> Self {
-        ResourceEntry::from(key).into()
+    fn from(api_key: &ApiKey) -> Resource {
+        api_key.resource()
     }
 }
 
@@ -136,7 +134,7 @@ impl NewApiKey {
     pub async fn create(
         user_id: UserId,
         label: String,
-        entry: ResourceEntry,
+        resource: Resource,
         write: &mut WriteConn<'_, '_>,
     ) -> Result<Created, Error> {
         let mut rng = write.ctx.rng.lock().await;
@@ -150,8 +148,8 @@ impl NewApiKey {
             label,
             key_hash,
             key_salt: salt,
-            resource: entry.resource_type,
-            resource_id: entry.resource_id,
+            resource: resource.typ(),
+            resource_id: resource.id(),
         };
 
         let api_key: ApiKey = diesel::insert_into(api_keys::table)
@@ -202,34 +200,6 @@ pub struct UpdateLabel {
 impl UpdateLabel {
     pub const fn new(id: KeyId, label: String) -> Self {
         UpdateLabel { id, label }
-    }
-
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<DateTime<Utc>, Error> {
-        let updated: ApiKey = diesel::update(api_keys::table.find(self.id))
-            .set((self, api_keys::updated_at.eq(Utc::now())))
-            .get_result(conn)
-            .await
-            .map_err(Error::UpdateLabel)?;
-
-        updated.updated_at.ok_or(Error::MissingUpdatedAt)
-    }
-}
-
-#[derive(Debug, AsChangeset)]
-#[diesel(table_name = api_keys)]
-pub struct UpdateScope {
-    id: KeyId,
-    resource: ResourceType,
-    resource_id: ResourceId,
-}
-
-impl UpdateScope {
-    pub const fn new(id: KeyId, entry: ResourceEntry) -> Self {
-        UpdateScope {
-            id,
-            resource: entry.resource_type,
-            resource_id: entry.resource_id,
-        }
     }
 
     pub async fn update(self, conn: &mut Conn<'_>) -> Result<DateTime<Utc>, Error> {

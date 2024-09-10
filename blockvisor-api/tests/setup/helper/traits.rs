@@ -14,30 +14,32 @@ pub trait GrpcClient<T> {
 
 grpc_clients! [
     api_key => ApiKey,
+    archive => Archive,
     auth => Auth,
-    blockchain => Blockchain,
-    blockchain_archive => BlockchainArchive,
+    protocol => Protocol,
     bundle => Bundle,
     command => Command,
+    crypt => Crypt,
     discovery => Discovery,
     host => Host,
+    image => Image,
     invitation => Invitation,
-    kernel => Kernel,
     metrics => Metrics,
     node => Node,
     org => Org,
-    subscription => Subscription,
     user => User
 ];
 
 pub trait SocketRpc {
     fn socket_addr(&self) -> SocketAddr;
 
-    async fn root_jwt(&self) -> Jwt;
+    async fn super_jwt(&self) -> Jwt;
 
     async fn admin_jwt(&self) -> Jwt;
 
     async fn member_jwt(&self) -> Jwt;
+
+    async fn unknown_jwt(&self) -> Jwt;
 
     /// Send a request without any authentication to the test server.
     ///
@@ -51,8 +53,8 @@ pub trait SocketRpc {
     /// ```rs
     /// type Service = AuthenticationService<Channel>;
     /// let test = TestServer::new().await;
-    /// test.send(Service::login, your_login_request).await.unwrap();
-    /// let status = test.send(Service::login, bad_login_request).await.unwrap_err();
+    /// test.send_unauthenticated(AuthService::login, your_login_request).await.unwrap();
+    /// let status = test.send(AuthService::login, bad_login_request).await.unwrap_err();
     /// assert_eq!(status.code(), tonic::Code::Unauthenticated);
     /// ```
     ///
@@ -60,7 +62,7 @@ pub trait SocketRpc {
     /// ```rs
     /// type Service = AuthenticationService<Channel>;
     /// let test = TestServer::new().await;
-    /// test.send(Service::refresh, req).await.unwrap();
+    /// test.send(AuthService::refresh, req).await.unwrap();
     /// ```
     ///
     /// ### Generic params
@@ -74,7 +76,11 @@ pub trait SocketRpc {
     /// means that `In` is the JSON structure that the requests take, `Req` is
     /// the type that the function takes that can be constructed from the `In`
     /// type, and `Resp` is the type that is returned on success.
-    async fn send<F, In, Req, Resp, Client>(&self, f: F, req: Req) -> Result<Resp, Status>
+    async fn send_unauthenticated<F, In, Req, Resp, Client>(
+        &self,
+        f: F,
+        req: Req,
+    ) -> Result<Resp, Status>
     where
         F: for<'any> TestableFunction<'any, Request<In>, Response<Resp>, Client>,
         In: Send + Debug,
@@ -96,7 +102,6 @@ pub trait SocketRpc {
     ///
     /// ### Empty token
     /// ```rs
-    /// type Service = SomeService<Channel>;
     /// let test = TestServer::new().await;
     /// let status = test.send(Service::some_endpoint, some_data, "").await.unwrap_err();
     /// assert_eq!(status.code(), tonic::Code::Unauthorized);
@@ -120,8 +125,8 @@ pub trait SocketRpc {
         self.send_request(f, req).await
     }
 
-    /// Send a request with authentication as a blockjoy admin user.
-    async fn send_root<F, In, Req, Resp, Client>(&self, f: F, req: Req) -> Result<Resp, Status>
+    /// Send a request with authentication as a blockjoy super user.
+    async fn send_super<F, In, Req, Resp, Client>(&self, f: F, req: Req) -> Result<Resp, Status>
     where
         F: for<'any> TestableFunction<'any, Request<In>, Response<Resp>, Client>,
         In: Send + Debug,
@@ -129,11 +134,11 @@ pub trait SocketRpc {
         Resp: Send + Debug,
         Client: GrpcClient<Channel> + Send + Debug + 'static,
     {
-        let jwt = self.root_jwt().await;
+        let jwt = self.super_jwt().await;
         self.send_with(f, req, &jwt).await
     }
 
-    /// Send a request with authentication as a seed org admin.
+    /// Send a request with authentication as an org admin.
     async fn send_admin<F, In, Req, Resp, Client>(&self, f: F, req: Req) -> Result<Resp, Status>
     where
         F: for<'any> TestableFunction<'any, Request<In>, Response<Resp>, Client>,
@@ -146,7 +151,7 @@ pub trait SocketRpc {
         self.send_with(f, req, &jwt).await
     }
 
-    /// Send a request with authentication as a seed org member.
+    /// Send a request with authentication as an org member.
     async fn send_member<F, In, Req, Resp, Client>(&self, f: F, req: Req) -> Result<Resp, Status>
     where
         F: for<'any> TestableFunction<'any, Request<In>, Response<Resp>, Client>,
@@ -156,6 +161,19 @@ pub trait SocketRpc {
         Client: GrpcClient<Channel> + Send + Debug + 'static,
     {
         let jwt = self.member_jwt().await;
+        self.send_with(f, req, &jwt).await
+    }
+
+    /// Send a request with authentication as an unknown user.
+    async fn send_unknown<F, In, Req, Resp, Client>(&self, f: F, req: Req) -> Result<Resp, Status>
+    where
+        F: for<'any> TestableFunction<'any, Request<In>, Response<Resp>, Client>,
+        In: Send + Debug,
+        Req: IntoRequest<In> + Send,
+        Resp: Send + Debug,
+        Client: GrpcClient<Channel> + Send + Debug + 'static,
+    {
+        let jwt = self.unknown_jwt().await;
         self.send_with(f, req, &jwt).await
     }
 

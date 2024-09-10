@@ -1,275 +1,174 @@
+use blockvisor_api::auth::resource::HostId;
 use blockvisor_api::database::seed::NODE_ID;
 use blockvisor_api::grpc::api;
-use blockvisor_api::model::host::{Host, UpdateHost};
-use blockvisor_api::model::schema;
-use diesel::prelude::*;
-use diesel_async::RunQueryDsl;
-use tonic::transport::Channel;
+use tonic::Code;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{HostService, NodeService, OrgService, SocketRpc};
 use crate::setup::TestServer;
 
-type Service = api::host_service_client::HostServiceClient<Channel>;
-type OrgService = api::org_service_client::OrgServiceClient<Channel>;
-
 #[tokio::test]
-async fn unauthenticated_without_token_for_update() {
-    let test = TestServer::new().await;
-    let req = api::HostServiceUpdateRequest {
-        id: test.seed().host.id.to_string(),
-        name: None,
-        version: None,
-        os: None,
-        os_version: None,
-        region: None,
-        billing_amount: None,
-        total_disk_space: None,
-        managed_by: None,
-        update_tags: None,
-    };
-    let status = test.send(Service::update, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Unauthenticated);
-}
-
-#[tokio::test]
-async fn permission_denied_with_token_ownership_for_update() {
+async fn create_a_new_host() {
     let test = TestServer::new().await;
 
-    let jwt = test.host_jwt();
-    let other_host = test.host2().await;
-    let req = api::HostServiceUpdateRequest {
-        id: other_host.id.to_string(),
-        name: Some("hostus mostus maximus".to_string()),
-        version: Some("3".to_string()),
-        os: Some("LuukOS".to_string()),
-        os_version: Some("5".to_string()),
-        region: None,
-        billing_amount: None,
-        total_disk_space: None,
-        managed_by: None,
-        update_tags: None,
+    let create_req = |provision_token| api::HostServiceCreateRequest {
+        provision_token,
+        org_id: None,
+        network_name: "new-host".to_string(),
+        display_name: None,
+        region: Some("europe-2-birmingham".to_string()),
+        schedule_type: api::ScheduleType::Automatic as i32,
+        os: "LuukOS".to_string(),
+        os_version: "4".to_string(),
+        bv_version: "0.1.2".to_string(),
+        ip_address: "172.168.0.1".to_string(),
+        ip_gateway: "72.168.0.100".to_string(),
+        ips: vec!["172.168.0.2".to_string()],
+        cpu_cores: 2,
+        memory_bytes: 2,
+        disk_bytes: 2,
+        tags: None,
     };
 
+    // fails with invalid provision token
+    let req = create_req("invalid".into());
     let status = test
-        .send_with(Service::update, req, &jwt)
+        .send_unauthenticated(HostService::create, req)
         .await
         .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
-}
+    assert_eq!(status.code(), Code::PermissionDenied);
 
-#[tokio::test]
-async fn permission_denied_with_user_token_for_update() {
-    let test = TestServer::new().await;
-
-    let other_host = test.host2().await;
-    let req = api::HostServiceUpdateRequest {
-        id: other_host.id.to_string(),
-        name: Some("hostus mostus maximus".to_string()),
-        version: Some("3".to_string()),
-        os: Some("LuukOS".to_string()),
-        os_version: Some("5".to_string()),
-        region: None,
-        billing_amount: None,
-        total_disk_space: None,
-        managed_by: None,
-        update_tags: None,
-    };
-
-    let status = test.send_admin(Service::update, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
-}
-
-#[tokio::test]
-async fn ok_for_create() {
-    let test = TestServer::new().await;
-    let org_id = test.seed().org.id;
-    let user_id = test.seed().user.id;
-
-    let req = api::OrgServiceGetProvisionTokenRequest {
-        org_id: org_id.to_string(),
-        user_id: user_id.to_string(),
+    let provision_req = api::OrgServiceGetProvisionTokenRequest {
+        org_id: test.seed().org.id.to_string(),
+        user_id: test.seed().member.id.to_string(),
     };
     let provision_token = test
-        .send_admin(OrgService::get_provision_token, req)
+        .send_admin(OrgService::get_provision_token, provision_req)
         .await
         .unwrap()
         .token;
-    let req = api::HostServiceCreateRequest {
-        provision_token,
-        name: "test".to_string(),
-        version: "3".to_string(),
-        cpu_count: 2,
-        mem_size_bytes: 2,
-        disk_size_bytes: 2,
-        os: "LuukOS".to_string(),
-        os_version: "4".to_string(),
-        ip_addr: "172.168.0.1".to_string(),
-        ip_gateway: "72.168.0.100".to_string(),
-        ips: vec!["172.168.0.2".to_string()],
-        org_id: Some(org_id.to_string()),
-        region: Some("europe-2-birmingham".to_string()),
-        billing_amount: None,
-        vmm_mountpoint: Some("/a/path/to/the/data/treasure".to_string()),
-        managed_by: Some(api::ManagedBy::Automatic.into()),
-        tags: None,
-    };
-    test.send(Service::create, req).await.unwrap();
+
+    // ok with valid provision token
+    let req = create_req(provision_token);
+    let resp = test
+        .send_unauthenticated(HostService::create, req)
+        .await
+        .unwrap();
+    assert_eq!(resp.host.unwrap().network_name, "new-host");
 }
 
 #[tokio::test]
-async fn ok_for_update() {
+async fn update_an_existing_host() {
     let test = TestServer::new().await;
 
-    let jwt = test.host_jwt();
-    let req = api::HostServiceUpdateRequest {
-        id: test.seed().host.id.to_string(),
-        name: Some("Servy McServington".to_string()),
-        version: Some("3".to_string()),
-        os: Some("LuukOS".to_string()),
-        os_version: Some("5".to_string()),
+    let update_req = |host_id: HostId| api::HostServiceUpdateRequest {
+        host_id: host_id.to_string(),
+        org_id: None,
+        network_name: None,
+        display_name: Some("Servy McServington".to_string()),
         region: None,
-        billing_amount: None,
-        total_disk_space: None,
-        managed_by: None,
+        schedule_type: None,
+        os: Some("TempleOS".to_string()),
+        os_version: Some("3".to_string()),
+        bv_version: Some("0.1.2".to_string()),
+        cpu_cores: None,
+        memory_bytes: None,
+        disk_bytes: None,
         update_tags: None,
     };
 
-    test.send_with(Service::update, req, &jwt).await.unwrap();
+    // fails without token
+    let req = update_req(test.seed().host1.id);
+    let status = test
+        .send_unauthenticated(HostService::update, req)
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), Code::Unauthenticated);
+
+    // denied with org-admin token
+    let req = update_req(test.seed().host2.id);
+    let status = test.send_admin(HostService::update, req).await.unwrap_err();
+    assert_eq!(status.code(), Code::PermissionDenied);
+
+    // denied with wrong host token
+    let jwt = test.host_jwt();
+    let req = update_req(test.seed().host2.id);
+    let status = test
+        .send_with(HostService::update, req, &jwt)
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), Code::PermissionDenied);
+
+    // ok for correct host
+    let req = update_req(test.seed().host1.id);
+    test.send_with(HostService::update, req, &jwt)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
-async fn ok_for_delete() {
+async fn delete_an_existing_host() {
     let test = TestServer::new().await;
 
-    let jwt = test.host_jwt();
-    let req = api::HostServiceDeleteRequest {
-        id: test.seed().host.id.to_string(),
+    let delete_req = |host_id: HostId| api::HostServiceDeleteRequest {
+        host_id: host_id.to_string(),
+        org_id: None,
     };
 
-    // There is still a node. It shouldn't be possible to delete this host yet.
-    test.send_with(Service::delete, req.clone(), &jwt)
+    // fails without token
+    let req = delete_req(test.seed().host1.id);
+    let status = test
+        .send_unauthenticated(HostService::delete, req)
         .await
         .unwrap_err();
+    assert_eq!(status.code(), Code::Unauthenticated);
 
-    type NodeService = api::node_service_client::NodeServiceClient<Channel>;
+    // fails for the wrong host
+    let jwt = test.host_jwt();
+    let req = delete_req(test.seed().host2.id);
+    let status = test
+        .send_with(HostService::delete, req, &jwt)
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), Code::PermissionDenied);
+
+    // fails while there is still a node
+    let req = delete_req(test.seed().host1.id);
+    let status = test
+        .send_admin(HostService::delete, req.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), Code::FailedPrecondition);
+
     let node_req = api::NodeServiceDeleteRequest {
-        id: NODE_ID.to_string(),
+        node_id: NODE_ID.to_string(),
     };
     test.send_admin(NodeService::delete, node_req)
         .await
         .unwrap();
-    test.send_with(Service::delete, req, &jwt).await.unwrap();
+
+    // ok once nodes are deleted
+    test.send_admin(HostService::delete, req).await.unwrap();
 }
 
 #[tokio::test]
-async fn ok_for_start_stop_restart() {
+async fn start_and_stop_a_host() {
     let test = TestServer::new().await;
 
-    let jwt = test.admin_jwt().await;
-    let host_id = test.seed().host.id;
     let req = api::HostServiceStartRequest {
-        id: host_id.to_string(),
+        host_id: test.seed().host1.id.to_string(),
+        org_id: None,
     };
-    test.send_with(Service::start, req, &jwt).await.unwrap();
+    test.send_admin(HostService::start, req).await.unwrap();
 
     let req = api::HostServiceStopRequest {
-        id: host_id.to_string(),
+        host_id: test.seed().host1.id.to_string(),
+        org_id: None,
     };
-    test.send_with(Service::stop, req, &jwt).await.unwrap();
+    test.send_admin(HostService::stop, req).await.unwrap();
 
     let req = api::HostServiceRestartRequest {
-        id: host_id.to_string(),
+        host_id: test.seed().host1.id.to_string(),
+        org_id: None,
     };
-    test.send_with(Service::restart, req, &jwt).await.unwrap();
-}
-
-#[tokio::test]
-async fn unauthenticated_without_token_for_delete() {
-    let test = TestServer::new().await;
-    let req = api::HostServiceDeleteRequest {
-        id: test.seed().host.id.to_string(),
-    };
-    let status = test.send(Service::delete, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::Unauthenticated);
-}
-
-#[tokio::test]
-async fn permission_denied_for_delete() {
-    let test = TestServer::new().await;
-
-    let req = api::HostServiceDeleteRequest {
-        id: test.seed().host.id.to_string(),
-    };
-
-    // now we generate a token for the wrong host.
-    let other_host = test.host2().await;
-    let claims = test.host_claims_for(other_host.id);
-    let jwt = test.cipher().jwt.encode(&claims).unwrap();
-
-    let status = test
-        .send_with(Service::delete, req, &jwt)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
-}
-
-#[tokio::test]
-async fn can_update_host_info() {
-    use schema::hosts;
-
-    let test = TestServer::new().await;
-    let host = &test.seed().host;
-    let update_host = UpdateHost {
-        id: host.id,
-        name: Some("test"),
-        ip_gateway: Some("192.168.0.1".parse().unwrap()),
-        version: None,
-        cpu_count: None,
-        mem_size_bytes: None,
-        disk_size_bytes: None,
-        os: None,
-        os_version: None,
-        ip_addr: None,
-        status: None,
-        region_id: None,
-        managed_by: None,
-        tags: None,
-    };
-    let mut conn = test.conn().await;
-    let update = update_host.update(&mut conn).await.unwrap();
-    assert_eq!(update.name, "test".to_string());
-
-    // Fetch host after update to see if it really worked as expected
-
-    let updated_host: Host = Host::not_deleted()
-        .filter(hosts::id.eq(host.id))
-        .get_result(&mut conn)
-        .await
-        .unwrap();
-
-    assert_eq!(updated_host.name, "test".to_string());
-    assert!(!updated_host.ip_addr.is_empty())
-}
-
-#[tokio::test]
-async fn org_admin_can_view_billing_cost() {
-    let test = TestServer::new().await;
-
-    let id = test.seed().host.id.to_string();
-    let req = api::HostServiceGetRequest { id };
-    let resp = test.send_admin(Service::get, req).await.unwrap();
-
-    let billing_amount = resp.host.unwrap().billing_amount.unwrap();
-    assert_eq!(billing_amount.amount.unwrap().value, 123)
-}
-
-#[tokio::test]
-async fn org_member_cannot_view_billing_cost() {
-    let test = TestServer::new().await;
-
-    let id = test.seed().host.id.to_string();
-    let req = api::HostServiceGetRequest { id };
-    let resp = test.send_member(Service::get, req).await.unwrap();
-
-    assert!(resp.host.unwrap().billing_amount.is_none())
+    test.send_admin(HostService::restart, req).await.unwrap();
 }

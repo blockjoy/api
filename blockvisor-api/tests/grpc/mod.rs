@@ -1,12 +1,13 @@
 mod api_key;
 mod auth;
-mod blockchain;
 mod command;
+mod crypt;
 mod discovery;
 mod host;
+mod image;
 mod invitation;
 mod metrics;
 mod node;
 mod org;
-mod subscription;
+mod protocol;
 mod user;

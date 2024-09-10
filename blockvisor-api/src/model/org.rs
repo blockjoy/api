@@ -18,7 +18,7 @@ use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
 use crate::grpc::Status;
 use crate::stripe::api::customer::CustomerId;
-use crate::util::{SearchOperator, SortOrder};
+use crate::util::{sql, SearchOperator, SortOrder};
 
 use super::address::AddressId;
 use super::rbac::RbacUser;
@@ -27,18 +27,16 @@ use super::{Paginate, Token};
 
 const PERSONAL_ORG_NAME: &str = "Personal";
 
-type NotDeleted = dsl::Filter<orgs::table, dsl::IsNull<orgs::deleted_at>>;
-
 #[derive(Debug, Display, Error)]
 pub enum Error {
+    /// Failed to increment host count for org `{0}`: {1}
+    AddHost(OrgId, diesel::result::Error),
+    /// Failed to increment member count for org `{0}`: {1}
+    AddMember(OrgId, diesel::result::Error),
+    /// Failed to increment node count for org `{0}`: {1}
+    AddNode(OrgId, diesel::result::Error),
     /// Failed to create org: {0}
     Create(diesel::result::Error),
-    /// Failed to decrement host count for org `{0}`: {1}
-    DecrementHost(OrgId, diesel::result::Error),
-    /// Failed to decrement member count for org `{0}`: {1}
-    DecrementMember(OrgId, diesel::result::Error),
-    /// Failed to decrement node count for org `{0}`: {1}
-    DecrementNode(OrgId, diesel::result::Error),
     /// Failed to delete org `{0}`: {1}
     Delete(OrgId, diesel::result::Error),
     /// Failed to find org by id `{0}`: {1}
@@ -47,12 +45,6 @@ pub enum Error {
     FindByIds(HashSet<OrgId>, diesel::result::Error),
     /// Failed to find personal org for user `{0}`: {1}
     FindPersonal(UserId, diesel::result::Error),
-    /// Failed to increment host count for org `{0}`: {1}
-    IncrementHost(OrgId, diesel::result::Error),
-    /// Failed to increment member count for org `{0}`: {1}
-    IncrementMember(OrgId, diesel::result::Error),
-    /// Failed to increment node count for org `{0}`: {1}
-    IncrementNode(OrgId, diesel::result::Error),
     /// Failed to check if org `{0}` has user `{1}`: {2}
     HasUser(OrgId, UserId, diesel::result::Error),
     /// Failed to get host counts for org: {0}
@@ -63,6 +55,12 @@ pub enum Error {
     Paginate(#[from] crate::model::paginate::Error),
     /// Org model RBAC error: {0}
     Rbac(#[from] crate::model::rbac::Error),
+    /// Failed to decrement host count for org `{0}`: {1}
+    RemoveHost(OrgId, diesel::result::Error),
+    /// Failed to decrement member count for org `{0}`: {1}
+    RemoveMember(OrgId, diesel::result::Error),
+    /// Failed to decrement node count for org `{0}`: {1}
+    RemoveNode(OrgId, diesel::result::Error),
     /// Failed update customer_id for org: {0}
     SetCustomerId(diesel::result::Error),
     /// Org model token error: {0}
@@ -105,26 +103,29 @@ pub struct Org {
 
 impl Org {
     pub async fn by_id(id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        Org::not_deleted()
+        orgs::table
             .find(id)
+            .filter(orgs::deleted_at.is_null())
             .get_result(conn)
             .await
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn by_ids(org_ids: HashSet<OrgId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_ids(org_ids: &HashSet<OrgId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
         orgs::table
-            .filter(orgs::id.eq_any(org_ids.iter()))
+            .filter(orgs::id.eq_any(org_ids))
+            .filter(orgs::deleted_at.is_null())
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindByIds(org_ids, err))
+            .map_err(|err| Error::FindByIds(org_ids.clone(), err))
     }
 
     pub async fn find_personal(user_id: UserId, conn: &mut Conn<'_>) -> Result<Org, Error> {
-        Self::not_deleted()
+        orgs::table
             .inner_join(user_roles::table)
             .filter(user_roles::user_id.eq(user_id))
             .filter(orgs::is_personal)
+            .filter(orgs::deleted_at.is_null())
             .select(Org::as_select())
             .get_result(conn)
             .await
@@ -143,22 +144,6 @@ impl Org {
             .map_err(Error::SetCustomerId)
     }
 
-    pub async fn add_admin(
-        user_id: UserId,
-        org_id: OrgId,
-        conn: &mut Conn<'_>,
-    ) -> Result<Self, Error> {
-        Self::add_user(user_id, org_id, OrgRole::Admin, conn).await
-    }
-
-    pub async fn add_member(
-        user_id: UserId,
-        org_id: OrgId,
-        conn: &mut Conn<'_>,
-    ) -> Result<Self, Error> {
-        Self::add_user(user_id, org_id, OrgRole::Member, conn).await
-    }
-
     pub async fn add_user(
         user_id: UserId,
         org_id: OrgId,
@@ -174,7 +159,7 @@ impl Org {
 
         Token::new_host_provision(user_id, org_id, conn).await?;
         RbacUser::link_roles(user_id, org_id, roles.copied(), conn).await?;
-        Org::increment_member(org_id, conn).await
+        Org::add_member(org_id, conn).await
     }
 
     pub async fn has_user(
@@ -199,7 +184,7 @@ impl Org {
     ) -> Result<Self, Error> {
         Token::delete_host_provision(user_id, org_id, conn).await?;
         RbacUser::unlink_role(user_id, org_id, None::<Role>, conn).await?;
-        Org::decrement_member(org_id, conn).await
+        Org::remove_member(org_id, conn).await
     }
 
     /// Marks the the given organization as deleted
@@ -217,7 +202,7 @@ impl Org {
             .map_err(|err| Error::Delete(org_id, err))
     }
 
-    pub async fn increment_host(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn add_host(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::host_count.eq(orgs::host_count + 1),
@@ -225,10 +210,10 @@ impl Org {
             ))
             .get_result(conn)
             .await
-            .map_err(|err| Error::IncrementHost(org_id, err))
+            .map_err(|err| Error::AddHost(org_id, err))
     }
 
-    pub async fn decrement_host(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn remove_host(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::host_count.eq(orgs::host_count - 1),
@@ -236,10 +221,10 @@ impl Org {
             ))
             .get_result(conn)
             .await
-            .map_err(|err| Error::DecrementHost(org_id, err))
+            .map_err(|err| Error::RemoveHost(org_id, err))
     }
 
-    pub async fn increment_node(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn add_node(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::node_count.eq(orgs::node_count + 1),
@@ -247,10 +232,10 @@ impl Org {
             ))
             .get_result(conn)
             .await
-            .map_err(|err| Error::IncrementNode(org_id, err))
+            .map_err(|err| Error::AddNode(org_id, err))
     }
 
-    pub async fn decrement_node(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn remove_node(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::node_count.eq(orgs::node_count - 1),
@@ -258,10 +243,10 @@ impl Org {
             ))
             .get_result(conn)
             .await
-            .map_err(|err| Error::DecrementNode(org_id, err))
+            .map_err(|err| Error::RemoveNode(org_id, err))
     }
 
-    pub async fn increment_member(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn add_member(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::member_count.eq(orgs::member_count + 1),
@@ -269,10 +254,10 @@ impl Org {
             ))
             .get_result(conn)
             .await
-            .map_err(|err| Error::IncrementMember(org_id, err))
+            .map_err(|err| Error::AddMember(org_id, err))
     }
 
-    pub async fn decrement_member(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn remove_member(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::member_count.eq(orgs::member_count - 1),
@@ -280,11 +265,7 @@ impl Org {
             ))
             .get_result(conn)
             .await
-            .map_err(|err| Error::DecrementMember(org_id, err))
-    }
-
-    fn not_deleted() -> NotDeleted {
-        orgs::table.filter(orgs::deleted_at.is_null())
+            .map_err(|err| Error::RemoveMember(org_id, err))
     }
 }
 
@@ -400,10 +381,10 @@ impl OrgSearch {
                 let mut predicate: Box<dyn BoxableExpression<OrgsAndUsers, Pg, SqlType = Bool>> =
                     Box::new(false.into_sql::<Bool>());
                 if let Some(id) = self.id {
-                    predicate = Box::new(predicate.or(super::text(orgs::id).like(id)));
+                    predicate = Box::new(predicate.or(sql::text(orgs::id).like(id)));
                 }
                 if let Some(name) = self.name {
-                    predicate = Box::new(predicate.or(super::lower(orgs::name).like(name)));
+                    predicate = Box::new(predicate.or(sql::lower(orgs::name).like(name)));
                 }
                 predicate
             }
@@ -411,10 +392,10 @@ impl OrgSearch {
                 let mut predicate: Box<dyn BoxableExpression<OrgsAndUsers, Pg, SqlType = Bool>> =
                     Box::new(true.into_sql::<Bool>());
                 if let Some(id) = self.id {
-                    predicate = Box::new(predicate.and(super::text(orgs::id).like(id)));
+                    predicate = Box::new(predicate.and(sql::text(orgs::id).like(id)));
                 }
                 if let Some(name) = self.name {
-                    predicate = Box::new(predicate.and(super::lower(orgs::name).like(name)));
+                    predicate = Box::new(predicate.and(sql::lower(orgs::name).like(name)));
                 }
                 predicate
             }

@@ -4,15 +4,12 @@ use thiserror::Error;
 use tonic::{Request, Response};
 use tracing::error;
 
-use crate::auth::rbac::{
-    UserAdminPerm, UserBillingPerm, UserPerm, UserSettingsAdminPerm, UserSettingsPerm,
-};
+use crate::auth::rbac::{UserAdminPerm, UserPerm, UserSettingsAdminPerm, UserSettingsPerm};
 use crate::auth::resource::UserId;
 use crate::auth::{self, token, Authorize};
 use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::model::user::setting::{NewUserSetting, UserSetting};
 use crate::model::user::{NewUser, UpdateUser, User, UserFilter, UserSearch, UserSort};
-use crate::util::NanosUtc;
 
 use super::api::user_service_server::UserService;
 use super::{api, Grpc, Metadata, Status};
@@ -35,14 +32,14 @@ pub enum Error {
     ParseOrgId(uuid::Error),
     /// Failed to parse UserId: {0}
     ParseUserId(uuid::Error),
-    /// User model error: {0}
-    Model(#[from] crate::model::user::Error),
     /// User search failed: {0}
     SearchOperator(crate::util::search::Error),
     /// Sort order: {0}
     SortOrder(crate::util::search::Error),
     /// The requested sort field is unknown.
     UnknownSortField,
+    /// User model error: {0}
+    User(#[from] crate::model::user::Error),
     /// User settings error: {0}
     UserSettings(#[from] crate::model::user::setting::Error),
 }
@@ -61,8 +58,8 @@ impl From<Error> for Status {
             UnknownSortField => Status::invalid_argument("sort.field"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
-            Model(err) => err.into(),
-            UserSettings(err) => err.into(),
+            User(err) => err.into(),
+            UserSettings(_) => err.into(),
         }
     }
 }
@@ -114,33 +111,6 @@ impl UserService for Grpc {
             .await
     }
 
-    async fn get_billing(
-        &self,
-        req: Request<api::UserServiceGetBillingRequest>,
-    ) -> Result<Response<api::UserServiceGetBillingResponse>, tonic::Status> {
-        let (meta, _, req) = req.into_parts();
-        self.read(|read| get_billing(req, meta.into(), read).scope_boxed())
-            .await
-    }
-
-    async fn update_billing(
-        &self,
-        req: Request<api::UserServiceUpdateBillingRequest>,
-    ) -> Result<Response<api::UserServiceUpdateBillingResponse>, tonic::Status> {
-        let (meta, _, req) = req.into_parts();
-        self.write(|write| update_billing(req, meta.into(), write).scope_boxed())
-            .await
-    }
-
-    async fn delete_billing(
-        &self,
-        req: Request<api::UserServiceDeleteBillingRequest>,
-    ) -> Result<Response<api::UserServiceDeleteBillingResponse>, tonic::Status> {
-        let (meta, _, req) = req.into_parts();
-        self.write(|write| delete_billing(req, meta.into(), write).scope_boxed())
-            .await
-    }
-
     async fn get_settings(
         &self,
         req: Request<api::UserServiceGetSettingsRequest>,
@@ -174,32 +144,30 @@ pub async fn create(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceCreateResponse, Error> {
-    // This endpoint does not necessarily require authentication, since this is where users first
-    // register.
-    let invitation_id = match write.auth_all(&meta, UserPerm::Create).await {
-        // If there is a successful authorization, then we get the invitation id from it if there is
-        // one.
+    // A successful authz is not needed when users first register
+    let invitation_id = match write.auth(&meta, UserPerm::Create).await {
+        // If there is a successful authorization, then get the invitation id
         Ok(authz) => authz
             .get_data("invitation_id")
-            .map(|tkn| tkn.parse().map_err(Error::ParseInvitationId))
+            .map(|id| id.parse().map_err(Error::ParseInvitationId))
             .transpose()?,
-        // If we cannot construct authorization because no token is present, then we cannot produce
-        // an invitation id, but we still allow the user create process to continue.
+        // If no token is present, we continue without an invitation id
         Err(auth::Error::ParseRequestToken(token::Error::MissingAuthHeader)) => None,
-        // If the constructing the authorization failed for another reason, we report this error
-        // back.
-        Err(e) => return Err(e.into()),
+        // Or fail for any other reason
+        Err(err) => return Err(err.into()),
     };
 
-    let new_user = req.as_new()?.create(&mut write).await?;
+    let new_user = NewUser::new(&req.email, &req.first_name, &req.last_name, &req.password)?;
+    let user = new_user.create(&mut write).await?;
+
     write
         .ctx
         .email
-        .registration_confirmation(&new_user, invitation_id)
+        .registration_confirmation(&user, invitation_id)
         .await?;
 
     Ok(api::UserServiceCreateResponse {
-        user: Some(api::User::from_model(new_user)),
+        user: Some(user.into()),
     })
 }
 
@@ -208,14 +176,14 @@ pub async fn get(
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::UserServiceGetResponse, Error> {
-    let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
-    read.auth_or_all(&meta, UserAdminPerm::Get, UserPerm::Get, user_id)
+    let user_id: UserId = req.user_id.parse().map_err(Error::ParseId)?;
+    read.auth_or_for(&meta, UserAdminPerm::Get, UserPerm::Get, user_id)
         .await?;
 
     let user = User::by_id(user_id, &mut read).await?;
 
     Ok(api::UserServiceGetResponse {
-        user: Some(api::User::from_model(user)),
+        user: Some(user.into()),
     })
 }
 
@@ -226,16 +194,16 @@ pub async fn list(
 ) -> Result<api::UserServiceListResponse, Error> {
     let filter = req.into_filter()?;
     if let Some(org_id) = filter.org_id {
-        read.auth_or_all(&meta, UserAdminPerm::Filter, UserPerm::Filter, org_id)
+        read.auth_or_for(&meta, UserAdminPerm::Filter, UserPerm::Filter, org_id)
             .await?
     } else {
-        read.auth_all(&meta, UserAdminPerm::Filter).await?
+        read.auth(&meta, UserAdminPerm::Filter).await?
     };
 
-    let (users, user_count) = filter.query(&mut read).await?;
-    let users = api::User::from_models(users);
+    let (users, _) = filter.query(&mut read).await?;
+    let users = users.into_iter().map(Into::into).collect();
 
-    Ok(api::UserServiceListResponse { users, user_count })
+    Ok(api::UserServiceListResponse { users })
 }
 
 pub async fn update(
@@ -243,15 +211,20 @@ pub async fn update(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceUpdateResponse, Error> {
-    let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
+    let user_id: UserId = req.user_id.parse().map_err(Error::ParseId)?;
     write
-        .auth_or_all(&meta, UserAdminPerm::Update, UserPerm::Update, user_id)
+        .auth_or_for(&meta, UserAdminPerm::Update, UserPerm::Update, user_id)
         .await?;
 
-    let user = req.as_update(user_id).update(&mut write).await?;
+    let update = UpdateUser {
+        id: user_id,
+        first_name: req.first_name.as_deref(),
+        last_name: req.last_name.as_deref(),
+    };
+    let user = update.apply(&mut write).await?;
 
     Ok(api::UserServiceUpdateResponse {
-        user: Some(api::User::from_model(user)),
+        user: Some(user.into()),
     })
 }
 
@@ -260,67 +233,21 @@ pub async fn delete(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceDeleteResponse, Error> {
-    let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
-    write.auth(&meta, UserPerm::Delete, user_id).await?;
+    let user_id: UserId = req.user_id.parse().map_err(Error::ParseId)?;
+    write.auth_for(&meta, UserPerm::Delete, user_id).await?;
 
     User::delete(user_id, &mut write).await?;
 
     Ok(api::UserServiceDeleteResponse {})
 }
 
-pub async fn get_billing(
-    req: api::UserServiceGetBillingRequest,
-    meta: Metadata,
-    mut read: ReadConn<'_, '_>,
-) -> Result<api::UserServiceGetBillingResponse, Error> {
-    let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    read.auth(&meta, UserBillingPerm::Get, user_id).await?;
-
-    let user = User::by_id(user_id, &mut read).await?;
-
-    Ok(api::UserServiceGetBillingResponse {
-        billing_id: user.chargebee_billing_id,
-    })
-}
-
-pub async fn update_billing(
-    req: api::UserServiceUpdateBillingRequest,
-    meta: Metadata,
-    mut write: WriteConn<'_, '_>,
-) -> Result<api::UserServiceUpdateBillingResponse, Error> {
-    let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    write.auth(&meta, UserBillingPerm::Update, user_id).await?;
-
-    let mut user = User::by_id(user_id, &mut write).await?;
-    user.chargebee_billing_id = req.billing_id;
-    user.update(&mut write).await?;
-
-    Ok(api::UserServiceUpdateBillingResponse {
-        billing_id: user.chargebee_billing_id,
-    })
-}
-
-pub async fn delete_billing(
-    req: api::UserServiceDeleteBillingRequest,
-    meta: Metadata,
-    mut write: WriteConn<'_, '_>,
-) -> Result<api::UserServiceDeleteBillingResponse, Error> {
-    let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    write.auth(&meta, UserBillingPerm::Delete, user_id).await?;
-
-    let user = User::by_id(user_id, &mut write).await?;
-    user.delete_billing(&mut write).await?;
-
-    Ok(api::UserServiceDeleteBillingResponse {})
-}
-
-pub async fn get_settings(
+async fn get_settings(
     req: api::UserServiceGetSettingsRequest,
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::UserServiceGetSettingsResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
-    read.auth_or_all(
+    read.auth_or_for(
         &meta,
         UserSettingsAdminPerm::Get,
         UserSettingsPerm::Get,
@@ -332,7 +259,7 @@ pub async fn get_settings(
     let settings = UserSetting::by_user(user.id, &mut read)
         .await?
         .into_iter()
-        .map(|s| (s.name, s.value))
+        .map(|s| (s.key.into(), s.value))
         .collect();
 
     Ok(api::UserServiceGetSettingsResponse { settings })
@@ -345,7 +272,7 @@ pub async fn update_settings(
 ) -> Result<api::UserServiceUpdateSettingsResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
     write
-        .auth_or_all(
+        .auth_or_for(
             &meta,
             UserSettingsAdminPerm::Update,
             UserSettingsPerm::Update,
@@ -354,12 +281,12 @@ pub async fn update_settings(
         .await?;
 
     let user = User::by_id(user_id, &mut write).await?;
-    let setting = NewUserSetting::new(user.id, &req.name, &req.value)
+    let setting = NewUserSetting::new(user.id, req.key, &req.value)
         .create_or_update(&mut write)
         .await?;
 
     Ok(api::UserServiceUpdateSettingsResponse {
-        name: setting.name,
+        key: setting.key.into(),
         value: setting.value,
     })
 }
@@ -371,7 +298,7 @@ pub async fn delete_settings(
 ) -> Result<api::UserServiceDeleteSettingsResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
     write
-        .auth_or_all(
+        .auth_or_for(
             &meta,
             UserSettingsAdminPerm::Delete,
             UserSettingsPerm::Delete,
@@ -380,37 +307,9 @@ pub async fn delete_settings(
         .await?;
 
     let user = User::by_id(user_id, &mut write).await?;
-    UserSetting::delete(user.id, &req.name, &mut write).await?;
+    UserSetting::delete(user.id, &req.key.into(), &mut write).await?;
 
     Ok(api::UserServiceDeleteSettingsResponse {})
-}
-
-impl api::User {
-    pub fn from_model(model: User) -> Self {
-        Self {
-            id: model.id.to_string(),
-            email: model.email,
-            first_name: model.first_name,
-            last_name: model.last_name,
-            created_at: Some(NanosUtc::from(model.created_at).into()),
-        }
-    }
-
-    pub fn from_models(models: Vec<User>) -> Vec<Self> {
-        models.into_iter().map(Self::from_model).collect()
-    }
-}
-
-impl api::UserServiceCreateRequest {
-    fn as_new(&self) -> Result<NewUser<'_>, Error> {
-        NewUser::new(
-            &self.email,
-            &self.first_name,
-            &self.last_name,
-            &self.password,
-        )
-        .map_err(Into::into)
-    }
 }
 
 impl api::UserServiceListRequest {
@@ -427,7 +326,7 @@ impl api::UserServiceListRequest {
                         .operator()
                         .try_into()
                         .map_err(Error::SearchOperator)?,
-                    id: search.id.map(|id| id.trim().to_lowercase()),
+                    id: search.user_id.map(|name| name.trim().to_lowercase()),
                     name: search.name.map(|name| name.trim().to_lowercase()),
                     email: search.email.map(|email| email.trim().to_lowercase()),
                 })
@@ -455,15 +354,5 @@ impl api::UserServiceListRequest {
             search,
             sort,
         })
-    }
-}
-
-impl api::UserServiceUpdateRequest {
-    pub fn as_update(&self, id: UserId) -> UpdateUser<'_> {
-        UpdateUser {
-            id,
-            first_name: self.first_name.as_deref(),
-            last_name: self.last_name.as_deref(),
-        }
     }
 }

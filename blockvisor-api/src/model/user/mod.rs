@@ -3,7 +3,7 @@ use std::collections::{HashSet, VecDeque};
 use argon2::password_hash::{PasswordHasher, SaltString};
 use argon2::{Algorithm, Argon2, PasswordHash};
 use chrono::{DateTime, Utc};
-use diesel::dsl::{self, LeftJoinQuerySource};
+use diesel::dsl::LeftJoinQuerySource;
 use diesel::expression::expression_types::NotSelectable;
 use diesel::pg::Pg;
 use diesel::prelude::*;
@@ -15,22 +15,21 @@ use displaydoc::Display;
 use password_hash::{PasswordVerifier, Salt};
 use rand::rngs::OsRng;
 use thiserror::Error;
+use tonic::Status;
+use tracing::warn;
 use validator::Validate;
 
 use crate::auth::rbac::{OrgRole, Role};
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
-use crate::email::Language;
-use crate::grpc::Status;
-use crate::util::{SearchOperator, SortOrder};
+use crate::grpc::api;
+use crate::util::{sql, NanosUtc, SearchOperator, SortOrder};
 
 use super::org::NewOrg;
 use super::schema::{user_roles, users};
 use super::Paginate;
 
 pub mod setting;
-
-type NotDeleted = dsl::Filter<users::table, dsl::IsNull<users::deleted_at>>;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -125,32 +124,34 @@ pub struct User {
     pub last_name: String,
     pub confirmed_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
-    pub chargebee_billing_id: Option<String>,
 }
 
 impl User {
     pub async fn by_id(id: UserId, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        User::not_deleted()
+        users::table
             .find(id)
+            .filter(users::deleted_at.is_null())
             .get_result(conn)
             .await
             .map_err(|err| Error::FindById(id, err))
     }
 
     pub async fn by_ids(
-        user_ids: HashSet<UserId>,
+        user_ids: &HashSet<UserId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
-        Self::not_deleted()
-            .filter(users::id.eq_any(user_ids.iter()))
+        users::table
+            .filter(users::id.eq_any(user_ids))
+            .filter(users::deleted_at.is_null())
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindByIds(user_ids, err))
+            .map_err(|err| Error::FindByIds(user_ids.clone(), err))
     }
 
     pub async fn by_email(email: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        Self::not_deleted()
-            .filter(super::lower(users::email).eq(&email.trim().to_lowercase()))
+        users::table
+            .filter(sql::lower(users::email).eq(&email.trim().to_lowercase()))
+            .filter(users::deleted_at.is_null())
             .get_result(conn)
             .await
             .map_err(|err| Error::FindByEmail(email.to_lowercase(), err))
@@ -161,8 +162,9 @@ impl User {
         role: Role,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
-        Self::not_deleted()
+        users::table
             .inner_join(user_roles::table)
+            .filter(users::deleted_at.is_null())
             .filter(user_roles::org_id.eq(org_id))
             .filter(user_roles::role.eq(role.to_string()))
             .select(users::all_columns)
@@ -172,21 +174,23 @@ impl User {
     }
 
     pub async fn owner(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        let owner_roles = [
-            Role::Org(OrgRole::Owner).to_string(),
-            Role::Org(OrgRole::Personal).to_string(),
-        ];
-        let mut owners = Self::not_deleted()
+        let mut owners = users::table
             .inner_join(user_roles::table)
+            .filter(users::deleted_at.is_null())
             .filter(user_roles::org_id.eq(org_id))
-            .filter(user_roles::role.eq_any(owner_roles))
+            .filter(user_roles::role.eq_any([
+                Role::Org(OrgRole::Owner).to_string(),
+                Role::Org(OrgRole::Personal).to_string(),
+            ]))
             .select(users::all_columns)
             .get_results(conn)
             .await
             .map_err(|err| Error::FindOwner(org_id, err))?;
-        if owners.len() != 1 {
-            tracing::warn!("Org {org_id} has {} owners!", owners.len());
+
+        if owners.len() > 1 {
+            warn!("{} owners for org: {org_id}", owners.len());
         }
+
         owners.pop().ok_or(Error::NoOwner(org_id))
     }
 
@@ -233,7 +237,6 @@ impl User {
             .map_err(Error::UpdatePassword)
     }
 
-    /// Check if user can be found by email, is confirmed and has provided a valid password
     pub async fn login(email: &str, password: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
         let user = match Self::by_email(email, conn).await {
             Ok(user) => Ok(user),
@@ -250,11 +253,12 @@ impl User {
     }
 
     pub async fn confirm(user_id: UserId, conn: &mut Conn<'_>) -> Result<(), Error> {
-        let target_user = Self::not_deleted()
+        let target_user = users::table
             .find(user_id)
-            .filter(users::confirmed_at.is_null());
+            .filter(users::confirmed_at.is_null())
+            .filter(users::deleted_at.is_null());
         let updated = diesel::update(target_user)
-            .set(users::confirmed_at.eq(chrono::Utc::now()))
+            .set(users::confirmed_at.eq(Utc::now()))
             .execute(conn)
             .await
             .map_err(Error::Confirm)?;
@@ -269,44 +273,26 @@ impl User {
     }
 
     pub async fn is_confirmed(id: UserId, conn: &mut Conn<'_>) -> Result<bool, Error> {
-        Self::not_deleted()
+        users::table
             .find(id)
+            .filter(users::deleted_at.is_null())
             .select(users::confirmed_at.is_not_null())
             .get_result(conn)
             .await
             .map_err(|err| Error::IsConfirmed(id, err))
     }
 
-    /// Mark user deleted if no more nodes belong to it
     pub async fn delete(id: UserId, conn: &mut Conn<'_>) -> Result<(), Error> {
         diesel::update(users::table.find(id))
-            .set(users::deleted_at.eq(chrono::Utc::now()))
+            .set(users::deleted_at.eq(Utc::now()))
             .execute(conn)
             .await
             .map(|_| ())
             .map_err(Error::Delete)
     }
 
-    pub async fn delete_billing(&self, conn: &mut Conn<'_>) -> Result<(), Error> {
-        diesel::update(users::table)
-            .set(users::chargebee_billing_id.eq(None::<String>))
-            .execute(conn)
-            .await
-            .map(|_| ())
-            .map_err(Error::DeleteBilling)
-    }
-
-    // TODO: support other languages
-    pub const fn preferred_language(&self) -> Language {
-        Language::En
-    }
-
     pub fn name(&self) -> String {
         format!("{} {}", self.first_name, self.last_name)
-    }
-
-    fn not_deleted() -> NotDeleted {
-        users::table.filter(users::deleted_at.is_null())
     }
 }
 
@@ -403,13 +389,13 @@ impl UserSearch {
                 let mut predicate: Box<dyn BoxableExpression<UsersAndRoles, Pg, SqlType = Bool>> =
                     Box::new(false.into_sql::<Bool>());
                 if let Some(id) = self.id {
-                    predicate = Box::new(predicate.or(super::text(users::id).like(id)));
+                    predicate = Box::new(predicate.or(sql::text(users::id).like(id)));
                 }
                 if let Some(name) = self.name {
-                    predicate = Box::new(predicate.or(super::lower(user_name).like(name)));
+                    predicate = Box::new(predicate.or(sql::lower(user_name).like(name)));
                 }
                 if let Some(email) = self.email {
-                    predicate = Box::new(predicate.or(super::lower(users::email).like(email)));
+                    predicate = Box::new(predicate.or(sql::lower(users::email).like(email)));
                 }
                 predicate
             }
@@ -417,13 +403,13 @@ impl UserSearch {
                 let mut predicate: Box<dyn BoxableExpression<UsersAndRoles, Pg, SqlType = Bool>> =
                     Box::new(true.into_sql::<Bool>());
                 if let Some(id) = self.id {
-                    predicate = Box::new(predicate.and(super::text(users::id).like(id)));
+                    predicate = Box::new(predicate.and(sql::text(users::id).like(id)));
                 }
                 if let Some(name) = self.name {
-                    predicate = Box::new(predicate.and(super::lower(user_name).like(name)));
+                    predicate = Box::new(predicate.and(sql::lower(user_name).like(name)));
                 }
                 if let Some(email) = self.email {
-                    predicate = Box::new(predicate.and(super::lower(users::email).like(email)));
+                    predicate = Box::new(predicate.and(sql::lower(users::email).like(email)));
                 }
                 predicate
             }
@@ -491,13 +477,25 @@ pub struct UpdateUser<'a> {
 }
 
 impl<'a> UpdateUser<'a> {
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<User, Error> {
+    pub async fn apply(self, conn: &mut Conn<'_>) -> Result<User, Error> {
         let user_id = self.id;
         diesel::update(users::table.find(user_id))
             .set(self)
             .get_result(conn)
             .await
             .map_err(|err| Error::UpdateId(user_id, err))
+    }
+}
+
+impl From<User> for api::User {
+    fn from(user: User) -> Self {
+        api::User {
+            user_id: user.id.to_string(),
+            email: user.email,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            created_at: Some(NanosUtc::from(user.created_at).into()),
+        }
     }
 }
 
@@ -519,7 +517,6 @@ mod tests {
             last_name: "Ballington".to_string(),
             confirmed_at: Some(chrono::Utc::now()),
             deleted_at: None,
-            chargebee_billing_id: None,
         };
         user.verify_password("A password that cannot be hacked!1")
             .unwrap();

@@ -11,7 +11,7 @@ use tonic::metadata::AsciiMetadataValue;
 use tracing::warn;
 
 use crate::auth::claims::Expirable;
-use crate::auth::resource::{Resource, ResourceEntry, ResourceId, ResourceType};
+use crate::auth::resource::{ClaimsResource, Resource};
 use crate::config::token::{RefreshSecret, RefreshSecrets};
 use crate::grpc::{Metadata, Status};
 
@@ -108,10 +108,9 @@ impl Cipher {
                 match err.into_kind() {
                     ErrorKind::ExpiredSignature => {
                         let refresh = self.decode_expired(encoded).ok();
-                        Err(Error::TokenExpired(refresh.map_or_else(
-                            || "unknown".to_string(),
-                            |r| format!("type: {:?}, id: {}", r.resource_type(), r.resource_id()),
-                        )))
+                        let resource = refresh
+                            .map_or_else(|| "unknown".to_string(), |r| format!("{:?}", r.resource));
+                        Err(Error::TokenExpired(resource))
                     }
                     kind => Err(Error::Decode(kind)),
                 }
@@ -154,29 +153,22 @@ impl Cipher {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Refresh {
-    resource_id: ResourceId,
-    resource_type: Option<ResourceType>,
+    #[serde(flatten)]
+    resource: ClaimsResource,
     #[serde(flatten)]
     expirable: Expirable,
 }
 
 impl Refresh {
     pub fn from_now<R: Into<Resource>>(expires: chrono::Duration, resource: R) -> Self {
-        let resource = resource.into();
-        let entry: ResourceEntry = resource.into();
         Refresh {
-            resource_id: entry.resource_id,
-            resource_type: Some(entry.resource_type),
+            resource: ClaimsResource::from(resource.into()),
             expirable: Expirable::from_now(expires),
         }
     }
 
-    pub const fn resource_id(&self) -> ResourceId {
-        self.resource_id
-    }
-
-    pub const fn resource_type(&self) -> Option<ResourceType> {
-        self.resource_type
+    pub fn resource(&self) -> Resource {
+        Resource::new(self.resource.resource_type, self.resource.resource_id)
     }
 
     pub const fn expirable(&self) -> Expirable {
@@ -321,14 +313,14 @@ mod tests {
         meta.insert_grpc(COOKIE_HEADER, cookie.header().unwrap());
 
         let result = ctx.auth.refresh(&meta).unwrap();
-        assert_eq!(result.resource_id, refresh.resource_id);
+        assert_eq!(result.resource.resource_id, refresh.resource().id());
     }
 
     #[tokio::test]
     async fn test_extra_cookies() {
         let (ctx, db) = Context::with_mocked().await.unwrap();
 
-        let user_id = db.seed.user.id;
+        let user_id = db.seed.member.id;
         let refresh = Refresh::from_now(seconds(60), user_id);
         let encoded = ctx.auth.cipher.refresh.encode(&refresh).unwrap();
 

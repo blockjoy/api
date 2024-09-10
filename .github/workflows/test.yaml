@@ -26,7 +26,6 @@ jobs:
           POSTGRES_PASSWORD: password
         ports:
           - 25432:5432
-        # Set health checks to wait until postgres has started
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -39,6 +38,15 @@ jobs:
           - 21883:1883
         volumes:
           - ${{ github.workspace }}/docker/emqx:/opt/emqx/etc
+
+      vault:
+        image: hashicorp/vault:1.17
+        ports:
+          - 28200:8200
+        env:
+          SKIP_SETCAP: true
+          VAULT_ADDR: "http://0.0.0.0:8200"
+          VAULT_DEV_ROOT_TOKEN_ID: "vault-root-token"
 
     steps:
       - uses: actions/checkout@v3
@@ -53,6 +61,14 @@ jobs:
 
       - name: Install libpq
         run: apt update && apt install libpq-dev -y
+
+      - name: Initialize vault
+        run: >
+          curl
+          --request POST
+          --header "X-Vault-Token: vault-root-token"
+          --data '{"type":"kv","options":{"version":"2"}}'
+          http://localhost:28200/v1/sys/mounts/blockjoy
 
       - name: Cargo test
         uses: actions-rs/cargo@v1

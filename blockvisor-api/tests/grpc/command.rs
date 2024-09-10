@@ -1,15 +1,14 @@
+use blockvisor_api::auth::claims::Granted;
 use blockvisor_api::auth::resource::NodeId;
+use blockvisor_api::auth::AuthZ;
 use blockvisor_api::grpc::api;
 use blockvisor_api::model::command::{Command, CommandType, ExitCode, NewCommand};
 use blockvisor_api::model::host::Host;
 use blockvisor_api::model::node::UpdateNode;
 use blockvisor_api::model::Node;
-use tonic::transport::Channel;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{CommandService, SocketRpc};
 use crate::setup::TestServer;
-
-type Service = api::command_service_client::CommandServiceClient<Channel>;
 
 async fn create_command(test: &TestServer, node_id: NodeId, cmd_type: CommandType) -> Command {
     let mut conn = test.conn().await;
@@ -19,25 +18,27 @@ async fn create_command(test: &TestServer, node_id: NodeId, cmd_type: CommandTyp
 }
 
 #[tokio::test]
-async fn responds_ok_for_update() {
+async fn node_create_failed() {
     let test = TestServer::new().await;
     let mut conn = test.conn().await;
 
     let node_id = test.seed().node.id;
     let cmd = create_command(&test, node_id, CommandType::NodeCreate).await;
-    let host = Host::by_id(cmd.host_id, &mut conn).await.unwrap();
+    let host = Host::by_id(cmd.host_id, None, &mut conn).await.unwrap();
 
     let claims = test.host_claims_for(host.id);
     let jwt = test.cipher().jwt.encode(&claims).unwrap();
 
     let req = api::CommandServiceUpdateRequest {
-        id: cmd.id.to_string(),
+        command_id: cmd.id.to_string(),
         exit_message: Some("hugo boss".to_string()),
         exit_code: Some(api::CommandExitCode::ServiceBroken.into()),
         retry_hint_seconds: Some(10),
     };
 
-    test.send_with(Service::update, req, &jwt).await.unwrap();
+    test.send_with(CommandService::update, req, &jwt)
+        .await
+        .unwrap();
 
     let cmd = Command::by_id(cmd.id, &mut conn).await.unwrap();
 
@@ -52,36 +53,32 @@ async fn responds_ok_for_pending() {
     let mut conn = test.conn().await;
 
     let node_id = test.seed().node.id;
-    let node = Node::by_id(node_id, &mut conn).await.unwrap();
+    let host_id = test.seed().host1.id;
+    let authz = AuthZ {
+        claims: test.member_claims().await,
+        granted: Granted::default(),
+    };
+
     let update = UpdateNode {
+        id: node_id,
         org_id: None,
         host_id: None,
         display_name: None,
-        version: None,
-        ip: Some("123.123.123.123".parse().unwrap()),
+        auto_upgrade: None,
+        ip_address: Some("123.123.123.123".parse().unwrap()),
         ip_gateway: None,
-        block_height: None,
-        node_data: None,
-        node_status: None,
-        sync_status: None,
-        staking_status: None,
-        container_status: None,
-        self_update: None,
-        address: None,
         note: None,
         tags: None,
     };
-    node.update(&update, &mut conn).await.unwrap();
+    update.apply(&authz, &mut conn).await.unwrap();
+    create_command(&test, node_id, CommandType::NodeCreate).await;
 
-    let cmd = create_command(&test, node_id, CommandType::NodeCreate).await;
-    let host = Host::by_id(cmd.host_id, &mut conn).await.unwrap();
-
-    let claims = test.host_claims_for(host.id);
-    let jwt = test.cipher().jwt.encode(&claims).unwrap();
-
+    let jwt = test.host_jwt();
     let req = api::CommandServicePendingRequest {
-        host_id: host.id.to_string(),
+        host_id: host_id.to_string(),
         filter_type: None,
     };
-    test.send_with(Service::pending, req, &jwt).await.unwrap();
+    test.send_with(CommandService::pending, req, &jwt)
+        .await
+        .unwrap();
 }

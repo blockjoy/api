@@ -49,23 +49,23 @@ pub struct Region {
 }
 
 impl Region {
+    pub async fn by_id(id: RegionId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        regions::table
+            .find(id)
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::ById(id, err))
+    }
+
     pub async fn by_ids(
-        region_ids: HashSet<RegionId>,
+        region_ids: &HashSet<RegionId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         regions::table
-            .filter(regions::id.eq_any(region_ids.iter()))
+            .filter(regions::id.eq_any(region_ids))
             .get_results(conn)
             .await
-            .map_err(|err| Error::ByIds(region_ids, err))
-    }
-
-    pub async fn by_id(region_id: RegionId, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        regions::table
-            .filter(regions::id.eq(region_id))
-            .get_result(conn)
-            .await
-            .map_err(|err| Error::ById(region_id, err))
+            .map_err(|err| Error::ByIds(region_ids.clone(), err))
     }
 
     pub async fn by_name(name: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {

@@ -17,9 +17,7 @@ use crate::grpc::api;
 use crate::grpc::Status;
 
 use super::schema::{commands, sql_types};
-use super::{Host, Node};
-
-type Pending = dsl::Filter<commands::table, dsl::IsNull<commands::exit_code>>;
+use super::Node;
 
 #[derive(Debug, DisplayDoc, Error)]
 pub enum Error {
@@ -43,10 +41,6 @@ pub enum Error {
     HostPending(diesel::result::Error),
     /// Command Node error: {0}
     Node(#[from] super::node::Error),
-    /// Failed to parse CommandId: {0}
-    ParseId(uuid::Error),
-    /// Failed to parse `retry_hint_seconds` as u64: {0}
-    RetryHint(std::num::TryFromIntError),
     /// Failed to update command: {0}
     Update(diesel::result::Error),
     /// Attempt to create a command meant for a node without specificying a node id.
@@ -65,8 +59,6 @@ impl From<Error> for Status {
             | FindById(_, NotFound)
             | HasHostPending(NotFound)
             | HostPending(NotFound) => Status::not_found("Not found."),
-            ParseId(_) => Status::invalid_argument("id"),
-            RetryHint(_) => Status::invalid_argument("retry_hint_seconds"),
             Host(err) => err.into(),
             Node(err) => err.into(),
             _ => Status::internal("Internal error."),
@@ -85,8 +77,8 @@ pub enum CommandType {
     NodeStart,
     NodeStop,
     NodeRestart,
-    NodeUpgrade,
     NodeUpdate,
+    NodeUpgrade,
     NodeDelete,
 }
 
@@ -97,11 +89,7 @@ impl CommandType {
     }
 
     const fn is_node(self) -> bool {
-        use CommandType::*;
-        matches!(
-            self,
-            NodeCreate | NodeStart | NodeStop | NodeRestart | NodeUpgrade | NodeUpdate | NodeDelete
-        )
+        !self.is_host()
     }
 }
 
@@ -146,7 +134,9 @@ impl Command {
     }
 
     pub async fn has_host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<bool, Error> {
-        let pending = Self::pending().filter(commands::host_id.eq(host_id));
+        let pending = commands::table
+            .filter(commands::host_id.eq(host_id))
+            .filter(commands::exit_code.is_null());
 
         diesel::select(dsl::exists(pending))
             .get_result(conn)
@@ -155,8 +145,9 @@ impl Command {
     }
 
     pub async fn host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Command>, Error> {
-        Self::pending()
+        commands::table
             .filter(commands::host_id.eq(host_id))
+            .filter(commands::exit_code.is_null())
             .order_by(commands::created_at.asc())
             .get_results(conn)
             .await
@@ -184,7 +175,9 @@ impl Command {
     }
 
     pub async fn delete_host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<(), Error> {
-        let pending = Self::pending().filter(commands::host_id.eq(host_id));
+        let pending = commands::table
+            .filter(commands::host_id.eq(host_id))
+            .filter(commands::exit_code.is_null());
 
         diesel::delete(pending)
             .execute(conn)
@@ -194,17 +187,15 @@ impl Command {
     }
 
     pub async fn delete_node_pending(node_id: NodeId, conn: &mut Conn<'_>) -> Result<(), Error> {
-        let pending = Self::pending().filter(commands::node_id.eq(node_id));
+        let pending = commands::table
+            .filter(commands::node_id.eq(node_id))
+            .filter(commands::exit_code.is_null());
 
         diesel::delete(pending)
             .execute(conn)
             .await
             .map(|_| ())
             .map_err(Error::DeleteNodePending)
-    }
-
-    pub async fn host(&self, conn: &mut Conn<'_>) -> Result<Host, Error> {
-        Host::by_id(self.host_id, conn).await.map_err(Error::Host)
     }
 
     pub async fn node(&self, conn: &mut Conn<'_>) -> Result<Option<Node>, Error> {
@@ -216,15 +207,11 @@ impl Command {
 
     pub async fn ack(&self, conn: &mut Conn<'_>) -> Result<(), Error> {
         diesel::update(commands::table.find(self.id))
-            .set(commands::acked_at.eq(chrono::Utc::now()))
+            .set(commands::acked_at.eq(Utc::now()))
             .execute(conn)
             .await
             .map(|_| ())
             .map_err(Error::Ack)
-    }
-
-    fn pending() -> Pending {
-        commands::table.filter(commands::exit_code.is_null())
     }
 }
 
@@ -281,20 +268,7 @@ pub struct UpdateCommand {
 }
 
 impl UpdateCommand {
-    pub fn from_request(request: api::CommandServiceUpdateRequest) -> Result<Self, Error> {
-        Ok(UpdateCommand {
-            id: request.id.parse().map_err(Error::ParseId)?,
-            exit_code: request.exit_code().into(),
-            exit_message: request.exit_message,
-            retry_hint_seconds: request
-                .retry_hint_seconds
-                .map(|secs| secs.try_into().map_err(Error::RetryHint))
-                .transpose()?,
-            completed_at: request.exit_code.map(|_| chrono::Utc::now()),
-        })
-    }
-
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Command, Error> {
+    pub async fn apply(self, conn: &mut Conn<'_>) -> Result<Command, Error> {
         diesel::update(commands::table.find(self.id))
             .set(self)
             .get_result(conn)

@@ -1,236 +1,191 @@
 use diesel_derive_enum::DbEnum;
+use displaydoc::Display;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use tonic::Status;
 
 use crate::grpc::common;
 use crate::model::schema::sql_types;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "sql_types::EnumNodeStatus"]
-pub enum NodeStatus {
-    Unknown,
-    ProvisioningPending,
-    Provisioning,
-    Broadcasting,
-    Cancelled,
-    Delegating,
-    Delinquent,
-    Disabled,
-    Earning,
-    Electing,
-    Elected,
-    Exported,
-    Ingesting,
-    Mining,
-    Minting,
-    Processing,
-    Relaying,
-    DeletePending,
-    Deleting,
-    Deleted,
-    UpdatePending,
-    Updating,
-    Initializing,
-    Downloading,
-    Uploading,
-    Starting,
-    Active,
-    Jailed,
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Unknown NextState.
+    UnknownNextState,
+    /// Unknown NodeHealth.
+    UnknownNodeHealth,
+    /// Unknown NodeState.
+    UnknownNodeState,
+}
+
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
+        use Error::*;
+        match err {
+            UnknownNextState => Status::invalid_argument("next"),
+            UnknownNodeHealth => Status::invalid_argument("protocol_state.health"),
+            UnknownNodeState => Status::invalid_argument("state"),
+        }
+    }
+}
+
+pub struct NodeStatus {
+    pub state: NodeState,
+    pub next: Option<NextState>,
+    pub protocol: Option<ProtocolStatus>,
 }
 
 impl From<NodeStatus> for common::NodeStatus {
     fn from(status: NodeStatus) -> Self {
-        match status {
-            NodeStatus::Unknown => Self::Unspecified,
-            NodeStatus::ProvisioningPending => Self::ProvisioningPending,
-            NodeStatus::Provisioning => Self::Provisioning,
-            NodeStatus::Broadcasting => Self::Broadcasting,
-            NodeStatus::Cancelled => Self::Cancelled,
-            NodeStatus::Delegating => Self::Delegating,
-            NodeStatus::Delinquent => Self::Delinquent,
-            NodeStatus::Disabled => Self::Disabled,
-            NodeStatus::Earning => Self::Earning,
-            NodeStatus::Electing => Self::Electing,
-            NodeStatus::Elected => Self::Elected,
-            NodeStatus::Exported => Self::Exported,
-            NodeStatus::Ingesting => Self::Ingesting,
-            NodeStatus::Mining => Self::Mining,
-            NodeStatus::Minting => Self::Minting,
-            NodeStatus::Processing => Self::Processing,
-            NodeStatus::Relaying => Self::Relaying,
-            NodeStatus::DeletePending => Self::DeletePending,
-            NodeStatus::Deleting => Self::Deleting,
-            NodeStatus::Deleted => Self::Deleted,
-            NodeStatus::UpdatePending => Self::UpdatePending,
-            NodeStatus::Updating => Self::Updating,
-            NodeStatus::Initializing => Self::Initializing,
-            NodeStatus::Downloading => Self::Downloading,
-            NodeStatus::Uploading => Self::Uploading,
-            NodeStatus::Starting => Self::Starting,
-            NodeStatus::Active => Self::Active,
-            NodeStatus::Jailed => Self::Jailed,
+        common::NodeStatus {
+            state: common::NodeState::from(status.state) as i32,
+            next: status.next.map(|next| common::NextState::from(next) as i32),
+            protocol: status.protocol.map(Into::into),
         }
     }
 }
 
-impl common::NodeStatus {
-    pub const fn into_model(self) -> Option<NodeStatus> {
-        match self {
-            common::NodeStatus::Unspecified => None,
-            common::NodeStatus::ProvisioningPending => Some(NodeStatus::ProvisioningPending),
-            common::NodeStatus::Provisioning => Some(NodeStatus::Provisioning),
-            common::NodeStatus::Broadcasting => Some(NodeStatus::Broadcasting),
-            common::NodeStatus::Cancelled => Some(NodeStatus::Cancelled),
-            common::NodeStatus::Delegating => Some(NodeStatus::Delegating),
-            common::NodeStatus::Delinquent => Some(NodeStatus::Delinquent),
-            common::NodeStatus::Disabled => Some(NodeStatus::Disabled),
-            common::NodeStatus::Earning => Some(NodeStatus::Earning),
-            common::NodeStatus::Electing => Some(NodeStatus::Electing),
-            common::NodeStatus::Elected => Some(NodeStatus::Elected),
-            common::NodeStatus::Exported => Some(NodeStatus::Exported),
-            common::NodeStatus::Ingesting => Some(NodeStatus::Ingesting),
-            common::NodeStatus::Mining => Some(NodeStatus::Mining),
-            common::NodeStatus::Minting => Some(NodeStatus::Minting),
-            common::NodeStatus::Processing => Some(NodeStatus::Processing),
-            common::NodeStatus::Relaying => Some(NodeStatus::Relaying),
-            common::NodeStatus::DeletePending => Some(NodeStatus::DeletePending),
-            common::NodeStatus::Deleting => Some(NodeStatus::Deleting),
-            common::NodeStatus::Deleted => Some(NodeStatus::Deleted),
-            common::NodeStatus::UpdatePending => Some(NodeStatus::UpdatePending),
-            common::NodeStatus::Updating => Some(NodeStatus::Updating),
-            common::NodeStatus::Initializing => Some(NodeStatus::Initializing),
-            common::NodeStatus::Downloading => Some(NodeStatus::Downloading),
-            common::NodeStatus::Uploading => Some(NodeStatus::Uploading),
-            common::NodeStatus::Starting => Some(NodeStatus::Starting),
-            common::NodeStatus::Active => Some(NodeStatus::Active),
-            common::NodeStatus::Jailed => Some(NodeStatus::Jailed),
-        }
+impl TryFrom<common::NodeStatus> for NodeStatus {
+    type Error = Error;
+
+    fn try_from(status: common::NodeStatus) -> Result<Self, Self::Error> {
+        Ok(NodeStatus {
+            state: status.state().try_into()?,
+            next: status.next.map(|_| status.next().try_into()).transpose()?,
+            protocol: status.protocol.map(TryInto::try_into).transpose()?,
+        })
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "sql_types::EnumContainerStatus"]
-pub enum ContainerStatus {
-    Unknown,
-    Creating,
-    Running,
+#[ExistingTypePath = "sql_types::EnumNodeState"]
+pub enum NodeState {
     Starting,
-    Stopping,
+    Running,
     Stopped,
+    Failed,
     Upgrading,
-    Upgraded,
     Deleting,
     Deleted,
-    Installing,
-    Snapshotting,
-    Failed,
-    Busy,
 }
 
-impl From<ContainerStatus> for common::ContainerStatus {
-    fn from(status: ContainerStatus) -> Self {
-        match status {
-            ContainerStatus::Unknown => Self::Unspecified,
-            ContainerStatus::Creating => Self::Creating,
-            ContainerStatus::Running => Self::Running,
-            ContainerStatus::Starting => Self::Starting,
-            ContainerStatus::Stopping => Self::Stopping,
-            ContainerStatus::Stopped => Self::Stopped,
-            ContainerStatus::Upgrading => Self::Upgrading,
-            ContainerStatus::Upgraded => Self::Upgraded,
-            ContainerStatus::Deleting => Self::Deleting,
-            ContainerStatus::Deleted => Self::Deleted,
-            ContainerStatus::Installing => Self::Installing,
-            ContainerStatus::Snapshotting => Self::Snapshotting,
-            ContainerStatus::Failed => Self::Failed,
-            ContainerStatus::Busy => Self::Busy,
+impl From<NodeState> for common::NodeState {
+    fn from(state: NodeState) -> Self {
+        match state {
+            NodeState::Starting => Self::Starting,
+            NodeState::Running => Self::Running,
+            NodeState::Stopped => Self::Stopped,
+            NodeState::Failed => Self::Failed,
+            NodeState::Upgrading => Self::Upgrading,
+            NodeState::Deleting => Self::Deleting,
+            NodeState::Deleted => Self::Deleted,
         }
     }
 }
 
-impl From<common::ContainerStatus> for ContainerStatus {
-    fn from(status: common::ContainerStatus) -> Self {
-        match status {
-            common::ContainerStatus::Unspecified => ContainerStatus::Unknown,
-            common::ContainerStatus::Creating => ContainerStatus::Creating,
-            common::ContainerStatus::Running => ContainerStatus::Running,
-            common::ContainerStatus::Starting => ContainerStatus::Starting,
-            common::ContainerStatus::Stopping => ContainerStatus::Stopping,
-            common::ContainerStatus::Stopped => ContainerStatus::Stopped,
-            common::ContainerStatus::Upgrading => ContainerStatus::Upgrading,
-            common::ContainerStatus::Upgraded => ContainerStatus::Upgraded,
-            common::ContainerStatus::Deleting => ContainerStatus::Deleting,
-            common::ContainerStatus::Deleted => ContainerStatus::Deleted,
-            common::ContainerStatus::Installing => ContainerStatus::Installing,
-            common::ContainerStatus::Snapshotting => ContainerStatus::Snapshotting,
-            common::ContainerStatus::Failed => ContainerStatus::Failed,
-            common::ContainerStatus::Busy => ContainerStatus::Busy,
+impl TryFrom<common::NodeState> for NodeState {
+    type Error = Error;
+
+    fn try_from(state: common::NodeState) -> Result<Self, Self::Error> {
+        match state {
+            common::NodeState::Unspecified => Err(Error::UnknownNodeState),
+            common::NodeState::Starting => Ok(NodeState::Starting),
+            common::NodeState::Running => Ok(NodeState::Running),
+            common::NodeState::Stopped => Ok(NodeState::Stopped),
+            common::NodeState::Failed => Ok(NodeState::Failed),
+            common::NodeState::Upgrading => Ok(NodeState::Upgrading),
+            common::NodeState::Deleting => Ok(NodeState::Deleting),
+            common::NodeState::Deleted => Ok(NodeState::Deleted),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "sql_types::EnumNodeSyncStatus"]
-pub enum SyncStatus {
-    Unknown,
-    Syncing,
-    Synced,
+#[ExistingTypePath = "sql_types::EnumNextState"]
+pub enum NextState {
+    Starting,
+    Stopping,
+    Upgrading,
+    Deleting,
 }
 
-impl From<SyncStatus> for common::SyncStatus {
-    fn from(status: SyncStatus) -> Self {
-        match status {
-            SyncStatus::Unknown => Self::Unspecified,
-            SyncStatus::Syncing => Self::Syncing,
-            SyncStatus::Synced => Self::Synced,
+impl From<NextState> for common::NextState {
+    fn from(state: NextState) -> Self {
+        match state {
+            NextState::Starting => Self::Starting,
+            NextState::Stopping => Self::Stopping,
+            NextState::Upgrading => Self::Upgrading,
+            NextState::Deleting => Self::Deleting,
         }
     }
 }
 
-impl common::SyncStatus {
-    pub const fn into_model(self) -> Option<SyncStatus> {
-        match self {
-            common::SyncStatus::Unspecified => None,
-            common::SyncStatus::Syncing => Some(SyncStatus::Syncing),
-            common::SyncStatus::Synced => Some(SyncStatus::Synced),
+impl TryFrom<common::NextState> for NextState {
+    type Error = Error;
+
+    fn try_from(state: common::NextState) -> Result<Self, Self::Error> {
+        match state {
+            common::NextState::Unspecified => Err(Error::UnknownNextState),
+            common::NextState::Starting => Ok(NextState::Starting),
+            common::NextState::Stopping => Ok(NextState::Stopping),
+            common::NextState::Upgrading => Ok(NextState::Upgrading),
+            common::NextState::Deleting => Ok(NextState::Deleting),
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "sql_types::EnumNodeStakingStatus"]
-pub enum StakingStatus {
-    Unknown,
-    Follower,
-    Staked,
-    Staking,
-    Validating,
-    Consensus,
-    Unstaked,
+pub struct ProtocolStatus {
+    pub state: String,
+    pub health: NodeHealth,
 }
 
-impl From<StakingStatus> for common::StakingStatus {
-    fn from(status: StakingStatus) -> Self {
-        match status {
-            StakingStatus::Unknown => Self::Unspecified,
-            StakingStatus::Follower => Self::Follower,
-            StakingStatus::Staked => Self::Staked,
-            StakingStatus::Staking => Self::Staking,
-            StakingStatus::Validating => Self::Validating,
-            StakingStatus::Consensus => Self::Consensus,
-            StakingStatus::Unstaked => Self::Unstaked,
+impl From<ProtocolStatus> for common::ProtocolStatus {
+    fn from(status: ProtocolStatus) -> Self {
+        common::ProtocolStatus {
+            state: status.state,
+            health: common::NodeHealth::from(status.health) as i32,
         }
     }
 }
 
-impl common::StakingStatus {
-    pub const fn into_model(self) -> Option<StakingStatus> {
-        match self {
-            common::StakingStatus::Unspecified => None,
-            common::StakingStatus::Follower => Some(StakingStatus::Follower),
-            common::StakingStatus::Staked => Some(StakingStatus::Staked),
-            common::StakingStatus::Staking => Some(StakingStatus::Staking),
-            common::StakingStatus::Validating => Some(StakingStatus::Validating),
-            common::StakingStatus::Consensus => Some(StakingStatus::Consensus),
-            common::StakingStatus::Unstaked => Some(StakingStatus::Unstaked),
+impl TryFrom<common::ProtocolStatus> for ProtocolStatus {
+    type Error = Error;
+
+    fn try_from(status: common::ProtocolStatus) -> Result<Self, Self::Error> {
+        let health = status.health().try_into()?;
+        Ok(ProtocolStatus {
+            state: status.state,
+            health,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum, Serialize, Deserialize)]
+#[ExistingTypePath = "sql_types::EnumHealth"]
+pub enum NodeHealth {
+    Healthy,
+    Neutral,
+    Unhealthy,
+}
+
+impl From<NodeHealth> for common::NodeHealth {
+    fn from(health: NodeHealth) -> Self {
+        match health {
+            NodeHealth::Healthy => Self::Healthy,
+            NodeHealth::Neutral => Self::Neutral,
+            NodeHealth::Unhealthy => Self::Unhealthy,
+        }
+    }
+}
+
+impl TryFrom<common::NodeHealth> for NodeHealth {
+    type Error = Error;
+
+    fn try_from(health: common::NodeHealth) -> Result<Self, Self::Error> {
+        match health {
+            common::NodeHealth::Unspecified => Err(Error::UnknownNodeHealth),
+            common::NodeHealth::Healthy => Ok(NodeHealth::Healthy),
+            common::NodeHealth::Neutral => Ok(NodeHealth::Neutral),
+            common::NodeHealth::Unhealthy => Ok(NodeHealth::Unhealthy),
         }
     }
 }

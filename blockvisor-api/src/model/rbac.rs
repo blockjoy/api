@@ -4,8 +4,7 @@ use chrono::DateTime;
 use chrono::Utc;
 use diesel::dsl;
 use diesel::prelude::*;
-use diesel::result::DatabaseErrorKind::UniqueViolation;
-use diesel::result::Error::{DatabaseError, NotFound};
+use diesel::result::Error::NotFound;
 use diesel_async::RunQueryDsl;
 use displaydoc::Display;
 use thiserror::Error;
@@ -22,10 +21,10 @@ use super::schema::{permissions, role_permissions, roles, user_roles};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to create Perm `{0}`: {1}
-    CreatePerm(Perm, diesel::result::Error),
-    /// Failed to create Role `{0}`: {1}
-    CreateRole(Role, diesel::result::Error),
+    /// Failed to create all perms: {0}
+    CreatePerms(diesel::result::Error),
+    /// Failed to create all roles: {0}
+    CreateRoles(diesel::result::Error),
     /// Failed to find org owners for org `{0}`: {1}
     FindOrgOwners(OrgId, diesel::result::Error),
     /// Failed to find roles for user `{0}` and org `{1}`: {2}
@@ -46,14 +45,10 @@ pub enum Error {
     ParsePerm(String),
     /// Failed to parse Role: {0}
     ParseRole(String),
-    /// Failed to check if Perm `{0}` exists: {1}
-    PermExists(Perm, diesel::result::Error),
     /// Nothing was deleted.
     NothingDeleted,
     /// Nothing was inserted.
     NothingInserted,
-    /// Failed to check if Role `{0}` exists: {1}
-    RoleExists(Role, diesel::result::Error),
     /// Failed to check if Role `{0}` has Perm `{1}`: {2}
     RoleHasPerm(Role, Perm, diesel::result::Error),
     /// Failed to unlink Role `{0}` from Perm `{1}`: {2}
@@ -72,10 +67,6 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            CreatePerm(_, DatabaseError(UniqueViolation, _))
-            | CreateRole(_, DatabaseError(UniqueViolation, _)) => {
-                Status::already_exists("Already exists.")
-            }
             FindOrgRoles(_, _, NotFound)
             | FindPermsForRole(_, NotFound)
             | FindPermsForRoles(NotFound)
@@ -91,42 +82,18 @@ impl From<Error> for Status {
 pub struct RbacRole;
 
 impl RbacRole {
-    async fn create<R>(role: R, conn: &mut Conn<'_>) -> Result<(), Error>
-    where
-        R: Into<Role> + Send,
-    {
-        let role = role.into();
-        diesel::insert_into(roles::table)
-            .values(roles::name.eq(role.to_string()))
-            .returning(roles::name)
+    pub async fn create_all(conn: &mut Conn<'_>) -> Result<(), Error> {
+        let roles: Vec<_> = Role::iter()
+            .map(|role| (roles::name.eq(role.to_string())))
+            .collect();
+
+        let _ = diesel::insert_into(roles::table)
+            .values(&roles)
+            .on_conflict(roles::name)
+            .do_nothing()
             .execute(conn)
             .await
-            .map_err(|err| Error::CreateRole(role, err))
-            .and_then(|inserted| match inserted {
-                0 => Err(Error::NothingInserted),
-                1 => Ok(()),
-                n => Err(Error::UnexpectedInserted(n)),
-            })
-    }
-
-    pub async fn exists<R>(role: R, conn: &mut Conn<'_>) -> Result<bool, Error>
-    where
-        R: Into<Role> + Send,
-    {
-        let role = role.into();
-        let query = roles::table.filter(roles::name.eq(role.to_string()));
-        diesel::select(dsl::exists(query))
-            .get_result(conn)
-            .await
-            .map_err(|err| Error::RoleExists(role, err))
-    }
-
-    pub async fn create_all(conn: &mut Conn<'_>) -> Result<(), Error> {
-        for role in Role::iter() {
-            if !Self::exists(role, conn).await? {
-                Self::create(role, conn).await?;
-            }
-        }
+            .map_err(Error::CreateRoles);
 
         Ok(())
     }
@@ -194,42 +161,18 @@ impl RbacRole {
 pub struct RbacPerm;
 
 impl RbacPerm {
-    async fn create<P>(perm: P, conn: &mut Conn<'_>) -> Result<(), Error>
-    where
-        P: Into<Perm> + Send,
-    {
-        let perm = perm.into();
-        diesel::insert_into(permissions::table)
-            .values(permissions::name.eq(perm.to_string()))
-            .returning(permissions::name)
+    pub async fn create_all(conn: &mut Conn<'_>) -> Result<(), Error> {
+        let perms: Vec<_> = Perm::iter()
+            .map(|perm| (permissions::name.eq(perm.to_string())))
+            .collect();
+
+        let _ = diesel::insert_into(permissions::table)
+            .values(&perms)
+            .on_conflict(permissions::name)
+            .do_nothing()
             .execute(conn)
             .await
-            .map_err(|err| Error::CreatePerm(perm, err))
-            .and_then(|inserted| match inserted {
-                0 => Err(Error::NothingInserted),
-                1 => Ok(()),
-                n => Err(Error::UnexpectedInserted(n)),
-            })
-    }
-
-    pub async fn exists<P>(perm: P, conn: &mut Conn<'_>) -> Result<bool, Error>
-    where
-        P: Into<Perm> + Send,
-    {
-        let perm = perm.into();
-        let query = permissions::table.filter(permissions::name.eq(perm.to_string()));
-        diesel::select(dsl::exists(query))
-            .get_result(conn)
-            .await
-            .map_err(|err| Error::PermExists(perm, err))
-    }
-
-    pub async fn create_all(conn: &mut Conn<'_>) -> Result<(), Error> {
-        for perm in Perm::iter() {
-            if !Self::exists(perm, conn).await? {
-                Self::create(perm, conn).await?;
-            }
-        }
+            .map_err(Error::CreatePerms);
 
         Ok(())
     }
@@ -455,7 +398,7 @@ impl OrgUsers {
         conn: &mut Conn<'_>,
     ) -> Result<HashMap<OrgId, OrgUsers>, Error> {
         let rows: Vec<UserRole> = user_roles::table
-            .filter(user_roles::org_id.eq_any(org_ids.iter()))
+            .filter(user_roles::org_id.eq_any(org_ids))
             .get_results(conn)
             .await
             .map_err(|err| Error::FindUserRolesForOrgIds(org_ids.clone(), err))?;

@@ -29,6 +29,7 @@
             packages = with pkgs; [
               openssl
               pgcli
+              pgformatter
               pkg-config
               postgresql.lib
               protobuf

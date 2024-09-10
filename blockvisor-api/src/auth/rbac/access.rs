@@ -45,7 +45,14 @@ where
 #[serde(untagged)]
 pub enum Perms {
     One(Perm),
-    Many(HashSet<Perm>),
+    All(HashSet<Perm>),
+    Any(HashSet<Perm>),
+}
+
+impl From<Perm> for Perms {
+    fn from(perm: Perm) -> Self {
+        Perms::One(perm)
+    }
 }
 
 impl<I, P> From<I> for Perms
@@ -54,44 +61,49 @@ where
     P: Into<Perm>,
 {
     fn from(items: I) -> Self {
-        Perms::Many(items.into_iter().map(Into::into).collect())
+        Perms::All(items.into_iter().map(Into::into).collect())
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "integration-test"))]
 pub mod tests {
-    use crate::auth::claims::Claims;
-    use crate::auth::rbac::{
-        ApiKeyPerm, ApiKeyRole, BlockchainAdminPerm, BlockchainPerm, BlockjoyRole, GrpcRole,
-        HostPerm, HostProvisionPerm,
-    };
+    use crate::auth::claims::{Claims, Granted};
+    use crate::auth::rbac::{ProtocolAdminPerm, ProtocolPerm};
     use crate::auth::resource::Resource;
     use crate::auth::AuthZ;
-    use crate::config::Context;
-    use crate::database::Conn;
+
+    #[cfg(test)]
+    use crate::auth::rbac::{
+        ApiKeyPerm, ApiKeyRole, BlockjoyRole, GrpcRole, HostPerm, HostProvisionPerm,
+    };
 
     use super::*;
 
-    pub fn view_perms() -> Perms {
-        Perms::Many(hashset! {
-            BlockchainAdminPerm::ViewPrivate.into(),
-            BlockchainPerm::ViewPublic.into(),
-            BlockchainPerm::ViewDevelopment.into(),
-        })
-    }
-
-    pub async fn view_authz<R>(ctx: &Context, resource: R, conn: &mut Conn<'_>) -> AuthZ
+    #[allow(clippy::implicit_hasher)]
+    pub fn authz<R>(perms: HashSet<Perm>, resource: R) -> AuthZ
     where
         R: Into<Resource> + Send,
     {
-        let resource = resource.into();
         let expires = chrono::Duration::minutes(15);
-        let access = Access::Perms(view_perms());
-        let claims = Claims::from_now(expires, resource, access);
-        ctx.auth
-            .authorize_claims(claims, view_perms(), Some(resource.into()), conn)
-            .await
-            .unwrap()
+        let access = Access::Perms(Perms::All(perms.clone()));
+
+        AuthZ {
+            claims: Claims::from_now(expires, resource.into(), access),
+            granted: Granted::test_with(perms),
+        }
+    }
+
+    pub fn view_authz<R>(resource: R) -> AuthZ
+    where
+        R: Into<Resource> + Send,
+    {
+        let perms = hashset! {
+            ProtocolAdminPerm::ViewAllStats.into(),
+            ProtocolAdminPerm::ViewPrivate.into(),
+            ProtocolPerm::ViewDevelopment.into(),
+            ProtocolPerm::ViewPublic.into(),
+        };
+        authz(perms, resource)
     }
 
     #[derive(Serialize, Deserialize)]
@@ -142,8 +154,7 @@ pub mod tests {
         let json = r#"{"perms":["host-get","host-provision-get"]}"#;
         let perms: TestPerms = serde_json::from_str(json).unwrap();
 
-        let expected =
-            Perms::Many(hashset! { HostPerm::Get.into(), HostProvisionPerm::Get.into() });
+        let expected = Perms::All(hashset! { HostPerm::Get.into(), HostProvisionPerm::Get.into() });
         assert_eq!(perms.perms, expected);
     }
 }

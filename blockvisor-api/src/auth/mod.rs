@@ -24,10 +24,9 @@ use self::token::{Cipher, RequestToken};
 const TOKEN_EXPIRED: &str = "TOKEN_EXPIRED";
 
 pub(crate) trait Authorize {
-    /// Authorize request token for some `perms` and `resources`.
+    /// Authorize request token for `perms` and optionally ensure `resources`.
     ///
-    /// This is the entry point for the authorization process which the other
-    /// trait methods delegate to.
+    /// This is the `AuthZ` entry point which other trait methods delegate to.
     async fn authorize(
         &mut self,
         meta: &Metadata,
@@ -35,45 +34,105 @@ pub(crate) trait Authorize {
         resources: Option<Resources>,
     ) -> Result<AuthZ, Error>;
 
-    /// Authorize request token for some `perms` and `resources`.
-    async fn auth<P, R>(&mut self, meta: &Metadata, perms: P, resources: R) -> Result<AuthZ, Error>
-    where
-        P: Into<Perms> + Send,
-        R: Into<Resources> + Send,
-    {
-        self.authorize(meta, perms.into(), Some(resources.into()))
-            .await
-    }
-
-    /// Authorize request token for some `perms` and all resources.
-    async fn auth_all<P>(&mut self, meta: &Metadata, perms: P) -> Result<AuthZ, Error>
+    /// Authorize request token for `perms` and all resources.
+    async fn auth<P>(&mut self, meta: &Metadata, perms: P) -> Result<AuthZ, Error>
     where
         P: Into<Perms> + Send,
     {
         self.authorize(meta, perms.into(), None).await
     }
 
-    /// Try and authorize request token for `perms_all` and all resources.
-    ///
-    /// On failure, authorize claims for some `perms` and `resources` instead.
-    async fn auth_or_all<P1, P2, R>(
+    /// Authorize request token for `perms` and ensure `resources`.
+    async fn auth_for<P, R>(
         &mut self,
         meta: &Metadata,
-        perms_all: P1,
-        perms: P2,
+        perms: P,
         resources: R,
     ) -> Result<AuthZ, Error>
     where
-        P1: Into<Perms> + Send,
-        P2: Into<Perms> + Send,
+        P: Into<Perms> + Send,
         R: Into<Resources> + Send,
     {
-        if let Ok(authz) = self.authorize(meta, perms_all.into(), None).await {
+        self.authorize(meta, perms.into(), Some(resources.into()))
+            .await
+    }
+
+    /// Try and authorize request token for `admin_perms` and all resources.
+    ///
+    /// Otherwise authorize claims for `user_perms` and ensure `user_resources`.
+    async fn auth_or_for<AP, UP, UR>(
+        &mut self,
+        meta: &Metadata,
+        admin_perms: AP,
+        user_perms: UP,
+        user_resources: UR,
+    ) -> Result<AuthZ, Error>
+    where
+        AP: Into<Perms> + Send,
+        UP: Into<Perms> + Send,
+        UR: Into<Resources> + Send,
+    {
+        if let Ok(authz) = self.authorize(meta, admin_perms.into(), None).await {
             return Ok(authz);
         }
 
-        self.authorize(meta, perms.into(), Some(resources.into()))
+        self.authorize(meta, user_perms.into(), Some(user_resources.into()))
             .await
+    }
+
+    /// Authorize request token for all `perms` and all resources.
+    #[allow(unused)]
+    async fn auth_all<I, P>(&mut self, meta: &Metadata, perms: I) -> Result<AuthZ, Error>
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<Perm> + Send,
+    {
+        let perms = Perms::All(perms.into_iter().map(Into::into).collect());
+        self.authorize(meta, perms, None).await
+    }
+
+    /// Authorize request token for all `perms` and ensure `resources`.
+    #[allow(unused)]
+    async fn auth_all_for<I, P, R>(
+        &mut self,
+        meta: &Metadata,
+        perms: I,
+        resources: R,
+    ) -> Result<AuthZ, Error>
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<Perm> + Send,
+        R: Into<Resources> + Send,
+    {
+        let perms = Perms::All(perms.into_iter().map(Into::into).collect());
+        self.authorize(meta, perms, Some(resources.into())).await
+    }
+
+    /// Authorize request token for any `perms` and all resources.
+    async fn auth_any<I, P>(&mut self, meta: &Metadata, perms: I) -> Result<AuthZ, Error>
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<Perm> + Send,
+    {
+        let perms = Perms::Any(perms.into_iter().map(Into::into).collect());
+        self.authorize(meta, perms, None).await
+    }
+
+    /// Authorize request token for any `perms` and ensure `resources`.
+    #[allow(unused)]
+    async fn auth_any_for<I, P, R>(
+        &mut self,
+        meta: &Metadata,
+        perms: I,
+        resources: R,
+    ) -> Result<AuthZ, Error>
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<Perm> + Send,
+        R: Into<Resources> + Send,
+    {
+        let perms = Perms::Any(perms.into_iter().map(Into::into).collect());
+        self.authorize(meta, perms, Some(resources.into())).await
     }
 }
 
@@ -199,7 +258,8 @@ impl Auth {
         // finally check that the requested permissions exist
         match perms {
             Perms::One(perm) => granted.ensure_perm(perm, &claims)?,
-            Perms::Many(perms) => granted.ensure_perms(perms, &claims)?,
+            Perms::All(perms) => granted.ensure_all_perms(perms, &claims)?,
+            Perms::Any(perms) => granted.ensure_any_perms(perms, &claims)?,
         }
 
         Ok(AuthZ { claims, granted })
@@ -252,13 +312,22 @@ impl AuthZ {
         self.granted.has_perm(perm)
     }
 
-    /// Predicate to check if any one of the permissions are granted.
-    pub fn has_any_perm<I, P>(&self, perms: I) -> bool
+    /// Predicate to check if all of the permissions are granted.
+    pub fn has_all_perms<I, P>(&self, perms: I) -> bool
     where
         I: IntoIterator<Item = P>,
         P: Into<Perm>,
     {
-        self.granted.has_any_perm(perms)
+        self.granted.has_all_perms(perms)
+    }
+
+    /// Predicate to check if any one of the permissions are granted.
+    pub fn has_any_perms<I, P>(&self, perms: I) -> bool
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<Perm>,
+    {
+        self.granted.has_any_perms(perms)
     }
 
     /// Returns the key value from the authorized `Claims` data.

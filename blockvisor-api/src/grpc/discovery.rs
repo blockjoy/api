@@ -50,7 +50,7 @@ pub async fn services(
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::DiscoveryServiceServicesResponse, Error> {
-    read.auth_all(&meta, DiscoveryPerm::Services).await?;
+    read.auth(&meta, DiscoveryPerm::Services).await?;
 
     Ok(api::DiscoveryServiceServicesResponse {
         notification_url: read.ctx.config.mqtt.notification_url(),

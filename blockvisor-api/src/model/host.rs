@@ -1,66 +1,61 @@
 use std::collections::{HashSet, VecDeque};
 
 use chrono::{DateTime, Utc};
-use diesel::dsl;
+use diesel::dsl::{count, exists, not, sql};
 use diesel::expression::expression_types::NotSelectable;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::result::DatabaseErrorKind::UniqueViolation;
 use diesel::result::Error::{DatabaseError, NotFound};
-use diesel::sql_types::{Bool, Text};
+use diesel::sql_types::{Bool, Nullable};
 use diesel_async::RunQueryDsl;
 use diesel_derive_enum::DbEnum;
-use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display;
-use ipnetwork::IpNetwork;
 use thiserror::Error;
 
-use crate::auth::rbac::HostBillingPerm;
-use crate::auth::resource::{HostId, OrgId, UserId};
-use crate::auth::AuthZ;
+use crate::auth::resource::{HostId, OrgId, Resource, ResourceId, ResourceType};
 use crate::database::Conn;
-use crate::grpc::{api, common, Status};
-use crate::storage::metadata::HardwareRequirements;
+use crate::grpc::api;
+use crate::util::sql::{self, greatest, IpNetwork, Tags, Version};
 use crate::util::{SearchOperator, SortOrder};
 
-use super::blockchain::Blockchain;
 use super::ip_address::CreateIpAddress;
-use super::node::{NodeScheduler, NodeType, ResourceAffinity};
-use super::schema::{hosts, sql_types};
-use super::{Command, Org, Paginate, Region, RegionId};
-
-type NotDeleted = dsl::Filter<hosts::table, dsl::IsNull<hosts::deleted_at>>;
+use super::node::{NodeScheduler, ResourceAffinity, SimilarNodeAffinity};
+use super::schema::{hosts, ip_addresses, nodes, sql_types};
+use super::{Command, Node, Org, Paginate, Protocol, RegionId};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
+    /// Failed to increment node count for host `{0}`: {1}
+    AddNode(HostId, diesel::result::Error),
     /// Protobuf BillingAmount is missing an Amount.
-    BillingAmountMissingAmount,
-    /// Unsupported BillingAmount Currency: {0:?}
-    BillingAmountCurrency(i32),
-    /// Unsupported BillingAmount Period: {0:?}
-    BillingAmountPeriod(i32),
+    BillingMissingAmount,
+    /// Unknown BillingAmount Currency.
+    BillingCurrencyUnknown,
+    /// Unknown BillingAmount Period.
+    BillingPeriodUnknown,
     /// Host Command error: {0}
     Command(Box<super::command::Error>),
+    /// Failed to parse cpu cores as i64: {0}
+    CpuCores(std::num::TryFromIntError),
     /// Failed to create host: {0}
     Create(diesel::result::Error),
-    /// Failed to decrement node count for host `{0}`: {1}
-    DecrementNode(HostId, diesel::result::Error),
     /// Failed to delete host id `{0}`: {1}
     Delete(HostId, diesel::result::Error),
+    /// Failed to parse disk_bytes as i64: {0}
+    DiskBytes(std::num::TryFromIntError),
     /// Failed to find host by id `{0}`: {1}
     FindById(HostId, diesel::result::Error),
     /// Failed to find hosts by id `{0:?}`: {1}
     FindByIds(HashSet<HostId>, diesel::result::Error),
-    /// Failed to find host ids `{0:?}`: {1}
-    FindExistingIds(HashSet<HostId>, diesel::result::Error),
-    /// Failed to find host by name `{0}`: {1}
-    FindByName(String, diesel::result::Error),
+    /// Failed to find org id for host id `{0}`: {1}
+    FindOrgId(HostId, diesel::result::Error),
     /// Failed to get host candidates: {0}
     HostCandidates(diesel::result::Error),
-    /// Failed to increment node count for host `{0}`: {1}
-    IncrementNode(HostId, diesel::result::Error),
     /// Host ip address error: {0}
     IpAddress(#[from] crate::model::ip_address::Error),
+    /// Failed to parse mem_bytes as i64: {0}
+    MemoryBytes(std::num::TryFromIntError),
     /// Failed to get node counts for host: {0}
     NodeCounts(diesel::result::Error),
     /// Nothing to update.
@@ -71,8 +66,12 @@ pub enum Error {
     Paginate(#[from] crate::model::paginate::Error),
     /// Failed to parse host ip address: {0}
     ParseIp(std::net::AddrParseError),
-    /// Host region error: {0}
-    Region(super::region::Error),
+    /// Failed to decrement node count for host `{0}`: {1}
+    RemoveNode(HostId, diesel::result::Error),
+    /// Unknown ConnectionStatus.
+    UnknownConnectionStatus,
+    /// Unknown ScheduleType.
+    UnknownScheduleType,
     /// Failed to update host: {0}
     Update(diesel::result::Error),
     /// Failed to update host {1}'s metrics: {0}
@@ -87,72 +86,62 @@ impl From<Error> for Status {
             Delete(_, NotFound)
             | FindById(_, NotFound)
             | FindByIds(_, NotFound)
-            | FindByName(_, NotFound) => Status::not_found("Not found."),
-            BillingAmountMissingAmount | BillingAmountCurrency(_) | BillingAmountPeriod(_) => {
+            | FindOrgId(_, NotFound) => Status::not_found("Not found."),
+            BillingMissingAmount | BillingCurrencyUnknown | BillingPeriodUnknown => {
                 Status::invalid_argument("billing_amount")
             }
+            CpuCores(_) => Status::invalid_argument("cpu_cores"),
+            DiskBytes(_) => Status::invalid_argument("disk_bytes"),
+            MemoryBytes(_) => Status::invalid_argument("memory_bytes"),
             NoUpdate => Status::failed_precondition("Nothing to update."),
             ParseIp(_) => Status::invalid_argument("ip_addr"),
+            UnknownConnectionStatus => Status::invalid_argument("connection_status"),
+            UnknownScheduleType => Status::invalid_argument("schedule_type"),
             Paginate(err) => err.into(),
             IpAddress(err) => err.into(),
             Org(err) => err.into(),
-            Region(err) => err.into(),
             _ => Status::internal("Internal error."),
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "sql_types::EnumHostType"]
-pub enum HostType {
-    /// Anyone can run nodes on these servers.
-    Cloud,
-    /// Only people in the org can run nodes on these servers. They are for private use.
-    Private,
-}
-
-#[derive(Debug, Clone, Queryable)]
+#[derive(Clone, Debug, Queryable)]
 #[diesel(table_name = hosts)]
 pub struct Host {
     pub id: HostId,
-    pub version: String,
-    pub name: String,
-    pub ip_addr: String,
-    pub status: ConnectionStatus,
-    pub created_at: DateTime<Utc>,
-    // Number of CPU's that this host has.
-    pub cpu_count: i64,
-    // The size of the hosts memory, in bytes.
-    pub mem_size_bytes: i64,
-    // The size of the hosts disk, in bytes.
-    pub disk_size_bytes: i64,
+    pub org_id: Option<OrgId>,
+    pub region_id: Option<RegionId>,
+    pub network_name: String,
+    pub display_name: Option<String>,
+    pub schedule_type: ScheduleType,
+    pub connection_status: ConnectionStatus,
+    pub cpu_cores: i64,
+    pub memory_bytes: i64,
+    pub disk_bytes: i64,
     pub os: String,
     pub os_version: String,
+    pub bv_version: Version,
+    pub ip_address: IpNetwork,
     pub ip_gateway: IpNetwork,
-    pub used_cpu: Option<i32>,
-    pub used_memory: Option<i64>,
-    pub used_disk_space: Option<i64>,
-    pub load_one: Option<f64>,
-    pub load_five: Option<f64>,
-    pub load_fifteen: Option<f64>,
-    pub network_received: Option<i64>,
-    pub network_sent: Option<i64>,
-    pub uptime: Option<i64>,
-    pub host_type: Option<HostType>,
-    /// The id of the org that owns and operates this host.
-    pub org_id: OrgId,
-    /// This is the id of the user that created this host. For older hosts, this value might not be
-    /// set.
-    pub created_by: Option<UserId>,
-    // The id of the region where this host is located.
-    pub region_id: Option<RegionId>,
-    // The monthly billing amount for this host (only visible to host owners).
-    pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
-    pub vmm_mountpoint: Option<String>,
+    pub node_count: i64,
+    pub node_cpu_cores: i64,
+    pub node_memory_bytes: i64,
+    pub node_disk_bytes: i64,
+    pub used_cpu_hundreths: Option<i64>,
+    pub used_memory_bytes: Option<i64>,
+    pub used_disk_bytes: Option<i64>,
+    pub load_one_percent: Option<f64>,
+    pub load_five_percent: Option<f64>,
+    pub load_fifteen_percent: Option<f64>,
+    pub network_received_bytes: Option<i64>,
+    pub network_sent_bytes: Option<i64>,
+    pub uptime_seconds: Option<i64>,
+    pub tags: Tags,
+    pub created_by_type: ResourceType,
+    pub created_by_id: ResourceId,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
-    pub managed_by: ManagedBy,
-    pub node_count: i32,
-    pub tags: Vec<Option<String>>,
 }
 
 impl AsRef<Host> for Host {
@@ -161,78 +150,91 @@ impl AsRef<Host> for Host {
     }
 }
 
-#[derive(Debug)]
-pub struct HostRequirements {
-    pub requirements: HardwareRequirements,
-    pub node_type: NodeType,
-    pub host_type: Option<HostType>,
-    pub scheduler: NodeScheduler,
-    pub org_id: Option<OrgId>,
-}
-
 impl Host {
-    pub async fn by_id(id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(
+        id: HostId,
+        org_id: Option<OrgId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<Self, Error> {
         hosts::table
             .find(id)
+            .filter(hosts::org_id.eq(org_id).or(hosts::org_id.is_null()))
+            .filter(hosts::deleted_at.is_null())
             .get_result(conn)
             .await
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn by_ids(ids: HashSet<HostId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
-        hosts::table
-            .filter(hosts::id.eq_any(ids.iter()))
-            .get_results(conn)
-            .await
-            .map_err(|err| Error::FindByIds(ids, err))
-    }
-
-    /// Filters out any node ids that do no exist.
-    pub async fn existing_ids(
-        ids: HashSet<HostId>,
+    pub async fn by_ids(
+        ids: &HashSet<HostId>,
+        org_ids: &HashSet<OrgId>,
         conn: &mut Conn<'_>,
-    ) -> Result<HashSet<HostId>, Error> {
-        let ids = Self::not_deleted()
-            .filter(hosts::id.eq_any(ids.iter()))
-            .select(hosts::id)
+    ) -> Result<Vec<Self>, Error> {
+        hosts::table
+            .filter(hosts::id.eq_any(ids))
+            .filter(hosts::org_id.eq_any(org_ids).or(hosts::org_id.is_null()))
+            .filter(hosts::deleted_at.is_null())
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindExistingIds(ids, err))?;
-        Ok(ids.into_iter().collect())
+            .map_err(|err| Error::FindByIds(ids.clone(), err))
     }
 
-    pub async fn by_name(name: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        Self::not_deleted()
-            .filter(hosts::name.eq(name))
+    pub async fn org_id(id: HostId, conn: &mut Conn<'_>) -> Result<Option<OrgId>, Error> {
+        hosts::table
+            .find(id)
+            .filter(hosts::deleted_at.is_null())
+            .select(hosts::org_id)
             .get_result(conn)
             .await
-            .map_err(|err| Error::FindByName(name.into(), err))
+            .map_err(|err| Error::FindOrgId(id, err))
     }
 
-    pub async fn increment_node(host_id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        diesel::update(hosts::table.filter(hosts::id.eq(host_id)))
-            .set(hosts::node_count.eq(hosts::node_count + 1))
+    pub async fn add_node(node: &Node, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        diesel::update(hosts::table.filter(hosts::id.eq(node.host_id)))
+            .set((
+                hosts::node_count.eq(hosts::node_count + 1),
+                hosts::node_cpu_cores.eq(hosts::node_cpu_cores + node.cpu_cores),
+                hosts::node_memory_bytes.eq(hosts::node_memory_bytes + node.memory_bytes),
+                hosts::node_disk_bytes.eq(hosts::node_disk_bytes + node.disk_bytes),
+            ))
             .get_result(conn)
             .await
-            .map_err(|err| Error::IncrementNode(host_id, err))
+            .map_err(|err| Error::AddNode(node.host_id, err))
     }
 
-    pub async fn decrement_node(host_id: HostId, conn: &mut Conn<'_>) -> Result<Self, Error> {
-        diesel::update(hosts::table.filter(hosts::id.eq(host_id)))
-            .set(hosts::node_count.eq(hosts::node_count - 1))
+    pub async fn remove_node(node: &Node, conn: &mut Conn<'_>) -> Result<Self, Error> {
+        diesel::update(hosts::table.filter(hosts::id.eq(node.host_id)))
+            .set((
+                hosts::node_count.eq(greatest(0, hosts::node_count - 1)),
+                hosts::node_cpu_cores.eq(greatest(0, hosts::node_cpu_cores - node.cpu_cores)),
+                hosts::node_memory_bytes
+                    .eq(greatest(0, hosts::node_memory_bytes - node.memory_bytes)),
+                hosts::node_disk_bytes.eq(greatest(0, hosts::node_disk_bytes - node.disk_bytes)),
+            ))
             .get_result(conn)
             .await
-            .map_err(|err| Error::DecrementNode(host_id, err))
+            .map_err(|err| Error::RemoveNode(node.host_id, err))
     }
 
-    pub async fn delete(id: HostId, conn: &mut Conn<'_>) -> Result<(), Error> {
-        let host: Host = diesel::update(Self::not_deleted().find(id))
+    pub async fn delete(
+        id: HostId,
+        org_id: Option<OrgId>,
+        conn: &mut Conn<'_>,
+    ) -> Result<(), Error> {
+        let row = hosts::table
+            .find(id)
+            .filter(hosts::org_id.eq(org_id).or(hosts::org_id.is_null()))
+            .filter(hosts::deleted_at.is_null());
+        diesel::update(row)
             .set(hosts::deleted_at.eq(Utc::now()))
-            .get_result(conn)
+            .execute(conn)
             .await
             .map_err(|err| Error::Delete(id, err))?;
 
-        Org::decrement_host(host.org_id, conn).await?;
+        if let Some(org_id) = org_id {
+            Org::remove_host(org_id, conn).await?;
+        }
+
         Command::delete_host_pending(id, conn)
             .await
             .map_err(|err| Error::Command(Box::new(err)))?;
@@ -240,205 +242,291 @@ impl Host {
         Ok(())
     }
 
-    /// This function returns a list of up to 2 possible hosts that the node may be scheduled on.
-    /// This list is ordered by suitability, the best fit will be first in the list. Note that zero
-    /// hosts may be returned when our system is out of resources, and this case should be handled
-    /// gracefully.
-    pub async fn host_candidates(
-        reqs: HostRequirements,
-        blockchain: &Blockchain,
+    /// List suitable hosts for a node to be scheduled on.
+    pub async fn candidates<'r>(
+        require: HostRequirements<'r>,
         limit: Option<i64>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Host>, Error> {
-        use diesel::sql_types::{BigInt, Nullable, Uuid};
-        use sql_types::EnumNodeType;
+        let free_cpu = hosts::cpu_cores - hosts::node_cpu_cores;
+        let free_memory = hosts::memory_bytes - hosts::node_memory_bytes;
+        let free_disk = hosts::disk_bytes - hosts::node_disk_bytes;
+        let free_ips = ip_addresses::table
+            .filter(ip_addresses::host_id.eq(hosts::id))
+            .filter(not(exists(
+                nodes::table
+                    .filter(nodes::ip_address.eq(ip_addresses::ip))
+                    .filter(nodes::deleted_at.is_null())
+                    .select(nodes::id),
+            )))
+            .select(count(ip_addresses::id))
+            .single_value();
 
-        #[derive(Debug, QueryableByName)]
-        struct HostCandidate {
-            #[diesel(sql_type = Uuid)]
-            host_id: HostId,
+        // type constructor ensures injection safety
+        let tag = &require.protocol.key;
+        let tag_filter = format!("'{tag}' = ANY(tags) OR CARDINALITY(tags) = 0");
+        let tag_order = format!("'{tag}' = ANY(tags)");
+
+        let mut query = hosts::table
+            .filter(hosts::deleted_at.is_null())
+            .filter(hosts::schedule_type.eq(ScheduleType::Automatic))
+            .filter(free_cpu.gt(require.cpu_cores))
+            .filter(free_memory.gt(require.memory_bytes))
+            .filter(free_disk.gt(require.disk_bytes))
+            .filter(free_ips.gt(0))
+            .filter(sql::<Bool>(&tag_filter))
+            .order_by(sql::<Bool>(&tag_order).desc())
+            .into_boxed();
+
+        if let Some(org_id) = require.org_id {
+            query = query.filter(hosts::org_id.eq(org_id));
         }
 
-        let HostRequirements {
-            requirements,
-            node_type,
-            host_type,
-            scheduler,
-            org_id,
-        } = reqs;
+        if let Some(region_id) = require.scheduler.region.map(|region| region.id) {
+            query = query.filter(hosts::region_id.eq(region_id));
+        }
 
-        let tag = blockchain.name.trim().to_lowercase();
+        if let Some(similarity) = require.scheduler.similarity {
+            let similar = nodes::table
+                .filter(nodes::host_id.eq(hosts::id))
+                .filter(nodes::protocol_id.eq(require.protocol.id))
+                .filter(nodes::deleted_at.is_null())
+                .select(count(nodes::id))
+                .single_value();
 
-        let order_by = scheduler.order_clause();
-        let limit_clause = limit.map(|_| "LIMIT $6").unwrap_or_default();
-        let region_clause = scheduler
-            .region
-            .as_ref()
-            .map(|_| "AND region_id = $7")
-            .unwrap_or_default();
-        let org_clause = org_id.map(|_| "AND org_id = $8").unwrap_or_default();
-        let host_type_clause = host_type.map(|_| "AND host_type = $9").unwrap_or_default();
+            query = match similarity {
+                SimilarNodeAffinity::Cluster => query.then_order_by(similar.desc()),
+                SimilarNodeAffinity::Spread => query.then_order_by(similar),
+            };
+        }
 
-        // SAFETY: We are using `format!` to place a custom generated ORDER BY clause into a sql
-        // query. This is injection-safe because the clause is entirely generated from static
-        // strings, not user input.
-        let query = format!("
-        SELECT
-            host_id
-        FROM
-        (
-            SELECT
-                id as host_id,
-                hosts.cpu_count - (SELECT COALESCE(SUM(vcpu_count), 0)::BIGINT FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id) AS av_cpus,
-                hosts.mem_size_bytes - (SELECT COALESCE(SUM(mem_size_bytes), 0)::BIGINT FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id) AS av_mem,
-                LEAST(
-                    hosts.disk_size_bytes - (SELECT COALESCE(SUM(disk_size_bytes), 0)::BIGINT FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id),
-                    hosts.disk_size_bytes - hosts.used_disk_space
-                )  AS av_disk,
-                (SELECT COUNT(*) FROM ip_addresses WHERE ip_addresses.host_id = hosts.id AND NOT EXISTS (SELECT id FROM nodes WHERE nodes.ip = ip_addresses.ip AND nodes.deleted_at IS NULL)) AS ips,
-                (SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL AND host_id = hosts.id AND blockchain_id = $4 AND node_type = $5 AND host_type = 'cloud') AS n_similar,
-                hosts.region_id AS region_id,
-                hosts.org_id AS org_id,
-                hosts.host_type AS host_type,
-                hosts.tags AS tags
-            FROM
-                hosts
-            WHERE
-                deleted_at IS NULL AND
-                managed_by = 'automatic' AND
-                ($10 = ANY(tags) OR CARDINALITY(tags) = 0)
-        ) AS resouces
-        WHERE
-            -- These are our hard filters, we do not want any nodes that cannot satisfy the
-            -- requirements or are in the wrong region
-            av_cpus > $1 AND
-            av_mem > $2 AND
-            av_disk > $3 AND
-            ips > 0
-        {region_clause}
-        {org_clause}
-        {host_type_clause}
-        {order_by}
-        {limit_clause};");
+        query = match require.scheduler.resource {
+            ResourceAffinity::MostResources => {
+                query.then_order_by((free_cpu.desc(), free_memory.desc(), free_disk.desc()))
+            }
+            ResourceAffinity::LeastResources => {
+                query.then_order_by((free_cpu, free_memory, free_disk))
+            }
+        };
 
-        #[allow(clippy::cast_possible_wrap)]
-        let hosts: Vec<HostCandidate> = diesel::sql_query(query)
-            .bind::<BigInt, _>(i64::from(requirements.vcpu_count))
-            .bind::<BigInt, _>(requirements.mem_size_mb as i64 * 1000 * 1000)
-            .bind::<BigInt, _>(requirements.disk_size_gb as i64 * 1000 * 1000 * 1000)
-            .bind::<Uuid, _>(blockchain.id)
-            .bind::<EnumNodeType, _>(node_type)
-            .bind::<Nullable<BigInt>, _>(limit)
-            .bind::<Nullable<Uuid>, _>(scheduler.region.map(|r| r.id))
-            .bind::<Nullable<Uuid>, _>(org_id)
-            .bind::<Nullable<sql_types::EnumHostType>, _>(host_type)
-            .bind::<Text, _>(tag)
-            .get_results(conn)
+        if let Some(limit) = limit {
+            query = query.limit(limit);
+        }
+
+        query.get_results(conn).await.map_err(Error::HostCandidates)
+    }
+
+    pub fn created_by(&self) -> Resource {
+        Resource::new(self.created_by_type, self.created_by_id)
+    }
+}
+
+pub struct HostRequirements<'r> {
+    pub scheduler: NodeScheduler,
+    pub protocol: &'r Protocol,
+    pub org_id: Option<OrgId>,
+    pub cpu_cores: i64,
+    pub memory_bytes: i64,
+    pub disk_bytes: i64,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = hosts)]
+pub struct NewHost<'a> {
+    pub org_id: Option<OrgId>,
+    pub region_id: Option<RegionId>,
+    pub network_name: &'a str,
+    pub display_name: Option<&'a str>,
+    pub schedule_type: ScheduleType,
+    pub os: &'a str,
+    pub os_version: &'a str,
+    pub bv_version: &'a Version,
+    pub ip_address: IpNetwork,
+    pub ip_gateway: IpNetwork,
+    pub cpu_cores: i64,
+    pub memory_bytes: i64,
+    pub disk_bytes: i64,
+    pub tags: Tags,
+    pub created_by_type: ResourceType,
+    pub created_by_id: ResourceId,
+}
+
+impl NewHost<'_> {
+    pub async fn create(self, ips: &[IpNetwork], conn: &mut Conn<'_>) -> Result<Host, Error> {
+        if let Some(org_id) = self.org_id {
+            Org::add_host(org_id, conn).await?;
+        }
+
+        let host: Host = diesel::insert_into(hosts::table)
+            .values(self)
+            .get_result(conn)
             .await
-            .map_err(Error::HostCandidates)?;
-        let host_ids = hosts.into_iter().map(|h| h.host_id).collect();
+            .map_err(Error::Create)?;
 
-        Self::by_ids(host_ids, conn).await
-    }
-
-    pub async fn regions_for(
-        org_id: impl Into<Option<OrgId>> + Send,
-        blockchain: Blockchain,
-        node_type: NodeType,
-        requirements: HardwareRequirements,
-        host_type: Option<HostType>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Region>, Error> {
-        let scheduler = NodeScheduler {
-            region: None,
-            similarity: None,
-            resource: ResourceAffinity::LeastResources,
-        };
-        let org_id = (host_type == Some(HostType::Private))
-            .then(|| org_id.into())
-            .flatten();
-        let requirements = HostRequirements {
-            requirements,
-            node_type,
-            host_type,
-            scheduler,
-            org_id,
-        };
-        let regions = Self::host_candidates(requirements, &blockchain, None, conn)
-            .await?
-            .into_iter()
-            .filter_map(|host| host.region_id)
+        let new_ips: Vec<_> = ips
+            .iter()
+            .map(|&ip| CreateIpAddress::new(ip, host.id))
             .collect();
+        CreateIpAddress::bulk_create(new_ips, conn).await?;
 
-        Region::by_ids(regions, conn).await.map_err(Error::Region)
+        Ok(host)
     }
+}
 
-    /// Extract the monthly cost for external display.
-    pub fn monthly_cost_in_usd(&self, authz: &AuthZ) -> Option<i64> {
-        if let Some(MonthlyCostUsd(cost)) = self.monthly_cost_in_usd {
-            authz.has_perm(HostBillingPerm::Get).then_some(cost)
-        } else {
-            None
+#[derive(Clone, Debug, PartialEq, Eq, AsChangeset)]
+#[diesel(table_name = hosts)]
+pub struct UpdateHost<'a> {
+    pub id: HostId,
+    pub network_name: Option<&'a str>,
+    pub display_name: Option<&'a str>,
+    pub region_id: Option<RegionId>,
+    pub schedule_type: Option<ScheduleType>,
+    pub connection_status: Option<ConnectionStatus>,
+    pub os: Option<&'a str>,
+    pub os_version: Option<&'a str>,
+    pub bv_version: Option<&'a Version>,
+    pub ip_address: Option<IpNetwork>,
+    pub ip_gateway: Option<IpNetwork>,
+    pub cpu_cores: Option<i64>,
+    pub memory_bytes: Option<i64>,
+    pub disk_bytes: Option<i64>,
+    pub tags: Option<Tags>,
+}
+
+impl UpdateHost<'_> {
+    pub const fn new(id: HostId) -> Self {
+        UpdateHost {
+            id,
+            network_name: None,
+            display_name: None,
+            region_id: None,
+            schedule_type: None,
+            connection_status: None,
+            os: None,
+            os_version: None,
+            bv_version: None,
+            ip_address: None,
+            ip_gateway: None,
+            cpu_cores: None,
+            memory_bytes: None,
+            disk_bytes: None,
+            tags: None,
         }
     }
 
-    pub fn not_deleted() -> NotDeleted {
-        hosts::table.filter(hosts::deleted_at.is_null())
+    #[must_use]
+    pub const fn with_connection_status(mut self, status: ConnectionStatus) -> Self {
+        self.connection_status = Some(status);
+        self
     }
 
-    // pub fn tags(&self) -> impl Iterator<Item = &str> {
-    //     self.tags.iter().flatten().map(|s| s.as_str())
-    // }
+    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Host, Error> {
+        if self == Self::new(self.id) {
+            return Err(Error::NoUpdate);
+        }
+
+        let row = hosts::table
+            .find(self.id)
+            .filter(hosts::deleted_at.is_null());
+
+        diesel::update(row)
+            .set((self, hosts::updated_at.eq(Utc::now())))
+            .get_result(conn)
+            .await
+            .map_err(Error::Update)
+    }
+}
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = hosts)]
+pub struct UpdateHostMetrics {
+    pub id: HostId,
+    pub org_id: Option<OrgId>,
+    pub used_cpu_hundreths: Option<i64>,
+    pub used_memory_bytes: Option<i64>,
+    pub used_disk_bytes: Option<i64>,
+    pub load_one_percent: Option<f64>,
+    pub load_five_percent: Option<f64>,
+    pub load_fifteen_percent: Option<f64>,
+    pub network_received_bytes: Option<i64>,
+    pub network_sent_bytes: Option<i64>,
+    pub uptime_seconds: Option<i64>,
+}
+
+impl UpdateHostMetrics {
+    pub async fn update_metrics(
+        updates: Vec<Self>,
+        conn: &mut Conn<'_>,
+    ) -> Result<Vec<Host>, Error> {
+        let mut hosts = Vec::with_capacity(updates.len());
+
+        for update in updates {
+            let row = hosts::table
+                .find(update.id)
+                .filter(hosts::org_id.eq(update.org_id))
+                .filter(hosts::deleted_at.is_null());
+            let updated = diesel::update(row)
+                .set(&update)
+                .get_result(conn)
+                .await
+                .map_err(|err| Error::UpdateMetrics(err, update.id))?;
+            hosts.push(updated);
+        }
+
+        Ok(hosts)
+    }
 }
 
 #[derive(Debug)]
 pub struct HostSearch {
     pub operator: SearchOperator,
     pub id: Option<String>,
-    pub name: Option<String>,
-    pub version: Option<String>,
+    pub network_name: Option<String>,
+    pub display_name: Option<String>,
+    pub bv_version: Option<String>,
     pub os: Option<String>,
     pub ip: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum HostSort {
-    HostName(SortOrder),
-    CreatedAt(SortOrder),
-    Version(SortOrder),
+    NetworkName(SortOrder),
+    DisplayName(SortOrder),
     Os(SortOrder),
     OsVersion(SortOrder),
-    CpuCount(SortOrder),
-    MemSizeBytes(SortOrder),
-    DiskSizeBytes(SortOrder),
+    BvVersion(SortOrder),
+    CpuCores(SortOrder),
+    MemoryBytes(SortOrder),
+    DiskBytes(SortOrder),
     NodeCount(SortOrder),
+    CreatedAt(SortOrder),
+    UpdatedAt(SortOrder),
 }
 
 impl HostSort {
     fn into_expr<T>(self) -> Box<dyn BoxableExpression<T, Pg, SqlType = NotSelectable>>
     where
-        hosts::name: SelectableExpression<T>,
-        hosts::created_at: SelectableExpression<T>,
-        hosts::version: SelectableExpression<T>,
+        hosts::network_name: SelectableExpression<T>,
+        hosts::display_name: SelectableExpression<T>,
         hosts::os: SelectableExpression<T>,
         hosts::os_version: SelectableExpression<T>,
-        hosts::cpu_count: SelectableExpression<T>,
-        hosts::mem_size_bytes: SelectableExpression<T>,
-        hosts::disk_size_bytes: SelectableExpression<T>,
+        hosts::bv_version: SelectableExpression<T>,
+        hosts::cpu_cores: SelectableExpression<T>,
+        hosts::memory_bytes: SelectableExpression<T>,
+        hosts::disk_bytes: SelectableExpression<T>,
         hosts::node_count: SelectableExpression<T>,
+        hosts::created_at: SelectableExpression<T>,
+        hosts::updated_at: SelectableExpression<T>,
     {
         use HostSort::*;
         use SortOrder::*;
 
         match self {
-            HostName(Asc) => Box::new(hosts::name.asc()),
-            HostName(Desc) => Box::new(hosts::name.desc()),
+            NetworkName(Asc) => Box::new(hosts::network_name.asc()),
+            NetworkName(Desc) => Box::new(hosts::network_name.desc()),
 
-            CreatedAt(Asc) => Box::new(hosts::created_at.asc()),
-            CreatedAt(Desc) => Box::new(hosts::created_at.desc()),
-
-            Version(Asc) => Box::new(hosts::version.asc()),
-            Version(Desc) => Box::new(hosts::version.desc()),
+            DisplayName(Asc) => Box::new(hosts::display_name.asc()),
+            DisplayName(Desc) => Box::new(hosts::display_name.desc()),
 
             Os(Asc) => Box::new(hosts::os.asc()),
             Os(Desc) => Box::new(hosts::os.desc()),
@@ -446,17 +534,26 @@ impl HostSort {
             OsVersion(Asc) => Box::new(hosts::os_version.asc()),
             OsVersion(Desc) => Box::new(hosts::os_version.desc()),
 
-            CpuCount(Asc) => Box::new(hosts::cpu_count.asc()),
-            CpuCount(Desc) => Box::new(hosts::cpu_count.desc()),
+            BvVersion(Asc) => Box::new(hosts::bv_version.asc()),
+            BvVersion(Desc) => Box::new(hosts::bv_version.desc()),
 
-            MemSizeBytes(Asc) => Box::new(hosts::mem_size_bytes.asc()),
-            MemSizeBytes(Desc) => Box::new(hosts::mem_size_bytes.desc()),
+            CpuCores(Asc) => Box::new(hosts::cpu_cores.asc()),
+            CpuCores(Desc) => Box::new(hosts::cpu_cores.desc()),
 
-            DiskSizeBytes(Asc) => Box::new(hosts::disk_size_bytes.asc()),
-            DiskSizeBytes(Desc) => Box::new(hosts::disk_size_bytes.desc()),
+            MemoryBytes(Asc) => Box::new(hosts::memory_bytes.asc()),
+            MemoryBytes(Desc) => Box::new(hosts::memory_bytes.desc()),
+
+            DiskBytes(Asc) => Box::new(hosts::disk_bytes.asc()),
+            DiskBytes(Desc) => Box::new(hosts::disk_bytes.desc()),
 
             NodeCount(Asc) => Box::new(hosts::node_count.asc()),
             NodeCount(Desc) => Box::new(hosts::node_count.desc()),
+
+            CreatedAt(Asc) => Box::new(hosts::created_at.asc()),
+            CreatedAt(Desc) => Box::new(hosts::created_at.desc()),
+
+            UpdatedAt(Asc) => Box::new(hosts::updated_at.asc()),
+            UpdatedAt(Desc) => Box::new(hosts::updated_at.desc()),
         }
     }
 }
@@ -473,7 +570,9 @@ pub struct HostFilter {
 
 impl HostFilter {
     pub async fn query(mut self, conn: &mut Conn<'_>) -> Result<(Vec<Host>, u64), Error> {
-        let mut query = Host::not_deleted().into_boxed();
+        let mut query = hosts::table
+            .filter(hosts::deleted_at.is_null())
+            .into_boxed();
 
         if let Some(search) = self.search {
             query = query.filter(search.into_expression());
@@ -484,7 +583,7 @@ impl HostFilter {
         }
 
         if !self.versions.is_empty() {
-            query = query.filter(hosts::version.eq_any(self.versions));
+            query = query.filter(hosts::bv_version.eq_any(self.versions));
         }
 
         if let Some(sort) = self.sort.pop_front() {
@@ -512,19 +611,19 @@ impl HostSearch {
                 let mut predicate: Box<dyn BoxableExpression<hosts::table, Pg, SqlType = Bool>> =
                     Box::new(false.into_sql::<Bool>());
                 if let Some(id) = self.id {
-                    predicate = Box::new(predicate.or(super::text(hosts::id).like(id)));
+                    predicate = Box::new(predicate.or(sql::text(hosts::id).like(id)));
                 }
-                if let Some(name) = self.name {
-                    predicate = Box::new(predicate.or(super::lower(hosts::name).like(name)));
+                if let Some(name) = self.network_name {
+                    predicate = Box::new(predicate.or(sql::lower(hosts::network_name).like(name)));
                 }
-                if let Some(version) = self.version {
-                    predicate = Box::new(predicate.or(super::lower(hosts::version).like(version)));
+                if let Some(version) = self.bv_version {
+                    predicate = Box::new(predicate.or(sql::lower(hosts::bv_version).like(version)));
                 }
                 if let Some(os) = self.os {
-                    predicate = Box::new(predicate.or(super::lower(hosts::os).like(os)));
+                    predicate = Box::new(predicate.or(sql::lower(hosts::os).like(os)));
                 }
                 if let Some(ip) = self.ip {
-                    predicate = Box::new(predicate.or(hosts::ip_addr.like(ip)));
+                    predicate = Box::new(predicate.or(sql::text(hosts::ip_address).like(ip)));
                 }
                 predicate
             }
@@ -532,19 +631,20 @@ impl HostSearch {
                 let mut predicate: Box<dyn BoxableExpression<hosts::table, Pg, SqlType = Bool>> =
                     Box::new(true.into_sql::<Bool>());
                 if let Some(id) = self.id {
-                    predicate = Box::new(predicate.and(super::text(hosts::id).like(id)));
+                    predicate = Box::new(predicate.and(sql::text(hosts::id).like(id)));
                 }
-                if let Some(name) = self.name {
-                    predicate = Box::new(predicate.and(super::lower(hosts::name).like(name)));
+                if let Some(name) = self.network_name {
+                    predicate = Box::new(predicate.and(sql::lower(hosts::network_name).like(name)));
                 }
-                if let Some(version) = self.version {
-                    predicate = Box::new(predicate.and(super::lower(hosts::version).like(version)));
+                if let Some(version) = self.bv_version {
+                    predicate =
+                        Box::new(predicate.and(sql::lower(hosts::bv_version).like(version)));
                 }
                 if let Some(os) = self.os {
-                    predicate = Box::new(predicate.and(super::lower(hosts::os).like(os)));
+                    predicate = Box::new(predicate.and(sql::lower(hosts::os).like(os)));
                 }
                 if let Some(ip) = self.ip {
-                    predicate = Box::new(predicate.and(hosts::ip_addr.like(ip)));
+                    predicate = Box::new(predicate.and(sql::text(hosts::ip_address).like(ip)));
                 }
                 predicate
             }
@@ -552,205 +652,49 @@ impl HostSearch {
     }
 }
 
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = hosts)]
-pub struct NewHost<'a> {
-    pub name: &'a str,
-    pub version: &'a str,
-    pub cpu_count: i64,
-    /// The amount of memory in bytes that this host has.
-    pub mem_size_bytes: i64,
-    /// The amount of disk space in bytes that this host has.
-    pub disk_size_bytes: i64,
-    pub os: &'a str,
-    pub os_version: &'a str,
-    pub ip_addr: &'a str,
-    pub status: ConnectionStatus,
-    pub ip_gateway: IpNetwork,
-    /// The id of the org that owns and operates this host.
-    pub org_id: OrgId,
-    /// This is the id of the user that created this host.
-    pub created_by: UserId,
-    // The id of the region where this host is located.
-    pub region_id: Option<RegionId>,
-    pub host_type: HostType,
-    pub monthly_cost_in_usd: Option<MonthlyCostUsd>,
-    pub vmm_mountpoint: Option<&'a str>,
-    pub managed_by: ManagedBy,
-    pub tags: Vec<Option<String>>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
+#[ExistingTypePath = "sql_types::EnumScheduleType"]
+pub enum ScheduleType {
+    Automatic,
+    Manual,
 }
 
-impl NewHost<'_> {
-    /// Creates a new `Host` in the db, including the necessary related rows.
-    pub async fn create(self, ips: &[IpNetwork], conn: &mut Conn<'_>) -> Result<Host, Error> {
-        let host: Host = diesel::insert_into(hosts::table)
-            .values(&self)
-            .get_result(conn)
-            .await
-            .map_err(Error::Create)?;
-        Org::increment_host(self.org_id, conn).await?;
-        let new_ips: Vec<_> = ips
-            .iter()
-            .map(|&ip| CreateIpAddress::new(ip, host.id))
-            .collect();
-        CreateIpAddress::bulk_create(new_ips, conn).await?;
-        Ok(host)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, AsChangeset)]
-#[diesel(table_name = hosts)]
-pub struct UpdateHost<'a> {
-    pub id: HostId,
-    pub name: Option<&'a str>,
-    pub version: Option<&'a str>,
-    pub cpu_count: Option<i64>,
-    pub mem_size_bytes: Option<i64>,
-    pub disk_size_bytes: Option<i64>,
-    pub os: Option<&'a str>,
-    pub os_version: Option<&'a str>,
-    pub ip_addr: Option<&'a str>,
-    pub status: Option<ConnectionStatus>,
-    pub ip_gateway: Option<IpNetwork>,
-    pub region_id: Option<RegionId>,
-    pub managed_by: Option<ManagedBy>,
-    pub tags: Option<Vec<Option<String>>>,
-}
-
-impl UpdateHost<'_> {
-    pub const fn new(id: HostId) -> Self {
-        UpdateHost {
-            id,
-            name: None,
-            version: None,
-            cpu_count: None,
-            mem_size_bytes: None,
-            disk_size_bytes: None,
-            os: None,
-            os_version: None,
-            ip_addr: None,
-            status: None,
-            ip_gateway: None,
-            region_id: None,
-            managed_by: None,
-            tags: None,
+impl From<ScheduleType> for api::ScheduleType {
+    fn from(schedule_type: ScheduleType) -> Self {
+        match schedule_type {
+            ScheduleType::Automatic => api::ScheduleType::Automatic,
+            ScheduleType::Manual => api::ScheduleType::Manual,
         }
     }
+}
 
-    #[must_use]
-    pub const fn with_status(mut self, status: ConnectionStatus) -> Self {
-        self.status = Some(status);
-        self
-    }
+impl TryFrom<api::ScheduleType> for ScheduleType {
+    type Error = Error;
 
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Host, Error> {
-        if self == Self::new(self.id) {
-            return Err(Error::NoUpdate);
+    fn try_from(schedule_type: api::ScheduleType) -> Result<Self, Self::Error> {
+        match schedule_type {
+            api::ScheduleType::Unspecified => Err(Error::UnknownScheduleType),
+            api::ScheduleType::Automatic => Ok(ScheduleType::Automatic),
+            api::ScheduleType::Manual => Ok(ScheduleType::Manual),
         }
-
-        diesel::update(Host::not_deleted().find(self.id))
-            .set(self)
-            .get_result(conn)
-            .await
-            .map_err(Error::Update)
-    }
-}
-
-#[derive(Debug, AsChangeset)]
-#[diesel(table_name = hosts)]
-pub struct UpdateHostMetrics {
-    pub id: HostId,
-    pub used_cpu: Option<i32>,
-    pub used_memory: Option<i64>,
-    pub used_disk_space: Option<i64>,
-    pub load_one: Option<f64>,
-    pub load_five: Option<f64>,
-    pub load_fifteen: Option<f64>,
-    pub network_received: Option<i64>,
-    pub network_sent: Option<i64>,
-    pub uptime: Option<i64>,
-}
-
-impl UpdateHostMetrics {
-    /// Performs a selective update of only the columns related to metrics of the provided nodes.
-    pub async fn update_metrics(
-        mut updates: Vec<Self>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Host>, Error> {
-        // We do this for determinism in our tests.
-        updates.sort_by_key(|u| u.id);
-
-        let mut hosts = Vec::with_capacity(updates.len());
-        for update in updates {
-            let updated = diesel::update(Host::not_deleted().find(update.id))
-                .set(&update)
-                .get_result(conn)
-                .await
-                .map_err(|err| Error::UpdateMetrics(err, update.id))?;
-            hosts.push(updated);
-        }
-        Ok(hosts)
-    }
-}
-
-/// The billing cost per month in USD for this host.
-///
-/// The inner cost is extracted via `Host::monthly_cost_in_usd`.
-#[derive(Clone, Copy, Debug, DieselNewType)]
-pub struct MonthlyCostUsd(i64);
-
-impl MonthlyCostUsd {
-    pub fn from_proto(billing: &common::BillingAmount) -> Result<Self, Error> {
-        let amount = match billing.amount {
-            Some(ref amount) => Ok(amount),
-            None => Err(Error::BillingAmountMissingAmount),
-        }?;
-
-        match common::Currency::try_from(amount.currency) {
-            Ok(common::Currency::Usd) => Ok(()),
-            _ => Err(Error::BillingAmountCurrency(amount.currency)),
-        }?;
-
-        match common::Period::try_from(billing.period) {
-            Ok(common::Period::Monthly) => Ok(()),
-            _ => Err(Error::BillingAmountPeriod(billing.period)),
-        }?;
-
-        Ok(MonthlyCostUsd(amount.value))
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "sql_types::EnumConnStatus"]
+#[ExistingTypePath = "sql_types::EnumConnectionStatus"]
 pub enum ConnectionStatus {
     Online,
     Offline,
 }
 
-impl From<api::HostConnectionStatus> for ConnectionStatus {
-    fn from(status: api::HostConnectionStatus) -> Self {
+impl TryFrom<api::HostConnectionStatus> for ConnectionStatus {
+    type Error = Error;
+
+    fn try_from(status: api::HostConnectionStatus) -> Result<Self, Self::Error> {
         match status {
-            api::HostConnectionStatus::Unspecified | api::HostConnectionStatus::Offline => {
-                ConnectionStatus::Offline
-            }
-            api::HostConnectionStatus::Online => ConnectionStatus::Online,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
-#[ExistingTypePath = "sql_types::EnumManagedBy"]
-pub enum ManagedBy {
-    Automatic,
-    Manual,
-}
-
-impl From<api::ManagedBy> for Option<ManagedBy> {
-    fn from(managed_by: api::ManagedBy) -> Self {
-        match managed_by {
-            api::ManagedBy::Unspecified => None,
-            api::ManagedBy::Automatic => Some(ManagedBy::Automatic),
-            api::ManagedBy::Manual => Some(ManagedBy::Manual),
+            api::HostConnectionStatus::Unspecified => Err(Error::UnknownConnectionStatus),
+            api::HostConnectionStatus::Offline => Ok(ConnectionStatus::Offline),
+            api::HostConnectionStatus::Online => Ok(ConnectionStatus::Online),
         }
     }
 }

@@ -100,8 +100,8 @@ mod tests {
     use uuid::Uuid;
 
     use crate::auth::claims::{Claims, Expirable};
-    use crate::auth::rbac::{Access, HostPerm, Perms};
-    use crate::auth::resource::ResourceEntry;
+    use crate::auth::rbac::{Access, NodePerm, Perms};
+    use crate::auth::resource::Resource;
     use crate::auth::token::RequestToken;
     use crate::config::Context;
 
@@ -111,9 +111,9 @@ mod tests {
 
         let expires = Duration::minutes(15);
         let claims = Claims {
-            resource_entry: ResourceEntry::new_user(Uuid::new_v4().into()),
+            resource: Resource::User(Uuid::new_v4().into()).into(),
             expirable: Expirable::from_now(expires),
-            access: Access::Perms(Perms::One(HostPerm::Create.into())),
+            access: Access::Perms(Perms::One(NodePerm::Create.into())),
             data: None,
         };
 

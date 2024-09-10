@@ -1,11 +1,16 @@
 pub mod search;
 pub use search::{SearchOperator, SortOrder};
 
-mod timestamp;
+pub mod sql;
+
+pub mod timestamp;
 pub use timestamp::{NanosUtc, SecondsUtc};
 
 use std::collections::HashMap;
 use std::hash::Hash;
+
+/// Ensure consistent kebab-case formatting and SQL injection safety.
+pub const LOWER_KEBAB_CASE: &str = "abcdefghijklmnopqrstuvwxyz1234567890-";
 
 pub trait HashVec {
     type Elem;

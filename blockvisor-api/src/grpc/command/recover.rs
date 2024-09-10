@@ -4,73 +4,70 @@ use displaydoc::Display;
 use thiserror::Error;
 use tracing::{error, warn};
 
+use crate::auth::resource::HostId;
 use crate::auth::AuthZ;
-use crate::cloudflare;
 use crate::database::WriteConn;
 use crate::grpc::{api, Status};
 use crate::model::command::NewCommand;
-use crate::model::node::{NewNodeLog, NodeLogEvent, UpdateNode};
-use crate::model::{Blockchain, Command, CommandType, Host, IpAddress, Node};
+use crate::model::node::{LogEvent, NewNodeLog, UpdateNode};
+use crate::model::{Command, CommandType, Host, IpAddress, Node, Protocol};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Command recovery blockchain error: {0}
-    Blockchain(#[from] crate::model::blockchain::Error),
-    /// Failed to create cancelation log: {0}
-    CancelationLog(crate::model::node::log::Error),
-    /// Failed to create dns record for node: {0}
-    Cloudflare(cloudflare::Error),
-    /// Command error: {0}
+    /// Failed to create cancelled log: {0}
+    CancelledLog(crate::model::node::log::Error),
+    /// Command recovery error: {0}
     Command(#[from] crate::model::command::Error),
-    /// CreateNode command has no node id.
+    /// Recovery of `CreateNode` command has no node id.
     CreateNodeId,
+    /// Command recovery dns error: {0}
+    Dns(#[from] crate::cloudflare::Error),
     /// Failed to create deployment log: {0}
     DeploymentLog(crate::model::node::log::Error),
     /// Command recovery host error: {0}
     Host(#[from] crate::model::host::Error),
+    /// Command recovery ip address: {0}
+    IpAddress(#[from] crate::model::ip_address::Error),
     /// Command recovery node error: {0}
     Node(#[from] crate::model::node::Error),
+    /// No IP addresses available for host: {0}
+    NoIpForHost(HostId),
+    /// Command protocol error: {0}
+    Protocol(#[from] crate::model::protocol::Error),
     /// Command recovery failed to update node: {0}
     UpdateNode(crate::model::node::Error),
-    /// Finding an ip address failed: {0}
-    FindIp(crate::model::ip_address::Error),
 }
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
-        error!("{err}");
         match err {
-            Cloudflare(_) => Status::internal("Internal error."),
+            Dns(_) | NoIpForHost(_) => Status::internal("Internal error."),
             CreateNodeId => Status::invalid_argument("node_id"),
-            FindIp(err) => err.into(),
-            Blockchain(err) => err.into(),
-            CancelationLog(err) | DeploymentLog(err) => err.into(),
+            CancelledLog(err) => err.into(),
             Command(err) => err.into(),
+            DeploymentLog(err) => err.into(),
             Host(err) => err.into(),
+            IpAddress(err) => err.into(),
             Node(err) | UpdateNode(err) => err.into(),
+            Protocol(err) => err.into(),
         }
     }
 }
 
-/// When we get a failed command back from blockvisord, we can try to recover from this. This is
-/// currently only implemented for failed node creates. Note that this function largely ignores
-/// errors. We are already in a state where we are trying to recover from a failure mode, so we will
-/// make our best effort to recover. If a command won't send but it not essential for process, we
-/// ignore and continue.
+/// Attempt to recover from a failed `Command`.
 pub(super) async fn recover(
-    failed_cmd: &Command,
+    failed: &Command,
     authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
 ) -> Result<Vec<api::Command>, Error> {
-    if failed_cmd.command_type == CommandType::NodeCreate {
-        recover_created(failed_cmd, authz, write).await
-    } else {
-        Ok(vec![])
+    match failed.command_type {
+        CommandType::NodeCreate => node_create_failed(failed, authz, write).await,
+        _ => Ok(vec![]),
     }
 }
 
-/// Recover from a failed delete.
+/// Recover from a failed node creation.
 ///
 /// 1. Log that our creation has failed.
 /// 2. Decide whether and where to re-create the node:
@@ -82,93 +79,71 @@ pub(super) async fn recover(
 /// 3. Use the previous decision to send a new create message to the right
 ///    instance of blockvisord, or mark the current node as failed and send an
 ///    MQTT message to the front end.
-async fn recover_created(
-    failed_cmd: &Command,
+async fn node_create_failed(
+    failed: &Command,
     authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
 ) -> Result<Vec<api::Command>, Error> {
     let mut vec = vec![];
 
-    let node_id = failed_cmd.node_id.ok_or(Error::CreateNodeId)?;
+    let node_id = failed.node_id.ok_or(Error::CreateNodeId)?;
     let node = Node::by_id(node_id, write).await?;
-    let blockchain = Blockchain::by_id(node.blockchain_id, authz, write).await?;
+    Host::remove_node(&node, write).await?;
 
-    // 1. We make a note in the node_logs table that creating our node failed. This may
-    //    be unexpected, but we abort here when we fail to create that log. This is because the logs
-    //    table is used to decide whether or not to retry. If logging our result failed, we may end
-    //    up in an infinite loop.
-    let new_log = NewNodeLog {
-        host_id: node.host_id,
-        node_id,
-        event: NodeLogEvent::CreateFailed,
-        blockchain_id: blockchain.id,
-        node_type: node.node_type,
-        version: node.version.clone(),
-        created_at: chrono::Utc::now(),
-        org_id: node.org_id,
-    };
-    if let Err(err) = new_log.create(write).await {
-        return Err(Error::DeploymentLog(err));
-    };
-    if let Err(err) = write.ctx.dns.delete(&node.dns_record_id).await {
-        warn!(
-            "Failed to remove node dns for node {} ({}): {err}",
-            node.node_name, node.id
-        );
+    // 1. We make a note in the node_logs table that creating our node failed.
+    let _ = NewNodeLog::from(&node, authz, LogEvent::CreateFailed)
+        .create(write)
+        .await
+        .map_err(Error::DeploymentLog)?;
+
+    if let Err(err) = write.ctx.dns.delete(&node.dns_id).await {
+        warn!("Failed to remove node dns for node {}: {err}", node.id);
     }
 
-    // 2. We now find the host that is next in line, and assign our node to that host.
-    let Ok(host) = node.find_host(authz, write).await else {
-        // We were unable to find a new host. This may happen because the system is out of resources
-        // or because we have retried to many times. Either way we have to log that this retry was
-        // canceled.
-        let new_log = NewNodeLog {
-            host_id: node.host_id,
-            node_id,
-            event: NodeLogEvent::Canceled,
-            blockchain_id: blockchain.id,
-            node_type: node.node_type,
-            version: node.version,
-            created_at: chrono::Utc::now(),
-            org_id: node.org_id,
-        };
-        match new_log.create(write).await {
-            Ok(_) => return Ok(vec![]),
-            Err(err) => return Err(Error::CancelationLog(err)),
-        }
+    // 2. We now find the next host to assign our node to.
+    let protocol = Protocol::by_id(node.protocol_id, Some(node.org_id), authz, write).await?;
+    let Some(host) = node.next_host(&protocol, write).await? else {
+        return NewNodeLog::from(&node, authz, LogEvent::CreateCancelled)
+            .create(write)
+            .await
+            .map(|_log| vec![])
+            .map_err(Error::CancelledLog);
     };
 
-    let ip = IpAddress::by_host_unassigned(host.id, write)
-        .await
-        .map_err(Error::FindIp)?;
-    let ip_gateway = host.ip_gateway.ip().to_string();
-
-    Host::decrement_node(node.host_id, write).await?;
-    Host::increment_node(host.id, write).await?;
+    let ip_address = IpAddress::next_for_host(host.id, write)
+        .await?
+        .ok_or_else(|| Error::NoIpForHost(host.id))?;
 
     let update = UpdateNode {
+        id: node.id,
+        org_id: None,
         host_id: Some(host.id),
-        ip: Some(ip.ip),
-        ip_gateway: Some(&ip_gateway),
-        ..Default::default()
+        display_name: None,
+        auto_upgrade: None,
+        ip_address: Some(ip_address.ip),
+        ip_gateway: Some(host.ip_gateway),
+        note: None,
+        tags: None,
     };
-    let node = node
-        .update(&update, write)
+    let node = update
+        .apply(authz, write)
         .await
         .map_err(Error::UpdateNode)?;
+
+    Host::add_node(&node, write).await?;
+
     write
         .ctx
         .dns
-        .create(&node.dns_name, ip.ip())
-        .await
-        .map_err(Error::Cloudflare)?;
+        .create(&node.dns_name, ip_address.ip.ip())
+        .await?;
 
     // 3. We notify blockvisor of our retry via an MQTT message.
     if let Ok(cmd) = NewCommand::node(&node, CommandType::NodeCreate)?
         .create(write)
         .await
     {
-        let result = api::Command::from_model(&cmd, authz, write).await;
+        let result = api::Command::from(&cmd, Some(node.org_id), authz, write).await;
         result.map_or_else(|_| {
             error!("Could not convert node create command to gRPC repr while recovering. Command: {:?}", cmd);
         }, |command| vec.push(command));
@@ -181,7 +156,7 @@ async fn recover_created(
         .create(write)
         .await
     {
-        let result = api::Command::from_model(&cmd, authz, write).await;
+        let result = api::Command::from(&cmd, Some(node.org_id), authz, write).await;
         result.map_or_else(|_| {
             error!("Could not convert node start command to gRPC repr while recovering. Command {:?}", cmd);
         }, |command| vec.push(command));

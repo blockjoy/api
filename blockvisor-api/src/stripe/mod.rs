@@ -3,7 +3,6 @@ mod client;
 
 use std::sync::Arc;
 
-use api::subscription::SubscriptionItemId;
 use chrono::Datelike;
 use displaydoc::Display;
 use thiserror::Error;
@@ -12,64 +11,9 @@ use crate::auth::resource::{OrgId, UserId};
 use crate::config::stripe::Config;
 use crate::model::{Org, User};
 
+use self::api::subscription::{QuantityModification, SubscriptionItem, SubscriptionItemId};
 use self::api::{address, customer, invoice, payment_method, price, setup_intent, subscription};
-
-#[derive(Debug, Display, Error)]
-pub enum Error {
-    /// Failed to create stripe Client: {0}
-    AttachPaymentMethod(client::Error),
-    /// Failed to cancel subscription: {0}
-    CancelSubscription(client::Error),
-    /// Error handling datetimes
-    Chrono,
-    /// Failed to create stripe Client: {0}
-    CreateClient(client::Error),
-    /// Failed to create stripe customer: {0}
-    CreateCustomer(client::Error),
-    /// Failed to create stripe setup intent: {0}
-    CreateSetupIntent(client::Error),
-    /// Failed to create stripe subscription: {0}
-    CreateSubscription(client::Error),
-    /// Failed to create stripe subscription item: {0}
-    CreateSubscriptionItem(client::Error),
-    /// Failed to delete address: {0}
-    DeleteAddress(client::Error),
-    /// Failed to delete stripe subscription item: {0}
-    DeleteSubscriptionItem(client::Error),
-    /// Failed to find subscription items: {0}
-    FindSubscriptionItems(client::Error),
-    /// Failed to get address: {0}
-    GetAddress(client::Error),
-    /// Failed to get invoices: {0}
-    GetInvoices(client::Error),
-    /// Failed to get subscription: {0}
-    GetSubscription(client::Error),
-    /// Failed to get subscription item: {0}
-    GetSubscriptionItem(client::Error),
-    /// Failed to list stripe payment methods: {0}
-    ListPaymentMethods(client::Error),
-    /// Failed to list stripe subscriptions: {0}
-    ListSubscriptions(client::Error),
-    /// No address found for the current customer.
-    NoAddress,
-    /// No price found on stripe for sku `{0}`.
-    NoPrice(String),
-    /// Subscription found without any items: {0}
-    NoSubscriptionItem(SubscriptionItemId),
-    /// Can't cancel a subscription for an org that doesn't have one.
-    NoSubscriptionToCancel,
-    /// Failed to search stripe prices: {0}
-    SearchPrices(client::Error),
-    /// Failed to set address: {0}
-    SetAddress(client::Error),
-    /// Failed to update subscription item: {0}
-    UpdateSubscriptionItem(client::Error),
-}
-
-pub struct Stripe {
-    pub config: Arc<Config>,
-    pub client: client::Client,
-}
+use self::client::Client;
 
 #[tonic::async_trait]
 pub trait Payment {
@@ -168,20 +112,160 @@ pub trait Payment {
     async fn get_invoices(&self, customer_id: &str) -> Result<Vec<invoice::Invoice>, Error>;
 }
 
+#[tonic::async_trait]
+pub trait Subscription: Payment {
+    async fn add_subscription(&self, org: &Org, sku: &str) -> Result<SubscriptionItem, Error> {
+        // If there is no corresponding record in stripe for this org, we cannot continue.
+        let stripe_customer_id = org
+            .stripe_customer_id
+            .as_ref()
+            .ok_or_else(|| Error::NoCustomer(org.id))?;
+
+        let price = self.get_price(sku).await?;
+        if let Some(subscription) = self
+            .get_subscription_by_customer(stripe_customer_id)
+            .await?
+        {
+            // If there is a subscription, we either need to increment the `quantity` of an existing
+            // `item`, or we need to create a new item.
+            if let Some(item) = self
+                .find_subscription_item(&subscription.id, &price.id)
+                .await?
+            {
+                // We found an item, so we will increase it's quantity by 1. Note that if no
+                // quantity is set, that is equivalent to the quantity being 1.
+                let new_quantity = QuantityModification::Increment {
+                    current_quantity: item.quantity,
+                };
+                let item = self
+                    .update_subscription_item(&item.id, new_quantity)
+                    .await?;
+                Ok(item)
+            } else {
+                // Since the subscription existed, but no item for the current `sku` already
+                // existed, we create a new item within this subscription.
+                let item = self
+                    .create_subscription_item(&subscription.id, &price.id)
+                    .await?;
+                Ok(item)
+            }
+        } else {
+            // There wasn't a subscription, so we create it and add the `item` for this node to it
+            // straight away.
+            let item = self
+                .create_subscription(stripe_customer_id, &price.id)
+                .await?
+                .items
+                .data
+                .pop()
+                .ok_or(Error::NoSubscriptionItem)?;
+            Ok(item)
+        }
+    }
+
+    async fn remove_subscription(&self, item_id: &SubscriptionItemId) -> Result<(), Error> {
+        let item = self.get_subscription_item(item_id).await?;
+        if item.quantity > 1 {
+            let new_quantity = QuantityModification::Decrement {
+                current_quantity: item.quantity,
+            };
+            self.update_subscription_item(item_id, new_quantity)
+                .await
+                .map(|_item| ())
+        } else {
+            let subscription_id = item.subscription.as_ref().ok_or(Error::NoSubscriptionId)?;
+            let subscription = self.get_subscription(subscription_id).await?;
+            match subscription.items.data.len() {
+                // This item is in a subscription that doesn't have any items?
+                0 => return Err(Error::ItemWithoutSubscription),
+                // This is the final item of the subscription, lets cancel it
+                1 => self.cancel_subscription(subscription_id).await,
+                // There are other items left in this subscription, we can remove this item from
+                // the subscription.
+                _ => self.delete_subscription_item(item_id).await,
+            }
+        }
+    }
+}
+
+#[derive(Debug, Display, Error)]
+pub enum Error {
+    /// Failed to create stripe Client: {0}
+    AttachPaymentMethod(client::Error),
+    /// Failed to cancel subscription: {0}
+    CancelSubscription(client::Error),
+    /// Error handling datetimes
+    Chrono,
+    /// Failed to create stripe Client: {0}
+    CreateClient(client::Error),
+    /// Failed to create stripe customer: {0}
+    CreateCustomer(client::Error),
+    /// Failed to create stripe setup intent: {0}
+    CreateSetupIntent(client::Error),
+    /// Failed to create stripe subscription: {0}
+    CreateSubscription(client::Error),
+    /// Failed to create stripe subscription item: {0}
+    CreateSubscriptionItem(client::Error),
+    /// Failed to delete address: {0}
+    DeleteAddress(client::Error),
+    /// Failed to delete stripe subscription item: {0}
+    DeleteSubscriptionItem(client::Error),
+    /// Failed to find subscription items: {0}
+    FindSubscriptionItems(client::Error),
+    /// Failed to get address: {0}
+    GetAddress(client::Error),
+    /// Failed to get invoices: {0}
+    GetInvoices(client::Error),
+    /// Failed to get subscription: {0}
+    GetSubscription(client::Error),
+    /// Failed to get subscription item: {0}
+    GetSubscriptionItem(client::Error),
+    /// Found a stripe item that isn't in any extant subscription.
+    ItemWithoutSubscription,
+    /// Failed to list stripe payment methods: {0}
+    ListPaymentMethods(client::Error),
+    /// Failed to list stripe subscriptions: {0}
+    ListSubscriptions(client::Error),
+    /// No address found for the current customer.
+    NoAddress,
+    /// Org with id `{0}` has no customer in stripe.
+    NoCustomer(OrgId),
+    /// No price found on stripe for sku `{0}`.
+    NoPrice(String),
+    /// Stripe responded with a susbcription item that has no subscription id set.
+    NoSubscriptionId,
+    /// Can't cancel a subscription for an org that doesn't have one.
+    NoSubscriptionToCancel,
+    /// Newly created subscription has no items.
+    NoSubscriptionItem,
+    /// Failed to search stripe prices: {0}
+    SearchPrices(client::Error),
+    /// Failed to set address: {0}
+    SetAddress(client::Error),
+    /// Failed to update subscription item: {0}
+    UpdateSubscriptionItem(client::Error),
+}
+
+pub struct Stripe {
+    pub config: Arc<Config>,
+    pub client: Client,
+}
+
 impl Stripe {
     pub fn new(config: Arc<Config>) -> Result<Self, Error> {
-        let client =
-            client::Client::new(&config.secret, &config.base_url).map_err(Error::CreateClient)?;
-
-        Ok(Self { config, client })
+        let client = Client::new(&config.secret, &config.base_url).map_err(Error::CreateClient)?;
+        Ok(Stripe { config, client })
     }
 
     #[cfg(any(test, feature = "integration-test"))]
     pub fn new_mock(config: Arc<Config>, server_url: url::Url) -> Result<Self, Error> {
-        let client = client::Client::new_mock(server_url).map_err(Error::CreateClient)?;
+        let client = Client::new_mock(server_url).map_err(Error::CreateClient)?;
         Ok(Self { config, client })
     }
 }
+
+#[tonic::async_trait]
+impl Subscription for Stripe {}
 
 #[tonic::async_trait]
 impl Payment for Stripe {
@@ -443,7 +527,7 @@ impl Payment for Stripe {
 
 #[cfg(any(test, feature = "integration-test"))]
 pub mod tests {
-    use mockito::ServerGuard;
+    use mockito::{Matcher, ServerGuard};
 
     use super::*;
 
@@ -451,6 +535,9 @@ pub mod tests {
         pub server: ServerGuard,
         pub stripe: Stripe,
     }
+
+    #[tonic::async_trait]
+    impl Subscription for MockStripe {}
 
     #[tonic::async_trait]
     impl Payment for MockStripe {
@@ -649,7 +736,7 @@ pub mod tests {
             .await;
 
         server
-            .mock("GET", mockito::Matcher::Regex("^/v1/subscriptions".into()))
+            .mock("GET", Matcher::Regex("^/v1/subscriptions".into()))
             .with_status(200)
             .with_body(mock_subscriptions())
             .create_async()
@@ -658,15 +745,32 @@ pub mod tests {
         server
             .mock(
                 "GET",
-                mockito::Matcher::Regex("^/v1/subscription_items".into()),
+                Matcher::Regex("^/v1/subscription_items/si_NcLYdDxLHxlFo7".into()),
             )
+            .with_status(200)
+            .with_body(mock_subscription_item())
+            .create_async()
+            .await;
+
+        server
+            .mock(
+                "POST",
+                Matcher::Regex("^/v1/subscription_items/si_NcLYdDxLHxlFo7".into()),
+            )
+            .with_status(200)
+            .with_body(mock_subscription_item())
+            .create_async()
+            .await;
+
+        server
+            .mock("GET", Matcher::Regex("^/v1/subscription_items".into()))
             .with_status(200)
             .with_body(mock_subscription_items())
             .create_async()
             .await;
 
         server
-            .mock("GET", mockito::Matcher::Regex(r"^/v1/prices/search".into()))
+            .mock("GET", Matcher::Regex(r"^/v1/prices/search".into()))
             .with_status(200)
             .with_body(mock_prices())
             .create_async()

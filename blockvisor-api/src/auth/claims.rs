@@ -13,10 +13,12 @@ use crate::model::{Host, Node};
 use crate::util::SecondsUtc;
 
 use super::rbac::{Access, Perm, Perms, Roles};
-use super::resource::{HostId, NodeId, OrgId, Resource, ResourceEntry, Resources, UserId};
+use super::resource::{ClaimsResource, HostId, NodeId, OrgId, Resource, Resources, UserId};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
+    /// Need at least one perm of: {0:?}
+    EnsureAnyPerms(HashSet<Perm>),
     /// Claims `{0:?}` does not have visibility of the target HostId ({1}).
     EnsureHost(Resource, HostId),
     /// Claims `{0:?}` does not have visibility of the target NodeId ({1}).
@@ -43,8 +45,10 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            EnsureHost(..) | EnsureNode(..) | EnsureOrg(..) | EnsureUser(..) => {
-                Status::forbidden("Access denied.")
+            EnsureAnyPerms(_) | EnsureHost(..) | EnsureNode(..) | EnsureOrg(..)
+            | EnsureUser(..) => Status::forbidden("Access denied."),
+            MissingPerm(perm, _) => {
+                Status::forbidden(format!("Missing permission: {perm}"))
             }
             MissingPerm(perm, _) => Status::forbidden(format!("Missing permission: {perm}")),
             Host(err) => err.into(),
@@ -60,7 +64,7 @@ impl From<Error> for Status {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Claims {
     #[serde(flatten)]
-    pub resource_entry: ResourceEntry,
+    pub resource: ClaimsResource,
     #[serde(flatten)]
     pub expirable: Expirable,
     #[serde(flatten)]
@@ -72,7 +76,7 @@ pub struct Claims {
 impl Claims {
     pub fn new(resource: Resource, expirable: Expirable, access: Access) -> Self {
         Claims {
-            resource_entry: resource.into(),
+            resource: resource.into(),
             expirable,
             access,
             data: None,
@@ -110,7 +114,7 @@ impl Claims {
     }
 
     pub fn resource(&self) -> Resource {
-        self.resource_entry.into()
+        self.resource.into()
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {
@@ -129,6 +133,7 @@ impl Claims {
         conn: &mut Conn<'_>,
     ) -> Result<Option<Granted>, Error> {
         match resources {
+            Resources::None => Ok(None),
             Resources::One(resource) => self.ensure_resource(resource, conn).await,
             Resources::Many(resources) => {
                 let mut granted = Granted::default();
@@ -179,6 +184,10 @@ impl Claims {
                 RbacPerm::for_org(id, org_id, true, conn).await?,
             ))),
             Resource::Org(id) if id == org_id => Ok(None),
+            resource @ Resource::Host(id) => match Host::org_id(id, conn).await? {
+                Some(id) if id == org_id => Ok(None),
+                None | Some(_) => Err(Error::EnsureOrg(resource, org_id)),
+            },
             resource => Err(Error::EnsureOrg(resource, org_id)),
         }
     }
@@ -191,15 +200,14 @@ impl Claims {
         host_id: HostId,
         conn: &mut Conn<'_>,
     ) -> Result<Option<Granted>, Error> {
-        let host = Host::by_id(host_id, conn).await?;
-
-        match self.resource() {
-            Resource::User(id) => Ok(Some(Granted(
-                RbacPerm::for_org(id, host.org_id, true, conn).await?,
+        let org_id = Host::org_id(host_id, conn).await?;
+        match (self.resource(), org_id) {
+            (Resource::User(id), Some(org_id)) => Ok(Some(Granted(
+                RbacPerm::for_org(id, org_id, true, conn).await?,
             ))),
-            Resource::Org(id) if id == host.org_id => Ok(None),
-            Resource::Host(id) if id == host_id => Ok(None),
-            resource => Err(Error::EnsureHost(resource, host_id)),
+            (Resource::Org(id), Some(org_id)) if id == org_id => Ok(None),
+            (Resource::Host(id), _) if id == host_id => Ok(None),
+            (resource, _) => Err(Error::EnsureHost(resource, host_id)),
         }
     }
 
@@ -257,7 +265,8 @@ impl Granted {
 
         match access {
             Access::Perms(Perms::One(perm)) => granted.push(*perm),
-            Access::Perms(Perms::Many(perms)) => granted.join(perms),
+            Access::Perms(Perms::All(perms)) => granted.join(perms),
+            Access::Perms(Perms::Any(perms)) => granted.join(perms),
 
             Access::Roles(Roles::One(role)) => {
                 granted.join(&RbacPerm::for_role(*role, conn).await?);
@@ -300,7 +309,15 @@ impl Granted {
         self.contains(&perm.into())
     }
 
-    pub fn has_any_perm<I, P>(&self, perms: I) -> bool
+    pub fn has_all_perms<I, P>(&self, perms: I) -> bool
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<Perm>,
+    {
+        perms.into_iter().all(|perm| self.contains(&perm.into()))
+    }
+
+    pub fn has_any_perms<I, P>(&self, perms: I) -> bool
     where
         I: IntoIterator<Item = P>,
         P: Into<Perm>,
@@ -318,10 +335,25 @@ impl Granted {
             .ok_or_else(|| Error::MissingPerm(perm, claims.resource()))
     }
 
-    pub fn ensure_perms(&self, perms: HashSet<Perm>, claims: &Claims) -> Result<(), Error> {
+    pub fn ensure_all_perms(&self, perms: HashSet<Perm>, claims: &Claims) -> Result<(), Error> {
         perms
             .into_iter()
             .try_for_each(|p| self.ensure_perm(p, claims))
+    }
+
+    pub fn ensure_any_perms(&self, perms: HashSet<Perm>, claims: &Claims) -> Result<(), Error> {
+        for perm in &perms {
+            if matches!(self.ensure_perm(*perm, claims), Ok(())) {
+                return Ok(());
+            }
+        }
+
+        Err(Error::EnsureAnyPerms(perms))
+    }
+
+    #[cfg(any(test, feature = "integration-test"))]
+    pub const fn test_with(perms: HashSet<Perm>) -> Self {
+        Granted(perms)
     }
 }
 
@@ -378,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn can_parse_many_perms() {
+    fn can_parse_all_perms() {
         let json = r#"{
             "resource_type": "User",
             "resource_id": "5a606a36-d530-4c1b-95a9-342ad4d66686",
@@ -390,7 +422,7 @@ mod tests {
         let claims: Claims = serde_json::from_str(json).unwrap();
         assert_eq!(
             claims.access,
-            Access::Perms(Perms::Many(hashset! {
+            Access::Perms(Perms::All(hashset! {
                 HostPerm::Start.into(),
                 HostPerm::Stop.into()
             }))

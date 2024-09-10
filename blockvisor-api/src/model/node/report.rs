@@ -1,20 +1,21 @@
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
-use derive_more::{Deref, From, FromStr};
+use derive_more::{Deref, Display, From, FromStr};
 use diesel::result::Error::NotFound;
 use diesel::{ExpressionMethods, Insertable, QueryDsl, Queryable};
 use diesel_async::RunQueryDsl;
 use diesel_derive_newtype::DieselNewType;
+use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::auth::resource::{NodeId, ResourceEntry, ResourceId, ResourceType, UserId};
+use crate::auth::resource::{NodeId, Resource, ResourceId, ResourceType};
 use crate::database::Conn;
 use crate::grpc::Status;
 use crate::model::schema::node_reports;
 
-#[derive(Debug, displaydoc::Display, Error)]
+#[derive(Debug, DisplayDoc, Error)]
 pub enum Error {
     /// Failed to create report: {0}
     Create(diesel::result::Error),
@@ -38,7 +39,7 @@ impl From<Error> for Status {
     Clone,
     Copy,
     Debug,
-    derive_more::Display,
+    Display,
     Hash,
     PartialEq,
     Eq,
@@ -55,8 +56,8 @@ pub struct NodeReportId(Uuid);
 pub struct NodeReport {
     pub id: NodeReportId,
     pub node_id: NodeId,
-    pub created_by_resource: ResourceType,
-    pub created_by: ResourceId,
+    pub created_by_type: ResourceType,
+    pub created_by_id: ResourceId,
     pub message: String,
     pub created_at: DateTime<Utc>,
 }
@@ -81,8 +82,8 @@ impl NodeReport {
             .map_err(|err| Error::FindByNodes(node_ids.clone(), err))
     }
 
-    pub const fn user_id(&self) -> Option<UserId> {
-        ResourceEntry::new(self.created_by_resource, self.created_by).user_id()
+    pub fn created_by(&self) -> Resource {
+        Resource::new(self.created_by_type, self.created_by_id)
     }
 }
 
@@ -90,8 +91,8 @@ impl NodeReport {
 #[diesel(table_name = node_reports)]
 pub struct NewNodeReport {
     pub node_id: NodeId,
-    pub created_by_resource: ResourceType,
-    pub created_by: ResourceId,
+    pub created_by_type: ResourceType,
+    pub created_by_id: ResourceId,
     pub message: String,
 }
 

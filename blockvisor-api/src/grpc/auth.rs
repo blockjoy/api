@@ -5,7 +5,7 @@ use tonic::{Request, Response};
 use tracing::{error, warn};
 
 use crate::auth::claims::{Claims, Expirable, Granted};
-use crate::auth::rbac::{AuthAdminPerm, AuthPerm, GrpcRole};
+use crate::auth::rbac::{AuthAdminPerm, AuthPerm, GrpcRole, Perm};
 use crate::auth::resource::{Resource, ResourceId};
 use crate::auth::token::refresh::Refresh;
 use crate::auth::token::RequestToken;
@@ -40,10 +40,10 @@ pub enum Error {
     NoRefresh,
     /// Org auth error: {0}
     Org(#[from] crate::model::org::Error),
-    /// Failed to parse RequestToken: {0}
-    ParseToken(crate::auth::token::Error),
     /// Failed to parse OrgId: {0}
     ParseOrgId(uuid::Error),
+    /// Failed to parse RequestToken: {0}
+    ParseToken(crate::auth::token::Error),
     /// Failed to parse UserId: {0}
     ParseUserId(uuid::Error),
     /// User RBAC error: {0}
@@ -174,7 +174,7 @@ pub async fn confirm(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceConfirmResponse, Error> {
-    let authz = write.auth_all(&meta, AuthPerm::Confirm).await?;
+    let authz = write.auth(&meta, AuthPerm::Confirm).await?;
     let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
     let expire = &write.ctx.config.token.expire;
@@ -214,12 +214,12 @@ pub async fn refresh(
     let resource_id: ResourceId = match resource {
         Resource::User(id) => User::by_id(id, &mut write).await.map(|_| id.into())?,
         Resource::Org(id) => Org::by_id(id, &mut write).await.map(|_| id.into())?,
-        Resource::Host(id) => Host::by_id(id, &mut write).await.map(|_| id.into())?,
+        Resource::Host(id) => Host::org_id(id, &mut write).await.map(|_| id.into())?,
         Resource::Node(id) => Node::by_id(id, &mut write).await.map(|_| id.into())?,
     };
 
     // Check that the claims and the refresh token refer to the same user
-    if resource_id != refresh.resource_id() {
+    if resource_id != refresh.resource().id() {
         return Err(Error::RefreshResource);
     }
 
@@ -272,7 +272,7 @@ pub async fn update_password(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceUpdatePasswordResponse, Error> {
-    let authz = write.auth_all(&meta, AuthPerm::UpdatePassword).await?;
+    let authz = write.auth(&meta, AuthPerm::UpdatePassword).await?;
     let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
 
     let user = User::by_id(user_id, &mut write).await?;
@@ -290,7 +290,7 @@ pub async fn update_ui_password(
 ) -> Result<api::AuthServiceUpdateUiPasswordResponse, Error> {
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
     write
-        .auth(&meta, AuthPerm::UpdateUiPassword, user_id)
+        .auth_for(&meta, AuthPerm::UpdateUiPassword, user_id)
         .await?;
 
     let user = User::by_id(user_id, &mut write).await?;
@@ -307,19 +307,16 @@ pub async fn list_permissions(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceListPermissionsResponse, Error> {
+    let admin_perm: Perm = AuthAdminPerm::ListPermissions.into();
+    let user_perm: Perm = AuthPerm::ListPermissions.into();
+
+    let authz = write.auth_any(&meta, [admin_perm, user_perm]).await?;
+    let ensure_member = !authz.has_perm(admin_perm);
+
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
-
-    let (authz, ensure_member) = match write.auth_all(&meta, AuthAdminPerm::ListPermissions).await {
-        Ok(authz) => (authz, false),
-        Err(crate::auth::Error::Claims(_)) => {
-            let authz = write.auth_all(&meta, AuthPerm::ListPermissions).await?;
-            (authz, true)
-        }
-        Err(err) => return Err(err.into()),
-    };
-
     let granted = Granted::for_org(user_id, org_id, ensure_member, &mut write).await?;
+
     let granted = if req.include_token.unwrap_or_default() {
         Granted::from_access(&authz.claims.access, Some(granted), &mut write).await?
     } else {

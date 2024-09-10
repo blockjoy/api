@@ -5,16 +5,18 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures::future::OptionFuture;
 use thiserror::Error;
-use tonic::{Request, Response};
-use tracing::{debug, error};
+use tonic::metadata::MetadataMap;
+use tonic::{Request, Response, Status};
+use tracing::error;
 
 use crate::auth::rbac::{OrgAddressPerm, OrgAdminPerm, OrgBillingPerm, OrgPerm, OrgProvisionPerm};
 use crate::auth::resource::{OrgId, UserId};
 use crate::auth::Authorize;
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
+use crate::model::address::NewAddress;
 use crate::model::org::{NewOrg, OrgFilter, OrgSearch, OrgSort, UpdateOrg};
 use crate::model::rbac::{OrgUsers, RbacUser};
-use crate::model::{Address, Invitation, NewAddress, Org, Token, User};
+use crate::model::{Address, Invitation, Org, Token, User};
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::org_service_server::OrgService;
@@ -26,8 +28,6 @@ pub enum Error {
     Address(#[from] crate::model::address::Error),
     /// Auth check failed: {0}
     Auth(#[from] crate::auth::Error),
-    /// Failed to remove user from org with permission `org-remove-self`, user to remove is not self
-    CanOnlyRemoveSelf,
     /// No org found after conversion.
     ConvertNoOrg,
     /// Claims check failed: {0}
@@ -42,14 +42,12 @@ pub enum Error {
     Invitation(#[from] crate::model::invitation::Error),
     /// The request is missing the `address` fields.
     MissingAddress,
-    /// Org model error: {0}
-    Model(#[from] crate::model::org::Error),
-    /// Org `{0}` has no owner.
-    NoOwner(OrgId),
     /// No customer exists in stripe for org `{0}`.
     NoStripeCustomer(OrgId),
     /// No subscription exists in stripe for org `{0}`.
     NoStripeSubscription(OrgId),
+    /// Org model error: {0}
+    Org(#[from] crate::model::org::Error),
     /// Failed to parse `id` as OrgId: {0}
     ParseId(uuid::Error),
     /// Failed to parse non-zero count as u64: {0}
@@ -64,15 +62,17 @@ pub enum Error {
     Resource(#[from] crate::auth::resource::Error),
     /// Cannot remove last owner from an org.
     RemoveLastOwner,
+    /// User to remove is not self.
+    RemoveNotSelf,
     /// Org search failed: {0}
     SearchOperator(crate::util::search::Error),
     /// Sort order: {0}
     SortOrder(crate::util::search::Error),
     /// Stripe error: {0}
     Stripe(#[from] crate::stripe::Error),
-    /// Stripe currency error: {0}
+    /// Stripe Currency error: {0}
     StripeCurrency(#[from] crate::stripe::api::currency::Error),
-    /// Stripe currency error: {0}
+    /// Stripe Invoice error: {0}
     StripeInvoice(#[from] crate::stripe::api::invoice::Error),
     /// Org token error: {0}
     Token(#[from] crate::model::token::Error),
@@ -87,7 +87,7 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            ClaimsNotUser | DeletePersonal | CanOnlyRemoveSelf => {
+            ClaimsNotUser | DeletePersonal | RemoveNotSelf => {
                 Status::forbidden("Access denied.")
             }
             ConvertNoOrg | Diesel(_) | ParseMax(_) | Stripe(_) | StripeCurrency(_)
@@ -100,14 +100,13 @@ impl From<Error> for Status {
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
             MissingAddress => Status::failed_precondition("User has no address."),
-            NoOwner(_) => Status::failed_precondition("Org has no owner."),
             NoStripeCustomer(_) => Status::failed_precondition("No customer for that org."),
             NoStripeSubscription(_) => Status::failed_precondition("No subscription for that org."),
             Address(err) => err.into(),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Invitation(err) => err.into(),
-            Model(err) => err.into(),
+            Org(err) => err.into(),
             Rbac(err) => err.into(),
             Resource(err) => err.into(),
             Token(err) => err.into(),
@@ -259,7 +258,7 @@ pub async fn create(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceCreateResponse, Error> {
-    let authz = write.auth_all(&meta, OrgPerm::Create).await?;
+    let authz = write.auth(&meta, OrgPerm::Create).await?;
     let user_id = authz.resource().user().ok_or(Error::ClaimsNotUser)?;
     let user = User::by_id(user_id, &mut write).await?;
 
@@ -270,7 +269,7 @@ pub async fn create(
     let org = new_org.create(user.id, &mut write).await?;
     let org = api::Org::from_model(&org, &mut write).await?;
 
-    let created_by = common::EntityUpdate::from_user(&user);
+    let created_by = common::Resource::from(user.id);
     let msg = api::OrgMessage::created(org.clone(), created_by);
     write.mqtt(msg);
 
@@ -282,8 +281,8 @@ pub async fn get(
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetResponse, Error> {
-    let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
-    read.auth_or_all(&meta, OrgAdminPerm::Get, OrgPerm::Get, org_id)
+    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseId)?;
+    read.auth_or_for(&meta, OrgAdminPerm::Get, OrgPerm::Get, org_id)
         .await?;
 
     let org = Org::by_id(org_id, &mut read).await?;
@@ -299,15 +298,15 @@ pub async fn list(
 ) -> Result<api::OrgServiceListResponse, Error> {
     let filter = req.into_filter()?;
     if let Some(user_id) = filter.member_id {
-        read.auth(&meta, OrgPerm::List, user_id).await?
+        read.auth_for(&meta, OrgPerm::List, user_id).await?
     } else {
-        read.auth_all(&meta, OrgAdminPerm::List).await?
+        read.auth(&meta, OrgAdminPerm::List).await?
     };
 
-    let (orgs, org_count) = filter.query(&mut read).await?;
+    let (orgs, _) = filter.query(&mut read).await?;
     let orgs = api::Org::from_models(&orgs, &mut read).await?;
 
-    Ok(api::OrgServiceListResponse { orgs, org_count })
+    Ok(api::OrgServiceListResponse { orgs })
 }
 
 pub async fn update(
@@ -315,9 +314,9 @@ pub async fn update(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceUpdateResponse, Error> {
-    let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
+    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseId)?;
     let authz = write
-        .auth_or_all(&meta, OrgAdminPerm::Update, OrgPerm::Update, org_id)
+        .auth_or_for(&meta, OrgAdminPerm::Update, OrgPerm::Update, org_id)
         .await?;
 
     let update = UpdateOrg {
@@ -328,7 +327,7 @@ pub async fn update(
     let org = update.update(&mut write).await?;
     let org = api::Org::from_model(&org, &mut write).await?;
 
-    let updated_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
+    let updated_by = common::Resource::from(&authz);
     let msg = api::OrgMessage::updated(org, updated_by);
     write.mqtt(msg);
 
@@ -340,22 +339,21 @@ pub async fn delete(
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceDeleteResponse, Error> {
-    let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
-    let authz = write.auth(&meta, OrgPerm::Delete, org_id).await?;
+    let org_id: OrgId = req.org_id.parse().map_err(Error::ParseId)?;
+    let authz = write.auth_for(&meta, OrgPerm::Delete, org_id).await?;
 
     let org = Org::by_id(org_id, &mut write).await?;
     if org.is_personal {
         return Err(Error::DeletePersonal);
     }
 
-    debug!("Deleting org: {org_id}");
     org.delete(&mut write).await?;
 
     let invitations = Invitation::by_org_id(org.id, &mut write).await?;
     let invitation_ids = invitations.into_iter().map(|i| i.id).collect();
-    Invitation::bulk_delete(invitation_ids, &mut write).await?;
+    Invitation::bulk_delete(&invitation_ids, &mut write).await?;
 
-    let deleted_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
+    let deleted_by = common::Resource::from(&authz);
     let msg = api::OrgMessage::deleted(&org, deleted_by);
     write.mqtt(msg);
 
@@ -368,24 +366,20 @@ pub async fn remove_member(
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceRemoveMemberResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
+
+    let authz = match write.auth_for(&meta, OrgPerm::RemoveMember, org_id).await {
+        Ok(authz) => Ok(authz),
+        Err(err) => match write.auth_for(&meta, OrgPerm::RemoveSelf, org_id).await {
+            Ok(authz) => match authz.resource().user() {
+                Some(id) if id == user_id => Ok(authz),
+                _ => Err(Error::RemoveNotSelf),
+            },
+            _ => Err(err.into()),
+        },
+    }?;
+
     let user = User::by_id(user_id, &mut write).await?;
-
-    let authz = match write.auth(&meta, OrgPerm::RemoveMember, org_id).await {
-        Ok(authz) => authz,
-        Err(err) => {
-            if let Ok(authz) = write.auth(&meta, OrgPerm::RemoveSelf, org_id).await {
-                if Some(user_id) != authz.resource().user() {
-                    return Err(Error::CanOnlyRemoveSelf);
-                }
-                authz
-            } else {
-                return Err(err.into());
-            }
-        }
-    };
-
     let org = Org::by_id(org_id, &mut write).await?;
     if org.is_personal {
         return Err(Error::DeletePersonal);
@@ -397,14 +391,11 @@ pub async fn remove_member(
     }
 
     Org::remove_user(user_id, org_id, &mut write).await?;
-
-    // In case a user needs to be re-invited later, we also remove the (already accepted) invites
-    // from the database. This is to prevent them from running into a unique constraint when they
-    // are invited again.
+    // To allow re-invitations, remove the already accepted invite.
     Invitation::remove_by_org_user(&user.email, org_id, &mut write).await?;
 
     let org = api::Org::from_model(&org, &mut write).await?;
-    let updated_by = common::EntityUpdate::from_resource(&authz, &mut write).await?;
+    let updated_by = common::Resource::from(&authz);
     let msg = api::OrgMessage::updated(org, updated_by);
     write.mqtt(msg);
 
@@ -417,7 +408,8 @@ pub async fn get_provision_token(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetProvisionTokenResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    read.auth(&meta, OrgProvisionPerm::GetToken, org_id).await?;
+    read.auth_for(&meta, OrgProvisionPerm::GetToken, org_id)
+        .await?;
 
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
     let token = Token::host_provision_by_user(user_id, org_id, &mut read).await?;
@@ -434,7 +426,7 @@ pub async fn reset_provision_token(
 ) -> Result<api::OrgServiceResetProvisionTokenResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
     write
-        .auth(&meta, OrgProvisionPerm::ResetToken, org_id)
+        .auth_for(&meta, OrgProvisionPerm::ResetToken, org_id)
         .await?;
 
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
@@ -452,7 +444,9 @@ pub async fn init_card(
 ) -> Result<api::OrgServiceInitCardResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseUserId)?;
-    write.auth(&meta, OrgBillingPerm::InitCard, org_id).await?;
+    write
+        .auth_for(&meta, OrgBillingPerm::InitCard, org_id)
+        .await?;
 
     let client_secret = write
         .ctx
@@ -470,7 +464,7 @@ pub async fn list_payment_methods(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceListPaymentMethodsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    read.auth(&meta, OrgBillingPerm::ListPaymentMethods, org_id)
+    read.auth_for(&meta, OrgBillingPerm::ListPaymentMethods, org_id)
         .await?;
 
     let org = Org::by_id(org_id, &mut read).await?;
@@ -511,7 +505,7 @@ pub async fn billing_details(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceBillingDetailsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    read.auth(&meta, OrgBillingPerm::GetBillingDetails, org_id)
+    read.auth_for(&meta, OrgBillingPerm::GetBillingDetails, org_id)
         .await?;
 
     let org = Org::by_id(org_id, &mut read).await?;
@@ -561,12 +555,14 @@ pub async fn get_address(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    read.auth(&meta, OrgAddressPerm::Get, org_id).await?;
+    read.auth_for(&meta, OrgAddressPerm::Get, org_id).await?;
+
     let org = Org::by_id(org_id, &mut read).await?;
     let Some(customer_id) = org.stripe_customer_id.as_ref() else {
         return Ok(Default::default());
     };
     let address = read.ctx.stripe.get_address(customer_id).await?;
+
     Ok(api::OrgServiceGetAddressResponse {
         address: address.map(Into::into),
     })
@@ -578,7 +574,7 @@ pub async fn set_address(
     mut write: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceSetAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    write.auth(&meta, OrgAddressPerm::Set, org_id).await?;
+    write.auth_for(&meta, OrgAddressPerm::Set, org_id).await?;
 
     let org = Org::by_id(org_id, &mut write).await?;
     let address = req.address.ok_or(Error::MissingAddress)?;
@@ -613,14 +609,14 @@ pub async fn set_address(
         }
         None
         | Some(Err(crate::model::address::Error::FindById(_, diesel::result::Error::NotFound))) => {
-            let new_address = NewAddress::new(
-                address.city.as_deref(),
-                address.country.as_deref(),
-                address.line1.as_deref(),
-                address.line2.as_deref(),
-                address.postal_code.as_deref(),
-                address.state.as_deref(),
-            );
+            let new_address = NewAddress {
+                city: address.city.as_deref(),
+                country: address.country.as_deref(),
+                line1: address.line1.as_deref(),
+                line2: address.line2.as_deref(),
+                postal_code: address.postal_code.as_deref(),
+                state: address.state.as_deref(),
+            };
             let address = new_address.create(&mut write).await?;
             let update_org = UpdateOrg {
                 id: org.id,
@@ -631,6 +627,7 @@ pub async fn set_address(
         }
         Some(Err(err)) => return Err(err.into()),
     };
+
     Ok(api::OrgServiceSetAddressResponse {})
 }
 
@@ -640,13 +637,17 @@ pub async fn delete_address(
     mut write: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceDeleteAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    write.auth(&meta, OrgAddressPerm::Delete, org_id).await?;
+    write
+        .auth_for(&meta, OrgAddressPerm::Delete, org_id)
+        .await?;
+
     let org = Org::by_id(org_id, &mut write).await?;
     let customer_id = org
         .stripe_customer_id
         .as_deref()
         .ok_or(Error::NoStripeCustomer(org_id))?;
     write.ctx.stripe.delete_address(customer_id).await?;
+
     Ok(api::OrgServiceDeleteAddressResponse {})
 }
 
@@ -656,7 +657,10 @@ pub async fn get_invoices(
     mut write: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetInvoicesResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    write.auth(&meta, OrgAddressPerm::Delete, org_id).await?;
+    let _authz = write
+        .auth_for(&meta, OrgAddressPerm::Delete, org_id)
+        .await?;
+
     let org = Org::by_id(org_id, &mut write).await?;
     let Some(customer_id) = org.stripe_customer_id.as_deref() else {
         return Ok(Default::default());
@@ -666,6 +670,7 @@ pub async fn get_invoices(
         .into_iter()
         .map(api::Invoice::try_from)
         .collect::<Result<_, _>>()?;
+
     Ok(api::OrgServiceGetInvoicesResponse { invoices })
 }
 
@@ -689,7 +694,7 @@ impl api::Org {
             .values()
             .flat_map(|ou| ou.user_roles.keys().copied())
             .collect();
-        let users = User::by_ids(user_ids, conn)
+        let users = User::by_ids(&user_ids, conn)
             .await?
             .to_map_keep_last(|u| (u.id, u));
 
@@ -729,7 +734,7 @@ impl api::Org {
                     .collect();
 
                 Ok(api::Org {
-                    id: org.id.to_string(),
+                    org_id: org.id.to_string(),
                     name: org.name.clone(),
                     personal: org.is_personal,
                     created_at: Some(NanosUtc::from(org.created_at).into()),
@@ -766,7 +771,7 @@ impl api::OrgServiceListRequest {
                         .operator()
                         .try_into()
                         .map_err(Error::SearchOperator)?,
-                    id: search.id.map(|id| id.trim().to_lowercase()),
+                    id: search.org_id.map(|id| id.trim().to_lowercase()),
                     name: search.name.map(|name| name.trim().to_lowercase()),
                 })
             })

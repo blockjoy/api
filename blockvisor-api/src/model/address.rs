@@ -86,33 +86,15 @@ impl Address {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = addresses)]
 pub struct NewAddress<'a> {
-    city: Option<&'a str>,
-    country: Option<&'a str>,
-    line1: Option<&'a str>,
-    line2: Option<&'a str>,
-    postal_code: Option<&'a str>,
-    state: Option<&'a str>,
+    pub city: Option<&'a str>,
+    pub country: Option<&'a str>,
+    pub line1: Option<&'a str>,
+    pub line2: Option<&'a str>,
+    pub postal_code: Option<&'a str>,
+    pub state: Option<&'a str>,
 }
 
 impl<'a> NewAddress<'a> {
-    pub const fn new(
-        city: Option<&'a str>,
-        country: Option<&'a str>,
-        line1: Option<&'a str>,
-        line2: Option<&'a str>,
-        postal_code: Option<&'a str>,
-        state: Option<&'a str>,
-    ) -> Self {
-        Self {
-            city,
-            country,
-            line1,
-            line2,
-            postal_code,
-            state,
-        }
-    }
-
     pub async fn create(self, conn: &mut Conn<'_>) -> Result<Address, Error> {
         diesel::insert_into(addresses::table)
             .values(self)

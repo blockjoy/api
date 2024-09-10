@@ -1,6 +1,7 @@
 use axum::response::IntoResponse;
 
-use crate::{database, grpc::Status};
+use crate::database;
+use crate::grpc::Status;
 
 pub mod api_key;
 pub mod auth;

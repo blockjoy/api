@@ -243,7 +243,7 @@ impl<'r> From<&'r User> for Recipient<'r> {
             first_name: &user.first_name,
             last_name: &user.last_name,
             email: &user.email,
-            preferred_language: Some(user.preferred_language()),
+            preferred_language: Some(Language::En),
         }
     }
 }

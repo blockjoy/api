@@ -1,21 +1,18 @@
 use blockvisor_api::auth::claims::{Claims, Expirable};
-use blockvisor_api::auth::rbac::InvitationPerm;
-use blockvisor_api::auth::resource::ResourceEntry;
+use blockvisor_api::auth::rbac::{InvitationPerm, OrgRole};
+use blockvisor_api::auth::resource::Resource;
 use blockvisor_api::database::seed;
 use blockvisor_api::grpc::api;
 use blockvisor_api::model::invitation::{Invitation, NewInvitation};
 use blockvisor_api::model::org::Org;
-use tonic::transport::Channel;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{InvitationService, SocketRpc};
 use crate::setup::TestServer;
-
-type Service = api::invitation_service_client::InvitationServiceClient<Channel>;
 
 async fn create_invitation(test: &TestServer) -> Invitation {
     let mut conn = test.conn().await;
 
-    let user_id = test.seed().user.id;
+    let user_id = test.seed().admin.id;
     let org_id = test.seed().org.id;
 
     let new_invitation = NewInvitation::new(org_id, seed::UNCONFIRMED_EMAIL, user_id);
@@ -29,7 +26,9 @@ async fn can_create_new_invitation() {
         invitee_email: "hugo@boss.com".to_string(),
         org_id: test.seed().org.id.to_string(),
     };
-    test.send_admin(Service::create, req).await.unwrap();
+    test.send_admin(InvitationService::create, req)
+        .await
+        .unwrap();
 
     let mut conn = test.conn().await;
     let invitations = Invitation::received("hugo@boss.com", &mut conn)
@@ -48,7 +47,7 @@ async fn responds_ok_for_list_pending() {
         ..Default::default()
     };
 
-    test.send_admin(Service::list, req).await.unwrap();
+    test.send_admin(InvitationService::list, req).await.unwrap();
 
     let mut conn = test.conn().await;
     let invitations = Invitation::received(&invitation.invitee_email, &mut conn)
@@ -63,11 +62,11 @@ async fn responds_ok_for_list_received() {
     let test = TestServer::new().await;
     let invitation = create_invitation(&test).await;
     let req = api::InvitationServiceListRequest {
-        invitee_email: Some(test.seed().user.email.to_string()),
+        invitee_email: Some(test.seed().admin.email.to_string()),
         ..Default::default()
     };
 
-    test.send_admin(Service::list, req).await.unwrap();
+    test.send_admin(InvitationService::list, req).await.unwrap();
     let mut conn = test.conn().await;
     let invitations = Invitation::received(&invitation.invitee_email, &mut conn)
         .await
@@ -82,7 +81,7 @@ async fn responds_ok_for_accept() {
 
     let invitation = create_invitation(&test).await;
 
-    let resource = ResourceEntry::new_org(invitation.org_id).into();
+    let resource = Resource::Org(invitation.org_id);
     let expirable = Expirable::from_now(chrono::Duration::minutes(15));
     let access = InvitationPerm::Accept.into();
 
@@ -94,7 +93,9 @@ async fn responds_ok_for_accept() {
         invitation_id: invitation.id.to_string(),
     };
 
-    test.send_with(Service::accept, req, &jwt).await.unwrap();
+    test.send_with(InvitationService::accept, req, &jwt)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -103,7 +104,7 @@ async fn responds_ok_for_decline() {
 
     let invitation = create_invitation(&test).await;
 
-    let resource = ResourceEntry::new_org(invitation.org_id).into();
+    let resource = Resource::Org(invitation.org_id);
     let expirable = Expirable::from_now(chrono::Duration::minutes(15));
     let access = InvitationPerm::Decline.into();
 
@@ -115,7 +116,9 @@ async fn responds_ok_for_decline() {
         invitation_id: invitation.id.to_string(),
     };
 
-    test.send_with(Service::decline, req, &jwt).await.unwrap();
+    test.send_with(InvitationService::decline, req, &jwt)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -125,10 +128,12 @@ async fn responds_ok_for_revoke() {
     let mut conn = test.conn().await;
     let org = Org::by_id(invitation.org_id, &mut conn).await.unwrap();
     // If the user is already added, thats okay
-    let _ = Org::add_member(test.seed().user.id, org.id, &mut conn).await;
+    let _ = Org::add_user(test.seed().member.id, org.id, OrgRole::Member, &mut conn).await;
     let req = api::InvitationServiceRevokeRequest {
         invitation_id: invitation.id.to_string(),
     };
 
-    test.send_admin(Service::revoke, req).await.unwrap();
+    test.send_admin(InvitationService::revoke, req)
+        .await
+        .unwrap();
 }

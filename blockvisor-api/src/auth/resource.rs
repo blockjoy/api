@@ -6,34 +6,26 @@ use diesel_derive_enum::DbEnum;
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use serde::{Deserialize, Serialize};
-use strum::{EnumString, IntoStaticStr};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::database::Conn;
-use crate::grpc::{common, Status};
+use crate::grpc::common;
 use crate::model::schema::sql_types;
-use crate::model::User;
 
 #[derive(Debug, DisplayDoc, Error)]
 pub enum Error {
-    /// Missing `resource_id`.
-    MissingResourceId,
     /// Failed to parse ResourceId: {0}
     ParseResourceId(uuid::Error),
     /// Unknown resource type.
     UnknownResourceType,
-    /// Resource user error: {0}
-    User(#[from] crate::model::user::Error),
 }
 
 impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            MissingResourceId | ParseResourceId(_) => Status::invalid_argument("resource_id"),
-            UnknownResourceType => Status::invalid_argument("resource"),
-            User(err) => err.into(),
+            ParseResourceId(_) => Status::invalid_argument("resource_id"),
+            UnknownResourceType => Status::invalid_argument("resource_type"),
         }
     }
 }
@@ -47,40 +39,43 @@ pub enum Resource {
 }
 
 impl Resource {
-    pub fn id(self) -> ResourceId {
+    pub fn new(typ: ResourceType, id: ResourceId) -> Self {
+        match typ {
+            ResourceType::User => Resource::User(UserId(*id)),
+            ResourceType::Org => Resource::Org(OrgId(*id)),
+            ResourceType::Host => Resource::Host(HostId(*id)),
+            ResourceType::Node => Resource::Node(NodeId(*id)),
+        }
+    }
+
+    pub fn typ(&self) -> ResourceType {
         self.into()
     }
 
-    pub const fn user(self) -> Option<UserId> {
-        if let Resource::User(id) = self {
-            Some(id)
-        } else {
-            None
-        }
+    pub fn id(&self) -> ResourceId {
+        self.into()
     }
 
-    pub const fn org(self) -> Option<OrgId> {
-        if let Resource::Org(id) = self {
-            Some(id)
-        } else {
-            None
-        }
+    pub fn user(self) -> Option<UserId> {
+        matches!(self, Resource::User(_)).then_some(UserId(*self.id()))
     }
 
-    pub const fn host(self) -> Option<HostId> {
-        if let Resource::Host(id) = self {
-            Some(id)
-        } else {
-            None
-        }
+    pub fn org(self) -> Option<OrgId> {
+        matches!(self, Resource::Org(_)).then_some(OrgId(*self.id()))
     }
 
-    pub const fn node(self) -> Option<NodeId> {
-        if let Resource::Node(id) = self {
-            Some(id)
-        } else {
-            None
-        }
+    pub fn host(self) -> Option<HostId> {
+        matches!(self, Resource::Host(_)).then_some(HostId(*self.id()))
+    }
+
+    pub fn node(self) -> Option<NodeId> {
+        matches!(self, Resource::Node(_)).then_some(NodeId(*self.id()))
+    }
+}
+
+impl fmt::Display for Resource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.typ(), self.id())
     }
 }
 
@@ -108,31 +103,19 @@ impl From<HostId> for Resource {
     }
 }
 
-impl fmt::Display for Resource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (resource_name, resource_id): (&str, ResourceId) = match *self {
-            Resource::User(id) => ("user", id.into()),
-            Resource::Org(id) => ("org", id.into()),
-            Resource::Host(id) => ("host", id.into()),
-            Resource::Node(id) => ("node", id.into()),
-        };
-        write!(f, "{resource_name} resource {resource_id}")
-    }
-}
-
-impl From<Resource> for ResourceId {
-    fn from(resource: Resource) -> Self {
+impl From<&Resource> for ResourceId {
+    fn from(resource: &Resource) -> Self {
         match resource {
-            Resource::User(UserId(id)) => ResourceId(id),
-            Resource::Org(OrgId(id)) => ResourceId(id),
-            Resource::Host(HostId(id)) => ResourceId(id),
-            Resource::Node(NodeId(id)) => ResourceId(id),
+            Resource::User(UserId(id)) => ResourceId(*id),
+            Resource::Org(OrgId(id)) => ResourceId(*id),
+            Resource::Host(HostId(id)) => ResourceId(*id),
+            Resource::Node(NodeId(id)) => ResourceId(*id),
         }
     }
 }
 
-impl From<Resource> for ResourceType {
-    fn from(resource: Resource) -> Self {
+impl From<&Resource> for ResourceType {
+    fn from(resource: &Resource) -> Self {
         match resource {
             Resource::User(_) => ResourceType::User,
             Resource::Org(_) => ResourceType::Org,
@@ -142,23 +125,38 @@ impl From<Resource> for ResourceType {
     }
 }
 
+impl<R> From<R> for common::Resource
+where
+    R: Into<Resource> + Send,
+{
+    fn from(resource: R) -> Self {
+        let resource = resource.into();
+        common::Resource {
+            resource_type: common::ResourceType::from(resource.typ()).into(),
+            resource_id: resource.id().to_string(),
+        }
+    }
+}
+
+impl TryFrom<&common::Resource> for Resource {
+    type Error = Error;
+
+    fn try_from(resource: &common::Resource) -> Result<Self, Self::Error> {
+        let typ: ResourceType = resource.resource_type().try_into()?;
+        let id: ResourceId = resource
+            .resource_id
+            .parse()
+            .map_err(Error::ParseResourceId)?;
+
+        Ok(Resource::new(typ, id))
+    }
+}
+
 /// The types of resources that can grant authorization.
 ///
 /// These are in hierarchial order, where a user has access to multiple orgs,
 /// while an org has multiple hosts, and a host has multiple nodes.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Display,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    EnumString,
-    IntoStaticStr,
-    DbEnum,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, DbEnum)]
 #[ExistingTypePath = "sql_types::EnumResourceType"]
 pub enum ResourceType {
     User,
@@ -167,27 +165,38 @@ pub enum ResourceType {
     Node,
 }
 
-impl From<ResourceType> for common::Resource {
-    fn from(ty: ResourceType) -> Self {
-        match ty {
-            ResourceType::User => common::Resource::User,
-            ResourceType::Org => common::Resource::Org,
-            ResourceType::Host => common::Resource::Host,
-            ResourceType::Node => common::Resource::Node,
+impl fmt::Display for ResourceType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ResourceType::User => write!(f, "user"),
+            ResourceType::Org => write!(f, "org"),
+            ResourceType::Host => write!(f, "host"),
+            ResourceType::Node => write!(f, "node"),
         }
     }
 }
 
-impl TryFrom<common::Resource> for ResourceType {
+impl From<ResourceType> for common::ResourceType {
+    fn from(resource_type: ResourceType) -> Self {
+        match resource_type {
+            ResourceType::User => common::ResourceType::User,
+            ResourceType::Org => common::ResourceType::Org,
+            ResourceType::Host => common::ResourceType::Host,
+            ResourceType::Node => common::ResourceType::Node,
+        }
+    }
+}
+
+impl TryFrom<common::ResourceType> for ResourceType {
     type Error = Error;
 
-    fn try_from(proto: common::Resource) -> Result<Self, Self::Error> {
-        match proto {
-            common::Resource::Unspecified => Err(Error::UnknownResourceType),
-            common::Resource::User => Ok(ResourceType::User),
-            common::Resource::Org => Ok(ResourceType::Org),
-            common::Resource::Node => Ok(ResourceType::Node),
-            common::Resource::Host => Ok(ResourceType::Host),
+    fn try_from(resource_type: common::ResourceType) -> Result<Self, Self::Error> {
+        match resource_type {
+            common::ResourceType::Unspecified => Err(Error::UnknownResourceType),
+            common::ResourceType::User => Ok(ResourceType::User),
+            common::ResourceType::Org => Ok(ResourceType::Org),
+            common::ResourceType::Node => Ok(ResourceType::Node),
+            common::ResourceType::Host => Ok(ResourceType::Host),
         }
     }
 }
@@ -264,6 +273,8 @@ pub struct UserId(Uuid);
     PartialOrd,
     Ord,
     DieselNewType,
+    Serialize,
+    Deserialize,
 )]
 pub struct OrgId(Uuid);
 
@@ -303,6 +314,7 @@ pub struct NodeId(Uuid);
 
 #[derive(Clone, Debug)]
 pub enum Resources {
+    None,
     One(Resource),
     Many(Vec<Resource>),
 }
@@ -325,6 +337,15 @@ where
     }
 }
 
+impl<T> From<&[T]> for Resources
+where
+    T: Into<Resource> + Copy,
+{
+    fn from(items: &[T]) -> Self {
+        Resources::Many(items.iter().map(|i| (*i).into()).collect())
+    }
+}
+
 impl<T> From<&Vec<T>> for Resources
 where
     T: Into<Resource> + Copy,
@@ -334,141 +355,37 @@ where
     }
 }
 
-/// A serializable representation of the resource type and id.
+impl<const N: usize, T> From<[T; N]> for Resources
+where
+    T: Into<Resource> + Copy,
+{
+    fn from(items: [T; N]) -> Self {
+        match N {
+            0 => Resources::None,
+            1 => Resources::One(items[0].into()),
+            _ => items.as_ref().into(),
+        }
+    }
+}
+
+/// A serializable representation for storing inside JWTs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ResourceEntry {
+pub struct ClaimsResource {
     pub resource_type: ResourceType,
     pub resource_id: ResourceId,
 }
 
-impl ResourceEntry {
-    pub const fn new(resource_type: ResourceType, resource_id: ResourceId) -> Self {
-        ResourceEntry {
-            resource_type,
-            resource_id,
-        }
-    }
-
-    pub fn new_user(user_id: UserId) -> Self {
-        ResourceEntry {
-            resource_type: ResourceType::User,
-            resource_id: (*user_id).into(),
-        }
-    }
-
-    pub fn new_org(org_id: OrgId) -> Self {
-        ResourceEntry {
-            resource_type: ResourceType::Org,
-            resource_id: (*org_id).into(),
-        }
-    }
-
-    pub fn new_host(host_id: HostId) -> Self {
-        ResourceEntry {
-            resource_type: ResourceType::Host,
-            resource_id: (*host_id).into(),
-        }
-    }
-
-    pub fn new_node(node_id: NodeId) -> Self {
-        ResourceEntry {
-            resource_type: ResourceType::Node,
-            resource_id: (*node_id).into(),
-        }
-    }
-
-    pub const fn user_id(self) -> Option<UserId> {
-        match self.resource_type {
-            ResourceType::User => Some(UserId(self.resource_id.0)),
-            _ => None,
-        }
-    }
-}
-
-impl From<Resource> for ResourceEntry {
+impl From<Resource> for ClaimsResource {
     fn from(resource: Resource) -> Self {
-        let (resource_type, resource_id) = match resource {
-            Resource::User(id) => (ResourceType::User, ResourceId(*id)),
-            Resource::Org(id) => (ResourceType::Org, ResourceId(*id)),
-            Resource::Host(id) => (ResourceType::Host, ResourceId(*id)),
-            Resource::Node(id) => (ResourceType::Node, ResourceId(*id)),
-        };
-
-        ResourceEntry {
-            resource_type,
-            resource_id,
+        ClaimsResource {
+            resource_type: resource.typ(),
+            resource_id: resource.id(),
         }
     }
 }
 
-impl From<ResourceEntry> for Resource {
-    fn from(entry: ResourceEntry) -> Self {
-        let id = *entry.resource_id;
-        match entry.resource_type {
-            ResourceType::User => Resource::User(UserId(id)),
-            ResourceType::Org => Resource::Org(OrgId(id)),
-            ResourceType::Host => Resource::Host(HostId(id)),
-            ResourceType::Node => Resource::Node(NodeId(id)),
-        }
-    }
-}
-
-impl TryFrom<&common::EntityUpdate> for Resource {
-    type Error = Error;
-
-    fn try_from(update: &common::EntityUpdate) -> Result<Self, Self::Error> {
-        let id: Uuid = update
-            .resource_id
-            .as_ref()
-            .ok_or(Error::MissingResourceId)?
-            .parse()
-            .map_err(Error::ParseResourceId)?;
-
-        match update.resource() {
-            common::Resource::Unspecified => Err(Error::UnknownResourceType),
-            common::Resource::User => Ok(Resource::User(UserId(id))),
-            common::Resource::Org => Ok(Resource::Org(OrgId(id))),
-            common::Resource::Host => Ok(Resource::Host(HostId(id))),
-            common::Resource::Node => Ok(Resource::Node(NodeId(id))),
-        }
-    }
-}
-
-impl common::EntityUpdate {
-    pub async fn from_resource<R>(resource: R, conn: &mut Conn<'_>) -> Result<Self, Error>
-    where
-        R: Into<Resource> + Send,
-    {
-        let entry = ResourceEntry::from(resource.into());
-        let user = if entry.resource_type == ResourceType::User {
-            Some(User::by_id((*entry.resource_id).into(), conn).await?)
-        } else {
-            None
-        };
-
-        Ok(common::EntityUpdate {
-            resource: common::Resource::from(entry.resource_type).into(),
-            resource_id: Some(entry.resource_id.to_string()),
-            name: user.as_ref().map(User::name),
-            email: user.as_ref().map(|u| u.email.clone()),
-        })
-    }
-
-    pub fn from_user(user: &User) -> Self {
-        common::EntityUpdate {
-            resource: common::Resource::User.into(),
-            resource_id: Some(user.id.to_string()),
-            name: Some(user.name()),
-            email: Some(user.email.clone()),
-        }
-    }
-
-    pub fn from_org(org_id: OrgId) -> Self {
-        common::EntityUpdate {
-            resource: common::Resource::Org.into(),
-            resource_id: Some(org_id.to_string()),
-            name: None,
-            email: None,
-        }
+impl From<ClaimsResource> for Resource {
+    fn from(claims: ClaimsResource) -> Resource {
+        Resource::new(claims.resource_type, claims.resource_id)
     }
 }

@@ -24,8 +24,8 @@ use uuid::Uuid;
 use zeroize::ZeroizeOnDrop;
 
 use crate::auth::claims::{Claims, Expirable};
-use crate::auth::rbac::{Access, ApiKeyRole, Roles};
-use crate::auth::resource::{Resource, ResourceEntry, ResourceType};
+use crate::auth::rbac::{ApiKeyRole, Roles};
+use crate::auth::resource::{Resource, ResourceType};
 use crate::auth::token::ApiToken;
 use crate::database::Conn;
 use crate::model::ApiKey;
@@ -76,16 +76,9 @@ impl Validated {
     }
 
     pub fn claims(&self, expires: chrono::Duration) -> Claims {
-        let resource = Resource::from(&self.0);
         let expirable = Expirable::from_now(expires);
-        Claims::new(resource, expirable, self.into())
-    }
-}
-
-impl From<&Validated> for Access {
-    fn from(api_key: &Validated) -> Self {
-        let entry = ResourceEntry::from(&api_key.0);
-        match entry.resource_type {
+        let resource = Resource::from(&self.0);
+        let access = match ResourceType::from(&resource) {
             ResourceType::User => Roles::Many(hashset![
                 ApiKeyRole::User.into(),
                 ApiKeyRole::Org.into(),
@@ -103,7 +96,9 @@ impl From<&Validated> for Access {
                 Roles::Many(hashset![ApiKeyRole::Host.into(), ApiKeyRole::Node.into()]).into()
             }
             ResourceType::Node => Roles::One(ApiKeyRole::Node.into()).into(),
-        }
+        };
+
+        Claims::new(resource, expirable, access)
     }
 }
 

@@ -1,339 +1,269 @@
+use blockvisor_api::database::seed::{
+    ARCHIVE_ID_1, ARCHIVE_ID_2, DISK_BYTES, IMAGE_ID, MEMORY_BYTES, MORE_RESOURCES_KEY, ORG_ID,
+};
 use blockvisor_api::grpc::{api, common};
-use blockvisor_api::model::command::{Command, CommandType};
-use blockvisor_api::model::node::Node;
-use blockvisor_api::model::schema;
+use blockvisor_api::model::command::Command;
+use blockvisor_api::model::schema::commands;
+use blockvisor_api::model::Node;
+use blockvisor_api::util::sql::{Tag, Tags};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use tonic::transport::Channel;
+use tonic::Code;
 use uuid::Uuid;
 
-use crate::setup::helper::traits::SocketRpc;
+use crate::setup::helper::traits::{NodeService, SocketRpc};
 use crate::setup::TestServer;
 
-type Service = api::node_service_client::NodeServiceClient<Channel>;
-
 #[tokio::test]
-async fn can_create_multiple() {
+async fn create_a_new_node() {
     let test = TestServer::new().await;
-    let mut conn = test.conn().await;
 
-    let req = api::NodeServiceCreateRequest {
-        org_id: test.seed().org.id.to_string(),
-        blockchain_id: test.seed().blockchain.id.to_string(),
-        node_type: common::NodeType::Validator.into(),
-        properties: vec![],
-        version: "3.3.0".to_string(),
-        network: "some network".to_string(),
-        placement: Some(api::NodePlacement {
-            placement: Some(api::node_placement::Placement::Multiple(
-                api::MultipleNodes {
-                    node_counts: vec![api::NodeCount {
-                        host_id: test.seed().host.id.to_string(),
-                        node_count: 2,
-                    }],
-                },
-            )),
-        }),
-        allow_ips: vec![],
-        deny_ips: vec![],
+    let create_req = |org_id, image_id, new_values, add_rules| api::NodeServiceCreateRequest {
+        org_id,
+        image_id,
         old_node_id: None,
+        placement: Some(scheduler_placement()),
+        new_values,
+        add_rules,
         tags: None,
     };
 
-    let resp = test.send_admin(Service::create, req).await.unwrap();
-    assert_eq!(resp.nodes.len(), 2);
+    // an org admin can't create a node with an invalid org_id
+    let req = create_req(Uuid::new_v4().into(), IMAGE_ID.into(), vec![], vec![]);
+    let result = test.send_admin(NodeService::create, req).await;
+    assert_eq!(result.unwrap_err().code(), Code::PermissionDenied);
 
-    let id1 = resp.nodes[0].id.parse().unwrap();
-    let id2 = resp.nodes[1].id.parse().unwrap();
+    // an org admin can create a new node
+    let req = create_req(ORG_ID.into(), IMAGE_ID.into(), vec![], vec![]);
+    let result = test.send_admin(NodeService::create, req.clone()).await;
+    let mut result = result.unwrap();
+    let node = result.nodes.pop().unwrap();
+    assert_eq!(node.image_id, IMAGE_ID);
+    assert_eq!(node.host_id, test.seed().host1.id.to_string());
 
-    let node1 = Node::by_id(id1, &mut conn).await.unwrap();
-    assert!(!node1.dns_record_id.is_empty());
+    let config = node.config.unwrap();
+    let image = config.image.unwrap();
+    assert_eq!(image.archive_id, ARCHIVE_ID_1);
+    let vm = config.vm.unwrap();
+    assert_eq!(vm.cpu_cores, 1);
+    assert_eq!(vm.memory_bytes, MEMORY_BYTES as u64);
+    assert_eq!(vm.disk_bytes, DISK_BYTES as u64);
 
-    let node2 = Node::by_id(id2, &mut conn).await.unwrap();
-    assert!(!node2.dns_record_id.is_empty());
+    // creating a node with MORE_RESOURCES_KEY uses a different archive
+    let new_values = vec![property(MORE_RESOURCES_KEY, "moar")];
+    let req = create_req(ORG_ID.into(), IMAGE_ID.into(), new_values, vec![]);
+    let result = test.send_admin(NodeService::create, req.clone()).await;
+    let mut result = result.unwrap();
+    let node = result.nodes.pop().unwrap();
+    assert_eq!(node.image_id, IMAGE_ID);
+    assert_eq!(node.host_id, test.seed().host1.id.to_string());
+
+    // confirm that a node with MORE_RESOURCES_KEY uses additional resources
+    let config = node.config.unwrap();
+    let image = config.image.unwrap();
+    assert_eq!(image.archive_id, ARCHIVE_ID_2);
+    let vm = config.vm.unwrap();
+    assert_eq!(vm.cpu_cores, 2);
+    assert_eq!(vm.memory_bytes, 2 * MEMORY_BYTES as u64);
+    assert_eq!(vm.disk_bytes, 2 * DISK_BYTES as u64);
+
+    // can choose a specific host to create a node on
+    let mut host2_req = create_req(ORG_ID.into(), IMAGE_ID.into(), vec![], vec![]);
+    host2_req.placement = Some(host_placement(test.seed().host2.id));
+    let result = test
+        .send_admin(NodeService::create, host2_req.clone())
+        .await;
+    let mut result = result.unwrap();
+    let node = result.nodes.pop().unwrap();
+    assert_eq!(node.image_id, IMAGE_ID);
+    assert_eq!(node.host_id, test.seed().host2.id.to_string());
+
+    // unless that host has now ran out of resources
+    let result = test.send_admin(NodeService::create, host2_req).await;
+    assert_eq!(result.unwrap_err().code(), Code::FailedPrecondition);
+}
+
+fn scheduler_placement() -> common::NodePlacement {
+    common::NodePlacement {
+        placement: Some(common::node_placement::Placement::Scheduler(
+            common::NodeScheduler {
+                resource: common::ResourceAffinity::MostResources.into(),
+                similarity: None,
+                region: None,
+            },
+        )),
+    }
+}
+
+fn host_placement<S: ToString>(host_id: S) -> common::NodePlacement {
+    common::NodePlacement {
+        placement: Some(common::node_placement::Placement::HostId(
+            host_id.to_string(),
+        )),
+    }
+}
+
+fn property<S: Into<String>>(key: S, value: S) -> common::ImagePropertyValue {
+    common::ImagePropertyValue {
+        key: key.into(),
+        value: value.into(),
+    }
 }
 
 #[tokio::test]
-async fn responds_ok_for_update_config() {
+async fn update_a_node_config() {
     let test = TestServer::new().await;
 
-    let jwt = test.host_jwt();
-    let node_id = test.seed().node.id;
-    let req = api::NodeServiceUpdateConfigRequest {
-        ids: vec![node_id.to_string()],
-        self_update: Some(true),
+    let update_req = |node_id| api::NodeServiceUpdateConfigRequest {
+        node_id,
+        auto_upgrade: Some(true),
         new_org_id: None,
-        note: Some("milk, eggs, bread and copious snacks".to_string()),
-        display_name: Some("<script>alert('XSS');</script>".to_string()),
+        new_display_name: Some("<script>alert('XSS');</script>".to_string()),
+        new_note: Some("milk, eggs, bread and copious snacks".to_string()),
+        new_values: vec![],
+        new_firewall: None,
         update_tags: Some(common::UpdateTags {
             update: Some(common::update_tags::Update::OverwriteTags(common::Tags {
                 tags: vec![common::Tag {
-                    name: "updatednode".to_string(),
+                    name: "updated-node".to_string(),
                 }],
             })),
         }),
     };
 
-    test.send_with(Service::update_config, req, &jwt)
+    // fails for unknown id
+    let req = update_req(Uuid::new_v4().to_string());
+    let status = test
+        .send_admin(NodeService::update_config, req)
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), Code::NotFound);
+
+    // ok for an org admin
+    let node_id = test.seed().node.id;
+    let req = update_req(node_id.to_string());
+    test.send_admin(NodeService::update_config, req)
         .await
         .unwrap();
 
     let mut conn = test.conn().await;
     let node = Node::by_id(node_id, &mut conn).await.unwrap();
 
-    // Some assertions that the update actually worked
-    assert!(node.self_update);
-
+    assert!(node.auto_upgrade);
+    assert_eq!(node.note.unwrap(), "milk, eggs, bread and copious snacks");
+    assert_eq!(node.display_name.unwrap(), "<script>alert('XSS');</script>");
     assert_eq!(
-        node.note,
-        Some("milk, eggs, bread and copious snacks".to_string())
+        node.tags,
+        Tags(vec![Tag::new("updated-node".to_string()).unwrap()])
     );
 
-    assert_eq!(
-        node.display_name,
-        "<script>alert('XSS');</script>".to_string()
-    );
-
-    assert_eq!(node.tags, vec![Some("updatednode".to_string())]);
-
-    validate_command(&test).await;
+    validate_commands(&test).await;
 }
 
 #[tokio::test]
-async fn responds_not_found_without_any_for_get() {
+async fn get_an_existing_node() {
     let test = TestServer::new().await;
-    let req = api::NodeServiceGetRequest {
-        id: Uuid::new_v4().to_string(),
-    };
-    let status = test.send_admin(Service::get, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::NotFound);
-    validate_command(&test).await;
+
+    let get_req = |node_id| api::NodeServiceGetRequest { node_id };
+
+    // fails for unknown id
+    let req = get_req(Uuid::new_v4().to_string());
+    let status = test.send_admin(NodeService::get, req).await.unwrap_err();
+    assert_eq!(status.code(), Code::NotFound);
+
+    // ok for an org member
+    let node_id = test.seed().node.id;
+    let req = get_req(node_id.to_string());
+    test.send_admin(NodeService::get, req).await.unwrap();
+
+    validate_commands(&test).await;
 }
 
 #[tokio::test]
-async fn responds_ok_with_id_for_get() {
-    let test = TestServer::new().await;
-    let node = &test.seed().node;
-    let req = api::NodeServiceGetRequest {
-        id: node.id.to_string(),
-    };
-    test.send_admin(Service::get, req).await.unwrap();
-    validate_command(&test).await;
-}
-
-#[tokio::test]
-async fn responds_ok_with_valid_data_for_create() {
-    let test = TestServer::new().await;
-    let req = api::NodeServiceCreateRequest {
-        org_id: test.seed().org.id.to_string(),
-        blockchain_id: test.seed().blockchain.id.to_string(),
-        node_type: common::NodeType::Validator.into(),
-        properties: vec![],
-        version: "3.3.0".to_string(),
-        network: "some network".to_string(),
-        placement: Some(api::NodePlacement {
-            placement: Some(api::node_placement::Placement::HostId(
-                test.seed().host.id.to_string(),
-            )),
-        }),
-        allow_ips: vec![api::FilteredIpAddr {
-            ip: "127.0.0.1".to_string(),
-            description: Some("wow so allowed".to_string()),
-        }],
-        deny_ips: vec![api::FilteredIpAddr {
-            ip: "127.0.0.2".to_string(),
-            description: Some("wow so denied".to_string()),
-        }],
-        old_node_id: None,
-        tags: Some(common::Tags {
-            tags: vec![common::Tag {
-                name: "testnode".to_string(),
-            }],
-        }),
-    };
-    let resp = test.send_admin(Service::create, req).await.unwrap();
-
-    // assert that it really exists
-    let req = api::NodeServiceGetRequest {
-        id: resp.nodes[0].id.clone(),
-    };
-    let resp = test.send_admin(Service::get, req).await.unwrap();
-    let node = resp.node.unwrap();
-
-    let allowed = node.allow_ips[0].clone();
-    assert_eq!(allowed.ip, "127.0.0.1");
-    assert_eq!(allowed.description.unwrap(), "wow so allowed");
-
-    let denied = node.deny_ips[0].clone();
-    assert_eq!(denied.ip, "127.0.0.2");
-    assert_eq!(denied.description.unwrap(), "wow so denied");
-
-    assert_eq!(
-        node.tags.unwrap(),
-        common::Tags {
-            tags: vec![common::Tag {
-                name: "testnode".to_string()
-            }]
-        }
-    );
-
-    validate_command(&test).await;
-}
-
-#[tokio::test]
-async fn responds_ok_with_valid_data_for_create_schedule() {
-    let test = TestServer::new().await;
-    let req = api::NodeServiceCreateRequest {
-        org_id: test.seed().org.id.to_string(),
-        blockchain_id: test.seed().blockchain.id.to_string(),
-        node_type: common::NodeType::Validator.into(),
-        properties: vec![],
-        version: "3.3.0".to_string(),
-        network: "some network".to_string(),
-        placement: Some(api::NodePlacement {
-            placement: Some(api::node_placement::Placement::Scheduler(
-                api::NodeScheduler {
-                    similarity: None,
-                    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
-                    region: "moneyland".to_string(),
-                },
-            )),
-        }),
-        allow_ips: vec![],
-        deny_ips: vec![],
-        old_node_id: None,
-        tags: None,
-    };
-    test.send_root(Service::create, req).await.unwrap();
-}
-
-#[tokio::test]
-async fn responds_invalid_argument_with_invalid_data_for_create() {
-    let test = TestServer::new().await;
-    let req = api::NodeServiceCreateRequest {
-        // This is an invalid uuid so the api call should fail.
-        org_id: "wowowowowow".to_string(),
-        blockchain_id: test.seed().blockchain.id.to_string(),
-        node_type: common::NodeType::Validator.into(),
-        properties: vec![],
-        version: "3.3.0".to_string(),
-        network: "some network".to_string(),
-        placement: Some(api::NodePlacement {
-            placement: Some(api::node_placement::Placement::Scheduler(
-                api::NodeScheduler {
-                    similarity: None,
-                    resource: api::node_scheduler::ResourceAffinity::MostResources.into(),
-                    region: "moneyland".to_string(),
-                },
-            )),
-        }),
-        allow_ips: vec![],
-        deny_ips: vec![],
-        old_node_id: None,
-        tags: None,
-    };
-    let status = test.send_root(Service::create, req).await.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");
-    validate_command(&test).await;
-}
-
-#[tokio::test]
-async fn responds_ok_for_start_stop_restart() {
+async fn start_and_stop_a_node() {
     let test = TestServer::new().await;
     let node_id = test.seed().node.id;
 
     let req = api::NodeServiceStartRequest {
-        id: node_id.to_string(),
+        node_id: node_id.to_string(),
     };
-    test.send_admin(Service::start, req).await.unwrap();
-    validate_command(&test).await;
+    test.send_admin(NodeService::start, req).await.unwrap();
 
     let req = api::NodeServiceStopRequest {
-        id: node_id.to_string(),
+        node_id: node_id.to_string(),
     };
-    test.send_admin(Service::stop, req).await.unwrap();
-    validate_command(&test).await;
+    test.send_admin(NodeService::stop, req).await.unwrap();
 
     let req = api::NodeServiceRestartRequest {
-        id: node_id.to_string(),
+        node_id: node_id.to_string(),
     };
-    test.send_admin(Service::restart, req).await.unwrap();
-    validate_command(&test).await;
+    test.send_admin(NodeService::restart, req).await.unwrap();
+
+    validate_commands(&test).await;
 }
 
 #[tokio::test]
-async fn responds_permission_denied_with_member_token_for_update_status() {
+async fn report_a_node_status() {
     let test = TestServer::new().await;
+    let node = &test.seed().node;
 
-    let jwt = test.member_jwt().await;
-    let req = api::NodeServiceUpdateStatusRequest {
-        ids: vec![test.seed().node.id.to_string()],
-        version: Some("v2".to_string()),
-        container_status: None,
-        address: Some("address".to_string()),
+    let report_req = || api::NodeServiceReportStatusRequest {
+        node_id: node.id.to_string(),
+        config_id: node.config_id.to_string(),
+        status: Some(common::NodeStatus {
+            state: common::NodeState::Stopped as i32,
+            next: None,
+            protocol: None,
+        }),
+        p2p_address: None,
     };
+
+    // fails for an org admin
+    let req = report_req();
     let status = test
-        .send_with(Service::update_status, req, &jwt)
+        .send_admin(NodeService::report_status, req)
         .await
         .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    assert_eq!(status.code(), Code::PermissionDenied);
+
+    // ok for node jwt
+    let jwt = test.node_jwt();
+    let req = report_req();
+    test.send_with(NodeService::report_status, req, &jwt)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
-async fn responds_internal_with_invalid_data_for_update_config() {
+async fn delete_an_existing_node() {
     let test = TestServer::new().await;
-    let req = api::NodeServiceUpdateConfigRequest {
-        ids: vec!["not-valid".to_string()],
-        ..Default::default()
+
+    let delete_req = || api::NodeServiceDeleteRequest {
+        node_id: test.seed().node.id.to_string(),
     };
+
+    // fails without perm
+    let req = delete_req();
     let status = test
-        .send_admin(Service::update_config, req)
+        .send_member(NodeService::delete, req)
         .await
         .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-    validate_command(&test).await;
+    assert_eq!(status.code(), Code::PermissionDenied);
+
+    // ok with perm
+    let req = delete_req();
+    test.send_admin(NodeService::delete, req).await.unwrap();
+
+    validate_commands(&test).await;
 }
 
-#[tokio::test]
-async fn responds_not_found_with_invalid_id_for_update_config() {
-    let test = TestServer::new().await;
-    let req = api::NodeServiceUpdateConfigRequest {
-        // This uuid will not exist, so the api call should fail.
-        ids: vec![Uuid::new_v4().to_string()],
-        ..Default::default()
-    };
-    let status = test
-        .send_admin(Service::update_config, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::NotFound, "{status:?}");
-    validate_command(&test).await;
-}
-
-#[tokio::test]
-async fn responds_ok_with_valid_data_for_delete() {
-    let test = TestServer::new().await;
-    let req = api::NodeServiceDeleteRequest {
-        id: test.seed().node.id.to_string(),
-    };
-    test.send_admin(Service::delete, req).await.unwrap();
-    validate_command(&test).await;
-}
-
-async fn validate_command(test: &TestServer) {
+async fn validate_commands(test: &TestServer) {
     let mut conn = test.conn().await;
-    let commands_empty: Vec<Command> = schema::commands::table
-        .filter(
-            schema::commands::node_id
-                .is_null()
-                .and(schema::commands::command_type.ne(CommandType::NodeDelete))
-                .or(schema::commands::command_type
-                    .eq(CommandType::NodeDelete)
-                    .and(schema::commands::node_id.is_null())),
-        )
-        .load::<Command>(&mut conn)
+    let commands: Vec<Command> = commands::table
+        .filter(commands::node_id.is_null())
+        .get_results(&mut conn)
         .await
         .unwrap();
 
-    assert_eq!(commands_empty.len(), 0);
+    assert!(commands.is_empty());
 }

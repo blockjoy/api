@@ -2,45 +2,69 @@
 
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use ipnetwork::IpNetwork;
-use uuid::Uuid;
 
-use crate::auth::rbac::{BlockjoyRole, ViewRole};
-use crate::auth::resource::{NodeId, OrgId};
-use crate::grpc::common;
-use crate::model::blockchain::BlockchainId;
-use crate::model::host::{ConnectionStatus, Host, HostType, ManagedBy, MonthlyCostUsd, NewHost};
+use crate::auth::rbac::access::tests::view_authz;
+use crate::auth::rbac::{BlockjoyRole, OrgRole, ViewRole};
+use crate::auth::resource::{NodeId, OrgId, ResourceType, UserId};
+use crate::model::host::{Host, NewHost, ScheduleType};
+use crate::model::image::config::ConfigType;
+use crate::model::image::{Config, Image, ImageId, NewConfig, NodeConfig};
 use crate::model::ip_address::CreateIpAddress;
-use crate::model::node::{Node, NodeProperty, NodeStatus, NodeType, ResourceAffinity};
+use crate::model::node::{Node, NodeState, ResourceAffinity};
+use crate::model::protocol::version::{ProtocolVersion, VersionId};
+use crate::model::protocol::{Protocol, ProtocolId};
 use crate::model::rbac::RbacUser;
-use crate::model::schema::{blockchains, nodes, orgs};
+use crate::model::schema::{images, nodes, orgs, protocol_versions, protocols};
 use crate::model::user::NewUser;
-use crate::model::{Blockchain, IpAddress, Org, Region, User};
+use crate::model::{IpAddress, Org, Region, User};
+use crate::util::sql::{IpNetwork, Tag, Tags};
 
 use super::Conn;
 
-pub const ROOT_EMAIL: &str = "root@here.com";
-pub const ADMIN_EMAIL: &str = "admin@here.com";
-pub const MEMBER_EMAIL: &str = "member@here.com";
-pub const UNCONFIRMED_EMAIL: &str = "unconfirmed@here.com";
+pub const SUPER_EMAIL: &str = "super@user.com";
+pub const ADMIN_EMAIL: &str = "admin@org.com";
+pub const MEMBER_EMAIL: &str = "member@org.com";
+pub const UNKNOWN_EMAIL: &str = "unknown@other.com";
+pub const UNCONFIRMED_EMAIL: &str = "unconfirmed@org.com";
 pub const LOGIN_PASSWORD: &str = "hunter2";
 
+pub const PROTOCOL_ID: &str = "ab5d8cfc-77b1-4265-9fee-ba71ba9de092";
+pub const PROTOCOL_KEY: &str = "ethereum";
+pub const PROTOCOL_VISIBILITY: &str = "public";
+pub const PROTOCOL_VERSION_ID: &str = "a69e7195-8a78-4e3a-a79e-4ac89edf1d68";
+pub const VARIANT_KEY: &str = "sepolia";
+pub const SEMANTIC_VERSION: &str = "1.2.3";
+pub const SKU_CODE: &str = "ETH-TN";
+
 pub const ORG_ID: &str = "08dede71-b97d-47c1-a91d-6ba0997b3cdd";
+pub const ORG_PROTOCOL_ID: &str = "9331899f-3b13-4d03-ade5-5580ca93ed01";
+pub const ORG_PROTOCOL_KEY: &str = "solana";
+pub const ORG_VARIANT_KEY: &str = "testnet";
+pub const ORG_PROTOCOL_VERSION_ID: &str = "77b22a4a-a656-4d02-ab52-b56806047a56";
+pub const ORG_SEMANTIC_VERSION: &str = "1.2.4";
+pub const ORG_IMAGE_ID: &str = "5537849e-9003-46c0-8129-b465ffbb06f2";
+
+pub const IMAGE_ID: &str = "fb56b151-443b-491a-a2a5-50fc12343a91";
+pub const MEMORY_BYTES: i64 = 1024_i64.pow(3);
+pub const DISK_BYTES: i64 = 1024_i64.pow(4);
+pub const DEFAULT_FIREWALL_IN: &str = "drop";
+pub const DEFAULT_FIREWALL_OUT: &str = "allow";
+
+pub const IMAGE_PROPERTY_ID_1: &str = "f9728f8b-a4c8-438c-b9c9-5e5e63aa0fe0";
+pub const IMAGE_PROPERTY_ID_2: &str = "8b1281a8-4dfa-4c57-a948-80c4f7e7a287";
+pub const NETWORK_KEY: &str = "network";
+pub const MORE_RESOURCES_KEY: &str = "more-resources";
+
+pub const ARCHIVE_ID_1: &str = "d4c6a35e-2804-4feb-a052-234e91d7ac8b";
+pub const ARCHIVE_ID_2: &str = "e54dab10-5c62-4778-8aba-dc5162b48025";
+pub const STORE_ID_1: &str = "store-1";
+pub const STORE_ID_2: &str = "store-2";
+
+pub const HOST_1: &str = "host-1";
+pub const HOST_2: &str = "host-2";
+
 pub const NODE_ID: &str = "cdbbc736-f399-42ab-86cf-617ce983011d";
-
-pub const HOST_1: &str = "Host-1";
-pub const HOST_2: &str = "Host-2";
-
-pub const BLOCKCHAIN_ID: &str = "ab5d8cfc-77b1-4265-9fee-ba71ba9de092";
-pub const BLOCKCHAIN_NAME: &str = "Ethereum";
-pub const BLOCKCHAIN_TICKER: &str = "ETH";
-pub const BLOCKCHAIN_VISIBILITY: &str = "development";
-pub const BLOCKCHAIN_NODE_TYPE: &str = "validator";
-pub const BLOCKCHAIN_NODE_TYPE_ID: &str = "fb56b151-443b-491a-a2a5-50fc12343a91";
-pub const BLOCKCHAIN_VERSION: &str = "3.3.0";
-pub const BLOCKCHAIN_VERSION_ID: &str = "a69e7195-8a78-4e3a-a79e-4ac89edf1d68";
-pub const BLOCKCHAIN_PROPERTY_KEYSTORE: &str = "5972a35a-333c-421f-ab64-a77f4ae17533";
-pub const BLOCKCHAIN_PROPERTY_SELF_HOSTED: &str = "a989ad08-b455-4a57-9fe0-696405947e48";
+pub const NODE_NAME: &str = "node-1";
 
 pub const IP_RANGE: [&str; 10] = [
     "127.0.0.1",
@@ -56,14 +80,17 @@ pub const IP_RANGE: [&str; 10] = [
 ];
 
 pub struct Seed {
-    pub user: User,
+    pub protocol: Protocol,
+    pub version: ProtocolVersion,
+    pub image: Image,
+    pub admin: User,
+    pub member: User,
     pub org: Org,
-    pub host: Host,
+    pub host1: Host,
+    pub host2: Host,
     pub node: Node,
-    pub blockchain: Blockchain,
+    pub config: Config,
     pub region: Region,
-    pub ip_gateway: String,
-    pub ip_addr: IpNetwork,
 }
 
 impl Seed {
@@ -71,45 +98,76 @@ impl Seed {
         setup_rbac(conn).await;
 
         let org = create_orgs(conn).await;
-        let user = create_users(org.id, conn).await;
+        let (admin, member) = create_users(org.id, conn).await;
         let region = create_region(conn).await;
-        let host = create_hosts(&user, org.id, &region, conn).await;
-        let blockchain = create_blockchains(conn).await;
-        let (ip_gateway, ip_addr) = create_ip_addresses(&host, conn).await;
-        let node = create_nodes(org.id, &host, &blockchain, &ip_gateway, ip_addr, conn).await;
+        let (host1, host2) = create_hosts(admin.id, org.id, &region, conn).await;
+        let (ip_address, ip_gateway) = create_ip_range(&host1, conn).await;
+        let (protocol, version, image) = create_image(conn).await;
+        let (node, config) =
+            create_node(&image, &host1, &protocol, ip_address, ip_gateway, conn).await;
 
         Seed {
-            user,
+            protocol,
+            version,
+            image,
+            admin,
+            member,
             org,
-            host,
+            host1,
+            host2,
             node,
-            blockchain,
+            config,
             region,
-            ip_gateway,
-            ip_addr,
         }
     }
 }
 
-async fn create_blockchains(conn: &mut Conn<'_>) -> Blockchain {
+async fn create_image(conn: &mut Conn<'_>) -> (Protocol, ProtocolVersion, Image) {
     let queries = [
-        format!("INSERT INTO blockchains (id, name, display_name, visibility, ticker) VALUES ('{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NAME}', '{BLOCKCHAIN_NAME}', '{BLOCKCHAIN_VISIBILITY}', '{BLOCKCHAIN_TICKER}');"),
-        format!("INSERT INTO blockchain_node_types (id, blockchain_id, node_type, visibility) VALUES ('{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NODE_TYPE}', '{BLOCKCHAIN_VISIBILITY}');"),
-        format!("INSERT INTO blockchain_versions (id, blockchain_id, blockchain_node_type_id, version) VALUES ('{BLOCKCHAIN_VERSION_ID}', '{BLOCKCHAIN_ID}', '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION}');"),
-        format!("INSERT INTO blockchain_properties VALUES ('{BLOCKCHAIN_PROPERTY_KEYSTORE}', '{BLOCKCHAIN_ID}', 'keystore-file', NULL, 'file_upload', FALSE, FALSE, '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION_ID}', 'Keystore file contents');"),
-        format!("INSERT INTO blockchain_properties VALUES ('{BLOCKCHAIN_PROPERTY_SELF_HOSTED}', '{BLOCKCHAIN_ID}', 'self-hosted', NULL, 'switch', FALSE, FALSE, '{BLOCKCHAIN_NODE_TYPE_ID}', '{BLOCKCHAIN_VERSION_ID}', 'Is this noderoni self hosted?');"),
+        format!("INSERT INTO protocols (id, org_id, key, name, visibility)
+            VALUES ('{PROTOCOL_ID}', null, '{PROTOCOL_KEY}', '{PROTOCOL_KEY}', '{PROTOCOL_VISIBILITY}');"),
+        format!("INSERT INTO protocols (id, org_id, key, name, visibility)
+            VALUES ('{ORG_PROTOCOL_ID}', '{ORG_ID}', '{ORG_PROTOCOL_KEY}', '{ORG_PROTOCOL_KEY}', '{PROTOCOL_VISIBILITY}');"),
+        format!("INSERT INTO protocol_versions (id, org_id, protocol_id, protocol_key, variant_key, semantic_version, sku_code, visibility)
+            VALUES ('{PROTOCOL_VERSION_ID}', null, '{PROTOCOL_ID}', '{PROTOCOL_KEY}', '{VARIANT_KEY}', '{SEMANTIC_VERSION}', '{SKU_CODE}', '{PROTOCOL_VISIBILITY}');"),
+        format!("INSERT INTO protocol_versions (id, org_id, protocol_id, protocol_key, variant_key, semantic_version, sku_code, visibility)
+            VALUES ('{ORG_PROTOCOL_VERSION_ID}', '{ORG_ID}', '{ORG_PROTOCOL_ID}', '{ORG_PROTOCOL_KEY}', '{VARIANT_KEY}', '{ORG_SEMANTIC_VERSION}', '{SKU_CODE}', '{PROTOCOL_VISIBILITY}');"),
+        format!("INSERT INTO images (id, org_id, protocol_version_id, image_uri, build_version, min_cpu_cores, min_memory_bytes, min_disk_bytes, default_firewall_in, default_firewall_out, visibility)
+            VALUES ('{IMAGE_ID}', null, '{PROTOCOL_VERSION_ID}', 'docker:TODO', 1, 1, {MEMORY_BYTES}, {DISK_BYTES}, '{DEFAULT_FIREWALL_IN}', '{DEFAULT_FIREWALL_OUT}', '{PROTOCOL_VISIBILITY}');"),
+        format!("INSERT INTO images (id, org_id, protocol_version_id, image_uri, build_version, min_cpu_cores, min_memory_bytes, min_disk_bytes, default_firewall_in, default_firewall_out, visibility)
+            VALUES ('{ORG_IMAGE_ID}', '{ORG_ID}', '{ORG_PROTOCOL_VERSION_ID}', 'docker:TODO', 1, 1, {MEMORY_BYTES}, {DISK_BYTES}, '{DEFAULT_FIREWALL_IN}', '{DEFAULT_FIREWALL_OUT}', '{PROTOCOL_VISIBILITY}');"),
+        format!("INSERT INTO image_properties (id, image_id, key, new_archive, default_value, ui_type)
+            VALUES ('{IMAGE_PROPERTY_ID_1}', '{IMAGE_ID}', '{NETWORK_KEY}', false, 'testnet', 'enum');"),
+        format!("INSERT INTO image_properties (id, image_id, key, new_archive, default_value, ui_type, add_cpu_cores, add_memory_bytes, add_disk_bytes)
+            VALUES ('{IMAGE_PROPERTY_ID_2}', '{IMAGE_ID}', '{MORE_RESOURCES_KEY}', true, 'resources', 'switch', 1, {MEMORY_BYTES}, {DISK_BYTES});"),
+        format!("INSERT INTO archives (id, org_id, image_id, store_id, image_property_ids)
+            VALUES ('{ARCHIVE_ID_1}', null, '{IMAGE_ID}', '{STORE_ID_1}', array[]::uuid[]);"),
+        format!("INSERT INTO archives (id, org_id, image_id, store_id, image_property_ids)
+            VALUES ('{ARCHIVE_ID_2}', null, '{IMAGE_ID}', '{STORE_ID_2}', '{{ {IMAGE_PROPERTY_ID_2} }}');"),
     ];
 
     for query in queries {
         diesel::sql_query(query).execute(conn).await.unwrap();
     }
 
-    let blockchain_id: BlockchainId = BLOCKCHAIN_ID.parse().unwrap();
-    blockchains::table
-        .filter(blockchains::id.eq(blockchain_id))
+    let protocol_id: ProtocolId = PROTOCOL_ID.parse().unwrap();
+    let protocol = protocols::table
+        .find(protocol_id)
         .get_result(conn)
         .await
-        .unwrap()
+        .unwrap();
+
+    let version_id: VersionId = PROTOCOL_VERSION_ID.parse().unwrap();
+    let version = protocol_versions::table
+        .find(version_id)
+        .get_result(conn)
+        .await
+        .unwrap();
+
+    let image_id: ImageId = IMAGE_ID.parse().unwrap();
+    let image = images::table.find(image_id).get_result(conn).await.unwrap();
+
+    (protocol, version, image)
 }
 
 async fn create_orgs(conn: &mut Conn<'_>) -> Org {
@@ -129,46 +187,52 @@ async fn create_orgs(conn: &mut Conn<'_>) -> Org {
     Org::by_id(org_id, conn).await.unwrap()
 }
 
-async fn create_users(org_id: OrgId, conn: &mut Conn<'_>) -> User {
-    let root = NewUser::new(ROOT_EMAIL, "Super", "Man", LOGIN_PASSWORD)
-        .unwrap()
+async fn create_users(org_id: OrgId, conn: &mut Conn<'_>) -> (User, User) {
+    let new_user = |email, first, last| NewUser::new(email, first, last, LOGIN_PASSWORD).unwrap();
+    let super_user = new_user(SUPER_EMAIL, "Super", "User")
         .create(conn)
         .await
         .unwrap();
-    let admin = NewUser::new(ADMIN_EMAIL, "Mr", "Admin", LOGIN_PASSWORD)
-        .unwrap()
+    let admin = new_user(ADMIN_EMAIL, "Org", "Admin")
         .create(conn)
         .await
         .unwrap();
-    let member = NewUser::new(MEMBER_EMAIL, "Bog", "Standard", LOGIN_PASSWORD)
-        .unwrap()
+    let member = new_user(MEMBER_EMAIL, "Bog", "Standard")
         .create(conn)
         .await
         .unwrap();
-    let _ = NewUser::new(UNCONFIRMED_EMAIL, "Sus", "Guy", LOGIN_PASSWORD)
-        .unwrap()
+    let unknown = new_user(UNKNOWN_EMAIL, "Sus", "Guy")
+        .create(conn)
+        .await
+        .unwrap();
+    let _ = new_user(UNCONFIRMED_EMAIL, "Not", "Yet")
         .create(conn)
         .await
         .unwrap();
 
-    User::confirm(root.id, conn).await.unwrap();
+    User::confirm(super_user.id, conn).await.unwrap();
     User::confirm(admin.id, conn).await.unwrap();
     User::confirm(member.id, conn).await.unwrap();
+    User::confirm(unknown.id, conn).await.unwrap();
 
-    RbacUser::link_role(root.id, org_id, BlockjoyRole::Admin, conn)
+    Org::add_user(admin.id, org_id, OrgRole::Admin, conn)
         .await
         .unwrap();
-    RbacUser::link_role(root.id, org_id, ViewRole::DeveloperPreview, conn)
+    Org::add_user(member.id, org_id, OrgRole::Member, conn)
+        .await
+        .unwrap();
+
+    RbacUser::link_role(super_user.id, org_id, BlockjoyRole::Admin, conn)
         .await
         .unwrap();
     RbacUser::link_role(admin.id, org_id, ViewRole::DeveloperPreview, conn)
         .await
         .unwrap();
 
-    Org::add_admin(admin.id, org_id, conn).await.unwrap();
-    Org::add_member(member.id, org_id, conn).await.unwrap();
+    let admin = User::by_id(admin.id, conn).await.unwrap();
+    let member = User::by_id(member.id, conn).await.unwrap();
 
-    User::by_id(admin.id, conn).await.unwrap()
+    (admin, member)
 }
 
 async fn create_region(conn: &mut Conn<'_>) -> Region {
@@ -177,35 +241,31 @@ async fn create_region(conn: &mut Conn<'_>) -> Region {
         .unwrap()
 }
 
-async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Conn<'_>) -> Host {
-    let billing = common::BillingAmount {
-        amount: Some(common::Amount {
-            currency: common::Currency::Usd as i32,
-            value: 123,
-        }),
-        period: common::Period::Monthly as i32,
-    };
-    let tag = BLOCKCHAIN_NAME.trim().to_lowercase();
+async fn create_hosts(
+    created_by_id: UserId,
+    org_id: OrgId,
+    region: &Region,
+    conn: &mut Conn<'_>,
+) -> (Host, Host) {
+    let bv_version = "0.1.0".parse().unwrap();
 
     let host1 = NewHost {
-        name: HOST_1,
-        version: "0.1.0",
-        cpu_count: 16,
-        mem_size_bytes: 1_612_312_312_000,   // 1.6 TB
-        disk_size_bytes: 16_121_231_200_000, // 16 TB
-        os: "LuukOS",
-        os_version: "3",
-        ip_addr: "192.168.1.1",
-        status: ConnectionStatus::Online,
-        ip_gateway: "192.168.0.1".parse().unwrap(),
-        org_id,
-        created_by: user.id,
+        org_id: None,
         region_id: Some(region.id),
-        host_type: HostType::Cloud,
-        monthly_cost_in_usd: Some(MonthlyCostUsd::from_proto(&billing).unwrap()),
-        vmm_mountpoint: None,
-        managed_by: ManagedBy::Automatic,
-        tags: vec![Some(tag.clone())],
+        network_name: HOST_1,
+        display_name: None,
+        schedule_type: ScheduleType::Automatic,
+        os: "LuukOS",
+        os_version: "1",
+        bv_version: &bv_version,
+        ip_address: "192.168.1.1".parse().unwrap(),
+        ip_gateway: "192.168.1.1".parse().unwrap(),
+        cpu_cores: 100,
+        memory_bytes: 100 * MEMORY_BYTES,
+        disk_bytes: 100 * DISK_BYTES,
+        tags: Tags(vec![Tag::new(PROTOCOL_KEY.to_string()).unwrap()]),
+        created_by_type: ResourceType::User,
+        created_by_id: created_by_id.into(),
     };
     let host1 = host1
         .create(&["192.168.1.2".parse().unwrap()], conn)
@@ -213,104 +273,101 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
         .unwrap();
 
     let host2 = NewHost {
-        name: HOST_2,
-        version: "0.1.0",
-        cpu_count: 16,
-        mem_size_bytes: 1_612_312_123_123,  // 1.6 TB
-        disk_size_bytes: 1_612_312_123_123, // 1.6 TB
-        os: "LuukOS",
-        os_version: "3",
-        ip_addr: "192.168.2.1",
-        status: ConnectionStatus::Online,
-        ip_gateway: "192.12.0.1".parse().unwrap(),
-        org_id,
-        created_by: user.id,
+        org_id: Some(org_id),
         region_id: Some(region.id),
-        host_type: HostType::Cloud,
-        monthly_cost_in_usd: None,
-        vmm_mountpoint: None,
-        managed_by: ManagedBy::Automatic,
-        tags: vec![Some(tag)],
+        network_name: HOST_2,
+        display_name: None,
+        schedule_type: ScheduleType::Automatic,
+        os: "TempleOS",
+        os_version: "2",
+        bv_version: &bv_version,
+        ip_address: "192.168.2.1".parse().unwrap(),
+        ip_gateway: "192.168.2.1".parse().unwrap(),
+        cpu_cores: 1,
+        memory_bytes: MEMORY_BYTES,
+        disk_bytes: DISK_BYTES,
+        tags: Tags(vec![Tag::new(PROTOCOL_KEY.to_string()).unwrap()]),
+        created_by_type: ResourceType::User,
+        created_by_id: created_by_id.into(),
     };
-    host2
+    let host2 = host2
         .create(&["192.168.2.1".parse().unwrap()], conn)
         .await
         .unwrap();
 
-    Host::by_id(host1.id, conn).await.unwrap()
+    (host1, host2)
 }
 
-async fn create_ip_addresses(host: &Host, conn: &mut Conn<'_>) -> (String, IpNetwork) {
+async fn create_ip_range(host: &Host, conn: &mut Conn<'_>) -> (IpNetwork, IpNetwork) {
     let ips = IP_RANGE
         .iter()
         .map(|ip| CreateIpAddress::new(ip.parse().unwrap(), host.id))
         .collect();
     CreateIpAddress::bulk_create(ips, conn).await.unwrap();
 
-    let ip_gateway = host.ip_gateway.ip().to_string();
-    let ip_addr = IpAddress::by_host_unassigned(host.id, conn)
+    let ip_address = IpAddress::next_for_host(host.id, conn)
         .await
+        .unwrap()
         .unwrap()
         .ip;
 
-    (ip_gateway, ip_addr)
+    (ip_address, host.ip_gateway)
 }
 
-async fn create_nodes(
-    org_id: OrgId,
+async fn create_node(
+    image: &Image,
     host: &Host,
-    blockchain: &Blockchain,
-    ip_gateway: &str,
-    ip_addr: IpNetwork,
+    protocol: &Protocol,
+    ip_address: IpNetwork,
+    ip_gateway: IpNetwork,
     conn: &mut Conn<'_>,
-) -> Node {
+) -> (Node, Config) {
+    let org_id: OrgId = ORG_ID.parse().unwrap();
     let node_id: NodeId = NODE_ID.parse().unwrap();
+    let image_id: ImageId = IMAGE_ID.parse().unwrap();
+    let version_id: VersionId = PROTOCOL_VERSION_ID.parse().unwrap();
 
-    diesel::insert_into(nodes::table)
+    let node_config = NodeConfig::new(image.clone(), Some(org_id), vec![], vec![], conn)
+        .await
+        .unwrap();
+    let new_config = NewConfig {
+        image_id: IMAGE_ID.parse().unwrap(),
+        archive_id: ARCHIVE_ID_1.parse().unwrap(),
+        config_type: ConfigType::Node,
+        config: node_config.into(),
+    };
+    let config = new_config.create(&view_authz(node_id), conn).await.unwrap();
+
+    let node = diesel::insert_into(nodes::table)
         .values((
             nodes::id.eq(node_id),
+            nodes::node_name.eq(NODE_NAME),
+            nodes::display_name.eq(NODE_NAME),
             nodes::org_id.eq(org_id),
             nodes::host_id.eq(host.id),
-            nodes::blockchain_id.eq(blockchain.id),
-            nodes::block_age.eq(0),
-            nodes::consensus.eq(true),
-            nodes::node_status.eq(NodeStatus::Broadcasting),
+            nodes::image_id.eq(image_id),
+            nodes::config_id.eq(config.id),
+            nodes::protocol_id.eq(protocol.id),
+            nodes::protocol_version_id.eq(version_id),
+            nodes::semantic_version.eq(SEMANTIC_VERSION),
+            nodes::auto_upgrade.eq(true),
+            nodes::node_state.eq(NodeState::Running),
+            nodes::ip_address.eq(ip_address),
             nodes::ip_gateway.eq(ip_gateway),
-            nodes::ip.eq(ip_addr),
-            nodes::node_name.eq("node-name"),
-            nodes::node_type.eq(NodeType::Validator),
-            nodes::dns_name.eq("dns-name"),
-            nodes::dns_record_id.eq("dns-id"),
-            nodes::display_name.eq("display-name"),
-            nodes::vcpu_count.eq(2),
-            nodes::disk_size_bytes.eq(8 * 1024 * 1024 * 1024),
-            nodes::mem_size_bytes.eq(1024 * 1024 * 1024),
+            nodes::dns_id.eq("dns.id"),
+            nodes::dns_name.eq(NODE_NAME),
+            nodes::cpu_cores.eq(1),
+            nodes::memory_bytes.eq(MEMORY_BYTES),
+            nodes::disk_bytes.eq(DISK_BYTES),
             nodes::scheduler_resource.eq(ResourceAffinity::LeastResources),
-            nodes::version.eq("3.3.0"),
-            nodes::url.eq("https://bollocks-url.com"),
+            nodes::created_by_type.eq(ResourceType::Org),
+            nodes::created_by_id.eq(org_id),
         ))
-        .execute(conn)
+        .get_result(conn)
         .await
         .unwrap();
 
-    let properties = vec![
-        NodeProperty {
-            id: Uuid::new_v4().into(),
-            node_id,
-            blockchain_property_id: BLOCKCHAIN_PROPERTY_KEYSTORE.parse().unwrap(),
-            value: "Sneaky file content".to_string(),
-        },
-        NodeProperty {
-            id: Uuid::new_v4().into(),
-            node_id,
-            blockchain_property_id: BLOCKCHAIN_PROPERTY_SELF_HOSTED.parse().unwrap(),
-            value: "false".to_string(),
-        },
-    ];
-
-    NodeProperty::bulk_create(properties, conn).await.unwrap();
-
-    Node::by_id(node_id, conn).await.unwrap()
+    (node, config)
 }
 
 async fn setup_rbac(conn: &mut Conn<'_>) {
@@ -322,17 +379,17 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         -- blockjoy-admin --
         ('blockjoy-admin', 'auth-admin-list-permissions'),
         ('blockjoy-admin', 'billing-exempt'),
-        ('blockjoy-admin', 'blockchain-admin-add-node-type'),
-        ('blockjoy-admin', 'blockchain-admin-add-version'),
-        ('blockjoy-admin', 'blockchain-admin-get'),
-        ('blockjoy-admin', 'blockchain-admin-list'),
-        ('blockjoy-admin', 'blockchain-admin-view-private'),
-        ('blockjoy-admin', 'blockchain-get-pricing'),
         ('blockjoy-admin', 'command-admin-list'),
+        ('blockjoy-admin', 'command-admin-pending'),
         ('blockjoy-admin', 'host-admin-get'),
         ('blockjoy-admin', 'host-admin-list'),
         ('blockjoy-admin', 'host-admin-regions'),
         ('blockjoy-admin', 'host-admin-update'),
+        ('blockjoy-admin', 'image-admin-add'),
+        ('blockjoy-admin', 'image-admin-get'),
+        ('blockjoy-admin', 'image-admin-list-archives'),
+        ('blockjoy-admin', 'image-admin-update-archive'),
+        ('blockjoy-admin', 'image-admin-update-image'),
         ('blockjoy-admin', 'invitation-admin-create'),
         ('blockjoy-admin', 'invitation-admin-list'),
         ('blockjoy-admin', 'invitation-admin-revoke'),
@@ -341,13 +398,13 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'node-admin-delete'),
         ('blockjoy-admin', 'node-admin-get'),
         ('blockjoy-admin', 'node-admin-list'),
-        ('blockjoy-admin', 'node-admin-report'),
+        ('blockjoy-admin', 'node-admin-report-error'),
+        ('blockjoy-admin', 'node-admin-report-status'),
         ('blockjoy-admin', 'node-admin-restart'),
         ('blockjoy-admin', 'node-admin-start'),
         ('blockjoy-admin', 'node-admin-stop'),
         ('blockjoy-admin', 'node-admin-transfer'),
         ('blockjoy-admin', 'node-admin-update-config'),
-        ('blockjoy-admin', 'node-admin-update-status'),
         ('blockjoy-admin', 'node-admin-upgrade'),
         ('blockjoy-admin', 'org-address-delete'),
         ('blockjoy-admin', 'org-address-get'),
@@ -358,19 +415,29 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'org-billing-get-billing-details'),
         ('blockjoy-admin', 'org-billing-init-card'),
         ('blockjoy-admin', 'org-billing-list-payment-methods'),
+        ('blockjoy-admin', 'protocol-admin-add-protocol'),
+        ('blockjoy-admin', 'protocol-admin-add-version'),
+        ('blockjoy-admin', 'protocol-admin-get-protocol'),
+        ('blockjoy-admin', 'protocol-admin-get-latest'),
+        ('blockjoy-admin', 'protocol-admin-list-protocols'),
+        ('blockjoy-admin', 'protocol-admin-list-versions'),
+        ('blockjoy-admin', 'protocol-admin-update-protocol'),
+        ('blockjoy-admin', 'protocol-admin-update-version'),
+        ('blockjoy-admin', 'protocol-admin-view-all-stats'),
+        ('blockjoy-admin', 'protocol-admin-view-private'),
+        ('blockjoy-admin', 'protocol-get-pricing'),
         ('blockjoy-admin', 'user-admin-filter'),
         ('blockjoy-admin', 'user-admin-get'),
         ('blockjoy-admin', 'user-admin-update'),
-        ('blockjoy-admin', 'user-billing-delete'),
-        ('blockjoy-admin', 'user-billing-get'),
-        ('blockjoy-admin', 'user-billing-update'),
         ('blockjoy-admin', 'user-settings-admin-delete'),
         ('blockjoy-admin', 'user-settings-admin-get'),
         ('blockjoy-admin', 'user-settings-admin-update'),
         -- api-key-user --
-        ('api-key-user', 'user-billing-delete'),
-        ('api-key-user', 'user-billing-get'),
-        ('api-key-user', 'user-billing-update'),
+        ('api-key-user', 'api-key-create'),
+        ('api-key-user', 'api-key-delete'),
+        ('api-key-user', 'api-key-list'),
+        ('api-key-user', 'api-key-regenerate'),
+        ('api-key-user', 'api-key-update'),
         ('api-key-user', 'user-create'),
         ('api-key-user', 'user-delete'),
         ('api-key-user', 'user-filter'),
@@ -388,7 +455,6 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('api-key-org', 'org-update'),
         -- api-key-host --
         ('api-key-host', 'host-billing-get'),
-        ('api-key-host', 'host-create'),
         ('api-key-host', 'host-delete'),
         ('api-key-host', 'host-get'),
         ('api-key-host', 'host-list'),
@@ -399,35 +465,30 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('api-key-host', 'host-start'),
         ('api-key-host', 'host-stop'),
         ('api-key-host', 'host-update'),
+        ('api-key-host', 'metrics-host'),
         -- api-key-node --
-        ('api-key-node', 'api-key-create'),
-        ('api-key-node', 'api-key-delete'),
-        ('api-key-node', 'api-key-list'),
-        ('api-key-node', 'api-key-regenerate'),
-        ('api-key-node', 'api-key-update'),
-        ('api-key-node', 'blockchain-get'),
-        ('api-key-node', 'blockchain-list'),
         ('api-key-node', 'command-ack'),
         ('api-key-node', 'command-create'),
         ('api-key-node', 'command-get'),
         ('api-key-node', 'command-list'),
         ('api-key-node', 'command-pending'),
         ('api-key-node', 'command-update'),
+        ('api-key-node', 'crypt-get-secret'),
+        ('api-key-node', 'crypt-put-secret'),
         ('api-key-node', 'discovery-services'),
-        ('api-key-node', 'key-file-create'),
-        ('api-key-node', 'key-file-list'),
-        ('api-key-node', 'metrics-host'),
         ('api-key-node', 'metrics-node'),
         ('api-key-node', 'node-create'),
         ('api-key-node', 'node-delete'),
         ('api-key-node', 'node-get'),
         ('api-key-node', 'node-list'),
-        ('api-key-node', 'node-report'),
+        ('api-key-node', 'node-report-error'),
+        ('api-key-node', 'node-report-status'),
         ('api-key-node', 'node-restart'),
         ('api-key-node', 'node-start'),
         ('api-key-node', 'node-stop'),
         ('api-key-node', 'node-update-config'),
         ('api-key-node', 'node-upgrade'),
+        ('api-key-node', 'protocol-view-public'),
         -- email-invitation --
         ('email-invitation', 'invitation-accept'),
         ('email-invitation', 'invitation-decline'),
@@ -445,12 +506,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-login', 'auth-list-permissions'),
         ('grpc-login', 'auth-refresh'),
         ('grpc-login', 'auth-update-ui-password'),
-        ('grpc-login', 'babel-notify'),
-        ('grpc-login', 'blockchain-get'),
-        ('grpc-login', 'blockchain-get-pricing'),
-        ('grpc-login', 'blockchain-list'),
-        ('grpc-login', 'blockchain-view-public'),
-        ('grpc-login', 'bundle-list-bundle-versions'),
+        ('grpc-login', 'bundle-list-versions'),
         ('grpc-login', 'bundle-retrieve'),
         ('grpc-login', 'command-ack'),
         ('grpc-login', 'command-create'),
@@ -458,24 +514,26 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-login', 'command-list'),
         ('grpc-login', 'command-pending'),
         ('grpc-login', 'discovery-services'),
+        ('grpc-login', 'image-get'),
+        ('grpc-login', 'image-list-archives'),
         ('grpc-login', 'invitation-accept'),
         ('grpc-login', 'invitation-decline'),
         ('grpc-login', 'invitation-list'),
-        ('grpc-login', 'key-file-create'),
-        ('grpc-login', 'key-file-list'),
         ('grpc-login', 'metrics-host'),
         ('grpc-login', 'metrics-node'),
         ('grpc-login', 'mqtt-acl'),
-        ('grpc-login', 'node-report'),
+        ('grpc-login', 'node-report-error'),
         ('grpc-login', 'org-create'),
         ('grpc-login', 'org-get'),
         ('grpc-login', 'org-list'),
         ('grpc-login', 'org-provision-get-token'),
         ('grpc-login', 'org-provision-reset-token'),
-        ('grpc-login', 'subscription-list'),
-        ('grpc-login', 'user-billing-delete'),
-        ('grpc-login', 'user-billing-get'),
-        ('grpc-login', 'user-billing-update'),
+        ('grpc-login', 'protocol-get-protocol'),
+        ('grpc-login', 'protocol-get-latest'),
+        ('grpc-login', 'protocol-get-pricing'),
+        ('grpc-login', 'protocol-list-protocols'),
+        ('grpc-login', 'protocol-list-versions'),
+        ('grpc-login', 'protocol-view-public'),
         ('grpc-login', 'user-create'),
         ('grpc-login', 'user-delete'),
         ('grpc-login', 'user-filter'),
@@ -485,20 +543,12 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-login', 'user-settings-update'),
         ('grpc-login', 'user-update'),
         -- grpc-new-host --
+        ('grpc-new-host', 'archive-get-download-chunks'),
+        ('grpc-new-host', 'archive-get-download-metadata'),
+        ('grpc-new-host', 'archive-get-upload-slots'),
+        ('grpc-new-host', 'archive-put-download-manifest'),
         ('grpc-new-host', 'auth-refresh'),
-        ('grpc-new-host', 'babel-notify'),
-        ('grpc-new-host', 'blockchain-archive-get-download-chunks'),
-        ('grpc-new-host', 'blockchain-archive-get-download-metadata'),
-        ('grpc-new-host', 'blockchain-archive-get-upload-slots'),
-        ('grpc-new-host', 'blockchain-archive-put-download-manifest'),
-        ('grpc-new-host', 'blockchain-get'),
-        ('grpc-new-host', 'blockchain-get-image'),
-        ('grpc-new-host', 'blockchain-get-plugin'),
-        ('grpc-new-host', 'blockchain-get-requirements'),
-        ('grpc-new-host', 'blockchain-list'),
-        ('grpc-new-host', 'blockchain-list-image-versions'),
-        ('grpc-new-host', 'blockchain-view-public'),
-        ('grpc-new-host', 'bundle-list-bundle-versions'),
+        ('grpc-new-host', 'bundle-list-versions'),
         ('grpc-new-host', 'bundle-retrieve'),
         ('grpc-new-host', 'command-ack'),
         ('grpc-new-host', 'command-create'),
@@ -506,13 +556,14 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-new-host', 'command-list'),
         ('grpc-new-host', 'command-pending'),
         ('grpc-new-host', 'command-update'),
+        ('grpc-new-host', 'crypt-get-secret'),
+        ('grpc-new-host', 'crypt-put-secret'),
         ('grpc-new-host', 'discovery-services'),
         ('grpc-new-host', 'host-get'),
         ('grpc-new-host', 'host-list'),
         ('grpc-new-host', 'host-update'),
-        ('grpc-new-host', 'kernel-retrieve'),
-        ('grpc-new-host', 'key-file-create'),
-        ('grpc-new-host', 'key-file-list'),
+        ('grpc-new-host', 'image-get'),
+        ('grpc-new-host', 'image-list-archives'),
         ('grpc-new-host', 'metrics-host'),
         ('grpc-new-host', 'metrics-node'),
         ('grpc-new-host', 'mqtt-acl'),
@@ -520,13 +571,18 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('grpc-new-host', 'node-delete'),
         ('grpc-new-host', 'node-get'),
         ('grpc-new-host', 'node-list'),
-        ('grpc-new-host', 'node-report'),
+        ('grpc-new-host', 'node-report-error'),
+        ('grpc-new-host', 'node-report-status'),
         ('grpc-new-host', 'node-restart'),
         ('grpc-new-host', 'node-start'),
         ('grpc-new-host', 'node-stop'),
         ('grpc-new-host', 'node-update-config'),
-        ('grpc-new-host', 'node-update-status'),
         ('grpc-new-host', 'node-upgrade'),
+        ('grpc-new-host', 'protocol-get-protocol'),
+        ('grpc-new-host', 'protocol-get-latest'),
+        ('grpc-new-host', 'protocol-list-protocols'),
+        ('grpc-new-host', 'protocol-list-versions'),
+        ('grpc-new-host', 'protocol-view-public'),
         -- org-owner --
         ('org-owner', 'org-address-delete'),
         ('org-owner', 'org-address-get'),
@@ -536,11 +592,14 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-owner', 'org-billing-list-payment-methods'),
         ('org-owner', 'org-delete'),
         -- org-admin --
-        ('org-admin', 'blockchain-get-pricing'),
+        ('org-admin', 'crypt-get-secret'),
+        ('org-admin', 'crypt-put-secret'),
         ('org-admin', 'host-billing-get'),
+        ('org-admin', 'host-delete'),
         ('org-admin', 'invitation-create'),
         ('org-admin', 'invitation-revoke'),
         ('org-admin', 'node-create'),
+        ('org-admin', 'node-delete'),
         ('org-admin', 'org-address-delete'),
         ('org-admin', 'org-address-get'),
         ('org-admin', 'org-address-set'),
@@ -549,12 +608,8 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-admin', 'org-billing-list-payment-methods'),
         ('org-admin', 'org-remove-member'),
         ('org-admin', 'org-update'),
-        ('org-admin', 'subscription-create'),
-        ('org-admin', 'subscription-delete'),
-        ('org-admin', 'subscription-update'),
+        ('org-admin', 'protocol-get-pricing'),
         -- org-member --
-        ('org-member', 'host-create'),
-        ('org-member', 'host-delete'),
         ('org-member', 'host-get'),
         ('org-member', 'host-list'),
         ('org-member', 'host-provision-create'),
@@ -563,10 +618,9 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-member', 'host-restart'),
         ('org-member', 'host-start'),
         ('org-member', 'host-stop'),
-        ('org-member', 'node-delete'),
         ('org-member', 'node-get'),
         ('org-member', 'node-list'),
-        ('org-member', 'node-report'),
+        ('org-member', 'node-report-error'),
         ('org-member', 'node-restart'),
         ('org-member', 'node-start'),
         ('org-member', 'node-stop'),
@@ -577,11 +631,10 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-member', 'org-provision-get-token'),
         ('org-member', 'org-provision-reset-token'),
         ('org-member', 'org-remove-self'),
-        ('org-member', 'subscription-get'),
         -- org-personal --
-        ('org-personal', 'blockchain-get-pricing'),
+        ('org-personal', 'crypt-get-secret'),
+        ('org-personal', 'crypt-put-secret'),
         ('org-personal', 'host-billing-get'),
-        ('org-personal', 'host-create'),
         ('org-personal', 'host-delete'),
         ('org-personal', 'host-get'),
         ('org-personal', 'host-list'),
@@ -595,12 +648,12 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-personal', 'node-delete'),
         ('org-personal', 'node-get'),
         ('org-personal', 'node-list'),
-        ('org-personal', 'node-report'),
+        ('org-personal', 'node-report-error'),
+        ('org-personal', 'node-report-status'),
         ('org-personal', 'node-restart'),
         ('org-personal', 'node-start'),
         ('org-personal', 'node-stop'),
         ('org-personal', 'node-update-config'),
-        ('org-personal', 'node-upgrade'),
         ('org-personal', 'org-address-delete'),
         ('org-personal', 'org-address-get'),
         ('org-personal', 'org-address-set'),
@@ -613,12 +666,9 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('org-personal', 'org-provision-get-token'),
         ('org-personal', 'org-provision-reset-token'),
         ('org-personal', 'org-update'),
-        ('org-personal', 'subscription-create'),
-        ('org-personal', 'subscription-delete'),
-        ('org-personal', 'subscription-get'),
-        ('org-personal', 'subscription-update'),
+        ('org-personal', 'protocol-get-pricing'),
         -- view-developer-preview --
-        ('view-developer-preview', 'blockchain-view-development');
+        ('view-developer-preview', 'protocol-view-development');
         ";
 
     diesel::sql_query(query).execute(conn).await.unwrap();

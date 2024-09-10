@@ -1,6 +1,3 @@
-[chargebee]
-secret = "asdfasdf"
-
 [cloudflare.api]
 base_url = "https://api.cloudflare.com/client/v4"
 zone_id = "89560cdd783e35f7a9d718755ea9c656"
@@ -42,7 +39,7 @@ password = "password"
 ip = "0.0.0.0"
 port = 8080
 
-[storage]
+[store]
 prefix = "chains"
 url = "https://r2.dev"
 expiration = "1h"
@@ -50,11 +47,9 @@ aws_region = "eu-west-2"
 aws_access_key_id = "<your value>"
 aws_secret_access_key = "<your value>"
 
-[storage.bucket]
-cookbook = "cookbook"
-bundle = "bundle"
-kernel = "kernel"
+[store.bucket]
 archive = "archive"
+bundle = "bundle"
 
 [stripe]
 secret = "sk_test_51KfoP7B5ce1jJsfTHQ9i7ffUhQwUatBZ9djf4hKjqAXOB194aH5pHiJM1icpiGTdIqxeoRbhHSgwPPszyEkcXZKg00B9m2zhIn"
@@ -73,3 +68,8 @@ refresh_user = "20h"
 password_reset = "5m"
 registration_confirmation = "30m"
 invitation = "168m"
+
+[vault]
+server_address = "http://localhost:28200"
+access_token = "vault-root-token"
+kv_mount = "blockjoy"

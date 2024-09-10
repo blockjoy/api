@@ -1,9 +1,5 @@
-#![allow(dead_code)]
-
-use tonic::transport::Channel;
-
 use blockvisor_api::auth::claims::Claims;
-use blockvisor_api::auth::resource::{OrgId, ResourceId, ResourceType, UserId};
+use blockvisor_api::auth::resource::{OrgId, Resource, UserId};
 use blockvisor_api::auth::token::jwt::Jwt;
 use blockvisor_api::database::seed;
 use blockvisor_api::grpc::{api, common};
@@ -13,9 +9,7 @@ use blockvisor_api::model::user::{NewUser, User};
 use crate::setup::helper::traits::SocketRpc;
 use crate::setup::TestServer;
 
-type ApiKeyService = api::api_key_service_client::ApiKeyServiceClient<Channel>;
-type AuthService = api::auth_service_client::AuthServiceClient<Channel>;
-type OrgService = api::org_service_client::OrgServiceClient<Channel>;
+use super::traits::{ApiKeyService, AuthService};
 
 pub async fn new_seed_user(test: &mut TestServer) -> SeedUser {
     let email = test.rand_email().await;
@@ -38,6 +32,7 @@ pub async fn new_seed_user(test: &mut TestServer) -> SeedUser {
 
 pub struct SeedUser {
     pub user_id: UserId,
+    #[allow(dead_code)]
     pub email: String,
     pub jwt: Jwt,
 }
@@ -70,6 +65,7 @@ pub async fn new_org_user(test: &mut TestServer) -> OrgUser {
 }
 
 pub struct OrgUser {
+    #[allow(dead_code)]
     pub org_id: OrgId,
     pub user_id: UserId,
     pub jwt: Jwt,
@@ -81,8 +77,11 @@ pub async fn login(test: &TestServer, email: &str) -> Claims {
         password: seed::LOGIN_PASSWORD.into(),
     };
 
-    let logged_in = test.send(AuthService::login, req).await.unwrap();
-    let token = logged_in.token.into();
+    let resp = test
+        .send_unauthenticated(AuthService::login, req)
+        .await
+        .unwrap();
+    let token = resp.token.into();
 
     test.cipher().jwt.decode(&token).unwrap()
 }
@@ -90,7 +89,7 @@ pub async fn login(test: &TestServer, email: &str) -> Claims {
 pub async fn new_seed_api_key(test: &mut TestServer) -> SeedApiKey {
     let user = new_seed_user(test).await;
     let user_id = user.user_id;
-    let token = new_api_key(test, &user.jwt, ResourceType::User, user_id).await;
+    let token = new_api_key(test, &user.jwt, Resource::User(user_id)).await;
     SeedApiKey { user_id, token }
 }
 
@@ -99,36 +98,25 @@ pub struct SeedApiKey {
     pub token: String,
 }
 
-pub async fn new_api_key<R: Into<ResourceId>>(
+pub async fn new_api_key<R: Into<Resource>>(
     test: &mut TestServer,
     jwt: &Jwt,
-    resource: ResourceType,
-    resource_id: R,
+    resource: R,
 ) -> String {
     let label = &test.rand_string(8).await;
-
-    create_api_key(test, jwt, label, resource, resource_id)
-        .await
-        .unwrap()
-        .api_key
-        .unwrap()
+    let resp = create_api_key(test, jwt, resource, label).await.unwrap();
+    resp.api_key.unwrap()
 }
 
-pub async fn create_api_key<R: Into<ResourceId>>(
+pub async fn create_api_key<R: Into<Resource>>(
     test: &TestServer,
     token: &str,
+    resource: R,
     label: &str,
-    resource: ResourceType,
-    resource_id: R,
 ) -> Result<api::ApiKeyServiceCreateResponse, tonic::Status> {
-    let scope = api::ApiKeyScope {
-        resource: common::Resource::from(resource).into(),
-        resource_id: Some(resource_id.into().to_string()),
-    };
-
     let req = api::ApiKeyServiceCreateRequest {
+        resource: Some(common::Resource::from(resource.into())),
         label: label.to_string(),
-        scope: Some(scope),
     };
 
     test.send_with(ApiKeyService::create, req, token).await

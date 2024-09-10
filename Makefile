@@ -1,7 +1,6 @@
 DATABASE_URL ?= postgres://blockvisor:password@localhost:25432/blockvisor_db
 DOCKER_COMPOSE ?= docker compose --file docker/docker-compose.yaml
 DIESEL ?= diesel --config-file blockvisor-api/diesel.toml --database-url ${DATABASE_URL}
-TEST_SERVICES ?= postgres emqx
 
 .PHONY: help setup diesel up up-all down reset reset-all test test-out
 .DEFAULT_GOAL := help
@@ -25,10 +24,6 @@ diesel: ## Run a diesel cli command.
 	@${DIESEL} $($@_arg)
 
 up: ## Start required docker services for integration tests.
-	@${DOCKER_COMPOSE} up --detach --wait ${TEST_SERVICES}
-	@${DIESEL} migration run
-
-up-all: ## Start all docker services for integration tests and metrics.
 	@${DOCKER_COMPOSE} up --detach --wait
 	@${DIESEL} migration run
 
