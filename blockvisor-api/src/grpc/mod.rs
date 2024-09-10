@@ -78,31 +78,30 @@ impl Grpc {
     }
 }
 
-/// A map of metadata that can either be used for either http or grpc requests.
+/// Metadata from gRPC or HTTP request headers.
 pub struct Metadata {
-    data: axum::http::HeaderMap,
+    headers: axum::http::HeaderMap,
 }
 
 impl Metadata {
     pub fn new() -> Self {
         Self {
-            data: axum::http::HeaderMap::new(),
+            headers: axum::http::HeaderMap::new(),
         }
     }
 
     pub fn insert_http(&mut self, k: &'static str, v: impl Into<HeaderValue>) {
-        self.data.insert(k, v.into());
+        self.headers.insert(k, v.into());
     }
 
     pub fn insert_grpc(&mut self, k: &'static str, v: impl Into<AsciiMetadataValue>) {
         let ascii = v.into();
-        // SAFETY: unwrap here is safe because these bytes were just retrieved from an ASCII string.
-        let v = HeaderValue::from_bytes(ascii.as_bytes()).unwrap();
-        self.data.insert(k, v);
+        let v = HeaderValue::from_bytes(ascii.as_bytes()).expect("always ascii");
+        self.headers.insert(k, v);
     }
 
     pub fn get_http(&self, k: &str) -> Option<&HeaderValue> {
-        self.data.get(k)
+        self.headers.get(k)
     }
 }
 
@@ -115,27 +114,24 @@ impl Default for Metadata {
 impl From<tonic::metadata::MetadataMap> for Metadata {
     fn from(value: tonic::metadata::MetadataMap) -> Self {
         Self {
-            data: value.into_headers(),
+            headers: value.into_headers(),
         }
     }
 }
 
 impl From<Metadata> for tonic::metadata::MetadataMap {
     fn from(value: Metadata) -> Self {
-        Self::from_headers(value.data)
+        Self::from_headers(value.headers)
     }
 }
 
 impl From<axum::http::header::HeaderMap> for Metadata {
-    fn from(data: axum::http::header::HeaderMap) -> Self {
-        Self { data }
+    fn from(headers: axum::http::header::HeaderMap) -> Self {
+        Self { headers }
     }
 }
 
-/// Sometimes the http status codes are a more granular error reporting mechanism, and sometimes
-/// the tonic status codes are. Compare for example http errors 401 and 403, which both correspond
-/// to `tonic::Status::permission_denied`. Therefore, we use this enum here which is more granular
-/// than either `hyper::StatusCode` and `tonic::Status`.
+/// Response status codes returned from both gRPC and http handlers.
 pub(crate) enum Status {
     NotFound(Cow<'static, str>),
     AlreadyExists(Cow<'static, str>),
@@ -224,10 +220,10 @@ impl From<Status> for tonic::Status {
     }
 }
 
-impl From<Status> for crate::http::handlers::Error {
+impl From<Status> for crate::http::handler::Error {
     fn from(value: Status) -> Self {
         let (status, message) = value.error_http();
-        crate::http::handlers::Error::new(message, status)
+        crate::http::handler::Error::new(message, status)
     }
 }
 

@@ -34,7 +34,7 @@ use crate::auth::rbac::{BillingPerm, NodeAdminPerm};
 use crate::auth::resource::{HostId, NodeId, OrgId, Resource, ResourceId, ResourceType, UserId};
 use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
-use crate::grpc::common;
+use crate::grpc::{common, Status};
 use crate::stripe::api::subscription::SubscriptionItemId;
 use crate::util::sql::{self, IpNetwork, Tags, Version};
 use crate::util::{SearchOperator, SortOrder};
@@ -61,16 +61,18 @@ pub enum Error {
     Delete(NodeId, diesel::result::Error),
     /// Failed to find deleted node by id `{0}`: {1}
     FindDeletedById(NodeId, diesel::result::Error),
-    /// Failed to find nodes by host id {0}: {1}
-    FindByHostId(HostId, diesel::result::Error),
     /// Failed to find nodes by host ids `{0:?}`: {1}
     FindByHostIds(HashSet<HostId>, diesel::result::Error),
     /// Failed to find node by id `{0}`: {1}
     FindById(NodeId, diesel::result::Error),
     /// Failed to find nodes by ids `{0:?}`: {1}
     FindByIds(HashSet<NodeId>, diesel::result::Error),
-    /// Failed to find nodes by org id {0}: {1}
-    FindByOrgId(OrgId, diesel::result::Error),
+    /// Failed to find org id for possibly deleted node {0}: {1}
+    FindDeletedOrgId(NodeId, diesel::result::Error),
+    /// Failed to find host id for node {0}: {1}
+    FindHostId(NodeId, diesel::result::Error),
+    /// Failed to find org id for node {0}: {1}
+    FindOrgId(NodeId, diesel::result::Error),
     /// Failed to generate node name. This should not happen.
     GenerateName,
     /// Node host error: {0}
@@ -83,6 +85,8 @@ pub enum Error {
     HostFreeIp(HostId),
     /// Host doesn't have enough free memory: {0}
     HostFreeMem(HostId),
+    /// Failed to check if host {0} has nodes: {1}
+    HostHasNodes(HostId, diesel::result::Error),
     /// Node image error: {0},
     Image(#[from] crate::model::image::Error),
     /// Node ip address error: {0},
@@ -125,6 +129,8 @@ pub enum Error {
     UpdateStatus(diesel::result::Error),
     /// Failed to update metrics for node {0}: {1}
     UpdateMetrics(NodeId, diesel::result::Error),
+    /// The updated org is the same as the current org.
+    UpdateSameOrg,
     /// Failed to upgrade the node: {0}
     Upgrade(diesel::result::Error),
     /// The node is already using the requested image_id.
@@ -146,15 +152,17 @@ impl From<Error> for Status {
         match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             Delete(_, NotFound)
-            | FindByHostId(_, NotFound)
             | FindById(_, NotFound)
-            | FindByOrgId(_, NotFound) => Status::not_found("Not found."),
+            | FindDeletedOrgId(_, NotFound)
+            | FindHostId(_, NotFound)
+            | FindOrgId(_, NotFound) => Status::not_found("Not found."),
             HostFreeCpu(_) => Status::failed_precondition("Host cpu."),
             HostFreeDisk(_) => Status::failed_precondition("Host memory."),
             HostFreeIp(_) => Status::failed_precondition("Host IP."),
             HostFreeMem(_) => Status::failed_precondition("Host disk."),
             MissingTransferPerm => Status::forbidden("Missing permission."),
-            NoMatchingHost => Status::resource_exhausted("No matching host."),
+            NoMatchingHost => Status::failed_precondition("No matching host."),
+            UpdateSameOrg => Status::already_exists("new_org_id"),
             UpgradeSameImage => Status::already_exists("image_id"),
             Command(err) => (*err).into(),
             Config(err) => err.into(),
@@ -246,49 +254,80 @@ impl Node {
             .map_err(|err| Error::FindByIds(ids.clone(), err))
     }
 
-    pub async fn by_org_id(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
-        nodes::table
-            .filter(nodes::org_id.eq(org_id))
-            .filter(nodes::deleted_at.is_null())
-            .get_results(conn)
-            .await
-            .map_err(|err| Error::FindByOrgId(org_id, err))
-    }
-
-    pub async fn by_host_id(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
-        nodes::table
-            .filter(nodes::host_id.eq(host_id))
-            .filter(nodes::deleted_at.is_null())
-            .get_results(conn)
-            .await
-            .map_err(|err| Error::FindByHostId(host_id, err))
-    }
-
     pub async fn by_host_ids(
         host_ids: &HashSet<HostId>,
+        org_ids: &HashSet<OrgId>,
         conn: &mut Conn<'_>,
     ) -> Result<Vec<Self>, Error> {
         nodes::table
             .filter(nodes::host_id.eq_any(host_ids))
+            .filter(nodes::org_id.eq_any(org_ids))
             .filter(nodes::deleted_at.is_null())
             .get_results(conn)
             .await
             .map_err(|err| Error::FindByHostIds(host_ids.clone(), err))
     }
 
-    pub async fn delete(id: NodeId, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
-        let node: Node = diesel::update(nodes::table.find(id))
-            .set(nodes::deleted_at.eq(Utc::now()))
-            .get_result(write)
+    pub async fn org_id(id: NodeId, conn: &mut Conn<'_>) -> Result<OrgId, Error> {
+        nodes::table
+            .find(id)
+            .filter(nodes::deleted_at.is_null())
+            .select(nodes::org_id)
+            .get_result(conn)
             .await
-            .map_err(|err| Error::Delete(id, err))?;
+            .map_err(|err| Error::FindOrgId(id, err))
+    }
+
+    pub async fn deleted_org_id(id: NodeId, conn: &mut Conn<'_>) -> Result<OrgId, Error> {
+        nodes::table
+            .find(id)
+            .select(nodes::org_id)
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::FindDeletedOrgId(id, err))
+    }
+
+    pub async fn host_id(id: NodeId, conn: &mut Conn<'_>) -> Result<HostId, Error> {
+        nodes::table
+            .find(id)
+            .filter(nodes::deleted_at.is_null())
+            .select(nodes::host_id)
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::FindHostId(id, err))
+    }
+
+    pub async fn host_has_nodes(host_id: HostId, conn: &mut Conn<'_>) -> Result<bool, Error> {
+        let query = nodes::table
+            .filter(nodes::host_id.eq(host_id))
+            .filter(nodes::deleted_at.is_null());
+
+        diesel::select(dsl::exists(query))
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::HostHasNodes(host_id, err))
+    }
+
+    pub async fn delete(id: NodeId, write: &mut WriteConn<'_, '_>) -> Result<Node, Error> {
+        let node = Node::deleted_by_id(id, write).await?;
+        if node.deleted_at.is_some() {
+            return Ok(node);
+        }
 
         Org::remove_node(node.org_id, write).await?;
         Host::remove_node(&node, write).await?;
-
         Command::delete_node_pending(node.id, write)
             .await
             .map_err(|err| Error::Command(Box::new(err)))?;
+
+        let node: Node = diesel::update(nodes::table.find(id))
+            .set((
+                nodes::next_state.eq(Some(NextState::Deleting)),
+                nodes::deleted_at.eq(Utc::now()),
+            ))
+            .get_result(write)
+            .await
+            .map_err(|err| Error::Delete(id, err))?;
 
         if let Err(err) = write.ctx.dns.delete(&node.dns_id).await {
             warn!("Failed to remove node dns: {err}");
@@ -307,11 +346,11 @@ impl Node {
             }
         }
 
-        if let Some(item_id) = node.stripe_item_id {
-            write.ctx.stripe.remove_subscription(&item_id).await?;
+        if let Some(ref item_id) = node.stripe_item_id {
+            write.ctx.stripe.remove_subscription(item_id).await?;
         }
 
-        Ok(())
+        Ok(node)
     }
 
     pub async fn next_host(
@@ -332,7 +371,7 @@ impl Node {
 
                 Host::candidates(requirements, Some(2), write).await?
             }
-            None => vec![Host::by_id(self.host_id, None, write).await?],
+            None => vec![Host::by_id(self.host_id, Some(self.org_id), write).await?],
         };
 
         let mut counts: HashMap<HostId, usize> = HashMap::new();
@@ -424,6 +463,437 @@ impl Node {
 
     pub fn created_by(&self) -> Resource {
         Resource::new(self.created_by_type, self.created_by_id)
+    }
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = nodes)]
+pub struct NewNode {
+    pub org_id: OrgId,
+    pub image_id: ImageId,
+    pub config_id: ConfigId,
+    pub old_node_id: Option<NodeId>,
+    pub protocol_id: ProtocolId,
+    pub protocol_version_id: VersionId,
+    pub semantic_version: Version,
+    pub auto_upgrade: bool,
+    pub scheduler_similarity: Option<SimilarNodeAffinity>,
+    pub scheduler_resource: Option<ResourceAffinity>,
+    pub scheduler_region_id: Option<RegionId>,
+    pub tags: Tags,
+}
+
+impl NewNode {
+    pub async fn create(
+        &self,
+        node_counts: Option<Vec<NodeCount>>,
+        created_by: Resource,
+        authz: &AuthZ,
+        write: &mut WriteConn<'_, '_>,
+    ) -> Result<Vec<Node>, Error> {
+        let config = Config::by_id(self.config_id, write).await?;
+        let node_config = config.node_config()?;
+
+        let org = Org::by_id(self.org_id, write).await?;
+        let version =
+            ProtocolVersion::by_id(self.protocol_version_id, Some(self.org_id), authz, write)
+                .await?;
+
+        let secrets = if let Some(old_id) = self.old_node_id {
+            let prefix = format!("node/{old_id}/secret");
+            let names = write.ctx.vault.read().await.list_path(&prefix).await?;
+
+            if let Some(names) = names {
+                let mut secrets = HashMap::with_capacity(names.len());
+                for name in names {
+                    let path = format!("{prefix}/{name}");
+                    let result = write.ctx.vault.read().await.get_bytes(&path).await;
+                    let _ = match result {
+                        Ok(data) => secrets.insert(name.clone(), data),
+                        Err(crate::store::vault::Error::PathNotFound) => None,
+                        Err(err) => return Err(err.into()),
+                    };
+                }
+                Some(secrets)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut created = Vec::new();
+        if let Some(counts) = node_counts {
+            for count in counts {
+                let host = Host::by_id(count.host_id, Some(self.org_id), write).await?;
+                for _ in 0..count.node_count {
+                    match self
+                        .create_node(
+                            &host,
+                            &org,
+                            &version,
+                            &node_config,
+                            secrets.as_ref(),
+                            created_by,
+                            authz,
+                            write,
+                        )
+                        .await
+                    {
+                        Ok(node) => created.push(node),
+                        Err(err) => {
+                            for node in created {
+                                if let Err(err) = write.ctx.dns.delete(&node.dns_id).await {
+                                    warn!("Failed to delete DNS record {}: {err}", node.dns_id);
+                                }
+                            }
+
+                            return Err(err);
+                        }
+                    }
+                }
+            }
+        } else {
+            let scheduler = self
+                .scheduler(write)
+                .await?
+                .ok_or(Error::NoHostOrScheduler)?;
+            let host = self.find_host(scheduler, authz, write).await?;
+            let node = self
+                .create_node(
+                    &host,
+                    &org,
+                    &version,
+                    &node_config,
+                    secrets.as_ref(),
+                    created_by,
+                    authz,
+                    write,
+                )
+                .await?;
+            created.push(node);
+        }
+
+        Ok(created)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn create_node(
+        &self,
+        host: &Host,
+        org: &Org,
+        version: &ProtocolVersion,
+        node_config: &NodeConfig,
+        secrets: Option<&HashMap<String, Vec<u8>>>,
+        created_by: Resource,
+        authz: &AuthZ,
+        mut write: &mut WriteConn<'_, '_>,
+    ) -> Result<Node, Error> {
+        let cpu_cores = i64::try_from(node_config.vm.cpu_cores).map_err(Error::VmCpu)?;
+        let memory_bytes = i64::try_from(node_config.vm.memory_bytes).map_err(Error::VmMemory)?;
+        let disk_bytes = i64::try_from(node_config.vm.disk_bytes).map_err(Error::VmDisk)?;
+
+        if cpu_cores + host.node_cpu_cores > host.cpu_cores {
+            return Err(Error::HostFreeCpu(host.id));
+        } else if memory_bytes + host.node_memory_bytes > host.memory_bytes {
+            return Err(Error::HostFreeMem(host.id));
+        } else if disk_bytes + host.node_disk_bytes > host.disk_bytes {
+            return Err(Error::HostFreeDisk(host.id));
+        }
+
+        let ip_address = IpAddress::next_for_host(host.id, write)
+            .await?
+            .ok_or_else(|| Error::HostFreeIp(host.id))?;
+
+        let stripe_item_id = if authz.has_perm(BillingPerm::Exempt) {
+            None
+        } else {
+            let region = Region::by_id(host.region_id.ok_or(Error::NoRegion)?, write).await?;
+            if let Some(sku) = version.sku(&region) {
+                let item = write.ctx.stripe.add_subscription(org, &sku).await?;
+                Some(item.id)
+            } else {
+                None
+            }
+        };
+
+        loop {
+            let name = Petnames::small()
+                .generate_one(3, "-")
+                .ok_or(Error::GenerateName)?;
+            let dns_id = write.ctx.dns.create(&name, ip_address.ip.ip()).await?.id;
+
+            match diesel::insert_into(nodes::table)
+                .values((
+                    self,
+                    nodes::node_name.eq(&name),
+                    nodes::host_id.eq(host.id),
+                    nodes::node_state.eq(NodeState::Starting),
+                    nodes::ip_address.eq(&ip_address.ip),
+                    nodes::ip_gateway.eq(&host.ip_gateway),
+                    nodes::dns_id.eq(&dns_id),
+                    nodes::dns_name.eq(&name),
+                    nodes::cpu_cores.eq(cpu_cores),
+                    nodes::memory_bytes.eq(memory_bytes),
+                    nodes::disk_bytes.eq(disk_bytes),
+                    nodes::stripe_item_id.eq(&stripe_item_id),
+                    nodes::created_by_type.eq(created_by.typ()),
+                    nodes::created_by_id.eq(created_by.id()),
+                    nodes::created_at.eq(Utc::now()),
+                ))
+                .get_result::<Node>(&mut write)
+                .await
+            {
+                Ok(node) => {
+                    Org::add_node(self.org_id, write).await?;
+                    Host::add_node(&node, write).await?;
+
+                    if let Some(secrets) = secrets {
+                        for (name, data) in secrets {
+                            let path = format!("node/{}/secret/{name}", node.id);
+                            let _version =
+                                write.ctx.vault.read().await.set_bytes(&path, data).await?;
+                        }
+                    }
+
+                    return Ok(node);
+                }
+
+                Err(err) => {
+                    if let Err(err) = write.ctx.dns.delete(&dns_id).await {
+                        warn!("Failed to delete DNS record {dns_id}: {err}");
+                    }
+
+                    if let DatabaseError(UniqueViolation, ref info) = err {
+                        if info.column_name() == Some("name") {
+                            warn!("Node name {} already taken. Retrying...", name);
+                            continue;
+                        }
+                    }
+
+                    return Err(Error::Create(err));
+                }
+            }
+        }
+    }
+
+    /// Finds the most suitable host to place the node on.
+    async fn find_host(
+        &self,
+        scheduler: NodeScheduler,
+        authz: &AuthZ,
+        conn: &mut Conn<'_>,
+    ) -> Result<Host, Error> {
+        let config = Config::by_id(self.config_id, conn).await?;
+        let node_config = config.node_config()?;
+        let protocol = Protocol::by_id(self.protocol_id, Some(self.org_id), authz, conn).await?;
+
+        let requirements = HostRequirements {
+            scheduler,
+            protocol: &protocol,
+            org_id: Some(self.org_id),
+            cpu_cores: i64::try_from(node_config.vm.cpu_cores).map_err(Error::VmCpu)?,
+            memory_bytes: i64::try_from(node_config.vm.memory_bytes).map_err(Error::VmMemory)?,
+            disk_bytes: i64::try_from(node_config.vm.disk_bytes).map_err(Error::VmDisk)?,
+        };
+
+        let candidates = Host::candidates(requirements, Some(1), conn).await?;
+        candidates.into_iter().next().ok_or(Error::NoMatchingHost)
+    }
+
+    async fn scheduler(&self, conn: &mut Conn<'_>) -> Result<Option<NodeScheduler>, Error> {
+        let Some(resource) = self.scheduler_resource else {
+            return Ok(None);
+        };
+        let region = self.scheduler_region_id.map(|id| Region::by_id(id, conn));
+        let region = OptionFuture::from(region).await.transpose()?;
+
+        Ok(Some(NodeScheduler {
+            region,
+            similarity: self.scheduler_similarity,
+            resource,
+        }))
+    }
+}
+
+pub struct NodeCount {
+    pub host_id: HostId,
+    pub node_count: u32,
+}
+
+impl NodeCount {
+    pub const fn one(host_id: HostId) -> Self {
+        NodeCount {
+            host_id,
+            node_count: 1,
+        }
+    }
+}
+
+impl TryFrom<&common::NodeCount> for NodeCount {
+    type Error = Error;
+
+    fn try_from(count: &common::NodeCount) -> Result<Self, Self::Error> {
+        Ok(NodeCount {
+            host_id: count.host_id.parse().map_err(Error::ParseHostId)?,
+            node_count: count.node_count,
+        })
+    }
+}
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = nodes)]
+pub struct UpdateNode<'u> {
+    pub org_id: Option<OrgId>,
+    pub host_id: Option<HostId>,
+    pub display_name: Option<&'u str>,
+    pub auto_upgrade: Option<bool>,
+    pub ip_address: Option<IpNetwork>,
+    pub ip_gateway: Option<IpNetwork>,
+    pub note: Option<&'u str>,
+    pub tags: Option<Tags>,
+}
+
+impl<'u> UpdateNode<'u> {
+    pub async fn apply(
+        self,
+        id: NodeId,
+        authz: &AuthZ,
+        conn: &mut Conn<'_>,
+    ) -> Result<Node, Error> {
+        let node = Node::by_id(id, conn).await?;
+
+        if let Some(org_id) = self.org_id {
+            if org_id == node.org_id {
+                return Err(Error::UpdateSameOrg);
+            } else if !authz.has_perm(NodeAdminPerm::Transfer) {
+                return Err(Error::MissingTransferPerm);
+            }
+
+            let event = LogEvent::OrgTransferred(log::OrgTransferred {
+                old: node.org_id,
+                new: org_id,
+            });
+            NewNodeLog::from(&node, authz, event).create(conn).await?;
+        }
+
+        diesel::update(nodes::table.find(id))
+            .set((self, nodes::updated_at.eq(Utc::now())))
+            .get_result(conn)
+            .await
+            .map_err(Error::UpdateConfig)
+    }
+}
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = nodes)]
+pub struct UpdateNodeState<'u> {
+    pub node_state: Option<NodeState>,
+    pub next_state: Option<Option<NextState>>,
+    pub protocol_state: Option<String>,
+    pub protocol_health: Option<NodeHealth>,
+    pub p2p_address: Option<&'u str>,
+}
+
+impl<'u> UpdateNodeState<'u> {
+    pub async fn apply(self, id: NodeId, conn: &mut Conn<'_>) -> Result<Node, Error> {
+        let row = nodes::table.find(id);
+        diesel::update(row)
+            .set((self, nodes::updated_at.eq(Utc::now())))
+            .get_result(conn)
+            .await
+            .map_err(Error::UpdateStatus)
+    }
+}
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = nodes)]
+pub struct UpdateNodeMetrics {
+    pub id: NodeId,
+    pub node_state: Option<NodeState>,
+    pub protocol_state: Option<String>,
+    pub protocol_health: Option<NodeHealth>,
+    pub block_height: Option<i64>,
+    pub block_age: Option<i64>,
+    pub consensus: Option<bool>,
+    pub jobs: Option<NodeJobs>,
+}
+
+impl UpdateNodeMetrics {
+    pub async fn apply(&self, conn: &mut Conn<'_>) -> Result<Node, Error> {
+        let row = nodes::table
+            .find(self.id)
+            .filter(nodes::deleted_at.is_null());
+
+        diesel::update(row)
+            .set(self)
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::UpdateMetrics(self.id, err))
+    }
+
+    pub async fn apply_all(updates: Vec<Self>, conn: &mut Conn<'_>) -> Result<Vec<Node>, Error> {
+        let mut results = Vec::with_capacity(updates.len());
+        for update in updates {
+            match update.apply(conn).await {
+                Ok(node) => results.push(node),
+                Err(Error::UpdateMetrics(_, NotFound)) => (),
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(results)
+    }
+}
+
+#[derive(Debug)]
+pub struct UpgradeNode {
+    pub id: NodeId,
+    pub image_id: ImageId,
+    pub org_id: Option<OrgId>,
+}
+
+impl UpgradeNode {
+    pub async fn apply(self, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Node, Error> {
+        let node = Node::by_id(self.id, conn).await?;
+        let config = Config::by_id(node.config_id, conn).await?;
+
+        if self.image_id == config.image_id {
+            return Err(Error::UpgradeSameImage);
+        }
+
+        let image = Image::by_id(self.image_id, self.org_id, authz, conn).await?;
+        let version =
+            ProtocolVersion::by_id(image.protocol_version_id, self.org_id, authz, conn).await?;
+
+        let old_config = config.node_config()?;
+        let new_config = old_config.upgrade(image, self.org_id, conn).await?;
+
+        let new_config = NewConfig {
+            image_id: self.image_id,
+            archive_id: new_config.image.archive_id,
+            config_type: ConfigType::Node,
+            config: new_config.into(),
+        };
+        let config = new_config.create(authz, conn).await?;
+
+        let event = LogEvent::UpgradeStarted(log::UpgradeStarted {
+            old: node.image_id,
+            new: self.image_id,
+        });
+        NewNodeLog::from(&node, authz, event).create(conn).await?;
+
+        diesel::update(nodes::table.find(self.id))
+            .set((
+                nodes::image_id.eq(self.image_id),
+                nodes::config_id.eq(config.id),
+                nodes::protocol_version_id.eq(version.id),
+                nodes::semantic_version.eq(version.semantic_version),
+                nodes::next_state.eq(Some(NextState::Upgrading)),
+                nodes::updated_at.eq(Utc::now()),
+            ))
+            .get_result(conn)
+            .await
+            .map_err(Error::Upgrade)
     }
 }
 
@@ -637,426 +1107,6 @@ impl NodeSearch {
                 predicate
             }
         }
-    }
-}
-
-#[derive(Debug, Insertable)]
-#[diesel(table_name = nodes)]
-pub struct NewNode {
-    pub org_id: OrgId,
-    pub image_id: ImageId,
-    pub config_id: ConfigId,
-    pub old_node_id: Option<NodeId>,
-    pub protocol_id: ProtocolId,
-    pub protocol_version_id: VersionId,
-    pub semantic_version: Version,
-    pub auto_upgrade: bool,
-    pub scheduler_similarity: Option<SimilarNodeAffinity>,
-    pub scheduler_resource: Option<ResourceAffinity>,
-    pub scheduler_region_id: Option<RegionId>,
-    pub tags: Tags,
-}
-
-impl NewNode {
-    pub async fn create(
-        &self,
-        node_counts: Option<Vec<NodeCount>>,
-        created_by: Resource,
-        authz: &AuthZ,
-        write: &mut WriteConn<'_, '_>,
-    ) -> Result<Vec<Node>, Error> {
-        let config = Config::by_id(self.config_id, write).await?;
-        let node_config = config.node_config()?;
-
-        let org = Org::by_id(self.org_id, write).await?;
-        let version =
-            ProtocolVersion::by_id(self.protocol_version_id, Some(self.org_id), authz, write)
-                .await?;
-
-        let secrets = if let Some(old_id) = self.old_node_id {
-            let prefix = format!("node/{old_id}/secret");
-            let names = write.ctx.vault.read().await.list_path(&prefix).await?;
-
-            if let Some(names) = names {
-                let mut secrets = HashMap::with_capacity(names.len());
-                for name in names {
-                    let path = format!("{prefix}/{name}");
-                    let result = write.ctx.vault.read().await.get_bytes(&path).await;
-                    let _ = match result {
-                        Ok(data) => secrets.insert(name.clone(), data),
-                        Err(crate::store::vault::Error::PathNotFound) => None,
-                        Err(err) => return Err(err.into()),
-                    };
-                }
-                Some(secrets)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let mut created = Vec::new();
-        if let Some(counts) = node_counts {
-            for count in counts {
-                let host = Host::by_id(count.host_id, None, write).await?;
-                for _ in 0..count.node_count {
-                    match self
-                        .create_node(
-                            &host,
-                            &org,
-                            &version,
-                            &node_config,
-                            secrets.as_ref(),
-                            created_by,
-                            authz,
-                            write,
-                        )
-                        .await
-                    {
-                        Ok(node) => created.push(node),
-                        Err(err) => {
-                            for node in created {
-                                if let Err(err) = write.ctx.dns.delete(&node.dns_id).await {
-                                    warn!("Failed to delete DNS record {}: {err}", node.dns_id);
-                                }
-                            }
-
-                            return Err(err);
-                        }
-                    }
-                }
-            }
-        } else {
-            let scheduler = self
-                .scheduler(write)
-                .await?
-                .ok_or(Error::NoHostOrScheduler)?;
-            let host = self.find_host(scheduler, authz, write).await?;
-            let node = self
-                .create_node(
-                    &host,
-                    &org,
-                    &version,
-                    &node_config,
-                    secrets.as_ref(),
-                    created_by,
-                    authz,
-                    write,
-                )
-                .await?;
-            created.push(node);
-        }
-
-        Ok(created)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn create_node(
-        &self,
-        host: &Host,
-        org: &Org,
-        version: &ProtocolVersion,
-        node_config: &NodeConfig,
-        secrets: Option<&HashMap<String, Vec<u8>>>,
-        created_by: Resource,
-        authz: &AuthZ,
-        mut write: &mut WriteConn<'_, '_>,
-    ) -> Result<Node, Error> {
-        let cpu_cores = i64::try_from(node_config.vm.cpu_cores).map_err(Error::VmCpu)?;
-        let memory_bytes = i64::try_from(node_config.vm.memory_bytes).map_err(Error::VmMemory)?;
-        let disk_bytes = i64::try_from(node_config.vm.disk_bytes).map_err(Error::VmDisk)?;
-
-        if cpu_cores + host.node_cpu_cores > host.cpu_cores {
-            return Err(Error::HostFreeCpu(host.id));
-        } else if memory_bytes + host.node_memory_bytes > host.memory_bytes {
-            return Err(Error::HostFreeMem(host.id));
-        } else if disk_bytes + host.node_disk_bytes > host.disk_bytes {
-            return Err(Error::HostFreeDisk(host.id));
-        }
-
-        let ip_address = IpAddress::next_for_host(host.id, write)
-            .await?
-            .ok_or_else(|| Error::HostFreeIp(host.id))?;
-
-        let stripe_item_id = if authz.has_perm(BillingPerm::Exempt) {
-            None
-        } else {
-            let region = Region::by_id(host.region_id.ok_or(Error::NoRegion)?, write).await?;
-            if let Some(sku) = version.sku(&region) {
-                let item = write.ctx.stripe.add_subscription(org, &sku).await?;
-                Some(item.id)
-            } else {
-                None
-            }
-        };
-
-        loop {
-            let name = Petnames::small()
-                .generate_one(3, "-")
-                .ok_or(Error::GenerateName)?;
-            let dns_id = write.ctx.dns.create(&name, ip_address.ip.ip()).await?.id;
-
-            match diesel::insert_into(nodes::table)
-                .values((
-                    self,
-                    nodes::node_name.eq(&name),
-                    nodes::host_id.eq(host.id),
-                    nodes::node_state.eq(NodeState::Starting),
-                    nodes::ip_address.eq(&ip_address.ip),
-                    nodes::ip_gateway.eq(&host.ip_gateway),
-                    nodes::dns_id.eq(&dns_id),
-                    nodes::dns_name.eq(&name),
-                    nodes::cpu_cores.eq(cpu_cores),
-                    nodes::memory_bytes.eq(memory_bytes),
-                    nodes::disk_bytes.eq(disk_bytes),
-                    nodes::stripe_item_id.eq(&stripe_item_id),
-                    nodes::created_by_type.eq(created_by.typ()),
-                    nodes::created_by_id.eq(created_by.id()),
-                    nodes::created_at.eq(Utc::now()),
-                ))
-                .get_result::<Node>(&mut write)
-                .await
-            {
-                Ok(node) => {
-                    Org::add_node(self.org_id, write).await?;
-                    Host::add_node(&node, write).await?;
-
-                    if let Some(secrets) = secrets {
-                        for (name, data) in secrets {
-                            let path = format!("node/{}/secret/{name}", node.id);
-                            let _version =
-                                write.ctx.vault.read().await.set_bytes(&path, data).await?;
-                        }
-                    }
-
-                    return Ok(node);
-                }
-
-                Err(err) => {
-                    if let Err(err) = write.ctx.dns.delete(&dns_id).await {
-                        warn!("Failed to delete DNS record {dns_id}: {err}");
-                    }
-
-                    if let DatabaseError(UniqueViolation, ref info) = err {
-                        if info.column_name() == Some("name") {
-                            warn!("Node name {} already taken. Retrying...", name);
-                            continue;
-                        }
-                    }
-
-                    return Err(Error::Create(err));
-                }
-            }
-        }
-    }
-
-    /// Finds the most suitable host to place the node on.
-    async fn find_host(
-        &self,
-        scheduler: NodeScheduler,
-        authz: &AuthZ,
-        conn: &mut Conn<'_>,
-    ) -> Result<Host, Error> {
-        let config = Config::by_id(self.config_id, conn).await?;
-        let node_config = config.node_config()?;
-        let protocol = Protocol::by_id(self.protocol_id, Some(self.org_id), authz, conn).await?;
-
-        let requirements = HostRequirements {
-            scheduler,
-            protocol: &protocol,
-            org_id: None,
-            cpu_cores: i64::try_from(node_config.vm.cpu_cores).map_err(Error::VmCpu)?,
-            memory_bytes: i64::try_from(node_config.vm.memory_bytes).map_err(Error::VmMemory)?,
-            disk_bytes: i64::try_from(node_config.vm.disk_bytes).map_err(Error::VmDisk)?,
-        };
-
-        let candidates = Host::candidates(requirements, Some(1), conn).await?;
-        candidates.into_iter().next().ok_or(Error::NoMatchingHost)
-    }
-
-    async fn scheduler(&self, conn: &mut Conn<'_>) -> Result<Option<NodeScheduler>, Error> {
-        let Some(resource) = self.scheduler_resource else {
-            return Ok(None);
-        };
-        let region = self.scheduler_region_id.map(|id| Region::by_id(id, conn));
-        let region = OptionFuture::from(region).await.transpose()?;
-
-        Ok(Some(NodeScheduler {
-            region,
-            similarity: self.scheduler_similarity,
-            resource,
-        }))
-    }
-}
-
-pub struct NodeCount {
-    pub host_id: HostId,
-    pub node_count: u32,
-}
-
-impl NodeCount {
-    pub const fn one(host_id: HostId) -> Self {
-        NodeCount {
-            host_id,
-            node_count: 1,
-        }
-    }
-}
-
-impl TryFrom<&common::NodeCount> for NodeCount {
-    type Error = Error;
-
-    fn try_from(count: &common::NodeCount) -> Result<Self, Self::Error> {
-        Ok(NodeCount {
-            host_id: count.host_id.parse().map_err(Error::ParseHostId)?,
-            node_count: count.node_count,
-        })
-    }
-}
-
-#[derive(Debug, AsChangeset)]
-#[diesel(table_name = nodes)]
-pub struct UpdateNode<'u> {
-    pub id: NodeId,
-    pub org_id: Option<OrgId>,
-    pub host_id: Option<HostId>,
-    pub display_name: Option<&'u str>,
-    pub auto_upgrade: Option<bool>,
-    pub ip_address: Option<IpNetwork>,
-    pub ip_gateway: Option<IpNetwork>,
-    pub note: Option<&'u str>,
-    pub tags: Option<Tags>,
-}
-
-impl<'u> UpdateNode<'u> {
-    pub async fn apply(self, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Node, Error> {
-        let node = Node::by_id(self.id, conn).await?;
-
-        if let Some(org_id) = self.org_id {
-            if org_id != node.org_id {
-                if !authz.has_perm(NodeAdminPerm::Transfer) {
-                    return Err(Error::MissingTransferPerm);
-                }
-
-                let event = LogEvent::OrgTransferred(log::OrgTransferred {
-                    old: node.org_id,
-                    new: org_id,
-                });
-                NewNodeLog::from(&node, authz, event).create(conn).await?;
-            }
-        }
-
-        diesel::update(nodes::table.find(self.id))
-            .set((self, nodes::updated_at.eq(Utc::now())))
-            .get_result(conn)
-            .await
-            .map_err(Error::UpdateConfig)
-    }
-}
-
-#[derive(Debug, AsChangeset)]
-#[diesel(table_name = nodes)]
-pub struct UpdateNodeState<'u> {
-    pub id: NodeId,
-    pub node_state: Option<NodeState>,
-    pub next_state: Option<Option<NextState>>,
-    pub protocol_state: Option<String>,
-    pub protocol_health: Option<NodeHealth>,
-    pub p2p_address: Option<&'u str>,
-}
-
-impl<'u> UpdateNodeState<'u> {
-    pub async fn apply(self, conn: &mut Conn<'_>) -> Result<Node, Error> {
-        diesel::update(nodes::table.find(self.id))
-            .set((self, nodes::updated_at.eq(Utc::now())))
-            .get_result(conn)
-            .await
-            .map_err(Error::UpdateStatus)
-    }
-}
-
-#[derive(Debug, AsChangeset)]
-#[diesel(table_name = nodes)]
-pub struct UpdateNodeMetrics {
-    pub id: NodeId,
-    pub node_state: Option<NodeState>,
-    pub protocol_state: Option<String>,
-    pub protocol_health: Option<NodeHealth>,
-    pub block_height: Option<i64>,
-    pub block_age: Option<i64>,
-    pub consensus: Option<bool>,
-    pub jobs: Option<NodeJobs>,
-}
-
-impl UpdateNodeMetrics {
-    pub async fn apply(&self, conn: &mut Conn<'_>) -> Result<Node, Error> {
-        let row = nodes::table
-            .find(self.id)
-            .filter(nodes::deleted_at.is_null());
-
-        diesel::update(row)
-            .set(self)
-            .get_result(conn)
-            .await
-            .map_err(|err| Error::UpdateMetrics(self.id, err))
-    }
-
-    pub async fn apply_all(updates: Vec<Self>, conn: &mut Conn<'_>) -> Result<Vec<Node>, Error> {
-        let mut results = Vec::with_capacity(updates.len());
-        for update in updates {
-            let updated = update.apply(conn).await?;
-            results.push(updated);
-        }
-        Ok(results)
-    }
-}
-
-#[derive(Debug, AsChangeset)]
-#[diesel(table_name = nodes)]
-pub struct UpgradeNode {
-    pub id: NodeId,
-    pub org_id: Option<OrgId>,
-    pub image_id: ImageId,
-}
-
-impl UpgradeNode {
-    pub async fn apply(self, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Node, Error> {
-        let node = Node::by_id(self.id, conn).await?;
-        let config = Config::by_id(node.config_id, conn).await?;
-        let org_id = Some(self.org_id.unwrap_or(node.org_id));
-
-        if self.image_id == config.image_id {
-            return Err(Error::UpgradeSameImage);
-        }
-
-        let image = Image::by_id(self.image_id, org_id, authz, conn).await?;
-        let old_config = config.node_config()?;
-        let new_config = old_config.upgrade(image, org_id, conn).await?;
-
-        let new_config = NewConfig {
-            image_id: self.image_id,
-            archive_id: new_config.image.archive_id,
-            config_type: ConfigType::Node,
-            config: new_config.into(),
-        };
-        let config = new_config.create(authz, conn).await?;
-
-        let event = LogEvent::UpgradeStarted(log::UpgradeStarted {
-            old: node.image_id,
-            new: self.image_id,
-        });
-        NewNodeLog::from(&node, authz, event).create(conn).await?;
-
-        diesel::update(nodes::table.find(self.id))
-            .set((
-                nodes::image_id.eq(self.image_id),
-                nodes::config_id.eq(config.id),
-                nodes::updated_at.eq(Utc::now()),
-            ))
-            .get_result(conn)
-            .await
-            .map_err(Error::Upgrade)
     }
 }
 

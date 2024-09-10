@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
+use prost_wkt_types::Empty;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::{ImageAdminPerm, ImagePerm};
@@ -23,7 +23,7 @@ use crate::util::sql::Version;
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::image_service_server::ImageService;
-use super::{api, common, Grpc};
+use super::{api, common, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -137,52 +137,52 @@ impl ImageService for Grpc {
     async fn add_image(
         &self,
         req: Request<api::ImageServiceAddImageRequest>,
-    ) -> Result<Response<api::ImageServiceAddImageResponse>, Status> {
+    ) -> Result<Response<api::ImageServiceAddImageResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| add_image(req, meta, write).scope_boxed())
+        self.write(|write| add_image(req, meta.into(), write).scope_boxed())
             .await
     }
 
     async fn get_image(
         &self,
         req: Request<api::ImageServiceGetImageRequest>,
-    ) -> Result<Response<api::ImageServiceGetImageResponse>, Status> {
+    ) -> Result<Response<api::ImageServiceGetImageResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_image(req, meta, read).scope_boxed())
+        self.read(|read| get_image(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn list_archives(
         &self,
         req: Request<api::ImageServiceListArchivesRequest>,
-    ) -> Result<Response<api::ImageServiceListArchivesResponse>, Status> {
+    ) -> Result<Response<api::ImageServiceListArchivesResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list_archives(req, meta, read).scope_boxed())
+        self.read(|read| list_archives(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn update_archive(
         &self,
         req: Request<api::ImageServiceUpdateArchiveRequest>,
-    ) -> Result<Response<api::ImageServiceUpdateArchiveResponse>, Status> {
+    ) -> Result<Response<api::ImageServiceUpdateArchiveResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_archive(req, meta, write).scope_boxed())
+        self.write(|write| update_archive(req, meta.into(), write).scope_boxed())
             .await
     }
 
     async fn update_image(
         &self,
         req: Request<api::ImageServiceUpdateImageRequest>,
-    ) -> Result<Response<api::ImageServiceUpdateImageResponse>, Status> {
+    ) -> Result<Response<api::ImageServiceUpdateImageResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_image(req, meta, write).scope_boxed())
+        self.write(|write| update_image(req, meta.into(), write).scope_boxed())
             .await
     }
 }
 
 async fn add_image(
     req: api::ImageServiceAddImageRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ImageServiceAddImageResponse, Error> {
     let authz = write.auth(&meta, ImageAdminPerm::Add).await?;
@@ -269,7 +269,7 @@ async fn add_image(
                 .collect::<Result<HashSet<_>, _>>()?;
             let pointer = match pointer.pointer.ok_or(Error::MissingStorePointer)? {
                 api::archive_pointer::Pointer::StoreId(id) => Some(StoreId::new(id)?),
-                api::archive_pointer::Pointer::Disallowed(()) => None,
+                api::archive_pointer::Pointer::Disallowed(Empty {}) => None,
             };
             Ok((keys, ids, pointer))
         })
@@ -310,7 +310,7 @@ async fn add_image(
 
 async fn get_image(
     req: api::ImageServiceGetImageRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ImageServiceGetImageResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {
@@ -356,7 +356,7 @@ async fn get_image(
 
 async fn list_archives(
     req: api::ImageServiceListArchivesRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ImageServiceListArchivesResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {
@@ -386,7 +386,7 @@ async fn list_archives(
 
 async fn update_archive(
     req: api::ImageServiceUpdateArchiveRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ImageServiceUpdateArchiveResponse, Error> {
     let _authz = write.auth(&meta, ImageAdminPerm::UpdateArchive).await?;
@@ -404,7 +404,7 @@ async fn update_archive(
 
 async fn update_image(
     req: api::ImageServiceUpdateImageRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ImageServiceUpdateImageResponse, Error> {
     let _authz = write.auth(&meta, ImageAdminPerm::UpdateImage).await?;

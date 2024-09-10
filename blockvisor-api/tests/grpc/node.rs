@@ -113,6 +113,7 @@ fn property<S: Into<String>>(key: S, value: S) -> common::ImagePropertyValue {
 #[tokio::test]
 async fn update_a_node_config() {
     let test = TestServer::new().await;
+    let node_id = test.seed().node.id;
 
     let update_req = |node_id| api::NodeServiceUpdateConfigRequest {
         node_id,
@@ -140,7 +141,6 @@ async fn update_a_node_config() {
     assert_eq!(status.code(), Code::NotFound);
 
     // ok for an org admin
-    let node_id = test.seed().node.id;
     let req = update_req(node_id.to_string());
     test.send_admin(NodeService::update_config, req)
         .await
@@ -172,8 +172,7 @@ async fn get_an_existing_node() {
     assert_eq!(status.code(), Code::NotFound);
 
     // ok for an org member
-    let node_id = test.seed().node.id;
-    let req = get_req(node_id.to_string());
+    let req = get_req(test.seed().node.id.to_string());
     test.send_admin(NodeService::get, req).await.unwrap();
 
     validate_commands(&test).await;
@@ -226,8 +225,8 @@ async fn report_a_node_status() {
         .unwrap_err();
     assert_eq!(status.code(), Code::PermissionDenied);
 
-    // ok for node jwt
-    let jwt = test.node_jwt();
+    // ok for org token
+    let jwt = test.org_jwt();
     let req = report_req();
     test.send_with(NodeService::report_status, req, &jwt)
         .await

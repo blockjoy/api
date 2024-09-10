@@ -10,9 +10,7 @@ use crate::setup::TestServer;
 async fn responds_ok_for_write_node() {
     let test = TestServer::new().await;
 
-    let jwt = test.host_jwt();
     let node_id = test.seed().node.id;
-
     let metrics = vec![api::NodeMetrics {
         node_id: node_id.to_string(),
         node_status: Some(common::NodeStatus {
@@ -41,6 +39,7 @@ async fn responds_ok_for_write_node() {
         }],
     }];
 
+    let jwt = test.org_jwt();
     let req = api::MetricsServiceNodeRequest { metrics };
     test.send_with(MetricsService::node, req, &jwt)
         .await
@@ -68,7 +67,7 @@ async fn responds_ok_for_write_node() {
 async fn responds_ok_for_write_node_empty() {
     let test = TestServer::new().await;
 
-    let jwt = test.host_jwt();
+    let jwt = test.public_host_jwt();
     let req = api::MetricsServiceNodeRequest { metrics: vec![] };
     test.send_with(MetricsService::node, req, &jwt)
         .await
@@ -79,12 +78,11 @@ async fn responds_ok_for_write_node_empty() {
 async fn responds_ok_for_write_host() {
     let test = TestServer::new().await;
 
-    let jwt = test.host_jwt();
+    let jwt = test.public_host_jwt();
     let host_id = test.seed().host1.id;
 
-    let metrics = vec![api::HostMetrics {
+    let metrics = api::HostMetrics {
         host_id: host_id.to_string(),
-        org_id: None,
         used_cpu_hundreths: Some(201),
         used_memory_bytes: Some(1123123123123),
         used_disk_bytes: Some(3123213123),
@@ -95,9 +93,11 @@ async fn responds_ok_for_write_host() {
         network_received_bytes: Some(345345345345),
         network_sent_bytes: Some(567567567),
         uptime_seconds: Some(687678678),
-    }];
+    };
 
-    let req = api::MetricsServiceHostRequest { metrics };
+    let req = api::MetricsServiceHostRequest {
+        metrics: Some(metrics),
+    };
     test.send_with(MetricsService::host, req, &jwt)
         .await
         .unwrap();
@@ -116,20 +116,8 @@ async fn responds_ok_for_write_host() {
 }
 
 #[tokio::test]
-async fn responds_ok_for_write_host_empty() {
-    let test = TestServer::new().await;
-
-    let jwt = test.host_jwt();
-    let req = api::MetricsServiceHostRequest { metrics: vec![] };
-    test.send_with(MetricsService::host, req, &jwt)
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
 async fn single_failure_doesnt_abort_all_updates() {
     let test = TestServer::new().await;
-    let jwt = test.host_jwt();
 
     let node_id = test.seed().node.id;
     let valid_metric = api::NodeMetrics {
@@ -156,6 +144,7 @@ async fn single_failure_doesnt_abort_all_updates() {
     let mut invalid_metric = valid_metric.clone();
     invalid_metric.node_id = Uuid::new_v4().to_string();
 
+    let jwt = test.org_jwt();
     let metrics = vec![valid_metric, invalid_metric];
     let req = api::MetricsServiceNodeRequest { metrics };
     test.send_with(MetricsService::node, req, &jwt)

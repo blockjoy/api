@@ -18,14 +18,13 @@ use diesel_derive_enum::DbEnum;
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::rbac::{ProtocolAdminPerm, ProtocolPerm};
 use crate::auth::resource::OrgId;
 use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
-use crate::grpc::common;
+use crate::grpc::{common, Status};
 use crate::util::{sql, SearchOperator, SortOrder};
 
 use super::schema::{protocols, sql_types};

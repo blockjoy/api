@@ -1,8 +1,7 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::CryptPerm;
@@ -10,7 +9,7 @@ use crate::auth::resource::Resource;
 use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::grpc::api::crypt_service_server::CryptService;
-use crate::grpc::{api, Grpc};
+use crate::grpc::{api, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -48,25 +47,25 @@ impl CryptService for Grpc {
     async fn get_secret(
         &self,
         req: Request<api::CryptServiceGetSecretRequest>,
-    ) -> Result<Response<api::CryptServiceGetSecretResponse>, Status> {
+    ) -> Result<Response<api::CryptServiceGetSecretResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_secret(req, meta, read).scope_boxed())
+        self.read(|read| get_secret(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn put_secret(
         &self,
         req: Request<api::CryptServicePutSecretRequest>,
-    ) -> Result<Response<api::CryptServicePutSecretResponse>, Status> {
+    ) -> Result<Response<api::CryptServicePutSecretResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| put_secret(req, meta, write).scope_boxed())
+        self.write(|write| put_secret(req, meta.into(), write).scope_boxed())
             .await
     }
 }
 
 async fn get_secret(
     req: api::CryptServiceGetSecretRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::CryptServiceGetSecretResponse, Error> {
     let resource = req.resource.ok_or(Error::MissingResource)?;
@@ -81,7 +80,7 @@ async fn get_secret(
 
 async fn put_secret(
     req: api::CryptServicePutSecretRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::CryptServicePutSecretResponse, Error> {
     let resource = req.resource.ok_or(Error::MissingResource)?;

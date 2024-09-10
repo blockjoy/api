@@ -8,11 +8,10 @@ use diesel_async::RunQueryDsl;
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
-use tonic::Status;
 
 use crate::auth::resource::OrgId;
 use crate::database::Conn;
-use crate::grpc::api;
+use crate::grpc::{api, Status};
 use crate::model::schema::archives;
 use crate::store::StoreId;
 

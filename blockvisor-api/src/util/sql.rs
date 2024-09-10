@@ -10,9 +10,8 @@ use diesel::sql_types::{Array, Inet, Nullable, SingleValue, Text};
 use diesel::{define_sql_function, deserialize, serialize};
 use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
-use tonic::Status;
 
-use crate::grpc::common;
+use crate::grpc::{common, Status};
 
 use super::LOWER_KEBAB_CASE;
 

@@ -154,7 +154,7 @@ impl Command {
             .map_err(Error::HostPending)
     }
 
-    pub async fn filter(filter: CommandFilter, conn: &mut Conn<'_>) -> Result<Vec<Command>, Error> {
+    pub async fn list(filter: CommandFilter, conn: &mut Conn<'_>) -> Result<Vec<Command>, Error> {
         let mut query = commands::table.into_boxed();
 
         if let Some(host_id) = filter.host_id {
@@ -260,7 +260,6 @@ impl NewCommand {
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = commands)]
 pub struct UpdateCommand {
-    pub id: CommandId,
     pub exit_code: Option<ExitCode>,
     pub exit_message: Option<String>,
     pub retry_hint_seconds: Option<i64>,
@@ -268,8 +267,8 @@ pub struct UpdateCommand {
 }
 
 impl UpdateCommand {
-    pub async fn apply(self, conn: &mut Conn<'_>) -> Result<Command, Error> {
-        diesel::update(commands::table.find(self.id))
+    pub async fn apply(self, id: CommandId, conn: &mut Conn<'_>) -> Result<Command, Error> {
+        diesel::update(commands::table.find(id))
             .set(self)
             .get_result(conn)
             .await

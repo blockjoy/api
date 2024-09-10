@@ -34,7 +34,7 @@ async fn login_with_username_and_password() {
         .send_unauthenticated(AuthService::login, req)
         .await
         .unwrap_err();
-    assert_eq!(status.code(), Code::Unauthenticated);
+    assert_eq!(status.code(), Code::PermissionDenied);
 
     // ok for valid email and password
     let req = login_req(&test.seed().member.email, LOGIN_PASSWORD);
@@ -97,7 +97,7 @@ async fn ok_with_valid_password_for_update_ui_password() {
 }
 
 #[tokio::test]
-async fn unauthenticated_with_invalid_old_password_for_update_ui_password() {
+async fn denied_with_invalid_old_password_for_update_ui_password() {
     let test = TestServer::new().await;
     let req = api::AuthServiceUpdateUiPasswordRequest {
         user_id: test.seed().member.id.to_string(),
@@ -108,7 +108,7 @@ async fn unauthenticated_with_invalid_old_password_for_update_ui_password() {
         .send_member(AuthService::update_ui_password, req)
         .await
         .unwrap_err();
-    assert_eq!(status.code(), Code::Unauthenticated);
+    assert_eq!(status.code(), Code::PermissionDenied);
 }
 
 #[tokio::test]

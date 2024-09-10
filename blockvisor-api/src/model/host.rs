@@ -15,7 +15,7 @@ use thiserror::Error;
 
 use crate::auth::resource::{HostId, OrgId, Resource, ResourceId, ResourceType};
 use crate::database::Conn;
-use crate::grpc::api;
+use crate::grpc::{api, Status};
 use crate::util::sql::{self, greatest, IpNetwork, Tags, Version};
 use crate::util::{SearchOperator, SortOrder};
 
@@ -48,6 +48,8 @@ pub enum Error {
     FindById(HostId, diesel::result::Error),
     /// Failed to find hosts by id `{0:?}`: {1}
     FindByIds(HashSet<HostId>, diesel::result::Error),
+    /// Failed to find org id for possibly deleted host id `{0}`: {1}
+    FindDeletedOrgId(HostId, diesel::result::Error),
     /// Failed to find org id for host id `{0}`: {1}
     FindOrgId(HostId, diesel::result::Error),
     /// Failed to get host candidates: {0}
@@ -74,8 +76,8 @@ pub enum Error {
     UnknownScheduleType,
     /// Failed to update host: {0}
     Update(diesel::result::Error),
-    /// Failed to update host {1}'s metrics: {0}
-    UpdateMetrics(diesel::result::Error, HostId),
+    /// Failed to update metrics for host `{0}`: {1}
+    UpdateMetrics(HostId, diesel::result::Error),
 }
 
 impl From<Error> for Status {
@@ -86,6 +88,7 @@ impl From<Error> for Status {
             Delete(_, NotFound)
             | FindById(_, NotFound)
             | FindByIds(_, NotFound)
+            | FindDeletedOrgId(_, NotFound)
             | FindOrgId(_, NotFound) => Status::not_found("Not found."),
             BillingMissingAmount | BillingCurrencyUnknown | BillingPeriodUnknown => {
                 Status::invalid_argument("billing_amount")
@@ -189,6 +192,15 @@ impl Host {
             .map_err(|err| Error::FindOrgId(id, err))
     }
 
+    pub async fn deleted_org_id(id: HostId, conn: &mut Conn<'_>) -> Result<Option<OrgId>, Error> {
+        hosts::table
+            .find(id)
+            .select(hosts::org_id)
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::FindDeletedOrgId(id, err))
+    }
+
     pub async fn add_node(node: &Node, conn: &mut Conn<'_>) -> Result<Self, Error> {
         diesel::update(hosts::table.filter(hosts::id.eq(node.host_id)))
             .set((
@@ -279,7 +291,9 @@ impl Host {
             .into_boxed();
 
         if let Some(org_id) = require.org_id {
-            query = query.filter(hosts::org_id.eq(org_id));
+            query = query.filter(hosts::org_id.eq(org_id).or(hosts::org_id.is_null()));
+        } else {
+            query = query.filter(hosts::org_id.is_null());
         }
 
         if let Some(region_id) = require.scheduler.region.map(|region| region.id) {
@@ -441,7 +455,6 @@ impl UpdateHost<'_> {
 #[diesel(table_name = hosts)]
 pub struct UpdateHostMetrics {
     pub id: HostId,
-    pub org_id: Option<OrgId>,
     pub used_cpu_hundreths: Option<i64>,
     pub used_memory_bytes: Option<i64>,
     pub used_disk_bytes: Option<i64>,
@@ -454,26 +467,16 @@ pub struct UpdateHostMetrics {
 }
 
 impl UpdateHostMetrics {
-    pub async fn update_metrics(
-        updates: Vec<Self>,
-        conn: &mut Conn<'_>,
-    ) -> Result<Vec<Host>, Error> {
-        let mut hosts = Vec::with_capacity(updates.len());
+    pub async fn apply(&self, conn: &mut Conn<'_>) -> Result<Host, Error> {
+        let row = hosts::table
+            .find(self.id)
+            .filter(hosts::deleted_at.is_null());
 
-        for update in updates {
-            let row = hosts::table
-                .find(update.id)
-                .filter(hosts::org_id.eq(update.org_id))
-                .filter(hosts::deleted_at.is_null());
-            let updated = diesel::update(row)
-                .set(&update)
-                .get_result(conn)
-                .await
-                .map_err(|err| Error::UpdateMetrics(err, update.id))?;
-            hosts.push(updated);
-        }
-
-        Ok(hosts)
+        diesel::update(row)
+            .set(self)
+            .get_result(conn)
+            .await
+            .map_err(|err| Error::UpdateMetrics(self.id, err))
     }
 }
 

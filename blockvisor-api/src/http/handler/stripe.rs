@@ -10,15 +10,14 @@ use axum::routing::{post, Router};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::Status;
 use tracing::{debug, error};
 
 use crate::auth::resource::OrgId;
 use crate::config::Context;
 use crate::database::{Transaction, WriteConn};
 use crate::grpc::Status;
-use crate::model::{self, User};
-use crate::stripe::api::event;
+use crate::model::{Org, User};
+use crate::stripe::api::event::{Event, EventObject, SetupIntent};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -47,15 +46,11 @@ impl From<Error> for Status {
         use Error::*;
         error!("Stripe webhook: {err:?}");
         match err {
-            Database(_) | Subscription(_) | Org(_) | Stripe(_) | User(_) => {
-                Status::internal("Internal error.")
-            }
-            BadOrgId(_) => Status::invalid_argument("Could not parse org id"),
-            BadUserId(_) => Status::invalid_argument("Could not parse user id"),
+            Database(_) | Org(_) | Stripe(_) | User(_) => Status::internal("Internal error."),
             MissingMetadata => Status::invalid_argument("Metadata field not set"),
             MissingOrgId => Status::invalid_argument("Org id missing from metadata"),
-            MissingUserId => Status::invalid_argument("User id missing from metadata"),
             NoOwner(_) => Status::failed_precondition("Org has no owner"),
+            ParseOrgId(_) => Status::invalid_argument("Could not parse org id"),
             UnparseableStripeBody(_) => Status::invalid_argument("Unparseable request"),
         }
     }
@@ -84,11 +79,11 @@ async fn setup_intent_succeeded(
     };
 
     match event.data.object {
-        event::EventObject::SetupIntent(data) => {
+        EventObject::SetupIntent(data) => {
             ctx.write(|c| setup_intent_succeeded_handler(data, c).scope_boxed())
                 .await
         }
-        event::EventObject::Other => {
+        EventObject::Other => {
             debug!("Skipping chargebee callback event: {body}");
             Ok(axum::Json(serde_json::json!({"message": "event ignored"})))
         }
@@ -99,7 +94,6 @@ async fn setup_intent_succeeded_handler(
     setup_intent: SetupIntent,
     mut write: WriteConn<'_, '_>,
 ) -> Result<serde_json::Value, Error> {
-    let stripe = &write.ctx.stripe;
     let org_id: OrgId = setup_intent
         .metadata
         .ok_or_else(|| Error::MissingMetadata)?

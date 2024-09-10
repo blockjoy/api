@@ -4,7 +4,7 @@ use displaydoc::Display;
 use thiserror::Error;
 use tracing::{error, warn};
 
-use crate::auth::resource::HostId;
+use crate::auth::resource::{HostId, OrgId};
 use crate::auth::AuthZ;
 use crate::database::WriteConn;
 use crate::grpc::{api, Status};
@@ -58,11 +58,12 @@ impl From<Error> for Status {
 /// Attempt to recover from a failed `Command`.
 pub(super) async fn recover(
     failed: &Command,
+    org_id: Option<OrgId>,
     authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
 ) -> Result<Vec<api::Command>, Error> {
     match failed.command_type {
-        CommandType::NodeCreate => node_create_failed(failed, authz, write).await,
+        CommandType::NodeCreate => node_create_failed(failed, org_id, authz, write).await,
         _ => Ok(vec![]),
     }
 }
@@ -81,6 +82,7 @@ pub(super) async fn recover(
 ///    MQTT message to the front end.
 async fn node_create_failed(
     failed: &Command,
+    org_id: Option<OrgId>,
     authz: &AuthZ,
     write: &mut WriteConn<'_, '_>,
 ) -> Result<Vec<api::Command>, Error> {
@@ -101,7 +103,7 @@ async fn node_create_failed(
     }
 
     // 2. We now find the next host to assign our node to.
-    let protocol = Protocol::by_id(node.protocol_id, Some(node.org_id), authz, write).await?;
+    let protocol = Protocol::by_id(node.protocol_id, org_id, authz, write).await?;
     let Some(host) = node.next_host(&protocol, write).await? else {
         return NewNodeLog::from(&node, authz, LogEvent::CreateCancelled)
             .create(write)
@@ -115,7 +117,6 @@ async fn node_create_failed(
         .ok_or_else(|| Error::NoIpForHost(host.id))?;
 
     let update = UpdateNode {
-        id: node.id,
         org_id: None,
         host_id: Some(host.id),
         display_name: None,
@@ -126,7 +127,7 @@ async fn node_create_failed(
         tags: None,
     };
     let node = update
-        .apply(authz, write)
+        .apply(node_id, authz, write)
         .await
         .map_err(Error::UpdateNode)?;
 
@@ -143,7 +144,7 @@ async fn node_create_failed(
         .create(write)
         .await
     {
-        let result = api::Command::from(&cmd, Some(node.org_id), authz, write).await;
+        let result = api::Command::from(&cmd, authz, write).await;
         result.map_or_else(|_| {
             error!("Could not convert node create command to gRPC repr while recovering. Command: {:?}", cmd);
         }, |command| vec.push(command));
@@ -156,7 +157,7 @@ async fn node_create_failed(
         .create(write)
         .await
     {
-        let result = api::Command::from(&cmd, Some(node.org_id), authz, write).await;
+        let result = api::Command::from(&cmd, authz, write).await;
         result.map_or_else(|_| {
             error!("Could not convert node start command to gRPC repr while recovering. Command {:?}", cmd);
         }, |command| vec.push(command));

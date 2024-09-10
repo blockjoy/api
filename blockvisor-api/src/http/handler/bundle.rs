@@ -15,8 +15,7 @@ where
 {
     Router::new()
         .route("/", routing::get(retrieve))
-        .route("/versions", routing::get(list_bundle_versions))
-        .route("/", routing::delete(delete))
+        .route("/versions", routing::get(list_versions))
         .with_state(context)
 }
 
@@ -29,20 +28,11 @@ async fn retrieve(
         .await
 }
 
-async fn list_bundle_versions(
+async fn list_versions(
     State(ctx): State<Arc<Context>>,
     headers: axum::http::header::HeaderMap,
-    Query(req): Query<api::BundleServiceListBundleVersionsRequest>,
-) -> Result<Json<api::BundleServiceListBundleVersionsResponse>, super::Error> {
-    ctx.read(|read| grpc::bundle::list_bundle_versions(req, headers.into(), read).scope_boxed())
-        .await
-}
-
-async fn delete(
-    State(ctx): State<Arc<Context>>,
-    headers: axum::http::header::HeaderMap,
-    Json(req): Json<api::BundleServiceDeleteRequest>,
-) -> Result<Json<api::BundleServiceDeleteResponse>, super::Error> {
-    ctx.read(|read| grpc::bundle::delete(req, headers.into(), read).scope_boxed())
+    Query(req): Query<api::BundleServiceListVersionsRequest>,
+) -> Result<Json<api::BundleServiceListVersionsResponse>, super::Error> {
+    ctx.read(|read| grpc::bundle::list_versions(req, headers.into(), read).scope_boxed())
         .await
 }

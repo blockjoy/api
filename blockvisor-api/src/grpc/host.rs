@@ -92,8 +92,6 @@ pub enum Error {
     Sql(#[from] crate::util::sql::Error),
     /// Host store error: {0}
     Store(#[from] crate::store::Error),
-    /// Org id `{0}` does not match token org id `{1}`.
-    TokenOrgId(OrgId, OrgId),
     /// The requested sort field is unknown.
     UnknownSortField,
 }
@@ -120,7 +118,6 @@ impl From<Error> for Status {
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
-            TokenOrgId(_, _) => Status::failed_precondition("org_id"),
             UnknownSortField => Status::invalid_argument("sort.field"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
@@ -232,16 +229,7 @@ pub async fn create(
     let token = Token::host_provision_by_token(&req.provision_token, &mut write)
         .await
         .map_err(Error::HostProvisionByToken)?;
-
-    let org_id = if let Some(ref org_id) = req.org_id {
-        let org_id = org_id.parse().map_err(Error::ParseOrgId)?;
-        if org_id != token.org_id {
-            return Err(Error::TokenOrgId(org_id, token.org_id));
-        }
-        Some(org_id)
-    } else {
-        None
-    };
+    let org_id = req.is_private.then_some(token.org_id);
 
     let host_ips: Vec<_> = req
         .ips
@@ -302,6 +290,7 @@ pub async fn create(
         host: Some(host),
         token: jwt.into(),
         refresh: encoded.into(),
+        provision_org_id: token.org_id.to_string(),
     })
 }
 
@@ -313,18 +302,14 @@ pub async fn get(
     let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
     let mut resources = vec![Resource::from(id)];
 
-    let org_id = req
-        .org_id
-        .as_ref()
-        .map(|id| id.parse().map_err(Error::ParseOrgId))
-        .transpose()?;
-    if let Some(org_id) = org_id {
+    let org_id = Host::org_id(id, &mut read).await?;
+    let _authz = if let Some(org_id) = org_id {
         resources.push(Resource::from(org_id));
+        read.auth_or_for(&meta, HostAdminPerm::Get, HostPerm::Get, &resources)
+            .await?
+    } else {
+        read.auth(&meta, HostAdminPerm::Get).await?
     };
-
-    let _authz = read
-        .auth_or_for(&meta, HostAdminPerm::Get, HostPerm::Get, &resources)
-        .await?;
 
     let host = Host::by_id(id, org_id, &mut read).await?;
     let host = api::Host::from_host(host, &mut read).await?;
@@ -359,11 +344,7 @@ pub async fn update(
     let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
     let mut resources = vec![Resource::from(id)];
 
-    let org_id = req
-        .org_id
-        .as_ref()
-        .map(|id| id.parse().map_err(Error::ParseOrgId))
-        .transpose()?;
+    let org_id = Host::org_id(id, &mut write).await?;
     if let Some(org_id) = org_id {
         resources.push(Resource::from(org_id));
     };
@@ -428,18 +409,17 @@ pub async fn delete(
     let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
     let mut resources = vec![Resource::from(id)];
 
-    let org_id = req
-        .org_id
-        .as_ref()
-        .map(|id| id.parse().map_err(Error::ParseOrgId))
-        .transpose()?;
-    if let Some(org_id) = org_id {
+    let org_id = Host::org_id(id, &mut write).await?;
+    let _authz = if let Some(org_id) = org_id {
         resources.push(Resource::from(org_id));
+        write
+            .auth_or_for(&meta, HostAdminPerm::Delete, HostPerm::Delete, &resources)
+            .await?
+    } else {
+        write.auth(&meta, HostAdminPerm::Delete).await?
     };
 
-    write.auth_for(&meta, HostPerm::Delete, &resources).await?;
-
-    if !Node::by_host_id(id, &mut write).await?.is_empty() {
+    if Node::host_has_nodes(id, &mut write).await? {
         return Err(Error::HasNodes);
     }
 
@@ -457,20 +437,19 @@ pub async fn start(
     let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
     let mut resources = vec![Resource::from(id)];
 
-    let org_id = req
-        .org_id
-        .as_ref()
-        .map(|id| id.parse().map_err(Error::ParseOrgId))
-        .transpose()?;
-    if let Some(org_id) = org_id {
+    let org_id = Host::org_id(id, &mut write).await?;
+    let _authz = if let Some(org_id) = org_id {
         resources.push(Resource::from(org_id));
+        write
+            .auth_or_for(&meta, HostAdminPerm::Start, HostPerm::Start, &resources)
+            .await?
+    } else {
+        write.auth(&meta, HostAdminPerm::Start).await?
     };
-
-    let authz = write.auth_for(&meta, HostPerm::Start, &resources).await?;
 
     let command = NewCommand::host(id, CommandType::HostStart)?;
     let command = command.create(&mut write).await?;
-    let message = api::Command::from(&command, org_id, &authz, &mut write).await?;
+    let message = api::Command::from_host(&command)?;
     write.mqtt(message);
 
     Ok(api::HostServiceStartResponse {})
@@ -484,20 +463,19 @@ pub async fn stop(
     let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
     let mut resources = vec![Resource::from(id)];
 
-    let org_id = req
-        .org_id
-        .as_ref()
-        .map(|id| id.parse().map_err(Error::ParseOrgId))
-        .transpose()?;
-    if let Some(org_id) = org_id {
+    let org_id = Host::org_id(id, &mut write).await?;
+    let _authz = if let Some(org_id) = org_id {
         resources.push(Resource::from(org_id));
+        write
+            .auth_or_for(&meta, HostAdminPerm::Stop, HostPerm::Stop, &resources)
+            .await?
+    } else {
+        write.auth(&meta, HostAdminPerm::Stop).await?
     };
-
-    let authz = write.auth_for(&meta, HostPerm::Stop, &resources).await?;
 
     let command = NewCommand::host(id, CommandType::HostStop)?;
     let command = command.create(&mut write).await?;
-    let message = api::Command::from(&command, org_id, &authz, &mut write).await?;
+    let message = api::Command::from_host(&command)?;
     write.mqtt(message);
 
     Ok(api::HostServiceStopResponse {})
@@ -511,20 +489,19 @@ pub async fn restart(
     let id: HostId = req.host_id.parse().map_err(Error::ParseId)?;
     let mut resources = vec![Resource::from(id)];
 
-    let org_id = req
-        .org_id
-        .as_ref()
-        .map(|id| id.parse().map_err(Error::ParseOrgId))
-        .transpose()?;
-    if let Some(org_id) = org_id {
+    let org_id = Host::org_id(id, &mut write).await?;
+    let _authz = if let Some(org_id) = org_id {
         resources.push(Resource::from(org_id));
+        write
+            .auth_or_for(&meta, HostAdminPerm::Restart, HostPerm::Restart, &resources)
+            .await?
+    } else {
+        write.auth(&meta, HostAdminPerm::Restart).await?
     };
-
-    let authz = write.auth_for(&meta, HostPerm::Restart, &resources).await?;
 
     let command = NewCommand::host(id, CommandType::HostRestart)?;
     let command = command.create(&mut write).await?;
-    let message = api::Command::from(&command, org_id, &authz, &mut write).await?;
+    let message = api::Command::from_host(&command)?;
     write.mqtt(message);
 
     Ok(api::HostServiceRestartResponse {})
@@ -535,15 +512,17 @@ pub async fn regions(
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceRegionsResponse, Error> {
-    let (authz, org_id) = if let Some(ref org_id) = req.org_id {
-        let org_id = org_id.parse().map_err(Error::ParseOrgId)?;
-        let authz = read
-            .auth_or_for(&meta, HostAdminPerm::Regions, HostPerm::Regions, org_id)
-            .await?;
-        (authz, Some(org_id))
+    let org_id = req
+        .org_id
+        .as_ref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
+
+    let authz = if let Some(org_id) = org_id {
+        read.auth_or_for(&meta, HostAdminPerm::Regions, HostPerm::Regions, org_id)
+            .await?
     } else {
-        let authz = read.auth(&meta, HostAdminPerm::Regions).await?;
-        (authz, None)
+        read.auth(&meta, HostAdminPerm::Regions).await?
     };
 
     let image_id = req.image_id.parse().map_err(Error::ParseImageId)?;
@@ -677,7 +656,7 @@ impl Lookup {
             .map(|ip| (ip.host_id, ip))
             .to_map_keep_all(|(host_id, ip)| (host_id, ip));
 
-        let nodes = Node::by_host_ids(&host_ids, conn)
+        let nodes = Node::by_host_ids(&host_ids, &org_ids, conn)
             .await?
             .to_map_keep_all(|node| (node.host_id, node));
 

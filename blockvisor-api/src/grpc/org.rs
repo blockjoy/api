@@ -5,8 +5,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures::future::OptionFuture;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::{OrgAddressPerm, OrgAdminPerm, OrgBillingPerm, OrgPerm, OrgProvisionPerm};
@@ -87,9 +86,7 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            ClaimsNotUser | DeletePersonal | RemoveNotSelf => {
-                Status::forbidden("Access denied.")
-            }
+            ClaimsNotUser | DeletePersonal | RemoveNotSelf => Status::forbidden("Access denied."),
             ConvertNoOrg | Diesel(_) | ParseMax(_) | Stripe(_) | StripeCurrency(_)
             | StripeInvoice(_) => Status::internal("Internal error."),
             ParseId(_) => Status::invalid_argument("id"),

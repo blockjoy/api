@@ -2,9 +2,8 @@ use diesel_derive_enum::DbEnum;
 use displaydoc::Display;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tonic::Status;
 
-use crate::grpc::common;
+use crate::grpc::{common, Status};
 use crate::model::schema::sql_types;
 
 #[derive(Debug, Display, Error)]
@@ -102,19 +101,17 @@ impl TryFrom<common::NodeState> for NodeState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, DbEnum)]
 #[ExistingTypePath = "sql_types::EnumNextState"]
 pub enum NextState {
-    Starting,
     Stopping,
-    Upgrading,
     Deleting,
+    Upgrading,
 }
 
 impl From<NextState> for common::NextState {
     fn from(state: NextState) -> Self {
         match state {
-            NextState::Starting => Self::Starting,
             NextState::Stopping => Self::Stopping,
-            NextState::Upgrading => Self::Upgrading,
             NextState::Deleting => Self::Deleting,
+            NextState::Upgrading => Self::Upgrading,
         }
     }
 }
@@ -125,10 +122,9 @@ impl TryFrom<common::NextState> for NextState {
     fn try_from(state: common::NextState) -> Result<Self, Self::Error> {
         match state {
             common::NextState::Unspecified => Err(Error::UnknownNextState),
-            common::NextState::Starting => Ok(NextState::Starting),
             common::NextState::Stopping => Ok(NextState::Stopping),
-            common::NextState::Upgrading => Ok(NextState::Upgrading),
             common::NextState::Deleting => Ok(NextState::Deleting),
+            common::NextState::Upgrading => Ok(NextState::Upgrading),
         }
     }
 }

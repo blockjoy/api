@@ -30,6 +30,7 @@ alter type enum_host_type rename to enum_host_type_old;
 alter type enum_managed_by rename to enum_schedule_type;
 
 create type enum_config_type as enum (
+  'legacy',
   'node'
 );
 
@@ -45,7 +46,7 @@ create type enum_node_state as enum (
 
 create type enum_next_state as enum (
   'deleting',
-  'starting',
+  'stopping',
   'upgrading'
 );
 
@@ -379,3 +380,117 @@ drop table subscriptions;
 
 alter table users
   drop column chargebee_billing_id;
+
+-- The nil uuid is used to migrate legacy data
+insert into protocols (id, key, name)
+select
+  uuid_nil (),
+  'legacy',
+  'legacy';
+
+insert into protocol_versions (id, protocol_id, protocol_key, variant_key, semantic_version, sku_code)
+select
+  uuid_nil (),
+  uuid_nil (),
+  'legacy',
+  'legacy',
+  '0.0.0',
+  'legacy';
+
+insert into images (id, protocol_version_id, image_uri, build_version, min_cpu_cores, min_memory_bytes, min_disk_bytes, default_firewall_in, default_firewall_out)
+select
+  uuid_nil (),
+  uuid_nil (),
+  'legacy',
+  0,
+  0,
+  0,
+  0,
+  'drop'::enum_firewall_action,
+  'allow'::enum_firewall_action;
+
+insert into archives (id, image_id, store_id, image_property_ids)
+select
+  uuid_nil (),
+  uuid_nil (),
+  'legacy',
+  array[]::uuid[];
+
+insert into configs (id, image_id, archive_id, config_type, config, created_by_type, created_by_id)
+select
+  uuid_nil (),
+  uuid_nil (),
+  uuid_nil (),
+  'legacy'::enum_config_type,
+  ''::bytea,
+  'user'::enum_resource_type,
+  uuid_nil ();
+
+insert into hosts (id, org_id, region_id, network_name, schedule_type, connection_status, cpu_cores, memory_bytes, disk_bytes, os, os_version, bv_version, ip_address, ip_gateway, tags, created_by_type, created_by_id, created_at, deleted_at)
+select
+  id,
+  case when host_type = 'private'::enum_host_type_old then
+    org_id
+  else
+    null
+  end,
+  region_id,
+  name,
+  managed_by,
+  status,
+  cpu_count,
+  mem_size_bytes,
+  disk_size_bytes,
+  os,
+  os_version,
+  version,
+  ip_addr::inet,
+  ip_gateway,
+  tags,
+  'user'::enum_resource_type,
+  created_by,
+  created_at,
+  deleted_at
+from
+  hosts_old;
+
+insert into nodes (id, node_name, display_name, old_node_id, org_id, host_id, image_id, config_id, protocol_id, protocol_version_id, semantic_version, auto_upgrade, node_state, jobs, note, tags, ip_address, ip_gateway, p2p_address, dns_id, dns_name, cpu_cores, memory_bytes, disk_bytes, block_height, block_age, consensus, scheduler_similarity, scheduler_resource, scheduler_region_id, stripe_item_id, created_by_type, created_by_id, created_at, updated_at, deleted_at)
+select
+  id,
+  node_name,
+  display_name,
+  old_node_id,
+  org_id,
+  host_id,
+  uuid_nil (),
+  uuid_nil (),
+  uuid_nil (),
+  uuid_nil (),
+  version,
+  self_update,
+  'upgrading'::enum_node_state,
+  jobs,
+  note,
+  tags,
+  ip,
+  ip_gateway::inet,
+  wallet_address,
+  dns_record_id,
+  dns_name,
+  vcpu_count,
+  mem_size_bytes,
+  disk_size_bytes,
+  block_height,
+  block_age,
+  consensus,
+  scheduler_similarity,
+  scheduler_resource,
+  scheduler_region,
+  stripe_item_id,
+  created_by_resource,
+  created_by,
+  created_at,
+  updated_at,
+  deleted_at
+from
+  nodes_old;

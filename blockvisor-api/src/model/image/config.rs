@@ -17,16 +17,16 @@ use displaydoc::Display as DisplayDoc;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::resource::{OrgId, Resource, ResourceId, ResourceType};
 use crate::auth::AuthZ;
 use crate::database::Conn;
-use crate::grpc::common;
+use crate::grpc::{common, Status};
 use crate::model::image::property::{ImageProperty, ImagePropertyKey};
 use crate::model::image::Image;
 use crate::model::schema::{configs, sql_types};
+use crate::store::StoreId;
 use crate::util::HashVec;
 
 use super::property::ImagePropertyValue;
@@ -115,6 +115,7 @@ pub struct ConfigId(Uuid);
 #[derive(Clone, Copy, Debug, Display, PartialEq, Eq, DbEnum)]
 #[ExistingTypePath = "sql_types::EnumConfigType"]
 pub enum ConfigType {
+    Legacy,
     Node,
 }
 
@@ -151,6 +152,7 @@ impl Config {
     pub fn node_config(&self) -> Result<NodeConfig, Error> {
         match self.config_type {
             ConfigType::Node => (&self.config).try_into(),
+            ConfigType::Legacy => Ok(NodeConfig::legacy()),
         }
     }
 }
@@ -318,6 +320,7 @@ impl NodeConfig {
                 image_id: image.id,
                 image_uri: image.image_uri,
                 archive_id: archive.id,
+                store_id: archive.store_id,
                 values,
             },
             firewall: FirewallConfig {
@@ -326,6 +329,29 @@ impl NodeConfig {
                 rules,
             },
         })
+    }
+
+    fn legacy() -> Self {
+        NodeConfig {
+            vm: VmConfig {
+                cpu_cores: 0,
+                memory_bytes: 0,
+                disk_bytes: 0,
+                ramdisks: Ramdisks(vec![]),
+            },
+            image: ImageConfig {
+                image_id: Uuid::nil().into(),
+                image_uri: "legacy".to_string(),
+                archive_id: Uuid::nil().into(),
+                store_id: "legacy".to_string().into(),
+                values: vec![],
+            },
+            firewall: FirewallConfig {
+                default_in: FirewallAction::Drop,
+                default_out: FirewallAction::Allow,
+                rules: vec![],
+            },
+        }
     }
 }
 
@@ -445,6 +471,7 @@ pub struct ImageConfig {
     pub image_id: ImageId,
     pub image_uri: String,
     pub archive_id: ArchiveId,
+    pub store_id: StoreId,
     pub values: Vec<ImagePropertyValue>,
 }
 
@@ -454,6 +481,7 @@ impl From<ImageConfig> for common::ImageConfig {
             image_id: config.image_id.to_string(),
             image_uri: config.image_uri,
             archive_id: config.archive_id.to_string(),
+            store_id: config.store_id.to_string(),
             values: config.values.into_iter().map(Into::into).collect(),
         }
     }
@@ -467,6 +495,7 @@ impl TryFrom<common::ImageConfig> for ImageConfig {
             image_id: config.image_id.parse().map_err(Error::ParseImageId)?,
             image_uri: config.image_uri,
             archive_id: config.archive_id.parse().map_err(Error::ParseArchiveId)?,
+            store_id: config.store_id.into(),
             values: config.values.into_iter().map(Into::into).collect(),
         })
     }

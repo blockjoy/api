@@ -13,7 +13,7 @@ use crate::grpc::api;
 use crate::grpc::command::host_pending;
 use crate::model::command::NewCommand;
 use crate::model::host::{ConnectionStatus, UpdateHost};
-use crate::model::{Command, CommandType, Host};
+use crate::model::{Command, CommandType};
 
 use super::{Client, Message, CLIENT_CAPACITY, CLIENT_QOS};
 
@@ -96,11 +96,8 @@ impl Notifier {
     where
         M: Into<Message> + Send,
     {
-        self.client
-            .clone()
-            .send(message.into())
-            .await
-            .map_err(Into::into)
+        let message = message.into();
+        self.client.clone().send(message).await.map_err(Into::into)
     }
 
     async fn handle_packet(&self, packet: Publish, pool: &Pool) -> Result<(), Error> {
@@ -108,7 +105,6 @@ impl Notifier {
         let mut conn = pool.conn().await.map_err(Error::PoolConnection)?;
 
         let host_id = status.host_id.parse().map_err(Error::ParseHostId)?;
-        let org_id = Host::org_id(host_id, &mut conn).await?;
         let conn_status = status.connection_status().try_into()?;
 
         UpdateHost::new(host_id)
@@ -122,7 +118,7 @@ impl Notifier {
         {
             let pending = NewCommand::host(host_id, CommandType::HostPending)?;
             let command = pending.create(&mut conn).await?;
-            let api_cmd = host_pending(&command, org_id, &mut conn).await?;
+            let api_cmd = host_pending(&command)?;
             self.send(api_cmd).await?;
         }
 

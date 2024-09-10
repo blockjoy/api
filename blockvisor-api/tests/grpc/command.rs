@@ -3,7 +3,6 @@ use blockvisor_api::auth::resource::NodeId;
 use blockvisor_api::auth::AuthZ;
 use blockvisor_api::grpc::api;
 use blockvisor_api::model::command::{Command, CommandType, ExitCode, NewCommand};
-use blockvisor_api::model::host::Host;
 use blockvisor_api::model::node::UpdateNode;
 use blockvisor_api::model::Node;
 
@@ -24,11 +23,8 @@ async fn node_create_failed() {
 
     let node_id = test.seed().node.id;
     let cmd = create_command(&test, node_id, CommandType::NodeCreate).await;
-    let host = Host::by_id(cmd.host_id, None, &mut conn).await.unwrap();
 
-    let claims = test.host_claims_for(host.id);
-    let jwt = test.cipher().jwt.encode(&claims).unwrap();
-
+    let jwt = test.org_jwt();
     let req = api::CommandServiceUpdateRequest {
         command_id: cmd.id.to_string(),
         exit_message: Some("hugo boss".to_string()),
@@ -54,13 +50,13 @@ async fn responds_ok_for_pending() {
 
     let node_id = test.seed().node.id;
     let host_id = test.seed().host1.id;
+
     let authz = AuthZ {
         claims: test.member_claims().await,
         granted: Granted::default(),
     };
 
     let update = UpdateNode {
-        id: node_id,
         org_id: None,
         host_id: None,
         display_name: None,
@@ -70,10 +66,10 @@ async fn responds_ok_for_pending() {
         note: None,
         tags: None,
     };
-    update.apply(&authz, &mut conn).await.unwrap();
+    update.apply(node_id, &authz, &mut conn).await.unwrap();
     create_command(&test, node_id, CommandType::NodeCreate).await;
 
-    let jwt = test.host_jwt();
+    let jwt = test.org_jwt();
     let req = api::CommandServicePendingRequest {
         host_id: host_id.to_string(),
         filter_type: None,

@@ -17,7 +17,7 @@ pub enum Error {
     MissingOrgId,
 }
 
-#[derive(From)]
+#[derive(Debug, From)]
 pub enum Message {
     Command(Box<api::Command>),
     OrgMessage(Box<api::OrgMessage>),
@@ -331,20 +331,23 @@ mod tests {
         let (ctx, db) = Context::with_mocked().await.unwrap();
         let mut conn = db.conn().await;
 
+        let node_id = db.seed.node.id;
+        let host_id = db.seed.host1.id;
+
         let command = Command {
             id: Uuid::new_v4().into(),
-            host_id: db.seed.host1.id,
+            host_id,
             exit_message: None,
             created_at: chrono::Utc::now(),
             completed_at: None,
-            node_id: Some(db.seed.node.id),
+            node_id: Some(node_id),
             acked_at: None,
             retry_hint_seconds: None,
             exit_code: None,
             command_type: CommandType::NodeDelete,
         };
 
-        let command = node_delete(&command, None, &mut conn).await.unwrap();
+        let command = node_delete(&command, &mut conn).await.unwrap();
         ctx.notifier.send(command).await.unwrap();
     }
 

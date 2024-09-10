@@ -13,13 +13,11 @@ use aws_sdk_s3::config::{Credentials, Region};
 use derive_more::{Deref, Display, From, Into};
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
-use rhai::Engine;
 use thiserror::Error;
-use tonic::Status;
 use url::Url;
 
 use crate::config::store::{BucketConfig, Config};
-use crate::grpc::api;
+use crate::grpc::{api, Status};
 use crate::util::LOWER_KEBAB_CASE;
 
 use self::manifest::{ArchiveChunk, DownloadManifest, ManifestBody, ManifestHeader, UploadSlot};
@@ -102,7 +100,6 @@ impl StoreId {
 
 pub struct Store {
     pub client: Arc<dyn Client>,
-    pub engine: Arc<Engine>,
     pub bucket: BucketConfig,
     pub prefix: String,
     pub expiration: Duration,
@@ -115,7 +112,6 @@ impl Store {
     {
         Store {
             client: Arc::new(client),
-            engine: Arc::new(Engine::new()),
             bucket: config.bucket.clone(),
             prefix: config.dir_chains_prefix.clone(),
             expiration: *config.presigned_url_expiration,

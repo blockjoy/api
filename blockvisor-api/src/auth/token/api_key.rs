@@ -78,27 +78,14 @@ impl Validated {
     pub fn claims(&self, expires: chrono::Duration) -> Claims {
         let expirable = Expirable::from_now(expires);
         let resource = Resource::from(&self.0);
-        let access = match ResourceType::from(&resource) {
-            ResourceType::User => Roles::Many(hashset![
-                ApiKeyRole::User.into(),
-                ApiKeyRole::Org.into(),
-                ApiKeyRole::Host.into(),
-                ApiKeyRole::Node.into(),
-            ])
-            .into(),
-            ResourceType::Org => Roles::Many(hashset![
-                ApiKeyRole::Org.into(),
-                ApiKeyRole::Host.into(),
-                ApiKeyRole::Node.into(),
-            ])
-            .into(),
-            ResourceType::Host => {
-                Roles::Many(hashset![ApiKeyRole::Host.into(), ApiKeyRole::Node.into()]).into()
-            }
-            ResourceType::Node => Roles::One(ApiKeyRole::Node.into()).into(),
+        let roles = match ResourceType::from(&resource) {
+            ResourceType::User => Roles::One(ApiKeyRole::User.into()),
+            ResourceType::Org => Roles::One(ApiKeyRole::Org.into()),
+            ResourceType::Host => Roles::One(ApiKeyRole::Host.into()),
+            ResourceType::Node => Roles::One(ApiKeyRole::Node.into()),
         };
 
-        Claims::new(resource, expirable, access)
+        Claims::new(resource, expirable, roles.into())
     }
 }
 

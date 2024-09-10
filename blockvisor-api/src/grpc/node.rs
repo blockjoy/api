@@ -25,7 +25,7 @@ use crate::util::{HashVec, NanosUtc};
 use super::api::node_service_server::NodeService;
 use super::command::node_update;
 use super::common::node_placement::Placement;
-use super::{api, common, Grpc};
+use super::{api, common, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -209,9 +209,9 @@ impl NodeService for Grpc {
     async fn report_error(
         &self,
         req: Request<api::NodeServiceReportErrorRequest>,
-    ) -> Result<Response<api::NodeServiceReportErrorResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceReportErrorResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| report_error(req, meta, write).scope_boxed())
+        self.write(|write| report_error(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -263,16 +263,16 @@ impl NodeService for Grpc {
     async fn delete(
         &self,
         req: Request<api::NodeServiceDeleteRequest>,
-    ) -> Result<Response<api::NodeServiceDeleteResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceDeleteResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| delete(req, meta, write).scope_boxed())
+        self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await
     }
 }
 
-async fn create(
+pub async fn create(
     req: api::NodeServiceCreateRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceCreateResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -394,7 +394,7 @@ async fn create(
         let node_create = NewCommand::node(&node, CommandType::NodeCreate)?
             .create(&mut write)
             .await?;
-        let api_cmd = api::Command::from(&node_create, Some(org_id), &authz, &mut write).await?;
+        let api_cmd = api::Command::from(&node_create, &authz, &mut write).await?;
         let api_node = api::Node::from_model(node, &authz, &mut write).await?;
 
         let created_by = common::Resource::from(created_by);
@@ -414,11 +414,11 @@ pub async fn get(
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::NodeServiceGetResponse, Error> {
     let node_id = req.node_id.parse().map_err(Error::ParseId)?;
-    let node = Node::by_id(node_id, &mut read).await?;
-
     let authz = read
         .auth_or_for(&meta, NodeAdminPerm::Get, NodePerm::Get, node_id)
         .await?;
+
+    let node = Node::by_id(node_id, &mut read).await?;
 
     Ok(api::NodeServiceGetResponse {
         node: Some(api::Node::from_model(node, &authz, &mut read).await?),
@@ -449,206 +449,12 @@ pub async fn list(
     Ok(api::NodeServiceListResponse { nodes })
 }
 
-async fn report_status(
+pub async fn report_status(
     req: api::NodeServiceReportStatusRequest,
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
-) -> Result<api::NodeServiceCreateResponse, Error> {
-    let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let inner = req.placement.as_ref().ok_or(Error::MissingPlacement)?;
-    let placement = inner.placement.as_ref().ok_or(Error::MissingPlacement)?;
-
-    let (node_counts, authz) = match placement {
-        Placement::Scheduler(_) => {
-            let authz = write
-                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, org_id)
-                .await?;
-            (None, authz)
-        }
-
-        Placement::HostId(id) => {
-            let host_id = id.parse().map_err(Error::ParseHostId)?;
-            let authz = write
-                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, host_id)
-                .await?;
-            (Some(vec![NodeCount::one(host_id)]), authz)
-        }
-
-        Placement::Multiple(hosts) => {
-            let node_counts = hosts
-                .node_counts
-                .iter()
-                .map(|nc| nc.try_into().map_err(Into::into))
-                .collect::<Result<Vec<NodeCount>, Error>>()?;
-            let host_ids = node_counts.iter().map(|nc| nc.host_id).collect::<Vec<_>>();
-            let authz = write
-                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, &host_ids)
-                .await?;
-            (Some(node_counts), authz)
-        }
-    };
-
-    let blockchain_id = req
-        .blockchain_id
-        .parse()
-        .map_err(Error::ParseBlockchainId)?;
-    let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write).await?;
-    let node_type = req.node_type().into();
-    let image = ImageId::new(&blockchain.name, node_type, req.version.clone().into());
-    let version =
-        BlockchainVersion::find(blockchain_id, node_type, &image.node_version, &mut write).await?;
-
-    let requirements = write.ctx.storage.rhai_metadata(&image).await?.requirements;
-    let created_by = authz.resource();
-    let new_node = req
-        .as_new(requirements, org_id, created_by, &mut write)
-        .await?;
-    let created = new_node
-        .create(node_counts, &blockchain, &authz, &mut write)
-        .await?;
-    let mut nodes = Vec::with_capacity(created.len());
-
-    let name_to_ids = BlockchainProperty::id_to_names(version.id, &mut write)
-        .await?
-        .into_iter()
-        .map(|(id, name)| (name, id))
-        .collect();
-
-    for node in created {
-        let properties = req.properties(&node, &name_to_ids)?;
-        NodeProperty::bulk_create(properties, &mut write).await?;
-
-        let node_create = NewCommand::node(&node, CommandType::NodeCreate)?
-            .create(&mut write)
-            .await?;
-        let api_cmd = api::Command::from_model(&node_create, &authz, &mut write).await?;
-        let api_node = api::Node::from_model(node, &authz, &mut write).await?;
-
-        let created_by = common::EntityUpdate::from_resource(created_by, &mut write).await?;
-        let created = api::NodeMessage::created(api_node.clone(), created_by);
-
-        write.mqtt(api_cmd);
-        write.mqtt(created);
-        nodes.push(api_node);
-    }
-
-    Ok(api::NodeServiceCreateResponse { nodes })
-}
-
-pub async fn upgrade(
-    req: api::NodeServiceUpgradeRequest,
-    meta: Metadata,
-    mut write: WriteConn<'_, '_>,
-) -> Result<api::NodeServiceUpgradeResponse, Error> {
-    let ids = req
-        .ids
-        .iter()
-        .map(|id| id.parse().map_err(Error::ParseId))
-        .collect::<Result<HashSet<_>, _>>()?;
-    if ids.is_empty() {
-        return Err(Error::MissingIds);
-    }
-||||||| parent of f902df2d (Add an implemention of the CryptService)
-) -> Result<api::NodeServiceCreateResponse, Error> {
-    let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
-    let inner = req.placement.as_ref().ok_or(Error::MissingPlacement)?;
-    let placement = inner.placement.as_ref().ok_or(Error::MissingPlacement)?;
-
-    let (node_counts, authz) = match placement {
-        Placement::Scheduler(_) => {
-            let authz = write
-                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, org_id)
-                .await?;
-            (None, authz)
-        }
-
-        Placement::HostId(id) => {
-            let host_id = id.parse().map_err(Error::ParseHostId)?;
-            let authz = write
-                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, host_id)
-                .await?;
-            (Some(vec![NodeCount::one(host_id)]), authz)
-        }
-
-        Placement::Multiple(hosts) => {
-            let node_counts = hosts
-                .node_counts
-                .iter()
-                .map(|nc| nc.try_into().map_err(Into::into))
-                .collect::<Result<Vec<NodeCount>, Error>>()?;
-            let host_ids = node_counts.iter().map(|nc| nc.host_id).collect::<Vec<_>>();
-            let authz = write
-                .auth_or_all(&meta, NodeAdminPerm::Create, NodePerm::Create, &host_ids)
-                .await?;
-            (Some(node_counts), authz)
-        }
-    };
-
-    let blockchain_id = req
-        .blockchain_id
-        .parse()
-        .map_err(Error::ParseBlockchainId)?;
-    let blockchain = Blockchain::by_id(blockchain_id, &authz, &mut write).await?;
-    let node_type = req.node_type().into();
-    let image = ImageId::new(&blockchain.name, node_type, req.version.clone().into());
-    let version =
-        BlockchainVersion::find(blockchain_id, node_type, &image.node_version, &mut write).await?;
-
-    let requirements = write.ctx.storage.rhai_metadata(&image).await?.requirements;
-    let created_by = authz.resource();
-    let new_node = req
-        .as_new(requirements, org_id, created_by, &mut write)
-        .await?;
-    let created = new_node
-        .create(node_counts, &blockchain, &authz, &mut write)
-        .await?;
-    let mut nodes = Vec::with_capacity(created.len());
-
-    let name_to_ids = BlockchainProperty::id_to_names(version.id, &mut write)
-        .await?
-        .into_iter()
-        .map(|(id, name)| (name, id))
-        .collect();
-
-    for node in created {
-        let properties = req.properties(&node, &name_to_ids)?;
-        NodeProperty::bulk_create(properties, &mut write).await?;
-
-        let node_create = NewCommand::node(&node, CommandType::NodeCreate)?
-            .create(&mut write)
-            .await?;
-        let api_cmd = api::Command::from_model(&node_create, &authz, &mut write).await?;
-        let api_node = api::Node::from_model(node, &authz, &mut write).await?;
-
-        let created_by = common::EntityUpdate::from_resource(created_by, &mut write).await?;
-        let created = api::NodeMessage::created(api_node.clone(), created_by);
-
-        write.mqtt(api_cmd);
-        write.mqtt(created);
-        nodes.push(api_node);
-    }
-
-    Ok(api::NodeServiceCreateResponse { nodes })
-}
-
-async fn upgrade(
-    req: api::NodeServiceUpgradeRequest,
-    meta: MetadataMap,
-    mut write: WriteConn<'_, '_>,
-) -> Result<api::NodeServiceUpgradeResponse, Error> {
-    let ids = req
-        .ids
-        .iter()
-        .map(|id| id.parse().map_err(Error::ParseId))
-        .collect::<Result<HashSet<_>, _>>()?;
-    if ids.is_empty() {
-        return Err(Error::MissingIds);
-    }
-=======
 ) -> Result<api::NodeServiceReportStatusResponse, Error> {
     let node_id = req.node_id.parse().map_err(Error::ParseId)?;
->>>>>>> f902df2d (Add an implemention of the CryptService)
-
     let authz = write
         .auth_or_for(
             &meta,
@@ -669,7 +475,6 @@ async fn upgrade(
     }
 
     let update = UpdateNodeState {
-        id: node.id,
         node_state: status.as_ref().map(|status| status.state),
         next_state: None,
         protocol_state: status
@@ -683,7 +488,7 @@ async fn upgrade(
         p2p_address: req.p2p_address.as_deref(),
     };
 
-    let node = update.apply(&mut write).await?;
+    let node = update.apply(node_id, &mut write).await?;
     let node = api::Node::from_model(node, &authz, &mut write).await?;
 
     let updated_by = common::Resource::from(&authz);
@@ -694,13 +499,12 @@ async fn upgrade(
     Ok(api::NodeServiceReportStatusResponse {})
 }
 
-async fn report_error(
+pub async fn report_error(
     req: api::NodeServiceReportErrorRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceReportErrorResponse, Error> {
     let node_id: NodeId = req.node_id.parse().map_err(Error::ParseId)?;
-
     let authz = write
         .auth_or_for(
             &meta,
@@ -709,8 +513,8 @@ async fn report_error(
             node_id,
         )
         .await?;
-    let node = Node::by_id(node_id, &mut write).await?;
 
+    let node = Node::by_id(node_id, &mut write).await?;
     let resource = authz.resource();
     let report = node.report(resource, req.message, &mut write).await?;
 
@@ -726,6 +530,12 @@ pub async fn update_config(
 ) -> Result<api::NodeServiceUpdateConfigResponse, Error> {
     let node_id = req.node_id.parse().map_err(Error::ParseId)?;
 
+    let new_org_id = req
+        .new_org_id
+        .as_deref()
+        .map(|id| id.parse().map_err(Error::ParseOrgId))
+        .transpose()?;
+
     let authz = if req.new_org_id.is_some() {
         let perms = [NodeAdminPerm::UpdateConfig, NodeAdminPerm::Transfer];
         write.auth_all(&meta, perms).await?
@@ -740,16 +550,9 @@ pub async fn update_config(
             .await?
     };
 
-    let org_id = req
-        .new_org_id
-        .as_deref()
-        .map(|id| id.parse().map_err(Error::ParseOrgId))
-        .transpose()?;
-
     let node = Node::by_id(node_id, &mut write).await?;
     let update = UpdateNode {
-        id: node.id,
-        org_id,
+        org_id: new_org_id,
         host_id: None,
         display_name: req.new_display_name.as_deref(),
         auto_upgrade: req.auto_upgrade,
@@ -762,25 +565,25 @@ pub async fn update_config(
             .transpose()?
             .flatten(),
     };
-    let node = update.apply(&authz, &mut write).await?;
+    let updated = update.apply(node_id, &authz, &mut write).await?;
 
-    let node_cmd = NewCommand::node(&node, CommandType::NodeUpdate)?
+    let node_cmd = NewCommand::node(&updated, CommandType::NodeUpdate)?
         .create(&mut write)
         .await?;
     let api_update = api::NodeUpdate {
-        node_id: node.id.to_string(),
+        node_id: node_id.to_string(),
         auto_upgrade: req.auto_upgrade,
-        new_org_id: org_id.map(|id| id.to_string()),
+        new_org_id: new_org_id.map(|id| id.to_string()),
         new_org_name: None,
         new_display_name: req.new_display_name,
         new_note: req.new_note,
         new_values: vec![],
         new_firewall: None,
     };
-    let update_cmd = node_update(&node_cmd, Some(node.org_id), api_update, &mut write).await?;
+    let update_cmd = node_update(&node_cmd, api_update, &mut write).await?;
     write.mqtt(update_cmd);
 
-    let api_node = api::Node::from_model(node, &authz, &mut write).await?;
+    let api_node = api::Node::from_model(updated, &authz, &mut write).await?;
     let updated_by = common::Resource::from(&authz);
     let updated_msg = api::NodeMessage::updated(api_node, updated_by);
     write.mqtt(updated_msg);
@@ -788,7 +591,7 @@ pub async fn update_config(
     Ok(api::NodeServiceUpdateConfigResponse {})
 }
 
-async fn upgrade_image(
+pub async fn upgrade_image(
     req: api::NodeServiceUpgradeImageRequest,
     meta: Metadata,
     mut write: WriteConn<'_, '_>,
@@ -798,39 +601,39 @@ async fn upgrade_image(
         .iter()
         .map(|id| id.parse().map_err(Error::ParseId))
         .collect::<Result<HashSet<_>, _>>()?;
+
+    let mut resources: Vec<_> = ids.iter().copied().map(Resource::from).collect();
     if ids.is_empty() {
         return Err(Error::MissingIds);
     }
 
-    let mut resources = ids.iter().map(|id| Resource::from(*id)).collect::<Vec<_>>();
+    let image_id = req.image_id.parse().map_err(Error::ParseImageId)?;
     let org_id = req
         .org_id
-        .map(|id| {
-            let org_id = id.parse().map_err(Error::ParseOrgId)?;
-            resources.push(Resource::from(org_id));
-            Ok::<OrgId, Error>(org_id)
-        })
+        .map(|id| id.parse::<OrgId>().map_err(Error::ParseOrgId))
         .transpose()?;
+    if let Some(org_id) = org_id {
+        resources.push(org_id.into());
+    }
 
     let authz = write
         .auth_or_for(&meta, NodeAdminPerm::Upgrade, NodePerm::Upgrade, &resources)
         .await?;
 
     let nodes = Node::by_ids(&ids, &mut write).await?;
-    let image_id = req.image_id.parse().map_err(Error::ParseImageId)?;
 
     for node in nodes {
         let upgrade = UpgradeNode {
             id: node.id,
-            org_id,
             image_id,
+            org_id,
         };
         let node = upgrade.apply(&authz, &mut write).await?;
 
         let cmd = NewCommand::node(&node, CommandType::NodeUpgrade)?
             .create(&mut write)
             .await?;
-        let cmd = api::Command::from(&cmd, Some(node.org_id), &authz, &mut write).await?;
+        let cmd = api::Command::from(&cmd, &authz, &mut write).await?;
         write.mqtt(cmd);
     }
 
@@ -850,7 +653,7 @@ pub async fn start(
     let node = Node::by_id(node_id, &mut write).await?;
     let command = NewCommand::node(&node, CommandType::NodeStart)?;
     let command = command.create(&mut write).await?;
-    let api_cmd = api::Command::from(&command, Some(node.org_id), &authz, &mut write).await?;
+    let api_cmd = api::Command::from(&command, &authz, &mut write).await?;
     write.mqtt(api_cmd);
 
     Ok(api::NodeServiceStartResponse {})
@@ -869,7 +672,7 @@ pub async fn stop(
     let node = Node::by_id(node_id, &mut write).await?;
     let command = NewCommand::node(&node, CommandType::NodeStop)?;
     let command = command.create(&mut write).await?;
-    let api_cmd = api::Command::from(&command, Some(node.org_id), &authz, &mut write).await?;
+    let api_cmd = api::Command::from(&command, &authz, &mut write).await?;
     write.mqtt(api_cmd);
 
     Ok(api::NodeServiceStopResponse {})
@@ -888,15 +691,15 @@ pub async fn restart(
     let node = Node::by_id(node_id, &mut write).await?;
     let command = NewCommand::node(&node, CommandType::NodeRestart)?;
     let command = command.create(&mut write).await?;
-    let api_cmd = api::Command::from(&command, Some(node.org_id), &authz, &mut write).await?;
+    let api_cmd = api::Command::from(&command, &authz, &mut write).await?;
     write.mqtt(api_cmd);
 
     Ok(api::NodeServiceRestartResponse {})
 }
 
-async fn delete(
+pub async fn delete(
     req: api::NodeServiceDeleteRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceDeleteResponse, Error> {
     let node_id: NodeId = req.node_id.parse().map_err(Error::ParseId)?;
@@ -904,21 +707,11 @@ async fn delete(
         .auth_or_for(&meta, NodeAdminPerm::Delete, NodePerm::Delete, node_id)
         .await?;
 
-    let update = UpdateNodeState {
-        id: node_id,
-        node_state: None,
-        next_state: Some(Some(NextState::Deleting)),
-        protocol_state: None,
-        protocol_health: None,
-        p2p_address: None,
-    };
-    let node = update.apply(&mut write).await?;
-    Node::delete(node.id, &mut write).await?;
-
+    let node = Node::delete(node_id, &mut write).await?;
     let node_cmd = NewCommand::node(&node, CommandType::NodeDelete)?
         .create(&mut write)
         .await?;
-    let delete_cmd = api::Command::from(&node_cmd, Some(node.org_id), &authz, &mut write).await?;
+    let delete_cmd = api::Command::from(&node_cmd, &authz, &mut write).await?;
     write.mqtt(delete_cmd);
 
     let deleted_by = common::Resource::from(&authz);
@@ -1069,14 +862,14 @@ impl api::Node {
 
         Ok(api::Node {
             node_id: node.id.to_string(),
+            org_id: node.org_id.to_string(),
+            org_name: org.name.clone(),
             node_name: node.node_name,
             display_name: node.display_name,
             old_node_id: node.old_node_id.map(|id| id.to_string()),
             image_id: node.image_id.to_string(),
             config_id: node.config_id.to_string(),
             config: Some(config.into()),
-            org_id: node.org_id.to_string(),
-            org_name: org.name.clone(),
             host_id: node.host_id.to_string(),
             host_org_id: host.org_id.map(|id| id.to_string()),
             host_network_name: host.network_name.clone(),

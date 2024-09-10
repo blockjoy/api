@@ -6,11 +6,10 @@ use std::sync::Arc;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::rngs::OsRng;
 use tokio::net::TcpListener;
-use tokio_stream::wrappers::TcpListenerStream;
 
 use blockvisor_api::auth::claims::{Claims, Expirable};
 use blockvisor_api::auth::rbac::{ApiKeyRole, GrpcRole, Roles};
-use blockvisor_api::auth::resource::{HostId, NodeId, Resource};
+use blockvisor_api::auth::resource::{HostId, NodeId, OrgId, Resource};
 use blockvisor_api::auth::token::jwt::Jwt;
 use blockvisor_api::auth::token::refresh::{Encoded, Refresh};
 use blockvisor_api::auth::token::Cipher;
@@ -37,12 +36,10 @@ impl TestServer {
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let stream = TcpListenerStream::new(listener);
 
         let server_context = context.clone();
         tokio::spawn(async move {
-            blockvisor_api::grpc::server(&server_context)
-                .serve_with_incoming(stream)
+            blockvisor_api::server::start_with_listener(server_context, listener)
                 .await
                 .unwrap()
         });
@@ -118,6 +115,22 @@ impl TestServer {
         User::by_email(email, &mut conn).await.unwrap()
     }
 
+    pub fn org_claims_for(&self, org_id: OrgId) -> Claims {
+        let roles = Roles::Many(hashset! {
+            ApiKeyRole::Org.into(),
+            ApiKeyRole::Host.into(),
+            ApiKeyRole::Node.into(),
+        });
+        let resource = Resource::Org(org_id);
+        let expirable = Expirable::from_now(chrono::Duration::minutes(15));
+        Claims::new(resource, expirable, roles.into())
+    }
+
+    pub fn org_jwt(&self) -> Jwt {
+        let claims = self.org_claims_for(self.seed().org.id);
+        self.cipher().jwt.encode(&claims).unwrap()
+    }
+
     pub fn host_claims_for(&self, host_id: HostId) -> Claims {
         let roles = Roles::One(GrpcRole::NewHost.into());
         let resource = Resource::Host(host_id);
@@ -125,12 +138,13 @@ impl TestServer {
         Claims::new(resource, expirable, roles.into())
     }
 
-    pub fn host_claims(&self) -> Claims {
-        self.host_claims_for(self.seed().host1.id)
+    pub fn public_host_jwt(&self) -> Jwt {
+        let claims = self.host_claims_for(self.seed().host1.id);
+        self.cipher().jwt.encode(&claims).unwrap()
     }
 
-    pub fn host_jwt(&self) -> Jwt {
-        let claims = self.host_claims();
+    pub fn private_host_jwt(&self) -> Jwt {
+        let claims = self.host_claims_for(self.seed().host2.id);
         self.cipher().jwt.encode(&claims).unwrap()
     }
 

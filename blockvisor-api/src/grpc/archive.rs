@@ -3,8 +3,7 @@ use std::time::Duration;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::{ArchiveAdminPerm, ArchivePerm};
@@ -12,7 +11,7 @@ use crate::auth::resource::Resources;
 use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction};
 use crate::grpc::api::archive_service_server::ArchiveService;
-use crate::grpc::{api, Grpc};
+use crate::grpc::{api, Grpc, Metadata, Status};
 use crate::model::image::Archive;
 use crate::store::manifest::DownloadManifest;
 
@@ -78,43 +77,43 @@ impl ArchiveService for Grpc {
     async fn get_download_metadata(
         &self,
         req: Request<api::ArchiveServiceGetDownloadMetadataRequest>,
-    ) -> Result<Response<api::ArchiveServiceGetDownloadMetadataResponse>, Status> {
+    ) -> Result<Response<api::ArchiveServiceGetDownloadMetadataResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_download_metadata(req, meta, read).scope_boxed())
+        self.read(|read| get_download_metadata(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn get_download_chunks(
         &self,
         req: Request<api::ArchiveServiceGetDownloadChunksRequest>,
-    ) -> Result<Response<api::ArchiveServiceGetDownloadChunksResponse>, Status> {
+    ) -> Result<Response<api::ArchiveServiceGetDownloadChunksResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_download_chunks(req, meta, read).scope_boxed())
+        self.read(|read| get_download_chunks(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn get_upload_slots(
         &self,
         req: Request<api::ArchiveServiceGetUploadSlotsRequest>,
-    ) -> Result<Response<api::ArchiveServiceGetUploadSlotsResponse>, Status> {
+    ) -> Result<Response<api::ArchiveServiceGetUploadSlotsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_upload_slots(req, meta, read).scope_boxed())
+        self.read(|read| get_upload_slots(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn put_download_manifest(
         &self,
         req: Request<api::ArchiveServicePutDownloadManifestRequest>,
-    ) -> Result<Response<api::ArchiveServicePutDownloadManifestResponse>, Status> {
+    ) -> Result<Response<api::ArchiveServicePutDownloadManifestResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| put_download_manifest(req, meta, read).scope_boxed())
+        self.read(|read| put_download_manifest(req, meta.into(), read).scope_boxed())
             .await
     }
 }
 
-async fn get_download_metadata(
+pub async fn get_download_metadata(
     req: api::ArchiveServiceGetDownloadMetadataRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ArchiveServiceGetDownloadMetadataResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {
@@ -149,9 +148,9 @@ async fn get_download_metadata(
     })
 }
 
-async fn get_download_chunks(
+pub async fn get_download_chunks(
     req: api::ArchiveServiceGetDownloadChunksRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ArchiveServiceGetDownloadChunksResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {
@@ -197,9 +196,9 @@ async fn get_download_chunks(
     })
 }
 
-async fn get_upload_slots(
+pub async fn get_upload_slots(
     req: api::ArchiveServiceGetUploadSlotsRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ArchiveServiceGetUploadSlotsResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {
@@ -247,9 +246,9 @@ async fn get_upload_slots(
     })
 }
 
-async fn put_download_manifest(
+pub async fn put_download_manifest(
     req: api::ArchiveServicePutDownloadManifestRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ArchiveServicePutDownloadManifestResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {

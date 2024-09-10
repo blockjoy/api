@@ -22,6 +22,18 @@ pub enum Error {
 }
 
 pub async fn start(context: Arc<Context>) -> Result<(), Error> {
+    let addr = context.config.server.addr();
+    let listener = TcpListener::bind(&addr)
+        .await
+        .map_err(|err| Error::Listener(addr, err))?;
+
+    start_with_listener(context, listener).await
+}
+
+pub async fn start_with_listener(
+    context: Arc<Context>,
+    listener: TcpListener,
+) -> Result<(), Error> {
     #[allow(deprecated)] // routes is a private field
     let grpc = grpc::server(&context).into_router();
     let http = http::router(&context);
@@ -34,11 +46,6 @@ pub async fn start(context: Arc<Context>) -> Result<(), Error> {
             1
         }
     });
-
-    let addr = context.config.server.addr();
-    let listener = TcpListener::bind(&addr)
-        .await
-        .map_err(|err| Error::Listener(addr, err))?;
 
     axum::serve(listener, Shared::new(service))
         .await

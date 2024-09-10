@@ -6,6 +6,7 @@ use blockvisor_api::database::seed::{
 };
 use blockvisor_api::grpc::{api, common};
 use blockvisor_api::model::image::rule::{FirewallAction, FirewallDirection};
+use prost_wkt_types::Empty;
 use tonic::Code;
 use uuid::Uuid;
 
@@ -135,7 +136,7 @@ fn archive_pointer<S: Into<String>>(keys: Vec<S>, store_id: Option<S>) -> api::A
         pointer: Some(if let Some(id) = store_id {
             api::archive_pointer::Pointer::StoreId(id.into())
         } else {
-            api::archive_pointer::Pointer::Disallowed(())
+            api::archive_pointer::Pointer::Disallowed(Empty {})
         }),
     }
 }

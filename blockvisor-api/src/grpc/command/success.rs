@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::auth::resource::NodeId;
 use crate::auth::AuthZ;
 use crate::database::WriteConn;
-use crate::grpc::api;
+use crate::grpc::{api, Status};
 use crate::model::command::{Command, CommandType, NewCommand};
 use crate::model::node::{
     LogEvent, NewNodeLog, Node, NodeJobs, NodeState, UpdateNodeMetrics, UpdateNodeState,
@@ -74,7 +74,7 @@ async fn node_created(
     let start_cmd = NewCommand::node(&node, CommandType::NodeStart)?
         .create(write)
         .await?;
-    let start_api = api::Command::from(&start_cmd, Some(node.org_id), authz, write)
+    let start_api = api::Command::from(&start_cmd, authz, write)
         .await
         .map_err(|err| Error::MqttStart(Box::new(err)))?;
     write.mqtt(start_api);
@@ -108,14 +108,14 @@ async fn node_deleted(cmd: &Command, write: &mut WriteConn<'_, '_>) -> Result<()
         .ok_or_else(|| Error::MissingNodeId(cmd.id))?;
 
     let update = UpdateNodeState {
-        id: node.id,
         node_state: Some(NodeState::Deleted),
         next_state: Some(None),
         protocol_state: None,
         protocol_health: None,
         p2p_address: None,
     };
-    let updated = update.apply(write).await?;
+    let _ = update.apply(node.id, write).await?;
+    let _ = Node::delete(node.id, write).await?;
 
-    Node::delete(updated.id, write).await.map_err(Into::into)
+    Ok(())
 }

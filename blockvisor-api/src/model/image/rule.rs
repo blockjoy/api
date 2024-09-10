@@ -13,11 +13,10 @@ use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::database::Conn;
-use crate::grpc::common;
+use crate::grpc::{common, Status};
 use crate::model::schema::{image_rules, sql_types};
 
 use super::ImageId;

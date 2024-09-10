@@ -6,6 +6,7 @@ use std::future::Future;
 
 use diesel::pg::Pg;
 use diesel::query_builder::{AstPass, Query, QueryFragment, QueryId};
+use diesel::result::Error::NotFound;
 use diesel::sql_types::BigInt;
 use diesel::QueryResult;
 use diesel_async::methods::LoadQuery;
@@ -55,7 +56,7 @@ impl From<Error> for Status {
         match err {
             Limit(_) => Status::invalid_argument("limit"),
             Offset(_) => Status::invalid_argument("offset"),
-            Query(diesel::result::Error::NotFound) => Status::not_found("Not found."),
+            Query(NotFound) => Status::not_found("Not found."),
             Query(_) | Count(_) => Status::internal("Internal error."),
         }
     }

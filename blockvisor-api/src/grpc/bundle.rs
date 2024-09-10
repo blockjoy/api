@@ -1,19 +1,16 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::{error, warn};
 
 use crate::auth::rbac::BundlePerm;
 use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction};
 use crate::grpc::api::bundle_service_server::BundleService;
-use crate::grpc::{api, Grpc};
+use crate::grpc::{api, Grpc, Metadata, Status};
 use crate::store::BUNDLE_FILE;
 use crate::util::sql::Version;
-
-use super::{Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -69,7 +66,7 @@ impl BundleService for Grpc {
     }
 }
 
-async fn retrieve(
+pub async fn retrieve(
     req: api::BundleServiceRetrieveRequest,
     meta: Metadata,
     mut read: ReadConn<'_, '_>,
@@ -84,9 +81,9 @@ async fn retrieve(
     })
 }
 
-async fn list_versions(
+pub async fn list_versions(
     _: api::BundleServiceListVersionsRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BundleServiceListVersionsResponse, Error> {
     read.auth(&meta, BundlePerm::ListVersions).await?;

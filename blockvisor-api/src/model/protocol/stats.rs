@@ -6,12 +6,11 @@ use diesel::result::Error::NotFound;
 use diesel_async::RunQueryDsl;
 use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
-use tonic::Status;
 
 use crate::auth::rbac::ProtocolAdminPerm;
 use crate::auth::AuthZ;
 use crate::database::Conn;
-use crate::grpc::api;
+use crate::grpc::{api, Status};
 use crate::model::node::NodeState;
 use crate::model::schema::nodes;
 
@@ -46,7 +45,7 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             ForProtocol(_, NotFound) | ForVersion(_, NotFound) => Status::not_found("Not found."),
-            MissingViewAll => Status::permission_denied("Permission denied."),
+            MissingViewAll => Status::forbidden("Access denied."),
             _ => Status::internal("Internal error."),
         }
     }

@@ -19,13 +19,13 @@ use super::resource::{ClaimsResource, HostId, NodeId, OrgId, Resource, Resources
 pub enum Error {
     /// Need at least one perm of: {0:?}
     EnsureAnyPerms(HashSet<Perm>),
-    /// Claims `{0:?}` does not have visibility of the target HostId ({1}).
+    /// `{0:?}` claims does not have visibility of host `{1}`.
     EnsureHost(Resource, HostId),
-    /// Claims `{0:?}` does not have visibility of the target NodeId ({1}).
+    /// `{0:?}` claims does not have visibility of node `{1}`.
     EnsureNode(Resource, NodeId),
-    /// Claims `{0:?}` does not have visibility of the target OrgId ({1}).
+    /// `{0:?}` claims does not have visibility of org `{1}`.
     EnsureOrg(Resource, OrgId),
-    /// Claims `{0:?}` does not have visibility of the target UserId ({1}).
+    /// `{0:?}` claims does not have visibility of user `{1}`.
     EnsureUser(Resource, UserId),
     /// Failed to check claims for host: {0},
     Host(#[from] crate::model::host::Error),
@@ -47,9 +47,6 @@ impl From<Error> for Status {
         match err {
             EnsureAnyPerms(_) | EnsureHost(..) | EnsureNode(..) | EnsureOrg(..)
             | EnsureUser(..) => Status::forbidden("Access denied."),
-            MissingPerm(perm, _) => {
-                Status::forbidden(format!("Missing permission: {perm}"))
-            }
             MissingPerm(perm, _) => Status::forbidden(format!("Missing permission: {perm}")),
             Host(err) => err.into(),
             Node(err) => err.into(),
@@ -205,7 +202,9 @@ impl Claims {
             (Resource::User(id), Some(org_id)) => Ok(Some(Granted(
                 RbacPerm::for_org(id, org_id, true, conn).await?,
             ))),
+            (Resource::User(_), None) => Ok(None),
             (Resource::Org(id), Some(org_id)) if id == org_id => Ok(None),
+            (Resource::Org(_), None) => Ok(None),
             (Resource::Host(id), _) if id == host_id => Ok(None),
             (resource, _) => Err(Error::EnsureHost(resource, host_id)),
         }
@@ -219,14 +218,20 @@ impl Claims {
         node_id: NodeId,
         conn: &mut Conn<'_>,
     ) -> Result<Option<Granted>, Error> {
-        let node = Node::by_id(node_id, conn).await?;
+        let org_id = Node::org_id(node_id, conn).await?;
 
         match self.resource() {
             Resource::User(id) => Ok(Some(Granted(
-                RbacPerm::for_org(id, node.org_id, true, conn).await?,
+                RbacPerm::for_org(id, org_id, true, conn).await?,
             ))),
-            Resource::Org(id) if id == node.org_id => Ok(None),
-            Resource::Host(id) if id == node.host_id => Ok(None),
+            Resource::Org(id) if id == org_id => Ok(None),
+            resource @ Resource::Host(id) => {
+                if id == Node::host_id(node_id, conn).await? {
+                    Ok(None)
+                } else {
+                    Err(Error::EnsureNode(resource, node_id))
+                }
+            }
             Resource::Node(id) if id == node_id => Ok(None),
             resource => Err(Error::EnsureNode(resource, node_id)),
         }

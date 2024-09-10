@@ -7,9 +7,10 @@ use crate::setup::TestServer;
 async fn discovery_service_urls() {
     let test = TestServer::new().await;
 
+    let jwt = test.public_host_jwt();
     let req = api::DiscoveryServiceServicesRequest {};
     let resp = test
-        .send_admin(DiscoveryService::services, req)
+        .send_with(DiscoveryService::services, req, &jwt)
         .await
         .unwrap();
 

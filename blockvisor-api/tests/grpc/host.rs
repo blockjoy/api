@@ -1,5 +1,4 @@
 use blockvisor_api::auth::resource::HostId;
-use blockvisor_api::database::seed::NODE_ID;
 use blockvisor_api::grpc::api;
 use tonic::Code;
 
@@ -12,7 +11,7 @@ async fn create_a_new_host() {
 
     let create_req = |provision_token| api::HostServiceCreateRequest {
         provision_token,
-        org_id: None,
+        is_private: false,
         network_name: "new-host".to_string(),
         display_name: None,
         region: Some("europe-2-birmingham".to_string()),
@@ -62,7 +61,6 @@ async fn update_an_existing_host() {
 
     let update_req = |host_id: HostId| api::HostServiceUpdateRequest {
         host_id: host_id.to_string(),
-        org_id: None,
         network_name: None,
         display_name: Some("Servy McServington".to_string()),
         region: None,
@@ -85,20 +83,21 @@ async fn update_an_existing_host() {
     assert_eq!(status.code(), Code::Unauthenticated);
 
     // denied with org-admin token
-    let req = update_req(test.seed().host2.id);
+    let req = update_req(test.seed().host1.id);
     let status = test.send_admin(HostService::update, req).await.unwrap_err();
     assert_eq!(status.code(), Code::PermissionDenied);
 
     // denied with wrong host token
-    let jwt = test.host_jwt();
-    let req = update_req(test.seed().host2.id);
+    let jwt = test.private_host_jwt();
+    let req = update_req(test.seed().host1.id);
     let status = test
         .send_with(HostService::update, req, &jwt)
         .await
         .unwrap_err();
     assert_eq!(status.code(), Code::PermissionDenied);
 
-    // ok for correct host
+    // ok for correct host token
+    let jwt = test.public_host_jwt();
     let req = update_req(test.seed().host1.id);
     test.send_with(HostService::update, req, &jwt)
         .await
@@ -111,19 +110,10 @@ async fn delete_an_existing_host() {
 
     let delete_req = |host_id: HostId| api::HostServiceDeleteRequest {
         host_id: host_id.to_string(),
-        org_id: None,
     };
 
-    // fails without token
-    let req = delete_req(test.seed().host1.id);
-    let status = test
-        .send_unauthenticated(HostService::delete, req)
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), Code::Unauthenticated);
-
     // fails for the wrong host
-    let jwt = test.host_jwt();
+    let jwt = test.public_host_jwt();
     let req = delete_req(test.seed().host2.id);
     let status = test
         .send_with(HostService::delete, req, &jwt)
@@ -131,44 +121,50 @@ async fn delete_an_existing_host() {
         .unwrap_err();
     assert_eq!(status.code(), Code::PermissionDenied);
 
-    // fails while there is still a node
+    // fails for public host if not superuser
     let req = delete_req(test.seed().host1.id);
     let status = test
         .send_admin(HostService::delete, req.clone())
         .await
         .unwrap_err();
+    assert_eq!(status.code(), Code::PermissionDenied);
+
+    // fails while there is still a node
+    let req = delete_req(test.seed().host1.id);
+    let status = test
+        .send_super(HostService::delete, req.clone())
+        .await
+        .unwrap_err();
     assert_eq!(status.code(), Code::FailedPrecondition);
 
     let node_req = api::NodeServiceDeleteRequest {
-        node_id: NODE_ID.to_string(),
+        node_id: test.seed().node.id.to_string(),
     };
     test.send_admin(NodeService::delete, node_req)
         .await
         .unwrap();
 
     // ok once nodes are deleted
-    test.send_admin(HostService::delete, req).await.unwrap();
+    test.send_super(HostService::delete, req).await.unwrap();
 }
 
 #[tokio::test]
 async fn start_and_stop_a_host() {
     let test = TestServer::new().await;
+    let host_id = test.seed().host2.id;
 
     let req = api::HostServiceStartRequest {
-        host_id: test.seed().host1.id.to_string(),
-        org_id: None,
+        host_id: host_id.to_string(),
     };
     test.send_admin(HostService::start, req).await.unwrap();
 
     let req = api::HostServiceStopRequest {
-        host_id: test.seed().host1.id.to_string(),
-        org_id: None,
+        host_id: host_id.to_string(),
     };
     test.send_admin(HostService::stop, req).await.unwrap();
 
     let req = api::HostServiceRestartRequest {
-        host_id: test.seed().host1.id.to_string(),
-        org_id: None,
+        host_id: host_id.to_string(),
     };
     test.send_admin(HostService::restart, req).await.unwrap();
 }

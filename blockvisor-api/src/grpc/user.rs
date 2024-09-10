@@ -241,7 +241,7 @@ pub async fn delete(
     Ok(api::UserServiceDeleteResponse {})
 }
 
-async fn get_settings(
+pub async fn get_settings(
     req: api::UserServiceGetSettingsRequest,
     meta: Metadata,
     mut read: ReadConn<'_, '_>,

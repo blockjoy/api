@@ -62,13 +62,13 @@ alter table node_properties_old rename to node_properties;
 
 alter table node_logs_old rename to node_logs;
 
-alter table hosts_old rename to hosts;
-
 alter type enum_host_type_old rename to enum_host_type;
 
 alter type enum_connection_status rename to enum_conn_status;
 
 alter type enum_schedule_type rename to enum_managed_by;
+
+alter table hosts_old rename to hosts;
 
 alter table blockchains_old rename to blockchains;
 

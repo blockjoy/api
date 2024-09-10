@@ -126,9 +126,13 @@ define_perms! {
     }
 
     HostAdmin => {
+        Delete,
         Get,
         List,
         Regions,
+        Restart,
+        Start,
+        Stop,
         Update,
     }
 

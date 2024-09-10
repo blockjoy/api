@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::routing::{self, Router};
 use axum::Json;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -34,7 +34,7 @@ async fn create(
 async fn list(
     State(ctx): State<Arc<Context>>,
     headers: axum::http::header::HeaderMap,
-    Json(req): Json<api::ApiKeyServiceListRequest>,
+    Query(req): Query<api::ApiKeyServiceListRequest>,
 ) -> Result<Json<api::ApiKeyServiceListResponse>, super::Error> {
     ctx.read(|read| grpc::api_key::list(req, headers.into(), read).scope_boxed())
         .await

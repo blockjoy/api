@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::auth::resource::HostId;
 use crate::database::Conn;
+use crate::grpc::Status;
 use crate::util::sql::IpNetwork;
 
 use super::schema::{ip_addresses, nodes};

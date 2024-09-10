@@ -61,11 +61,11 @@ impl From<Error> for Status {
         use Error::*;
         error!("{err}");
         match err {
-            ClaimsNotUser | Jwt(_) | ParseToken(_) | RefreshResource => {
-                Status::forbidden("Access denied.")
+            Jwt(_) | NotBearer | ParseToken(_) | RefreshResource => {
+                Status::unauthorized("Access denied.")
             }
             Diesel(_) | Email(_) => Status::internal("Internal error."),
-            NotBearer => Status::unauthorized("Not bearer."),
+            ClaimsNotUser => Status::forbidden("Access denied."),
             NoRefresh => Status::invalid_argument("No refresh token."),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseUserId(_) => Status::invalid_argument("user_id"),
@@ -215,7 +215,7 @@ pub async fn refresh(
         Resource::User(id) => User::by_id(id, &mut write).await.map(|_| id.into())?,
         Resource::Org(id) => Org::by_id(id, &mut write).await.map(|_| id.into())?,
         Resource::Host(id) => Host::org_id(id, &mut write).await.map(|_| id.into())?,
-        Resource::Node(id) => Node::by_id(id, &mut write).await.map(|_| id.into())?,
+        Resource::Node(id) => Node::org_id(id, &mut write).await.map(|_| id.into())?,
     };
 
     // Check that the claims and the refresh token refer to the same user
@@ -244,17 +244,13 @@ pub async fn refresh(
     })
 }
 
-/// This endpoint triggers the sending of the reset-password email. The actual resetting is
-/// then done through the `update` function.
+/// Trigger a password reset email.
 pub async fn reset_password(
     req: api::AuthServiceResetPasswordRequest,
     _: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceResetPasswordResponse, Error> {
-    // We are going to query the user and send them an email, but when something goes wrong we
-    // are not going to return an error. This hides whether or not a user is registered with
-    // us to the caller of the api, because this info may be sensitive and this endpoint is not
-    // protected by any authentication.
+    // always return ok to caller to hide whether the user exists
     match User::by_email(&req.email, &mut write).await {
         Ok(user) => {
             if let Err(err) = write.ctx.email.reset_password(&user).await {

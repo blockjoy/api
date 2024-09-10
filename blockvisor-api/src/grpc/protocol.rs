@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
+use prost_wkt_types::Empty;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::{ProtocolAdminPerm, ProtocolPerm};
@@ -22,7 +22,7 @@ use crate::model::{Region, RegionId};
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::protocol_service_server::ProtocolService;
-use super::{api, common, Grpc};
+use super::{api, common, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -118,97 +118,97 @@ impl ProtocolService for Grpc {
     async fn add_protocol(
         &self,
         req: Request<api::ProtocolServiceAddProtocolRequest>,
-    ) -> Result<Response<api::ProtocolServiceAddProtocolResponse>, Status> {
+    ) -> Result<Response<api::ProtocolServiceAddProtocolResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| add_protocol(req, meta, write).scope_boxed())
+        self.write(|write| add_protocol(req, meta.into(), write).scope_boxed())
             .await
     }
 
     async fn add_version(
         &self,
         req: Request<api::ProtocolServiceAddVersionRequest>,
-    ) -> Result<Response<api::ProtocolServiceAddVersionResponse>, Status> {
+    ) -> Result<Response<api::ProtocolServiceAddVersionResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| add_version(req, meta, write).scope_boxed())
+        self.write(|write| add_version(req, meta.into(), write).scope_boxed())
             .await
     }
 
     async fn get_latest(
         &self,
         req: Request<api::ProtocolServiceGetLatestRequest>,
-    ) -> Result<Response<api::ProtocolServiceGetLatestResponse>, Status> {
+    ) -> Result<Response<api::ProtocolServiceGetLatestResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_latest(req, meta, read).scope_boxed())
+        self.read(|read| get_latest(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn get_pricing(
         &self,
         req: Request<api::ProtocolServiceGetPricingRequest>,
-    ) -> Result<Response<api::ProtocolServiceGetPricingResponse>, Status> {
+    ) -> Result<Response<api::ProtocolServiceGetPricingResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_pricing(req, meta, read).scope_boxed())
+        self.read(|read| get_pricing(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn get_protocol(
         &self,
         req: Request<api::ProtocolServiceGetProtocolRequest>,
-    ) -> Result<Response<api::ProtocolServiceGetProtocolResponse>, Status> {
+    ) -> Result<Response<api::ProtocolServiceGetProtocolResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_protocol(req, meta, read).scope_boxed())
+        self.read(|read| get_protocol(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn get_stats(
         &self,
         req: Request<api::ProtocolServiceGetStatsRequest>,
-    ) -> Result<Response<api::ProtocolServiceGetStatsResponse>, Status> {
+    ) -> Result<Response<api::ProtocolServiceGetStatsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_stats(req, meta, read).scope_boxed())
+        self.read(|read| get_stats(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn list_protocols(
         &self,
         req: Request<api::ProtocolServiceListProtocolsRequest>,
-    ) -> Result<Response<api::ProtocolServiceListProtocolsResponse>, Status> {
+    ) -> Result<Response<api::ProtocolServiceListProtocolsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list_protocols(req, meta, read).scope_boxed())
+        self.read(|read| list_protocols(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn list_versions(
         &self,
         req: Request<api::ProtocolServiceListVersionsRequest>,
-    ) -> Result<Response<api::ProtocolServiceListVersionsResponse>, Status> {
+    ) -> Result<Response<api::ProtocolServiceListVersionsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list_versions(req, meta, read).scope_boxed())
+        self.read(|read| list_versions(req, meta.into(), read).scope_boxed())
             .await
     }
 
     async fn update_protocol(
         &self,
         req: Request<api::ProtocolServiceUpdateProtocolRequest>,
-    ) -> Result<Response<api::ProtocolServiceUpdateProtocolResponse>, Status> {
+    ) -> Result<Response<api::ProtocolServiceUpdateProtocolResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_protocol(req, meta, write).scope_boxed())
+        self.write(|write| update_protocol(req, meta.into(), write).scope_boxed())
             .await
     }
 
     async fn update_version(
         &self,
         req: Request<api::ProtocolServiceUpdateVersionRequest>,
-    ) -> Result<Response<api::ProtocolServiceUpdateVersionResponse>, Status> {
+    ) -> Result<Response<api::ProtocolServiceUpdateVersionResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_version(req, meta, write).scope_boxed())
+        self.write(|write| update_version(req, meta.into(), write).scope_boxed())
             .await
     }
 }
 
-async fn add_protocol(
+pub async fn add_protocol(
     req: api::ProtocolServiceAddProtocolRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ProtocolServiceAddProtocolResponse, Error> {
     let authz = write.auth(&meta, ProtocolAdminPerm::AddProtocol).await?;
@@ -235,9 +235,9 @@ async fn add_protocol(
     })
 }
 
-async fn add_version(
+pub async fn add_version(
     req: api::ProtocolServiceAddVersionRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ProtocolServiceAddVersionResponse, Error> {
     let authz = write.auth(&meta, ProtocolAdminPerm::AddVersion).await?;
@@ -267,9 +267,9 @@ async fn add_version(
     })
 }
 
-async fn get_latest(
+pub async fn get_latest(
     req: api::ProtocolServiceGetLatestRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ProtocolServiceGetLatestResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {
@@ -296,9 +296,9 @@ async fn get_latest(
     })
 }
 
-async fn get_pricing(
+pub async fn get_pricing(
     req: api::ProtocolServiceGetPricingRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ProtocolServiceGetPricingResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {
@@ -326,9 +326,9 @@ async fn get_pricing(
     })
 }
 
-async fn get_protocol(
+pub async fn get_protocol(
     req: api::ProtocolServiceGetProtocolRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ProtocolServiceGetProtocolResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {
@@ -363,9 +363,9 @@ async fn get_protocol(
     })
 }
 
-async fn get_stats(
+pub async fn get_stats(
     req: api::ProtocolServiceGetStatsRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ProtocolServiceGetStatsResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {
@@ -405,7 +405,7 @@ async fn get_stats(
                 version_stats: hashmap! { id.to_string() => stats.try_into()? },
             })
         }
-        api::protocol_service_get_stats_request::StatsFor::AllProtocols(()) => {
+        api::protocol_service_get_stats_request::StatsFor::AllProtocols(Empty {}) => {
             let stats = NodeStats::for_all_protocols(&authz, &mut read).await?;
             let protocol_stats = stats
                 .into_iter()
@@ -417,7 +417,7 @@ async fn get_stats(
                 version_stats: hashmap! {},
             })
         }
-        api::protocol_service_get_stats_request::StatsFor::AllVersions(()) => {
+        api::protocol_service_get_stats_request::StatsFor::AllVersions(Empty {}) => {
             let stats = NodeStats::for_all_versions(&authz, &mut read).await?;
             let version_stats = stats
                 .into_iter()
@@ -432,9 +432,9 @@ async fn get_stats(
     }
 }
 
-async fn list_protocols(
+pub async fn list_protocols(
     req: api::ProtocolServiceListProtocolsRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ProtocolServiceListProtocolsResponse, Error> {
     let org_ids = req
@@ -492,9 +492,9 @@ async fn list_protocols(
     Ok(api::ProtocolServiceListProtocolsResponse { protocols })
 }
 
-async fn list_versions(
+pub async fn list_versions(
     req: api::ProtocolServiceListVersionsRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ProtocolServiceListVersionsResponse, Error> {
     let (org_id, resources): (_, Resources) = if let Some(ref org_id) = req.org_id {
@@ -521,9 +521,9 @@ async fn list_versions(
     })
 }
 
-async fn update_protocol(
+pub async fn update_protocol(
     req: api::ProtocolServiceUpdateProtocolRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ProtocolServiceUpdateProtocolResponse, Error> {
     let authz = write.auth(&meta, ProtocolAdminPerm::UpdateProtocol).await?;
@@ -546,9 +546,9 @@ async fn update_protocol(
     })
 }
 
-async fn update_version(
+pub async fn update_version(
     req: api::ProtocolServiceUpdateVersionRequest,
-    meta: MetadataMap,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ProtocolServiceUpdateVersionResponse, Error> {
     let _authz = write.auth(&meta, ProtocolAdminPerm::UpdateVersion).await?;

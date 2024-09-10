@@ -15,14 +15,13 @@ use displaydoc::Display;
 use password_hash::{PasswordVerifier, Salt};
 use rand::rngs::OsRng;
 use thiserror::Error;
-use tonic::Status;
 use tracing::warn;
 use validator::Validate;
 
 use crate::auth::rbac::{OrgRole, Role};
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
-use crate::grpc::api;
+use crate::grpc::{api, Status};
 use crate::util::{sql, NanosUtc, SearchOperator, SortOrder};
 
 use super::org::NewOrg;
@@ -103,7 +102,7 @@ impl From<Error> for Status {
             | FindByIds(_, NotFound) => Status::not_found("Not found."),
             AlreadyConfirmed => Status::failed_precondition("Already confirmed."),
             NotConfirmed => Status::failed_precondition("User is not confirmed."),
-            LoginEmail | VerifyPassword(_) => Status::unauthorized("Invalid email or password."),
+            LoginEmail | VerifyPassword(_) => Status::forbidden("Invalid email or password."),
             Paginate(err) => err.into(),
             Org(err) => err.into(),
             Rbac(err) => err.into(),

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::grpc::common;
+use crate::grpc::{common, Status};
 use crate::model::schema::sql_types;
 
 #[derive(Debug, DisplayDoc, Error)]

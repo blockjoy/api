@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use axum::debug_handler;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Json, State};
 use axum::response::Response;
@@ -72,7 +71,6 @@ where
         .with_state(context)
 }
 
-#[debug_handler]
 #[allow(clippy::unused_async)]
 async fn auth(
     WithRejection(value, _): WithRejection<Json<Value>, ErrorWrapper<Error>>,
@@ -81,7 +79,6 @@ async fn auth(
     response::ok()
 }
 
-#[debug_handler]
 async fn acl(
     State(ctx): State<Arc<Context>>,
     WithRejection(Json(req), _): WithRejection<Json<AclRequest>, ErrorWrapper<Error>>,

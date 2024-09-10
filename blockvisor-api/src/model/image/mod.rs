@@ -23,12 +23,12 @@ use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::resource::OrgId;
 use crate::auth::AuthZ;
 use crate::database::Conn;
+use crate::grpc::Status;
 use crate::model::protocol::{VersionId, Visibility};
 use crate::model::schema::images;
 

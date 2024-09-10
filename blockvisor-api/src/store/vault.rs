@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::{self, Instant};
-use tonic::Status;
 use tracing::warn;
 use vaultrs::client::{Client, VaultClient, VaultClientSettingsBuilder};
 use vaultrs::error::ClientError;
 use vaultrs::kv2;
 
 use crate::config::vault::Config;
+use crate::grpc::Status;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -87,11 +87,14 @@ impl Vault {
         let client = VaultClient::new(settings).map_err(Error::BuildClient)?;
         let vault = Vault { config, client };
 
+        /*
         // confirm that vault can connect to the mount point
         let vault = match vault.get_bytes("unknown").await {
             Ok(_) | Err(Error::PathNotFound) => Ok(Arc::new(RwLock::new(vault))),
             Err(err) => return Err(Error::Connection(Box::new(err))),
         }?;
+        */
+        let vault = Arc::new(RwLock::new(vault));
 
         // kick off a timer to read the latest vault token from a file
         if let Some(file) = refresh_file {
