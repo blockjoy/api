@@ -37,6 +37,7 @@ async fn can_create_multiple() {
         allow_ips: vec![],
         deny_ips: vec![],
         old_node_id: None,
+        tags: None,
     };
 
     let resp = test.send_admin(Service::create, req).await.unwrap();
@@ -64,6 +65,13 @@ async fn responds_ok_for_update_config() {
         new_org_id: None,
         note: Some("milk, eggs, bread and copious snacks".to_string()),
         display_name: Some("<script>alert('XSS');</script>".to_string()),
+        update_tags: Some(common::UpdateTags {
+            update: Some(common::update_tags::Update::OverwriteTags(common::Tags {
+                tags: vec![common::Tag {
+                    name: "updatednode".to_string(),
+                }],
+            })),
+        }),
     };
 
     test.send_with(Service::update_config, req, &jwt)
@@ -85,6 +93,8 @@ async fn responds_ok_for_update_config() {
         node.display_name,
         "<script>alert('XSS');</script>".to_string()
     );
+
+    assert_eq!(node.tags, vec![Some("updatednode".to_string())]);
 
     validate_command(&test).await;
 }
@@ -135,6 +145,11 @@ async fn responds_ok_with_valid_data_for_create() {
             description: Some("wow so denied".to_string()),
         }],
         old_node_id: None,
+        tags: Some(common::Tags {
+            tags: vec![common::Tag {
+                name: "testnode".to_string(),
+            }],
+        }),
     };
     let resp = test.send_admin(Service::create, req).await.unwrap();
 
@@ -152,6 +167,16 @@ async fn responds_ok_with_valid_data_for_create() {
     let denied = node.deny_ips[0].clone();
     assert_eq!(denied.ip, "127.0.0.2");
     assert_eq!(denied.description.unwrap(), "wow so denied");
+
+    assert_eq!(
+        node.tags.unwrap(),
+        common::Tags {
+            tags: vec![common::Tag {
+                name: "testnode".to_string()
+            }]
+        }
+    );
+
     validate_command(&test).await;
 }
 
@@ -177,6 +202,7 @@ async fn responds_ok_with_valid_data_for_create_schedule() {
         allow_ips: vec![],
         deny_ips: vec![],
         old_node_id: None,
+        tags: None,
     };
     test.send_root(Service::create, req).await.unwrap();
 }
@@ -204,23 +230,10 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         allow_ips: vec![],
         deny_ips: vec![],
         old_node_id: None,
+        tags: None,
     };
     let status = test.send_root(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");
-    validate_command(&test).await;
-}
-
-#[tokio::test]
-async fn responds_ok_with_valid_data_for_update_config() {
-    let test = TestServer::new().await;
-    let req = api::NodeServiceUpdateConfigRequest {
-        ids: vec![test.seed().node.id.to_string()],
-        self_update: Some(false),
-        new_org_id: None,
-        note: None,
-        display_name: None,
-    };
-    test.send_admin(Service::update_config, req).await.unwrap();
     validate_command(&test).await;
 }
 

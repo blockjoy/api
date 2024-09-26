@@ -69,6 +69,7 @@ async fn responds_ok_for_pending() {
         self_update: None,
         address: None,
         note: None,
+        tags: None,
     };
     node.update(&update, &mut conn).await.unwrap();
 

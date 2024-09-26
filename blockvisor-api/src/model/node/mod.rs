@@ -1123,6 +1123,7 @@ mod tests {
             scheduler_region: None,
             allow_ips: serde_json::json!([]),
             deny_ips: serde_json::json!([]),
+            tags: vec![Some("nicenode".to_string())],
         };
 
         let (meta_tx, _meta_rx) = mpsc::unbounded_channel();
