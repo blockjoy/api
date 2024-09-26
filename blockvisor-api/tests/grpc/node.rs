@@ -36,6 +36,7 @@ async fn can_create_multiple() {
         }),
         allow_ips: vec![],
         deny_ips: vec![],
+        old_node_id: None,
     };
 
     let resp = test.send_admin(Service::create, req).await.unwrap();
@@ -133,6 +134,7 @@ async fn responds_ok_with_valid_data_for_create() {
             ip: "127.0.0.2".to_string(),
             description: Some("wow so denied".to_string()),
         }],
+        old_node_id: None,
     };
     let resp = test.send_admin(Service::create, req).await.unwrap();
 
@@ -174,6 +176,7 @@ async fn responds_ok_with_valid_data_for_create_schedule() {
         }),
         allow_ips: vec![],
         deny_ips: vec![],
+        old_node_id: None,
     };
     test.send_root(Service::create, req).await.unwrap();
 }
@@ -200,6 +203,7 @@ async fn responds_invalid_argument_with_invalid_data_for_create() {
         }),
         allow_ips: vec![],
         deny_ips: vec![],
+        old_node_id: None,
     };
     let status = test.send_root(Service::create, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");
