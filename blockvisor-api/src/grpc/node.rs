@@ -482,9 +482,9 @@ async fn update_config(
     };
 
     let nodes = Node::by_ids(&ids, &mut write).await?;
-    let update = req.as_update()?;
 
     for node in nodes {
+        let update = req.as_update(&node)?;
         let node = node.update(&update, &mut write).await?;
         let updated = NewCommand::node(&node, CommandType::NodeUpdate)?
             .create(&mut write)
@@ -892,6 +892,8 @@ impl api::Node {
                 .collect(),
             note: node.note,
             url: node.url,
+            old_node_id: None,
+            tags: Some(node.tags.into_iter().collect()),
         })
     }
 }
@@ -967,6 +969,14 @@ impl api::NodeServiceCreateRequest {
                 .map(|s| s.resource().into_model().ok_or(Error::NoResourceAffinity))
                 .transpose()?,
             scheduler_region: region.map(|r| r.id),
+            tags: self
+                .tags
+                .as_ref()
+                .map(|tags| tags.tags.as_slice())
+                .unwrap_or_default()
+                .iter()
+                .map(|tag| Some(tag.name.trim().to_lowercase()))
+                .collect(),
         })
     }
 
@@ -1109,7 +1119,7 @@ impl api::NodeServiceListRequest {
 }
 
 impl api::NodeServiceUpdateConfigRequest {
-    pub fn as_update(&self) -> Result<UpdateNode<'_>, Error> {
+    pub fn as_update(&self, node: &Node) -> Result<UpdateNode<'_>, Error> {
         Ok(UpdateNode {
             org_id: self
                 .new_org_id
@@ -1131,6 +1141,10 @@ impl api::NodeServiceUpdateConfigRequest {
             self_update: self.self_update,
             address: None,
             note: self.note.as_deref(),
+            tags: self
+                .update_tags
+                .as_ref()
+                .and_then(|ut| ut.as_update(node.tags.iter().flatten())),
         })
     }
 }
@@ -1153,6 +1167,7 @@ impl api::NodeServiceUpdateStatusRequest {
             self_update: None,
             address: self.address.as_deref(),
             note: None,
+            tags: None,
         })
     }
 }

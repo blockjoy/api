@@ -216,6 +216,7 @@ pub struct Node {
     pub dns_name: String,
     pub display_name: String,
     pub stripe_item_id: Option<SubscriptionItemId>,
+    pub tags: Vec<Option<String>>,
 }
 
 impl Node {
@@ -761,6 +762,7 @@ pub struct NewNode {
     pub scheduler_resource: Option<ResourceAffinity>,
     /// The region where this node should be deployed.
     pub scheduler_region: Option<RegionId>,
+    pub tags: Vec<Option<String>>,
 }
 
 impl NewNode {
@@ -1025,6 +1027,7 @@ pub struct UpdateNode<'a> {
     pub self_update: Option<bool>,
     pub address: Option<&'a str>,
     pub note: Option<&'a str>,
+    pub tags: Option<Vec<Option<String>>>,
 }
 
 /// Update node columns related to metrics.

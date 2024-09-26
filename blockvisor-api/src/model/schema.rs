@@ -351,6 +351,7 @@ diesel::table! {
         dns_name -> Text,
         display_name -> Text,
         stripe_item_id -> Nullable<Text>,
+        tags -> Array<Nullable<Text>>,
     }
 }
 

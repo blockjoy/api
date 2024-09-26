@@ -509,14 +509,7 @@ impl api::Host {
                 lookup.nodes.get(&host.id).unwrap_or(&no_nodes),
             ),
             managed_by: api::ManagedBy::from_model(host.managed_by).into(),
-            tags: Some(common::Tags {
-                tags: host
-                    .tags
-                    .into_iter()
-                    .flatten()
-                    .map(|name| common::Tag { name })
-                    .collect(),
-            }),
+            tags: Some(host.tags.into_iter().collect()),
         })
     }
 }
@@ -716,8 +709,6 @@ impl api::HostServiceListRequest {
 
 impl api::HostServiceUpdateRequest {
     pub fn as_update(&self, host: &Host, region: Option<&Region>) -> Result<UpdateHost<'_>, Error> {
-        use api::update_tags::Update;
-
         Ok(UpdateHost {
             id: self.id.parse().map_err(Error::ParseId)?,
             name: self.name.as_deref(),
@@ -735,28 +726,10 @@ impl api::HostServiceUpdateRequest {
             ip_gateway: None,
             region_id: region.map(|r| r.id),
             managed_by: self.managed_by().into(),
-            tags: match &self.update_tags {
-                Some(api::UpdateTags {
-                    update: Some(Update::OverwriteTags(tags)),
-                }) => Some(
-                    tags.tags
-                        .iter()
-                        .map(|tag| Some(tag.name.trim().to_lowercase()))
-                        .collect(),
-                ),
-                Some(api::UpdateTags {
-                    update: Some(Update::AddTag(new_tag)),
-                }) => Some(
-                    host.tags
-                        .iter()
-                        .flatten()
-                        .map(|s| s.trim().to_lowercase())
-                        .chain([new_tag.name.trim().to_lowercase()])
-                        .map(Some)
-                        .collect(),
-                ),
-                Some(api::UpdateTags { update: None }) | None => None,
-            },
+            tags: self
+                .update_tags
+                .as_ref()
+                .and_then(|ut| ut.as_update(host.tags.iter().flatten())),
         })
     }
 }
@@ -784,6 +757,48 @@ impl api::ManagedBy {
             Self::Unspecified => None,
             Self::Automatic => Some(ManagedBy::Automatic),
             Self::Manual => Some(ManagedBy::Manual),
+        }
+    }
+}
+
+impl common::UpdateTags {
+    pub fn as_update<S: AsRef<str>>(
+        &self,
+        existing_tags: impl Iterator<Item = S>,
+    ) -> Option<Vec<Option<String>>> {
+        use common::update_tags::Update;
+
+        match self {
+            common::UpdateTags {
+                update: Some(Update::OverwriteTags(tags)),
+            } => Some(
+                tags.tags
+                    .iter()
+                    .map(|tag| Some(tag.name.trim().to_lowercase()))
+                    .collect(),
+            ),
+            common::UpdateTags {
+                update: Some(Update::AddTag(new_tag)),
+            } => Some(
+                existing_tags
+                    .map(|s| s.as_ref().trim().to_lowercase())
+                    .chain([new_tag.name.trim().to_lowercase()])
+                    .map(Some)
+                    .collect(),
+            ),
+            common::UpdateTags { update: None } => None,
+        }
+    }
+}
+
+impl FromIterator<Option<String>> for common::Tags {
+    fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
+        Self {
+            tags: iter
+                .into_iter()
+                .flatten()
+                .map(|name| common::Tag { name })
+                .collect(),
         }
     }
 }
