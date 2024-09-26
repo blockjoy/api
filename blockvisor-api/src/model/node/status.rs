@@ -31,6 +31,9 @@ pub enum NodeStatus {
     Initializing,
     Downloading,
     Uploading,
+    Starting,
+    Active,
+    Jailed,
 }
 
 impl From<NodeStatus> for common::NodeStatus {
@@ -61,6 +64,9 @@ impl From<NodeStatus> for common::NodeStatus {
             NodeStatus::Initializing => Self::Initializing,
             NodeStatus::Downloading => Self::Downloading,
             NodeStatus::Uploading => Self::Uploading,
+            NodeStatus::Starting => Self::Starting,
+            NodeStatus::Active => Self::Active,
+            NodeStatus::Jailed => Self::Jailed,
         }
     }
 }
@@ -93,6 +99,9 @@ impl common::NodeStatus {
             common::NodeStatus::Initializing => Some(NodeStatus::Initializing),
             common::NodeStatus::Downloading => Some(NodeStatus::Downloading),
             common::NodeStatus::Uploading => Some(NodeStatus::Uploading),
+            common::NodeStatus::Starting => Some(NodeStatus::Starting),
+            common::NodeStatus::Active => Some(NodeStatus::Active),
+            common::NodeStatus::Jailed => Some(NodeStatus::Jailed),
         }
     }
 }

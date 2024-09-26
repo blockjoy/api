@@ -892,6 +892,7 @@ impl api::Node {
                 .collect(),
             note: node.note,
             url: node.url,
+            old_node_id: None,
         })
     }
 }
