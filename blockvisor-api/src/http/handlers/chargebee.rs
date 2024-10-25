@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::response::Response;
 use axum::routing::{post, Router};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
@@ -18,7 +17,6 @@ use tracing::{debug, error};
 use crate::config::Context;
 use crate::database::{Transaction, WriteConn};
 use crate::grpc::{api, command};
-use crate::http::response::{bad_params, failed, not_found, ok_custom};
 use crate::model::command::NewCommand;
 use crate::model::{CommandType, Host, Node, Subscription};
 
@@ -32,6 +30,8 @@ pub enum Error {
     GrpcCommand(#[from] crate::grpc::command::Error),
     /// Host error: {0}
     Host(#[from] crate::model::host::Error),
+    /// Incorrect chargebee secret
+    IncorrectChargebeeSecret,
     /// Chargebee IpAddress: {0}
     IpAddress(#[from] crate::model::ip_address::Error),
     /// Chargebee node: {0}
@@ -42,14 +42,16 @@ pub enum Error {
     Subscription(#[from] crate::model::subscription::Error),
 }
 
-impl From<Error> for tonic::Status {
+impl From<Error> for super::Error {
     fn from(err: Error) -> Self {
         use Error::*;
         error!("Chargebee webhook: {err:?}");
-        match err {
+        let (message, status) = match err {
+            IncorrectChargebeeSecret => ("Not found", 404),
             Command(_) | Database(_) | GrpcCommand(_) | IpAddress(_) | Node(_) | Host(_)
-            | ParseIpAddr(_) | Subscription(_) => tonic::Status::internal("Internal error"),
-        }
+            | ParseIpAddr(_) | Subscription(_) => ("Internal error", 500),
+        };
+        super::Error::new(message, status)
     }
 }
 
@@ -90,12 +92,11 @@ async fn callback(
     State(ctx): State<Arc<Context>>,
     Path(secret): Path<String>,
     body: String,
-) -> Response {
+) -> Result<axum::Json<serde_json::Value>, super::Error> {
     if ctx.config.chargebee.secret != secret {
-        error!("Bad chargebee callback secret. Ignoring event.");
         // We return a 404 if the secret is incorrect, so we don't give away
         // that there is a secret in this url that might be brute-forced.
-        return not_found();
+        return Err(Error::IncorrectChargebeeSecret.into());
     }
 
     // We only start parsing the json after the secret is verfied so people
@@ -104,22 +105,20 @@ async fn callback(
         Ok(body) => body,
         Err(err) => {
             error!("Failed to parse chargebee callback body `{body}`: {err:?}");
-            return bad_params();
+            return Err(Error::IncorrectChargebeeSecret.into());
         }
     };
 
-    let resp = match callback.event_type {
+    match callback.event_type {
         EventType::SubscriptionCancelled => {
             ctx.write(|c| subscription_cancelled(callback, c).scope_boxed())
                 .await
         }
         EventType::Other(event) => {
             debug!("Skipping chargebee callback event: {event}");
-            return ok_custom("event ignored");
+            Ok(axum::Json(serde_json::json!({"message": "event ignored"})))
         }
-    };
-
-    resp.map_or_else(|_| failed(), |resp| ok_custom(resp.into_inner()))
+    }
 }
 
 /// When a subscription is cancelled we delete all the nodes associated with
@@ -127,7 +126,7 @@ async fn callback(
 async fn subscription_cancelled(
     callback: Callback,
     mut write: WriteConn<'_, '_>,
-) -> Result<&'static str, Error> {
+) -> Result<serde_json::Value, Error> {
     let id = callback.content.subscription.id;
     let subscription = Subscription::by_external_id(&id, &mut write).await?;
     let nodes = Node::by_org_id(subscription.org_id, &mut write).await?;
@@ -136,7 +135,7 @@ async fn subscription_cancelled(
         delete_node(&node, &mut write).await?;
     }
 
-    Ok("subscription cancelled")
+    Ok(serde_json::json!({"message": "subscription cancelled"}))
 }
 
 async fn delete_node(node: &Node, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {

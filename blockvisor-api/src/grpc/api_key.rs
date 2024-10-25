@@ -1,7 +1,6 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 
@@ -56,8 +55,8 @@ impl From<Error> for Status {
             ParseKeyId(_) => Status::invalid_argument("id"),
             ParseResourceType(_) => Status::invalid_argument("resource"),
             Auth(err) => err.into(),
-            Claims(err) => err.into(),
-            Model(err) => err.into(),
+            Claims(_err) => todo!(),
+            Model(_err) => todo!(),
         }
     }
 }
@@ -69,7 +68,7 @@ impl ApiKeyService for Grpc {
         req: Request<api::ApiKeyServiceCreateRequest>,
     ) -> Result<Response<api::ApiKeyServiceCreateResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| create(req, meta, write).scope_boxed())
+        self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -78,7 +77,8 @@ impl ApiKeyService for Grpc {
         req: Request<api::ApiKeyServiceListRequest>,
     ) -> Result<Response<api::ApiKeyServiceListResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list(req, meta, read).scope_boxed()).await
+        self.read(|read| list(req, meta.into(), read).scope_boxed())
+            .await
     }
 
     async fn update(
@@ -86,7 +86,7 @@ impl ApiKeyService for Grpc {
         req: Request<api::ApiKeyServiceUpdateRequest>,
     ) -> Result<Response<api::ApiKeyServiceUpdateResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update(req, meta, write).scope_boxed())
+        self.write(|write| update(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -95,7 +95,7 @@ impl ApiKeyService for Grpc {
         req: Request<api::ApiKeyServiceRegenerateRequest>,
     ) -> Result<Response<api::ApiKeyServiceRegenerateResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| regenerate(req, meta, write).scope_boxed())
+        self.write(|write| regenerate(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -104,14 +104,14 @@ impl ApiKeyService for Grpc {
         req: Request<api::ApiKeyServiceDeleteRequest>,
     ) -> Result<Response<api::ApiKeyServiceDeleteResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| delete(req, meta, write).scope_boxed())
+        self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await
     }
 }
 
-async fn create(
+pub async fn create(
     req: api::ApiKeyServiceCreateRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceCreateResponse, Error> {
     let scope = req.scope.ok_or(Error::MissingCreateScope)?;
@@ -130,7 +130,7 @@ async fn create(
 
 async fn list(
     _: api::ApiKeyServiceListRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceListResponse, Error> {
     let authz = read.auth_all(&meta, ApiKeyPerm::List).await?;
@@ -144,7 +144,7 @@ async fn list(
 
 async fn update(
     req: api::ApiKeyServiceUpdateRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceUpdateResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
@@ -181,7 +181,7 @@ async fn update(
 
 async fn regenerate(
     req: api::ApiKeyServiceRegenerateRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceRegenerateResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
@@ -201,7 +201,7 @@ async fn regenerate(
 
 async fn delete(
     req: api::ApiKeyServiceDeleteRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceDeleteResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;

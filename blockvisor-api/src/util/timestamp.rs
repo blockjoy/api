@@ -3,7 +3,7 @@ use std::ops::{Add, Sub};
 use chrono::{DateTime, Utc};
 use derive_more::{Deref, From, Into};
 use displaydoc::Display;
-use prost_types::Timestamp;
+use prost_wkt_types::Timestamp;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 

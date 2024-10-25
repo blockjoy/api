@@ -1,7 +1,6 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 
@@ -72,7 +71,7 @@ impl SubscriptionService for Grpc {
         req: Request<api::SubscriptionServiceCreateRequest>,
     ) -> Result<Response<api::SubscriptionServiceCreateResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| create(req, meta, write).scope_boxed())
+        self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -81,7 +80,8 @@ impl SubscriptionService for Grpc {
         req: Request<api::SubscriptionServiceGetRequest>,
     ) -> Result<Response<api::SubscriptionServiceGetResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get(req, meta, read).scope_boxed()).await
+        self.read(|read| get(req, meta.into(), read).scope_boxed())
+            .await
     }
 
     async fn list(
@@ -89,7 +89,8 @@ impl SubscriptionService for Grpc {
         req: Request<api::SubscriptionServiceListRequest>,
     ) -> Result<Response<api::SubscriptionServiceListResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list(req, meta, read).scope_boxed()).await
+        self.read(|read| list(req, meta.into(), read).scope_boxed())
+            .await
     }
 
     async fn update(
@@ -97,7 +98,7 @@ impl SubscriptionService for Grpc {
         req: Request<api::SubscriptionServiceUpdateRequest>,
     ) -> Result<Response<api::SubscriptionServiceUpdateResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|read| update(req, meta, read).scope_boxed())
+        self.write(|read| update(req, meta.into(), read).scope_boxed())
             .await
     }
 
@@ -106,14 +107,14 @@ impl SubscriptionService for Grpc {
         req: Request<api::SubscriptionServiceDeleteRequest>,
     ) -> Result<Response<api::SubscriptionServiceDeleteResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| delete(req, meta, write).scope_boxed())
+        self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await
     }
 }
 
 async fn create(
     req: api::SubscriptionServiceCreateRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceCreateResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -137,7 +138,7 @@ async fn create(
 
 async fn get(
     req: api::SubscriptionServiceGetRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceGetResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -152,7 +153,7 @@ async fn get(
 
 async fn list(
     req: api::SubscriptionServiceListRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceListResponse, Error> {
     let user_id = req.user_id.ok_or(Error::MissingUserId)?;
@@ -171,7 +172,7 @@ async fn list(
 // Note that for now this just checks if a permission is available.
 async fn update(
     req: api::SubscriptionServiceUpdateRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceUpdateResponse, Error> {
     let org_id = req.org_id.ok_or(Error::MissingOrgId)?;
@@ -183,7 +184,7 @@ async fn update(
 
 async fn delete(
     req: api::SubscriptionServiceDeleteRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceDeleteResponse, Error> {
     let sub_id = req.id.parse().map_err(Error::ParseId)?;

@@ -7,7 +7,6 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use itertools::Itertools;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 
@@ -126,10 +125,10 @@ impl MetricsService for Grpc {
         req: Request<api::MetricsServiceNodeRequest>,
     ) -> Result<Response<api::MetricsServiceNodeResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        let outcome = self
-            .write(|write| node(req, meta, write).scope_boxed())
-            .await?;
-        match outcome.into_inner() {
+        let outcome: Result<Response<RespOrError<api::MetricsServiceNodeResponse>>, Status> = self
+            .write(|write| node(req, meta.into(), write).scope_boxed())
+            .await;
+        match outcome?.into_inner() {
             RespOrError::Resp(resp) => Ok(tonic::Response::new(resp)),
             RespOrError::Error(error) => Err(error.into()),
         }
@@ -140,10 +139,10 @@ impl MetricsService for Grpc {
         req: Request<api::MetricsServiceHostRequest>,
     ) -> Result<Response<api::MetricsServiceHostResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        let outcome = self
-            .write(|write| host(req, meta, write).scope_boxed())
-            .await?;
-        match outcome.into_inner() {
+        let outcome: Result<Response<RespOrError<api::MetricsServiceHostResponse>>, Status> = self
+            .write(|write| host(req, meta.into(), write).scope_boxed())
+            .await;
+        match outcome?.into_inner() {
             RespOrError::Resp(resp) => Ok(tonic::Response::new(resp)),
             RespOrError::Error(error) => Err(error.into()),
         }
@@ -157,7 +156,7 @@ enum RespOrError<T> {
 
 async fn node(
     req: api::MetricsServiceNodeRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<RespOrError<api::MetricsServiceNodeResponse>, Error> {
     // First we split our map of `node_id`: `update info` into two vectors, so we can parse and
@@ -222,7 +221,7 @@ async fn node(
 
 async fn host(
     req: api::MetricsServiceHostRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<RespOrError<api::MetricsServiceHostResponse>, Error> {
     let updates = req

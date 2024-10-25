@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::response::Response;
 use axum::routing::{post, Router};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
@@ -16,7 +15,6 @@ use tracing::{debug, error};
 use crate::auth::resource::{OrgId, UserId};
 use crate::config::Context;
 use crate::database::{Transaction, WriteConn};
-use crate::http::response::{bad_params, failed, ok_custom};
 use crate::model::{self, User};
 use crate::stripe::api::event;
 
@@ -44,23 +42,27 @@ pub enum Error {
     Org(#[from] crate::model::org::Error),
     /// Stripe user: {0}
     User(#[from] crate::model::user::Error),
+    /// Could not parse stripe body: {0}
+    UnparseableStripeBody(serde_json::Error),
 }
 
-impl From<Error> for tonic::Status {
+impl From<Error> for super::Error {
     fn from(err: Error) -> Self {
         use Error::*;
         error!("Stripe webhook: {err:?}");
-        match err {
-            MissingMetadata => tonic::Status::invalid_argument("Metadata field not set"),
-            MissingUserId => tonic::Status::invalid_argument("User id missing from metadata"),
-            BadUserId(_) => tonic::Status::invalid_argument("Could not parse user id"),
-            MissingOrgId => tonic::Status::invalid_argument("Org id missing from metadata"),
-            BadOrgId(_) => tonic::Status::invalid_argument("Could not parse org id"),
-            NoOwner(_) => tonic::Status::failed_precondition("Org has no owner"),
+        let (message, status) = match err {
+            MissingMetadata => ("Metadata field not set", 400),
+            MissingUserId => ("User id missing from metadata", 400),
+            BadUserId(_) => ("Could not parse user id", 400),
+            MissingOrgId => ("Org id missing from metadata", 400),
+            BadOrgId(_) => ("Could not parse org id", 400),
+            NoOwner(_) => ("Org has no owner", 400),
             Database(_) | Subscription(_) | Org(_) | Stripe(_) | User(_) => {
-                tonic::Status::internal("Internal error.")
+                ("Internal error.", 500)
             }
-        }
+            UnparseableStripeBody(_) => ("Unparseable request", 422),
+        };
+        super::Error::new(message, status)
     }
 }
 
@@ -73,37 +75,35 @@ where
         .with_state(context)
 }
 
-async fn setup_intent_succeeded(State(ctx): State<Arc<Context>>, body: String) -> Response {
+async fn setup_intent_succeeded(
+    State(ctx): State<Arc<Context>>,
+    body: String,
+) -> Result<axum::Json<serde_json::Value>, super::Error> {
     // FIXME: this bastard needs auth.
 
     let event: event::Event = match serde_json::from_str(&body) {
         Ok(body) => body,
         Err(err) => {
-            error!("Failed to parse stripe callback body `{body}`: {err:?}");
-            return bad_params();
+            return Err(Error::UnparseableStripeBody(err).into());
         }
     };
 
-    let resp = match event.data.object {
+    match event.data.object {
         event::EventObject::SetupIntent(data) => {
             ctx.write(|c| setup_intent_succeeded_handler(data, c).scope_boxed())
                 .await
         }
         event::EventObject::Other => {
             debug!("Skipping chargebee callback event: {body}");
-            return ok_custom("event ignored");
+            Ok(axum::Json(serde_json::json!({"message": "event ignored"})))
         }
-    };
-
-    resp.map_or_else(|_| failed(), |resp| ok_custom(resp.into_inner()))
+    }
 }
 
 async fn setup_intent_succeeded_handler(
     setup_intent: event::SetupIntent,
     mut write: WriteConn<'_, '_>,
-) -> Result<&'static str, Error> {
-    println!("Got this setup_intent:");
-    println!("{setup_intent:?}");
+) -> Result<serde_json::Value, Error> {
     let stripe = &write.ctx.stripe;
     let org_id: OrgId = setup_intent
         .metadata
@@ -126,5 +126,5 @@ async fn setup_intent_succeeded_handler(
         org.set_customer_id(&customer_id, &mut write).await?;
     };
 
-    Ok("subscription created")
+    Ok(serde_json::json!({"message": "subscription created"}))
 }

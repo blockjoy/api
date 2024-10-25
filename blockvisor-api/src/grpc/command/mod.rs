@@ -5,7 +5,6 @@ use cidr_utils::cidr::IpCidr;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::{error, warn};
 
@@ -103,7 +102,8 @@ impl CommandService for Grpc {
         req: Request<api::CommandServiceListRequest>,
     ) -> Result<Response<api::CommandServiceListResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list(req, meta, read).scope_boxed()).await
+        self.read(|read| list(req, meta.into(), read).scope_boxed())
+            .await
     }
 
     async fn update(
@@ -111,7 +111,7 @@ impl CommandService for Grpc {
         req: Request<api::CommandServiceUpdateRequest>,
     ) -> Result<Response<api::CommandServiceUpdateResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update(req, meta, write).scope_boxed())
+        self.write(|write| update(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -120,7 +120,7 @@ impl CommandService for Grpc {
         req: Request<api::CommandServiceAckRequest>,
     ) -> Result<Response<api::CommandServiceAckResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| ack(req, meta, write).scope_boxed())
+        self.write(|write| ack(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -129,14 +129,14 @@ impl CommandService for Grpc {
         req: Request<api::CommandServicePendingRequest>,
     ) -> Result<Response<api::CommandServicePendingResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| pending(req, meta, read).scope_boxed())
+        self.read(|read| pending(req, meta.into(), read).scope_boxed())
             .await
     }
 }
 
 async fn list(
     req: api::CommandServiceListRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::CommandServiceListResponse, Error> {
     let filter = req.as_filter()?;
@@ -159,7 +159,7 @@ async fn list(
 
 async fn update(
     req: api::CommandServiceUpdateRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::CommandServiceUpdateResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
@@ -190,7 +190,7 @@ async fn update(
 
 async fn ack(
     req: api::CommandServiceAckRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::CommandServiceAckResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
@@ -214,7 +214,7 @@ async fn ack(
 
 async fn pending(
     req: api::CommandServicePendingRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::CommandServicePendingResponse, Error> {
     let host_id = req.host_id.parse().map_err(Error::ParseHostId)?;

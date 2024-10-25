@@ -1,7 +1,6 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::{error, warn};
 
@@ -89,7 +88,7 @@ impl AuthService for Grpc {
         req: Request<api::AuthServiceLoginRequest>,
     ) -> Result<Response<api::AuthServiceLoginResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| login(req, meta, write).scope_boxed())
+        self.write(|write| login(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -98,7 +97,7 @@ impl AuthService for Grpc {
         req: Request<api::AuthServiceConfirmRequest>,
     ) -> Result<Response<api::AuthServiceConfirmResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| confirm(req, meta, write).scope_boxed())
+        self.write(|write| confirm(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -107,7 +106,7 @@ impl AuthService for Grpc {
         req: Request<api::AuthServiceRefreshRequest>,
     ) -> Result<Response<api::AuthServiceRefreshResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| refresh(req, meta, write).scope_boxed())
+        self.write(|write| refresh(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -116,7 +115,7 @@ impl AuthService for Grpc {
         req: Request<api::AuthServiceResetPasswordRequest>,
     ) -> Result<Response<api::AuthServiceResetPasswordResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| reset_password(req, meta, write).scope_boxed())
+        self.write(|write| reset_password(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -125,7 +124,7 @@ impl AuthService for Grpc {
         req: Request<api::AuthServiceUpdatePasswordRequest>,
     ) -> Result<Response<api::AuthServiceUpdatePasswordResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_password(req, meta, write).scope_boxed())
+        self.write(|write| update_password(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -134,7 +133,7 @@ impl AuthService for Grpc {
         req: Request<api::AuthServiceUpdateUiPasswordRequest>,
     ) -> Result<Response<api::AuthServiceUpdateUiPasswordResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_ui_password(req, meta, write).scope_boxed())
+        self.write(|write| update_ui_password(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -143,14 +142,14 @@ impl AuthService for Grpc {
         req: Request<api::AuthServiceListPermissionsRequest>,
     ) -> Result<Response<api::AuthServiceListPermissionsResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| list_permissions(req, meta, write).scope_boxed())
+        self.write(|write| list_permissions(req, meta.into(), write).scope_boxed())
             .await
     }
 }
 
 async fn login(
     req: api::AuthServiceLoginRequest,
-    _: MetadataMap,
+    _: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceLoginResponse, Error> {
     // No auth claims are required as the password is checked instead.
@@ -172,7 +171,7 @@ async fn login(
 
 async fn confirm(
     _: api::AuthServiceConfirmRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceConfirmResponse, Error> {
     let authz = write.auth_all(&meta, AuthPerm::Confirm).await?;
@@ -195,7 +194,7 @@ async fn confirm(
 
 async fn refresh(
     req: api::AuthServiceRefreshRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceRefreshResponse, Error> {
     let claims = match req.token.parse().map_err(Error::ParseToken)? {
@@ -249,7 +248,7 @@ async fn refresh(
 /// then done through the `update` function.
 async fn reset_password(
     req: api::AuthServiceResetPasswordRequest,
-    _: MetadataMap,
+    _: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceResetPasswordResponse, Error> {
     // We are going to query the user and send them an email, but when something goes wrong we
@@ -270,7 +269,7 @@ async fn reset_password(
 
 async fn update_password(
     req: api::AuthServiceUpdatePasswordRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceUpdatePasswordResponse, Error> {
     let authz = write.auth_all(&meta, AuthPerm::UpdatePassword).await?;
@@ -286,7 +285,7 @@ async fn update_password(
 
 async fn update_ui_password(
     req: api::AuthServiceUpdateUiPasswordRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceUpdateUiPasswordResponse, Error> {
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
@@ -305,7 +304,7 @@ async fn update_ui_password(
 
 async fn list_permissions(
     req: api::AuthServiceListPermissionsRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceListPermissionsResponse, Error> {
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;

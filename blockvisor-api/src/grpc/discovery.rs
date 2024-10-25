@@ -1,7 +1,6 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 
@@ -41,14 +40,14 @@ impl DiscoveryService for Grpc {
         req: Request<api::DiscoveryServiceServicesRequest>,
     ) -> Result<Response<api::DiscoveryServiceServicesResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| services(req, meta, read).scope_boxed())
+        self.read(|read| services(req, meta.into(), read).scope_boxed())
             .await
     }
 }
 
 async fn services(
     _: api::DiscoveryServiceServicesRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::DiscoveryServiceServicesResponse, Error> {
     read.auth_all(&meta, DiscoveryPerm::Services).await?;

@@ -33,9 +33,11 @@ pub mod common {
 
 use std::sync::Arc;
 
+use axum::http::HeaderValue;
 use axum::Extension;
 use derive_more::Deref;
 use tonic::codec::CompressionEncoding;
+use tonic::metadata::{AsciiMetadataValue, MetadataMap};
 use tonic::transport::server::Router;
 use tonic::transport::Server;
 use tower::layer::util::{Identity, Stack};
@@ -78,6 +80,81 @@ struct Grpc {
 impl Grpc {
     const fn new(context: Arc<Context>) -> Self {
         Grpc { context }
+    }
+}
+
+/// A map of metadata that can either be used for either http or grpc requests.
+pub struct NaiveMeta {
+    data: axum::http::HeaderMap,
+}
+
+impl NaiveMeta {
+    pub fn new() -> Self {
+        Self {
+            data: axum::http::HeaderMap::new(),
+        }
+    }
+
+    pub fn insert_http(&mut self, k: &'static str, v: impl Into<HeaderValue>) {
+        self.data.insert(k, v.into());
+    }
+
+    pub fn insert_grpc(&mut self, k: &'static str, v: impl Into<AsciiMetadataValue>) {
+        let mut map = MetadataMap::new();
+        map.insert(k, v.into());
+        self.data.extend(map.into_headers());
+    }
+
+    pub fn get_http(&self, k: &str) -> Option<&HeaderValue> {
+        self.data.get(k)
+    }
+}
+
+impl Default for NaiveMeta {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<tonic::metadata::MetadataMap> for NaiveMeta {
+    fn from(value: tonic::metadata::MetadataMap) -> Self {
+        Self {
+            data: value.into_headers(),
+        }
+    }
+}
+
+impl From<NaiveMeta> for tonic::metadata::MetadataMap {
+    fn from(value: NaiveMeta) -> Self {
+        Self::from_headers(value.data)
+    }
+}
+
+impl From<axum::http::header::HeaderMap> for NaiveMeta {
+    fn from(data: axum::http::header::HeaderMap) -> Self {
+        Self { data }
+    }
+}
+
+pub trait ResponseMessage<T> {
+    fn construct(message: T, meta: NaiveMeta) -> Self;
+}
+
+impl<T> ResponseMessage<T> for tonic::Response<T> {
+    fn construct(message: T, meta: NaiveMeta) -> Self {
+        tonic::Response::from_parts(meta.into(), message, Default::default())
+    }
+}
+
+impl<T> ResponseMessage<T> for axum::Json<T> {
+    fn construct(message: T, _meta: NaiveMeta) -> axum::Json<T> {
+        axum::Json(message)
+    }
+}
+
+impl ResponseMessage<&'static str> for &'static str {
+    fn construct(message: &'static str, _: NaiveMeta) -> &'static str {
+        message
     }
 }
 

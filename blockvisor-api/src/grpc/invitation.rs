@@ -2,7 +2,6 @@ use diesel::result::Error::NotFound;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 
@@ -103,7 +102,7 @@ impl InvitationService for Grpc {
         req: Request<api::InvitationServiceCreateRequest>,
     ) -> Result<Response<api::InvitationServiceCreateResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| create(req, meta, write).scope_boxed())
+        self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -112,7 +111,8 @@ impl InvitationService for Grpc {
         req: Request<api::InvitationServiceListRequest>,
     ) -> Result<Response<api::InvitationServiceListResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list(req, meta, read).scope_boxed()).await
+        self.read(|read| list(req, meta.into(), read).scope_boxed())
+            .await
     }
 
     async fn accept(
@@ -120,7 +120,7 @@ impl InvitationService for Grpc {
         req: Request<api::InvitationServiceAcceptRequest>,
     ) -> Result<Response<api::InvitationServiceAcceptResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| accept(req, meta, write).scope_boxed())
+        self.write(|write| accept(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -129,7 +129,7 @@ impl InvitationService for Grpc {
         req: Request<api::InvitationServiceDeclineRequest>,
     ) -> Result<Response<api::InvitationServiceDeclineResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| decline(req, meta, write).scope_boxed())
+        self.write(|write| decline(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -138,14 +138,14 @@ impl InvitationService for Grpc {
         req: Request<api::InvitationServiceRevokeRequest>,
     ) -> Result<Response<api::InvitationServiceRevokeResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| revoke(req, meta, write).scope_boxed())
+        self.write(|write| revoke(req, meta.into(), write).scope_boxed())
             .await
     }
 }
 
 async fn create(
     req: api::InvitationServiceCreateRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceCreateResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -221,7 +221,7 @@ async fn create(
 
 async fn list(
     req: api::InvitationServiceListRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::InvitationServiceListResponse, Error> {
     let resource: Resource = if let Some(org_id) = &req.org_id {
@@ -256,7 +256,7 @@ async fn list(
 
 async fn accept(
     req: api::InvitationServiceAcceptRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceAcceptResponse, Error> {
     let id = req.invitation_id.parse().map_err(Error::ParseId)?;
@@ -300,7 +300,7 @@ async fn accept(
 
 async fn decline(
     req: api::InvitationServiceDeclineRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceDeclineResponse, Error> {
     let id = req.invitation_id.parse().map_err(Error::ParseId)?;
@@ -344,7 +344,7 @@ async fn decline(
 
 async fn revoke(
     req: api::InvitationServiceRevokeRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceRevokeResponse, Error> {
     let id = req.invitation_id.parse().map_err(Error::ParseId)?;

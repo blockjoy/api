@@ -8,11 +8,11 @@ use std::sync::Arc;
 use chrono::Duration;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::Status;
 
 use crate::config::token::Config;
 use crate::database::Conn;
+use crate::grpc;
 
 use self::claims::{Claims, Granted};
 use self::rbac::{Perm, Perms};
@@ -31,7 +31,7 @@ pub(crate) trait Authorize {
     /// trait methods delegate to.
     async fn authorize(
         &mut self,
-        meta: &MetadataMap,
+        meta: &grpc::NaiveMeta,
         perms: Perms,
         resources: Option<Resources>,
     ) -> Result<AuthZ, Error>;
@@ -39,7 +39,7 @@ pub(crate) trait Authorize {
     /// Authorize request token for some `perms` and `resources`.
     async fn auth<P, R>(
         &mut self,
-        meta: &MetadataMap,
+        meta: &grpc::NaiveMeta,
         perms: P,
         resources: R,
     ) -> Result<AuthZ, Error>
@@ -52,7 +52,7 @@ pub(crate) trait Authorize {
     }
 
     /// Authorize request token for some `perms` and all resources.
-    async fn auth_all<P>(&mut self, meta: &MetadataMap, perms: P) -> Result<AuthZ, Error>
+    async fn auth_all<P>(&mut self, meta: &grpc::NaiveMeta, perms: P) -> Result<AuthZ, Error>
     where
         P: Into<Perms> + Send,
     {
@@ -64,7 +64,7 @@ pub(crate) trait Authorize {
     /// On failure, authorize claims for some `perms` and `resources` instead.
     async fn auth_or_all<P1, P2, R>(
         &mut self,
-        meta: &MetadataMap,
+        meta: &grpc::NaiveMeta,
         perms_all: P1,
         perms: P2,
         resources: R,
@@ -141,7 +141,7 @@ impl Auth {
 
     pub async fn authorize_metadata(
         &self,
-        meta: &MetadataMap,
+        meta: &grpc::NaiveMeta,
         perms: Perms,
         resources: Option<Resources>,
         conn: &mut Conn<'_>,
@@ -213,7 +213,7 @@ impl Auth {
         Ok(AuthZ { claims, granted })
     }
 
-    pub fn refresh(&self, meta: &MetadataMap) -> Result<Refresh, Error> {
+    pub fn refresh(&self, meta: &grpc::NaiveMeta) -> Result<Refresh, Error> {
         let cookie: RequestCookie = meta.try_into().map_err(Error::RefreshHeader)?;
         self.cipher
             .refresh
@@ -225,7 +225,7 @@ impl Auth {
     ///
     /// Will return `Ok(None)` if the header is missing so that an alternative
     /// representation may be tried (e.g. from a `gRPC` request body).
-    pub fn maybe_refresh(&self, meta: &MetadataMap) -> Result<Option<Refresh>, Error> {
+    pub fn maybe_refresh(&self, meta: &grpc::NaiveMeta) -> Result<Option<Refresh>, Error> {
         use refresh::Error::*;
         match self.refresh(meta) {
             Ok(refresh) => Ok(Some(refresh)),

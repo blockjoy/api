@@ -5,7 +5,6 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures::future::OptionFuture;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error};
 
@@ -124,7 +123,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceCreateRequest>,
     ) -> Result<Response<api::OrgServiceCreateResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| create(req, meta, write).scope_boxed())
+        self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -133,7 +132,8 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceGetRequest>,
     ) -> Result<Response<api::OrgServiceGetResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get(req, meta, read).scope_boxed()).await
+        self.read(|read| get(req, meta.into(), read).scope_boxed())
+            .await
     }
 
     async fn list(
@@ -141,7 +141,8 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceListRequest>,
     ) -> Result<Response<api::OrgServiceListResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list(req, meta, read).scope_boxed()).await
+        self.read(|read| list(req, meta.into(), read).scope_boxed())
+            .await
     }
 
     async fn update(
@@ -149,7 +150,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceUpdateRequest>,
     ) -> Result<Response<api::OrgServiceUpdateResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update(req, meta, write).scope_boxed())
+        self.write(|write| update(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -158,7 +159,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceDeleteRequest>,
     ) -> Result<Response<api::OrgServiceDeleteResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| delete(req, meta, write).scope_boxed())
+        self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -167,7 +168,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceRemoveMemberRequest>,
     ) -> Result<Response<api::OrgServiceRemoveMemberResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| remove_member(req, meta, write).scope_boxed())
+        self.write(|write| remove_member(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -176,7 +177,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceGetProvisionTokenRequest>,
     ) -> Result<Response<api::OrgServiceGetProvisionTokenResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_provision_token(req, meta, read).scope_boxed())
+        self.read(|read| get_provision_token(req, meta.into(), read).scope_boxed())
             .await
     }
 
@@ -185,7 +186,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceResetProvisionTokenRequest>,
     ) -> Result<Response<api::OrgServiceResetProvisionTokenResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| reset_provision_token(req, meta, write).scope_boxed())
+        self.write(|write| reset_provision_token(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -194,7 +195,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceInitCardRequest>,
     ) -> Result<Response<api::OrgServiceInitCardResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| init_card(req, meta, write).scope_boxed())
+        self.write(|write| init_card(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -203,7 +204,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceListPaymentMethodsRequest>,
     ) -> Result<Response<api::OrgServiceListPaymentMethodsResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list_payment_methods(req, meta, read).scope_boxed())
+        self.read(|read| list_payment_methods(req, meta.into(), read).scope_boxed())
             .await
     }
 
@@ -212,7 +213,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceBillingDetailsRequest>,
     ) -> Result<Response<api::OrgServiceBillingDetailsResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| billing_details(req, meta, read).scope_boxed())
+        self.read(|read| billing_details(req, meta.into(), read).scope_boxed())
             .await
     }
 
@@ -221,7 +222,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceGetAddressRequest>,
     ) -> Result<Response<api::OrgServiceGetAddressResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_address(req, meta, read).scope_boxed())
+        self.read(|read| get_address(req, meta.into(), read).scope_boxed())
             .await
     }
 
@@ -230,7 +231,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceSetAddressRequest>,
     ) -> Result<Response<api::OrgServiceSetAddressResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| set_address(req, meta, read).scope_boxed())
+        self.read(|read| set_address(req, meta.into(), read).scope_boxed())
             .await
     }
 
@@ -239,7 +240,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceDeleteAddressRequest>,
     ) -> Result<Response<api::OrgServiceDeleteAddressResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| delete_address(req, meta, read).scope_boxed())
+        self.read(|read| delete_address(req, meta.into(), read).scope_boxed())
             .await
     }
 
@@ -248,14 +249,14 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceGetInvoicesRequest>,
     ) -> Result<Response<api::OrgServiceGetInvoicesResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get_invoices(req, meta, read).scope_boxed())
+        self.read(|read| get_invoices(req, meta.into(), read).scope_boxed())
             .await
     }
 }
 
 async fn create(
     req: api::OrgServiceCreateRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceCreateResponse, Error> {
     let authz = write.auth_all(&meta, OrgPerm::Create).await?;
@@ -278,7 +279,7 @@ async fn create(
 
 async fn get(
     req: api::OrgServiceGetRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetResponse, Error> {
     let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
@@ -293,7 +294,7 @@ async fn get(
 
 async fn list(
     req: api::OrgServiceListRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceListResponse, Error> {
     let filter = req.into_filter()?;
@@ -311,7 +312,7 @@ async fn list(
 
 async fn update(
     req: api::OrgServiceUpdateRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceUpdateResponse, Error> {
     let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
@@ -336,7 +337,7 @@ async fn update(
 
 async fn delete(
     req: api::OrgServiceDeleteRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceDeleteResponse, Error> {
     let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
@@ -363,7 +364,7 @@ async fn delete(
 
 async fn remove_member(
     req: api::OrgServiceRemoveMemberRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceRemoveMemberResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -412,7 +413,7 @@ async fn remove_member(
 
 async fn get_provision_token(
     req: api::OrgServiceGetProvisionTokenRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetProvisionTokenResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -428,7 +429,7 @@ async fn get_provision_token(
 
 async fn reset_provision_token(
     req: api::OrgServiceResetProvisionTokenRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceResetProvisionTokenResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -446,7 +447,7 @@ async fn reset_provision_token(
 
 async fn init_card(
     req: api::OrgServiceInitCardRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceInitCardResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
@@ -465,7 +466,7 @@ async fn init_card(
 
 async fn list_payment_methods(
     req: api::OrgServiceListPaymentMethodsRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceListPaymentMethodsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -506,7 +507,7 @@ async fn list_payment_methods(
 
 async fn billing_details(
     req: api::OrgServiceBillingDetailsRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceBillingDetailsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -556,7 +557,7 @@ async fn billing_details(
 
 async fn get_address(
     req: api::OrgServiceGetAddressRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -573,7 +574,7 @@ async fn get_address(
 
 async fn set_address(
     req: api::OrgServiceSetAddressRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceSetAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -635,7 +636,7 @@ async fn set_address(
 
 async fn delete_address(
     req: api::OrgServiceDeleteAddressRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceDeleteAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -651,7 +652,7 @@ async fn delete_address(
 
 async fn get_invoices(
     req: api::OrgServiceGetInvoicesRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetInvoicesResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;

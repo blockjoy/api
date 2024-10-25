@@ -4,7 +4,6 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures_util::future::OptionFuture;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 use uuid::Uuid;
@@ -189,7 +188,7 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceCreateRequest>,
     ) -> Result<Response<api::NodeServiceCreateResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| create(req, meta, write).scope_boxed())
+        self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -198,7 +197,8 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceGetRequest>,
     ) -> Result<Response<api::NodeServiceGetResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| get(req, meta, read).scope_boxed()).await
+        self.read(|read| get(req, meta.into(), read).scope_boxed())
+            .await
     }
 
     async fn list(
@@ -206,7 +206,8 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceListRequest>,
     ) -> Result<Response<api::NodeServiceListResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list(req, meta, read).scope_boxed()).await
+        self.read(|read| list(req, meta.into(), read).scope_boxed())
+            .await
     }
 
     async fn upgrade(
@@ -214,7 +215,7 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceUpgradeRequest>,
     ) -> Result<Response<api::NodeServiceUpgradeResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| upgrade(req, meta, write).scope_boxed())
+        self.write(|write| upgrade(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -223,7 +224,7 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceUpdateConfigRequest>,
     ) -> Result<Response<api::NodeServiceUpdateConfigResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_config(req, meta, write).scope_boxed())
+        self.write(|write| update_config(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -232,7 +233,7 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceUpdateStatusRequest>,
     ) -> Result<Response<api::NodeServiceUpdateStatusResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| update_status(req, meta, write).scope_boxed())
+        self.write(|write| update_status(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -241,7 +242,7 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceDeleteRequest>,
     ) -> Result<Response<api::NodeServiceDeleteResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| delete(req, meta, write).scope_boxed())
+        self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -250,7 +251,7 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceReportRequest>,
     ) -> Result<Response<api::NodeServiceReportResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| report(req, meta, write).scope_boxed())
+        self.write(|write| report(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -259,7 +260,7 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceStartRequest>,
     ) -> Result<Response<api::NodeServiceStartResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| start(req, meta, write).scope_boxed())
+        self.write(|write| start(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -268,7 +269,7 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceStopRequest>,
     ) -> Result<Response<api::NodeServiceStopResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| stop(req, meta, write).scope_boxed())
+        self.write(|write| stop(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -277,14 +278,14 @@ impl NodeService for Grpc {
         req: Request<api::NodeServiceRestartRequest>,
     ) -> Result<Response<api::NodeServiceRestartResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.write(|write| restart(req, meta, write).scope_boxed())
+        self.write(|write| restart(req, meta.into(), write).scope_boxed())
             .await
     }
 }
 
 async fn get(
     req: api::NodeServiceGetRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::NodeServiceGetResponse, Error> {
     let node_id = req.id.parse().map_err(Error::ParseId)?;
@@ -301,7 +302,7 @@ async fn get(
 
 async fn list(
     req: api::NodeServiceListRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::NodeServiceListResponse, Error> {
     let filter = req.into_filter()?;
@@ -320,7 +321,7 @@ async fn list(
 
 async fn create(
     req: api::NodeServiceCreateRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceCreateResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -406,7 +407,7 @@ async fn create(
 
 async fn upgrade(
     req: api::NodeServiceUpgradeRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpgradeResponse, Error> {
     let ids = req
@@ -455,7 +456,7 @@ async fn upgrade(
 
 async fn update_config(
     req: api::NodeServiceUpdateConfigRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateConfigResponse, Error> {
     let ids = req
@@ -504,7 +505,7 @@ async fn update_config(
 
 async fn update_status(
     req: api::NodeServiceUpdateStatusRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateStatusResponse, Error> {
     let ids = req
@@ -541,7 +542,7 @@ async fn update_status(
 
 async fn delete(
     req: api::NodeServiceDeleteRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceDeleteResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
@@ -574,7 +575,7 @@ async fn delete(
 
 async fn report(
     req: api::NodeServiceReportRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceReportResponse, Error> {
     let node_id: NodeId = req.node_id.parse().map_err(Error::ParseId)?;
@@ -594,7 +595,7 @@ async fn report(
 
 async fn start(
     req: api::NodeServiceStartRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceStartResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
@@ -616,7 +617,7 @@ async fn start(
 
 async fn stop(
     req: api::NodeServiceStopRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceStopResponse, Error> {
     let node_id = req.id.parse().map_err(Error::ParseId)?;
@@ -638,7 +639,7 @@ async fn stop(
 
 async fn restart(
     req: api::NodeServiceRestartRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceRestartResponse, Error> {
     let node_id = req.id.parse().map_err(Error::ParseId)?;

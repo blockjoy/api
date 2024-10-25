@@ -1,7 +1,6 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use tracing::error;
 
@@ -45,7 +44,7 @@ impl KernelService for Grpc {
         req: Request<api::KernelServiceRetrieveRequest>,
     ) -> Result<Response<api::KernelServiceRetrieveResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| retrieve_kernel_(req, meta, read).scope_boxed())
+        self.read(|read| retrieve_kernel_(req, meta.into(), read).scope_boxed())
             .await
     }
 
@@ -54,14 +53,14 @@ impl KernelService for Grpc {
         req: Request<api::KernelServiceListKernelVersionsRequest>,
     ) -> Result<Response<api::KernelServiceListKernelVersionsResponse>, Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| list_kernel_versions(req, meta, read).scope_boxed())
+        self.read(|read| list_kernel_versions(req, meta.into(), read).scope_boxed())
             .await
     }
 }
 
 async fn retrieve_kernel_(
     req: api::KernelServiceRetrieveRequest,
-    meta: MetadataMap,
+    meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::KernelServiceRetrieveResponse, Error> {
     read.auth_all(&meta, KernelPerm::Retrieve).await?;
@@ -78,7 +77,7 @@ async fn retrieve_kernel_(
 
 async fn list_kernel_versions(
     _: api::KernelServiceListKernelVersionsRequest,
-    _: MetadataMap,
+    _: super::NaiveMeta,
     read: ReadConn<'_, '_>,
 ) -> Result<api::KernelServiceListKernelVersionsResponse, Error> {
     let identifiers = read.ctx.storage.list_kernels().await?;
