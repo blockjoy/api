@@ -1,7 +1,7 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::{
@@ -15,7 +15,7 @@ use crate::model::user::{NewUser, UpdateUser, User, UserFilter, UserSearch, User
 use crate::util::NanosUtc;
 
 use super::api::user_service_server::UserService;
-use super::{api, Grpc};
+use super::{api, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -47,11 +47,11 @@ pub enum Error {
     UserSettings(#[from] crate::model::user::setting::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             Diesel(_) | Email(_) | ParseInvitationId(_) => Status::internal("Internal error."),
             ParseId(_) => Status::invalid_argument("id"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
@@ -59,10 +59,10 @@ impl From<Error> for Status {
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
-            Model(err) => err.into(),
-            UserSettings(_) => err.into(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
+            Model(err) => err.report(),
+            UserSettings(err) => err.report(),
         }
     }
 }
@@ -72,7 +72,7 @@ impl UserService for Grpc {
     async fn create(
         &self,
         req: Request<api::UserServiceCreateRequest>,
-    ) -> Result<Response<api::UserServiceCreateResponse>, Status> {
+    ) -> Result<Response<api::UserServiceCreateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
@@ -81,7 +81,7 @@ impl UserService for Grpc {
     async fn get(
         &self,
         req: Request<api::UserServiceGetRequest>,
-    ) -> Result<Response<api::UserServiceGetResponse>, Status> {
+    ) -> Result<Response<api::UserServiceGetResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get(req, meta.into(), read).scope_boxed())
             .await
@@ -90,7 +90,7 @@ impl UserService for Grpc {
     async fn list(
         &self,
         req: Request<api::UserServiceListRequest>,
-    ) -> Result<Response<api::UserServiceListResponse>, Status> {
+    ) -> Result<Response<api::UserServiceListResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta.into(), read).scope_boxed())
             .await
@@ -99,7 +99,7 @@ impl UserService for Grpc {
     async fn update(
         &self,
         req: Request<api::UserServiceUpdateRequest>,
-    ) -> Result<Response<api::UserServiceUpdateResponse>, Status> {
+    ) -> Result<Response<api::UserServiceUpdateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update(req, meta.into(), write).scope_boxed())
             .await
@@ -108,7 +108,7 @@ impl UserService for Grpc {
     async fn delete(
         &self,
         req: Request<api::UserServiceDeleteRequest>,
-    ) -> Result<Response<api::UserServiceDeleteResponse>, Status> {
+    ) -> Result<Response<api::UserServiceDeleteResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await
@@ -117,7 +117,7 @@ impl UserService for Grpc {
     async fn get_billing(
         &self,
         req: Request<api::UserServiceGetBillingRequest>,
-    ) -> Result<Response<api::UserServiceGetBillingResponse>, Status> {
+    ) -> Result<Response<api::UserServiceGetBillingResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_billing(req, meta.into(), read).scope_boxed())
             .await
@@ -126,7 +126,7 @@ impl UserService for Grpc {
     async fn update_billing(
         &self,
         req: Request<api::UserServiceUpdateBillingRequest>,
-    ) -> Result<Response<api::UserServiceUpdateBillingResponse>, Status> {
+    ) -> Result<Response<api::UserServiceUpdateBillingResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update_billing(req, meta.into(), write).scope_boxed())
             .await
@@ -135,7 +135,7 @@ impl UserService for Grpc {
     async fn delete_billing(
         &self,
         req: Request<api::UserServiceDeleteBillingRequest>,
-    ) -> Result<Response<api::UserServiceDeleteBillingResponse>, Status> {
+    ) -> Result<Response<api::UserServiceDeleteBillingResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| delete_billing(req, meta.into(), write).scope_boxed())
             .await
@@ -144,7 +144,7 @@ impl UserService for Grpc {
     async fn get_settings(
         &self,
         req: Request<api::UserServiceGetSettingsRequest>,
-    ) -> Result<Response<api::UserServiceGetSettingsResponse>, Status> {
+    ) -> Result<Response<api::UserServiceGetSettingsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_settings(req, meta.into(), read).scope_boxed())
             .await
@@ -153,7 +153,7 @@ impl UserService for Grpc {
     async fn update_settings(
         &self,
         req: Request<api::UserServiceUpdateSettingsRequest>,
-    ) -> Result<Response<api::UserServiceUpdateSettingsResponse>, Status> {
+    ) -> Result<Response<api::UserServiceUpdateSettingsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update_settings(req, meta.into(), write).scope_boxed())
             .await
@@ -162,7 +162,7 @@ impl UserService for Grpc {
     async fn delete_settings(
         &self,
         req: Request<api::UserServiceDeleteSettingsRequest>,
-    ) -> Result<Response<api::UserServiceDeleteSettingsResponse>, Status> {
+    ) -> Result<Response<api::UserServiceDeleteSettingsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| delete_settings(req, meta.into(), write).scope_boxed())
             .await

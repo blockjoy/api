@@ -2,13 +2,12 @@
 
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::Status;
 use tracing::{error, warn};
 
 use crate::auth::AuthZ;
 use crate::cloudflare;
 use crate::database::WriteConn;
-use crate::grpc::api;
+use crate::grpc::{self, api, Status};
 use crate::model::command::NewCommand;
 use crate::model::node::{NewNodeLog, NodeLogEvent, UpdateNode};
 use crate::model::{Blockchain, Command, CommandType, Host, IpAddress, Node};
@@ -33,27 +32,23 @@ pub enum Error {
     Node(#[from] crate::model::node::Error),
     /// Command recovery failed to update node: {0}
     UpdateNode(crate::model::node::Error),
-    /// Unassigning an ip address failed: {0}
-    UnassignIp(crate::model::ip_address::Error),
-    /// Assigning an ip address failed: {0}
-    AssignIp(crate::model::ip_address::Error),
     /// Finding an ip address failed: {0}
     FindIp(crate::model::ip_address::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             Cloudflare(_) => Status::internal("Internal error."),
             CreateNodeId => Status::invalid_argument("node_id"),
-            AssignIp(err) | FindIp(err) | UnassignIp(err) => err.into(),
-            Blockchain(err) => err.into(),
-            CancelationLog(err) | DeploymentLog(err) => err.into(),
-            Command(err) => err.into(),
-            Host(err) => err.into(),
-            Node(err) | UpdateNode(err) => err.into(),
+            FindIp(err) => err.report(),
+            Blockchain(err) => err.report(),
+            CancelationLog(err) | DeploymentLog(err) => err.report(),
+            Command(err) => err.report(),
+            Host(err) => err.report(),
+            Node(err) | UpdateNode(err) => err.report(),
         }
     }
 }

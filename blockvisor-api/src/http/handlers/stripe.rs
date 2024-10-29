@@ -15,6 +15,7 @@ use tracing::{debug, error};
 use crate::auth::resource::{OrgId, UserId};
 use crate::config::Context;
 use crate::database::{Transaction, WriteConn};
+use crate::grpc::{self, ErrorWrapper, Status};
 use crate::model::{self, User};
 use crate::stripe::api::event;
 
@@ -46,23 +47,22 @@ pub enum Error {
     UnparseableStripeBody(serde_json::Error),
 }
 
-impl From<Error> for super::Error {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("Stripe webhook: {err:?}");
-        let (message, status) = match err {
-            MissingMetadata => ("Metadata field not set", 400),
-            MissingUserId => ("User id missing from metadata", 400),
-            BadUserId(_) => ("Could not parse user id", 400),
-            MissingOrgId => ("Org id missing from metadata", 400),
-            BadOrgId(_) => ("Could not parse org id", 400),
-            NoOwner(_) => ("Org has no owner", 400),
+        error!("Stripe webhook: {self:?}");
+        match self {
+            MissingMetadata => Status::invalid_argument("Metadata field not set"),
+            MissingUserId => Status::invalid_argument("User id missing from metadata"),
+            BadUserId(_) => Status::invalid_argument("Could not parse user id"),
+            MissingOrgId => Status::invalid_argument("Org id missing from metadata"),
+            BadOrgId(_) => Status::invalid_argument("Could not parse org id"),
+            NoOwner(_) => Status::failed_precondition("Org has no owner"),
             Database(_) | Subscription(_) | Org(_) | Stripe(_) | User(_) => {
-                ("Internal error.", 500)
+                Status::internal("Internal error.")
             }
-            UnparseableStripeBody(_) => ("Unparseable request", 422),
-        };
-        super::Error::new(message, status)
+            UnparseableStripeBody(_) => Status::invalid_argument("Unparseable request"),
+        }
     }
 }
 
@@ -84,7 +84,7 @@ async fn setup_intent_succeeded(
     let event: event::Event = match serde_json::from_str(&body) {
         Ok(body) => body,
         Err(err) => {
-            return Err(Error::UnparseableStripeBody(err).into());
+            return Err(ErrorWrapper(Error::UnparseableStripeBody(err)).into());
         }
     };
 

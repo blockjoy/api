@@ -12,12 +12,11 @@ use displaydoc::Display;
 use rhai::Engine;
 use semver::Version;
 use thiserror::Error;
-use tonic::Status;
 use tracing::warn;
 use url::Url;
 
 use crate::config::storage::{BucketConfig, Config};
-use crate::grpc::api;
+use crate::grpc::{self, api};
 use crate::model::node::NodeType;
 
 use self::client::Client;
@@ -66,18 +65,18 @@ pub enum Error {
     SerializeHeader(serde_json::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> grpc::Status {
         use Error::*;
-        match err {
+        match self {
             Client(client::Error::MissingKey(_, _))
             | FindManifestBody(_, _)
             | FindManifestHeader(_, _)
-            | NoDataVersion => Status::not_found("Not found."),
+            | NoDataVersion => grpc::Status::not_found("Not found."),
             Metadata(crate::storage::metadata::Error::CompileScript(_, _)) => {
-                Status::internal("Failed to compile script")
+                grpc::Status::internal("Failed to compile script")
             }
-            MissingChunk(_) => Status::failed_precondition("Unknown chunk index."),
+            MissingChunk(_) => grpc::Status::failed_precondition("Unknown chunk index."),
             Client(_)
             | Image(_)
             | Manifest(_)
@@ -87,7 +86,7 @@ impl From<Error> for Status {
             | ParseManifestHeader(_)
             | ParseUtf8(_)
             | SerializeBody(_)
-            | SerializeHeader(_) => Status::internal("Internal error."),
+            | SerializeHeader(_) => grpc::Status::internal("Internal error."),
         }
     }
 }

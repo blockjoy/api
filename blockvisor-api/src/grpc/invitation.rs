@@ -2,7 +2,7 @@ use diesel::result::Error::NotFound;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::{InvitationAdminPerm, InvitationPerm};
@@ -16,7 +16,7 @@ use crate::model::user::User;
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::invitation_service_server::InvitationService;
-use super::{api, common, Grpc};
+use super::{api, common, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -70,14 +70,14 @@ pub enum Error {
     WrongOrg,
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             Diesel(_) | Email(_) | Message(_) => Status::internal("Internal error."),
             ClaimsNotUser | ClaimsNotUserOrOrg | HostClaims | ListResource | MissingEmail
-            | NodeClaims | WrongEmail | WrongOrg => Status::permission_denied("Access denied."),
+            | NodeClaims | WrongEmail | WrongOrg => Status::forbidden("Access denied."),
             AlreadyAccepted => Status::failed_precondition("Already accepted."),
             AlreadyDeclined => Status::failed_precondition("Already declined."),
             AlreadyInvited => Status::failed_precondition("Already invited."),
@@ -85,12 +85,12 @@ impl From<Error> for Status {
             ParseId(_) => Status::invalid_argument("invitation_id"),
             ParseInvitedBy(_) => Status::invalid_argument("invited_by"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
-            Model(err) => err.into(),
-            Org(err) => err.into(),
-            Resource(err) => err.into(),
-            User(err) => err.into(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
+            Model(err) => err.report(),
+            Org(err) => err.report(),
+            Resource(err) => err.report(),
+            User(err) => err.report(),
         }
     }
 }
@@ -100,7 +100,7 @@ impl InvitationService for Grpc {
     async fn create(
         &self,
         req: Request<api::InvitationServiceCreateRequest>,
-    ) -> Result<Response<api::InvitationServiceCreateResponse>, Status> {
+    ) -> Result<Response<api::InvitationServiceCreateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
@@ -109,7 +109,7 @@ impl InvitationService for Grpc {
     async fn list(
         &self,
         req: Request<api::InvitationServiceListRequest>,
-    ) -> Result<Response<api::InvitationServiceListResponse>, Status> {
+    ) -> Result<Response<api::InvitationServiceListResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta.into(), read).scope_boxed())
             .await
@@ -118,7 +118,7 @@ impl InvitationService for Grpc {
     async fn accept(
         &self,
         req: Request<api::InvitationServiceAcceptRequest>,
-    ) -> Result<Response<api::InvitationServiceAcceptResponse>, Status> {
+    ) -> Result<Response<api::InvitationServiceAcceptResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| accept(req, meta.into(), write).scope_boxed())
             .await
@@ -127,7 +127,7 @@ impl InvitationService for Grpc {
     async fn decline(
         &self,
         req: Request<api::InvitationServiceDeclineRequest>,
-    ) -> Result<Response<api::InvitationServiceDeclineResponse>, Status> {
+    ) -> Result<Response<api::InvitationServiceDeclineResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| decline(req, meta.into(), write).scope_boxed())
             .await
@@ -136,7 +136,7 @@ impl InvitationService for Grpc {
     async fn revoke(
         &self,
         req: Request<api::InvitationServiceRevokeRequest>,
-    ) -> Result<Response<api::InvitationServiceRevokeResponse>, Status> {
+    ) -> Result<Response<api::InvitationServiceRevokeResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| revoke(req, meta.into(), write).scope_boxed())
             .await

@@ -9,11 +9,11 @@ use diesel_async::RunQueryDsl;
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::AuthZ;
 use crate::database::Conn;
+use crate::grpc::{self, Status};
 use crate::model::node::{NodeType, NodeVersion};
 use crate::model::schema::{blockchain_node_types, blockchain_versions};
 
@@ -37,17 +37,17 @@ pub enum Error {
     VersionExists,
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             Create(DatabaseError(UniqueViolation, _)) | VersionExists => {
                 Status::already_exists("Already exists.")
             }
             FindVersion(_, _, _, NotFound) | FindById(_, NotFound) | FindByIds(_, NotFound) => {
                 Status::not_found("Not found.")
             }
-            NodeType(err) => err.into(),
+            NodeType(err) => err.report(),
             _ => Status::internal("Internal error."),
         }
     }

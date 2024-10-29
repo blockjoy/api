@@ -7,7 +7,6 @@ use std::str::FromStr;
 use derive_more::{Deref, From};
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::Status;
 
 use crate::{config::token::SecretConfig, grpc};
 
@@ -30,14 +29,14 @@ pub enum Error {
     ParseSecret(api_key::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> grpc::Status {
         use Error::*;
-        match err {
+        match self {
             AuthHeaderPrefix | ParseAuthHeader(_) | ParseKeyId(_) | ParseSecret(_) => {
-                Status::unauthenticated("Bad auth header.")
+                grpc::Status::unauthorized("Bad auth header.")
             }
-            MissingAuthHeader => Status::unauthenticated("Missing auth header."),
+            MissingAuthHeader => grpc::Status::unauthorized("Missing auth header."),
         }
     }
 }

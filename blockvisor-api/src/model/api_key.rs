@@ -5,11 +5,11 @@ use diesel::result::Error::{DatabaseError, NotFound};
 use diesel_async::RunQueryDsl;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::Status;
 
 use crate::auth::resource::{Resource, ResourceEntry, ResourceId, ResourceType, UserId};
 use crate::auth::token::api_key::{BearerSecret, KeyHash, KeyId, Salt, Secret};
 use crate::database::{Conn, WriteConn};
+use crate::grpc::{self, Status};
 
 use super::schema::api_keys;
 
@@ -35,10 +35,10 @@ pub enum Error {
     UpdateLabel(diesel::result::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             CreateNew(DatabaseError(UniqueViolation, _)) => {
                 Status::already_exists("Already exists.")
             }

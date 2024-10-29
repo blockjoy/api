@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::claims::Claims;
@@ -23,7 +23,7 @@ use crate::storage::image::ImageId;
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::host_service_server::HostService;
-use super::{api, common, Grpc};
+use super::{api, common, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -95,16 +95,17 @@ pub enum Error {
     UnknownSortField,
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             CreateTokenNotUser | Diesel(_) | Jwt(_) | LookupMissingOrg(_) | MissingTokenOrgId
             | ParseNodeCount(_) | Refresh(_) => Status::internal("Internal error."),
             CpuCount(_) | DiskSize(_) | MemSize(_) => Status::out_of_range("Host resource."),
             HasNodes => Status::failed_precondition("This host still has nodes."),
-            HostProvisionByToken(_) => Status::permission_denied("Invalid token."),
+            HostProvisionByToken(_) => Status::forbidden("Invalid token."),
+            // HostProvisionByToken(_) => super::Status::forbidden("Invalid token."),
             ParseBlockchainId(_) => Status::invalid_argument("blockchain_id"),
             ParseId(_) => Status::invalid_argument("id"),
             ParseIp(_) => Status::invalid_argument("ips"),
@@ -115,17 +116,17 @@ impl From<Error> for Status {
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
             InvalidManagedBy(_) => Status::invalid_argument("managed_by"),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
-            Blockchain(err) => err.into(),
-            Command(err) => err.into(),
-            CommandApi(err) => err.into(),
-            Host(err) => err.into(),
-            IpAddress(err) => err.into(),
-            Node(err) => err.into(),
-            Org(err) => err.into(),
-            Region(err) => err.into(),
-            Storage(err) => err.into(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
+            Blockchain(err) => err.report(),
+            Command(err) => err.report(),
+            CommandApi(err) => err.report(),
+            Host(err) => err.report(),
+            IpAddress(err) => err.report(),
+            Node(err) => err.report(),
+            Org(err) => err.report(),
+            Region(err) => err.report(),
+            Storage(err) => err.report(),
         }
     }
 }
@@ -135,7 +136,7 @@ impl HostService for Grpc {
     async fn create(
         &self,
         req: Request<api::HostServiceCreateRequest>,
-    ) -> Result<Response<api::HostServiceCreateResponse>, Status> {
+    ) -> Result<Response<api::HostServiceCreateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
@@ -144,7 +145,7 @@ impl HostService for Grpc {
     async fn get(
         &self,
         req: Request<api::HostServiceGetRequest>,
-    ) -> Result<Response<api::HostServiceGetResponse>, Status> {
+    ) -> Result<Response<api::HostServiceGetResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get(req, meta.into(), read).scope_boxed())
             .await
@@ -153,7 +154,7 @@ impl HostService for Grpc {
     async fn list(
         &self,
         req: Request<api::HostServiceListRequest>,
-    ) -> Result<Response<api::HostServiceListResponse>, Status> {
+    ) -> Result<Response<api::HostServiceListResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta.into(), read).scope_boxed())
             .await
@@ -162,7 +163,7 @@ impl HostService for Grpc {
     async fn update(
         &self,
         req: Request<api::HostServiceUpdateRequest>,
-    ) -> Result<Response<api::HostServiceUpdateResponse>, Status> {
+    ) -> Result<Response<api::HostServiceUpdateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update(req, meta.into(), write).scope_boxed())
             .await
@@ -171,7 +172,7 @@ impl HostService for Grpc {
     async fn delete(
         &self,
         req: Request<api::HostServiceDeleteRequest>,
-    ) -> Result<Response<api::HostServiceDeleteResponse>, Status> {
+    ) -> Result<Response<api::HostServiceDeleteResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await
@@ -180,7 +181,7 @@ impl HostService for Grpc {
     async fn start(
         &self,
         req: Request<api::HostServiceStartRequest>,
-    ) -> Result<Response<api::HostServiceStartResponse>, Status> {
+    ) -> Result<Response<api::HostServiceStartResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| start(req, meta.into(), write).scope_boxed())
             .await
@@ -189,7 +190,7 @@ impl HostService for Grpc {
     async fn stop(
         &self,
         req: Request<api::HostServiceStopRequest>,
-    ) -> Result<Response<api::HostServiceStopResponse>, Status> {
+    ) -> Result<Response<api::HostServiceStopResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| stop(req, meta.into(), write).scope_boxed())
             .await
@@ -198,7 +199,7 @@ impl HostService for Grpc {
     async fn restart(
         &self,
         req: Request<api::HostServiceRestartRequest>,
-    ) -> Result<Response<api::HostServiceRestartResponse>, Status> {
+    ) -> Result<Response<api::HostServiceRestartResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| restart(req, meta.into(), write).scope_boxed())
             .await
@@ -207,7 +208,7 @@ impl HostService for Grpc {
     async fn regions(
         &self,
         req: Request<api::HostServiceRegionsRequest>,
-    ) -> Result<Response<api::HostServiceRegionsResponse>, Status> {
+    ) -> Result<Response<api::HostServiceRegionsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| regions(req, meta.into(), read).scope_boxed())
             .await

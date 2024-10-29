@@ -7,7 +7,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use itertools::Itertools;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::MetricsPerm;
@@ -20,7 +20,7 @@ use crate::model::{Host, Node};
 use crate::util::HashVec;
 
 use super::api::metrics_service_server::MetricsService;
-use super::{api, common, Grpc};
+use super::{api, common, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -82,11 +82,11 @@ pub enum Error {
     UnserializableJobs(serde_json::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             Diesel(_) | UnserializableJobs(_) => Status::internal("Internal error."),
             BlockAge(_) => Status::invalid_argument("block_age"),
             BlockHeight(_) => Status::invalid_argument("height"),
@@ -104,13 +104,13 @@ impl From<Error> for Status {
             UsedCpu(_) => Status::invalid_argument("used_cpu"),
             UsedDisk(_) => Status::invalid_argument("used_disk_space"),
             UsedMemory(_) => Status::invalid_argument("used_memory"),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
-            Host(err) => err.into(),
-            HostGrpc(err) => err.into(),
-            Node(err) => err.into(),
-            NodeGrpc(err) => err.into(),
-            Resource(err) => err.into(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
+            Host(err) => err.report(),
+            HostGrpc(err) => err.report(),
+            Node(err) => err.report(),
+            NodeGrpc(err) => err.report(),
+            Resource(err) => err.report(),
         }
     }
 }
@@ -123,28 +123,28 @@ impl MetricsService for Grpc {
     async fn node(
         &self,
         req: Request<api::MetricsServiceNodeRequest>,
-    ) -> Result<Response<api::MetricsServiceNodeResponse>, Status> {
+    ) -> Result<Response<api::MetricsServiceNodeResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        let outcome: Result<Response<RespOrError<api::MetricsServiceNodeResponse>>, Status> = self
-            .write(|write| node(req, meta.into(), write).scope_boxed())
-            .await;
+        let outcome: Result<Response<RespOrError<api::MetricsServiceNodeResponse>>, tonic::Status> =
+            self.write(|write| node(req, meta.into(), write).scope_boxed())
+                .await;
         match outcome?.into_inner() {
             RespOrError::Resp(resp) => Ok(tonic::Response::new(resp)),
-            RespOrError::Error(error) => Err(error.into()),
+            RespOrError::Error(error) => Err(super::ErrorWrapper(error).into()),
         }
     }
 
     async fn host(
         &self,
         req: Request<api::MetricsServiceHostRequest>,
-    ) -> Result<Response<api::MetricsServiceHostResponse>, Status> {
+    ) -> Result<Response<api::MetricsServiceHostResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        let outcome: Result<Response<RespOrError<api::MetricsServiceHostResponse>>, Status> = self
-            .write(|write| host(req, meta.into(), write).scope_boxed())
-            .await;
+        let outcome: Result<Response<RespOrError<api::MetricsServiceHostResponse>>, tonic::Status> =
+            self.write(|write| host(req, meta.into(), write).scope_boxed())
+                .await;
         match outcome?.into_inner() {
             RespOrError::Resp(resp) => Ok(tonic::Response::new(resp)),
-            RespOrError::Error(error) => Err(error.into()),
+            RespOrError::Error(error) => Err(super::ErrorWrapper(error).into()),
         }
     }
 }

@@ -8,11 +8,10 @@ use std::sync::Arc;
 use chrono::Duration;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::Status;
 
 use crate::config::token::Config;
 use crate::database::Conn;
-use crate::grpc;
+use crate::grpc::{self, Status};
 
 use self::claims::{Claims, Granted};
 use self::rbac::{Perm, Perms};
@@ -105,20 +104,18 @@ pub enum Error {
     ValidateApiKey(token::api_key::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             Database(_) => Status::internal("Internal error."),
-            DecodeJwt(_) => Status::permission_denied("Invalid JWT token."),
-            DecodeRefresh(_) | RefreshHeader(_) => {
-                Status::permission_denied("Invalid refresh token.")
-            }
-            ExpiredJwt(_) => Status::unauthenticated(TOKEN_EXPIRED),
-            ExpiredRefresh(_) => Status::unauthenticated(TOKEN_EXPIRED),
-            ValidateApiKey(_) => Status::permission_denied("Invalid API key."),
-            Claims(err) => err.into(),
-            ParseRequestToken(err) => err.into(),
+            DecodeJwt(_) => Status::unauthorized("Invalid JWT token."),
+            DecodeRefresh(_) | RefreshHeader(_) => Status::unauthorized("Invalid refresh token."),
+            ExpiredJwt(_) => Status::unauthorized(TOKEN_EXPIRED),
+            ExpiredRefresh(_) => Status::unauthorized(TOKEN_EXPIRED),
+            ValidateApiKey(_) => Status::unauthorized("Invalid API key."),
+            Claims(err) => err.report(),
+            ParseRequestToken(err) => err.report(),
         }
     }
 }

@@ -4,7 +4,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures_util::future::join_all;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::{error, warn};
 
 use crate::auth::rbac::{BlockchainAdminPerm, BlockchainPerm};
@@ -22,7 +22,7 @@ use crate::storage::Storage;
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::blockchain_service_server::BlockchainService;
-use super::{api, common, Grpc};
+use super::{api, common, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -94,11 +94,11 @@ pub enum Error {
     UnknownSortField,
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             Diesel(_)
             | MissingModel
             | MissingNetworksVersion
@@ -119,20 +119,20 @@ impl From<Error> for Status {
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
-            Auth(err) => err.into(),
-            Blockchain(err) => err.into(),
-            BlockchainNodeType(err) => err.into(),
-            BlockchainVersion(err) => err.into(),
-            Claims(err) => err.into(),
-            Command(err) => err.into(),
-            CommandGrpc(err) => err.into(),
-            Node(err) => err.into(),
-            NodeLog(err) => err.into(),
-            NodeType(err) => err.into(),
-            Property(err) => err.into(),
-            Region(err) => err.into(),
-            Storage(err) => err.into(),
-            StorageNetworks(_, err) => err.into(),
+            Auth(err) => err.report(),
+            Blockchain(err) => err.report(),
+            BlockchainNodeType(err) => err.report(),
+            BlockchainVersion(err) => err.report(),
+            Claims(err) => err.report(),
+            Command(err) => err.report(),
+            CommandGrpc(err) => err.report(),
+            Node(err) => err.report(),
+            NodeLog(err) => err.report(),
+            NodeType(err) => err.report(),
+            Property(err) => err.report(),
+            Region(err) => err.report(),
+            Storage(err) => err.report(),
+            StorageNetworks(_, err) => err.report(),
         }
     }
 }
@@ -142,7 +142,7 @@ impl BlockchainService for Grpc {
     async fn get(
         &self,
         req: Request<api::BlockchainServiceGetRequest>,
-    ) -> Result<Response<api::BlockchainServiceGetResponse>, Status> {
+    ) -> Result<Response<api::BlockchainServiceGetResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get(req, meta.into(), read).scope_boxed())
             .await
@@ -151,7 +151,7 @@ impl BlockchainService for Grpc {
     async fn get_image(
         &self,
         req: Request<api::BlockchainServiceGetImageRequest>,
-    ) -> Result<Response<api::BlockchainServiceGetImageResponse>, Status> {
+    ) -> Result<Response<api::BlockchainServiceGetImageResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_image(req, meta.into(), read).scope_boxed())
             .await
@@ -160,7 +160,7 @@ impl BlockchainService for Grpc {
     async fn get_plugin(
         &self,
         req: Request<api::BlockchainServiceGetPluginRequest>,
-    ) -> Result<Response<api::BlockchainServiceGetPluginResponse>, Status> {
+    ) -> Result<Response<api::BlockchainServiceGetPluginResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_plugin(req, meta.into(), read).scope_boxed())
             .await
@@ -169,7 +169,7 @@ impl BlockchainService for Grpc {
     async fn get_requirements(
         &self,
         req: Request<api::BlockchainServiceGetRequirementsRequest>,
-    ) -> Result<Response<api::BlockchainServiceGetRequirementsResponse>, Status> {
+    ) -> Result<Response<api::BlockchainServiceGetRequirementsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_requirements(req, meta.into(), read).scope_boxed())
             .await
@@ -178,7 +178,7 @@ impl BlockchainService for Grpc {
     async fn list(
         &self,
         req: Request<api::BlockchainServiceListRequest>,
-    ) -> Result<Response<api::BlockchainServiceListResponse>, Status> {
+    ) -> Result<Response<api::BlockchainServiceListResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta.into(), read).scope_boxed())
             .await
@@ -187,7 +187,7 @@ impl BlockchainService for Grpc {
     async fn list_image_versions(
         &self,
         req: Request<api::BlockchainServiceListImageVersionsRequest>,
-    ) -> Result<Response<api::BlockchainServiceListImageVersionsResponse>, Status> {
+    ) -> Result<Response<api::BlockchainServiceListImageVersionsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list_image_versions(req, meta.into(), read).scope_boxed())
             .await
@@ -196,7 +196,7 @@ impl BlockchainService for Grpc {
     async fn add_node_type(
         &self,
         req: Request<api::BlockchainServiceAddNodeTypeRequest>,
-    ) -> Result<Response<api::BlockchainServiceAddNodeTypeResponse>, Status> {
+    ) -> Result<Response<api::BlockchainServiceAddNodeTypeResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| add_node_type(req, meta.into(), write).scope_boxed())
             .await
@@ -205,7 +205,7 @@ impl BlockchainService for Grpc {
     async fn add_version(
         &self,
         req: Request<api::BlockchainServiceAddVersionRequest>,
-    ) -> Result<Response<api::BlockchainServiceAddVersionResponse>, Status> {
+    ) -> Result<Response<api::BlockchainServiceAddVersionResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| add_version(req, meta.into(), write).scope_boxed())
             .await
@@ -214,7 +214,7 @@ impl BlockchainService for Grpc {
     async fn pricing(
         &self,
         req: Request<api::BlockchainServicePricingRequest>,
-    ) -> Result<Response<api::BlockchainServicePricingResponse>, Status> {
+    ) -> Result<Response<api::BlockchainServicePricingResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| pricing(req, meta.into(), read).scope_boxed())
             .await

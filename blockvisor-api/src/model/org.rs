@@ -11,12 +11,12 @@ use diesel::sql_types::Bool;
 use diesel_async::RunQueryDsl;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::Status;
 
 use crate::auth::rbac::OrgRole;
 use crate::auth::rbac::Role;
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
+use crate::grpc::{self, Status};
 use crate::stripe::api::customer::CustomerId;
 use crate::util::{SearchOperator, SortOrder};
 
@@ -71,18 +71,18 @@ pub enum Error {
     Update(diesel::result::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             Delete(_, NotFound)
             | FindById(_, NotFound)
             | FindByIds(_, NotFound)
             | FindPersonal(_, NotFound) => Status::not_found("Not found."),
-            Paginate(err) => err.into(),
-            Rbac(err) => err.into(),
-            Token(err) => err.into(),
+            Paginate(err) => err.report(),
+            Rbac(err) => err.report(),
+            Token(err) => err.report(),
             _ => Status::internal("Internal error."),
         }
     }

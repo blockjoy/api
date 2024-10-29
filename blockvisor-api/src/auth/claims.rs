@@ -5,9 +5,9 @@ use derive_more::Deref;
 use displaydoc::Display;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tonic::Status;
 
 use crate::database::Conn;
+use crate::grpc::{self, Status};
 use crate::model::rbac::{RbacPerm, RbacUser};
 use crate::model::{Host, Node};
 use crate::util::SecondsUtc;
@@ -39,21 +39,19 @@ pub enum Error {
     User(#[from] crate::model::user::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             EnsureHost(..) | EnsureNode(..) | EnsureOrg(..) | EnsureUser(..) => {
-                Status::permission_denied("Access denied.")
+                Status::forbidden("Access denied.")
             }
-            MissingPerm(perm, _) => {
-                Status::permission_denied(format!("Missing permission: {perm}"))
-            }
-            Host(err) => err.into(),
-            Node(err) => err.into(),
-            Org(err) => err.into(),
-            Rbac(err) => err.into(),
-            User(err) => err.into(),
+            MissingPerm(perm, _) => Status::unauthorized(format!("Missing permission: {perm}")),
+            Host(err) => err.report(),
+            Node(err) => err.report(),
+            Org(err) => err.report(),
+            Rbac(err) => err.report(),
+            User(err) => err.report(),
         }
     }
 }

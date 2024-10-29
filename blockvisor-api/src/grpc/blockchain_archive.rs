@@ -3,7 +3,7 @@ use std::time::Duration;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::BlockchainArchivePerm;
@@ -13,6 +13,8 @@ use crate::grpc::api::blockchain_archive_service_server::BlockchainArchiveServic
 use crate::grpc::{api, Grpc};
 use crate::storage::image::ImageId;
 use crate::storage::manifest::DownloadManifest;
+
+use super::Status;
 
 const DEFAULT_EXPIRES: u32 = 7 * 24 * 60 * 60;
 const MAX_CHUNK_INDEXES: usize = 100;
@@ -48,11 +50,11 @@ pub enum Error {
     TooManySlots,
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             Diesel(_) => Status::internal("Internal error."),
             MissingId | ParseImageId(_) => Status::invalid_argument("id"),
             ParseChunk(_) => Status::invalid_argument("chunks"),
@@ -60,9 +62,9 @@ impl From<Error> for Status {
             ParseCompression(_) => Status::invalid_argument("compression"),
             ChunkIndex(_) | TooManyChunks => Status::out_of_range("chunk_indexes"),
             SlotIndex(_) | TooManySlots => Status::out_of_range("slot_indexes"),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
-            Storage(err) => err.into(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
+            Storage(err) => err.report(),
         }
     }
 }
@@ -72,7 +74,8 @@ impl BlockchainArchiveService for Grpc {
     async fn get_download_metadata(
         &self,
         req: Request<api::BlockchainArchiveServiceGetDownloadMetadataRequest>,
-    ) -> Result<Response<api::BlockchainArchiveServiceGetDownloadMetadataResponse>, Status> {
+    ) -> Result<Response<api::BlockchainArchiveServiceGetDownloadMetadataResponse>, tonic::Status>
+    {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_download_metadata(req, meta.into(), read).scope_boxed())
             .await
@@ -81,7 +84,8 @@ impl BlockchainArchiveService for Grpc {
     async fn get_download_chunks(
         &self,
         req: Request<api::BlockchainArchiveServiceGetDownloadChunksRequest>,
-    ) -> Result<Response<api::BlockchainArchiveServiceGetDownloadChunksResponse>, Status> {
+    ) -> Result<Response<api::BlockchainArchiveServiceGetDownloadChunksResponse>, tonic::Status>
+    {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_download_chunks(req, meta.into(), read).scope_boxed())
             .await
@@ -90,7 +94,7 @@ impl BlockchainArchiveService for Grpc {
     async fn get_upload_slots(
         &self,
         req: Request<api::BlockchainArchiveServiceGetUploadSlotsRequest>,
-    ) -> Result<Response<api::BlockchainArchiveServiceGetUploadSlotsResponse>, Status> {
+    ) -> Result<Response<api::BlockchainArchiveServiceGetUploadSlotsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_upload_slots(req, meta.into(), read).scope_boxed())
             .await
@@ -99,7 +103,8 @@ impl BlockchainArchiveService for Grpc {
     async fn put_download_manifest(
         &self,
         req: Request<api::BlockchainArchiveServicePutDownloadManifestRequest>,
-    ) -> Result<Response<api::BlockchainArchiveServicePutDownloadManifestResponse>, Status> {
+    ) -> Result<Response<api::BlockchainArchiveServicePutDownloadManifestResponse>, tonic::Status>
+    {
         let (meta, _, req) = req.into_parts();
         self.read(|read| put_download_manifest(req, meta.into(), read).scope_boxed())
             .await

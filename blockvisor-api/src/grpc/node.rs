@@ -4,7 +4,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures_util::future::OptionFuture;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 use uuid::Uuid;
 
@@ -30,7 +30,7 @@ use crate::util::{HashVec, NanosUtc};
 
 use super::api::node_placement::Placement;
 use super::api::node_service_server::NodeService;
-use super::{api, common, Grpc};
+use super::{api, common, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -130,11 +130,11 @@ pub enum Error {
     User(#[from] crate::model::user::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             Diesel(_) | GenerateName | MissingPropertyId(_) | ModelProperty(_) | ParseIpAddr(_)
             | PropertyNotFound(_) | Storage(_) => Status::internal("Internal error."),
             AllowIps(_) => Status::invalid_argument("allow_ips"),
@@ -158,25 +158,25 @@ impl From<Error> for Status {
             UpgradeBlockchain => Status::failed_precondition("Same blockchain."),
             UpgradeNodeType => Status::failed_precondition("Same node type."),
             UpdateStatusMissingNode(_, _, _) => Status::not_found("No such node"),
-            Auth(err) => err.into(),
-            AuthToken(err) => err.into(),
-            Blockchain(err) => err.into(),
-            BlockchainNodeType(err) => err.into(),
-            BlockchainProperty(err) => err.into(),
-            BlockchainVersion(err) => err.into(),
-            Claims(err) => err.into(),
-            Command(err) => err.into(),
-            CommandGrpc(err) => err.into(),
-            Host(err) => err.into(),
-            IpAddress(err) => err.into(),
-            Model(err) => err.into(),
-            NodeType(err) => err.into(),
-            Org(err) => err.into(),
-            ParseNodeVersion(err) => err.into(),
-            Region(err) => err.into(),
-            Report(err) => err.into(),
-            Resource(err) => err.into(),
-            User(err) => err.into(),
+            Auth(err) => err.report(),
+            AuthToken(err) => err.report(),
+            Blockchain(err) => err.report(),
+            BlockchainNodeType(err) => err.report(),
+            BlockchainProperty(err) => err.report(),
+            BlockchainVersion(err) => err.report(),
+            Claims(err) => err.report(),
+            Command(err) => err.report(),
+            CommandGrpc(err) => err.report(),
+            Host(err) => err.report(),
+            IpAddress(err) => err.report(),
+            Model(err) => err.report(),
+            NodeType(err) => err.report(),
+            Org(err) => err.report(),
+            ParseNodeVersion(err) => err.report(),
+            Region(err) => err.report(),
+            Report(err) => err.report(),
+            Resource(err) => err.report(),
+            User(err) => err.report(),
         }
     }
 }
@@ -186,7 +186,7 @@ impl NodeService for Grpc {
     async fn create(
         &self,
         req: Request<api::NodeServiceCreateRequest>,
-    ) -> Result<Response<api::NodeServiceCreateResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceCreateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
@@ -195,7 +195,7 @@ impl NodeService for Grpc {
     async fn get(
         &self,
         req: Request<api::NodeServiceGetRequest>,
-    ) -> Result<Response<api::NodeServiceGetResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceGetResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get(req, meta.into(), read).scope_boxed())
             .await
@@ -204,7 +204,7 @@ impl NodeService for Grpc {
     async fn list(
         &self,
         req: Request<api::NodeServiceListRequest>,
-    ) -> Result<Response<api::NodeServiceListResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceListResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta.into(), read).scope_boxed())
             .await
@@ -213,7 +213,7 @@ impl NodeService for Grpc {
     async fn upgrade(
         &self,
         req: Request<api::NodeServiceUpgradeRequest>,
-    ) -> Result<Response<api::NodeServiceUpgradeResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceUpgradeResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| upgrade(req, meta.into(), write).scope_boxed())
             .await
@@ -222,7 +222,7 @@ impl NodeService for Grpc {
     async fn update_config(
         &self,
         req: Request<api::NodeServiceUpdateConfigRequest>,
-    ) -> Result<Response<api::NodeServiceUpdateConfigResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceUpdateConfigResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update_config(req, meta.into(), write).scope_boxed())
             .await
@@ -231,7 +231,7 @@ impl NodeService for Grpc {
     async fn update_status(
         &self,
         req: Request<api::NodeServiceUpdateStatusRequest>,
-    ) -> Result<Response<api::NodeServiceUpdateStatusResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceUpdateStatusResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update_status(req, meta.into(), write).scope_boxed())
             .await
@@ -240,7 +240,7 @@ impl NodeService for Grpc {
     async fn delete(
         &self,
         req: Request<api::NodeServiceDeleteRequest>,
-    ) -> Result<Response<api::NodeServiceDeleteResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceDeleteResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await
@@ -249,7 +249,7 @@ impl NodeService for Grpc {
     async fn report(
         &self,
         req: Request<api::NodeServiceReportRequest>,
-    ) -> Result<Response<api::NodeServiceReportResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceReportResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| report(req, meta.into(), write).scope_boxed())
             .await
@@ -258,7 +258,7 @@ impl NodeService for Grpc {
     async fn start(
         &self,
         req: Request<api::NodeServiceStartRequest>,
-    ) -> Result<Response<api::NodeServiceStartResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceStartResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| start(req, meta.into(), write).scope_boxed())
             .await
@@ -267,7 +267,7 @@ impl NodeService for Grpc {
     async fn stop(
         &self,
         req: Request<api::NodeServiceStopRequest>,
-    ) -> Result<Response<api::NodeServiceStopResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceStopResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| stop(req, meta.into(), write).scope_boxed())
             .await
@@ -276,7 +276,7 @@ impl NodeService for Grpc {
     async fn restart(
         &self,
         req: Request<api::NodeServiceRestartRequest>,
-    ) -> Result<Response<api::NodeServiceRestartResponse>, Status> {
+    ) -> Result<Response<api::NodeServiceRestartResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| restart(req, meta.into(), write).scope_boxed())
             .await

@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
+use axum::debug_handler;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Json, State};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::routing::{post, Router};
 use axum_extra::extract::WithRejection;
 use displaydoc::Display;
@@ -14,6 +15,7 @@ use crate::auth::rbac::{MqttAdminPerm, MqttPerm};
 use crate::auth::resource::{Resource, Resources};
 use crate::config::Context;
 use crate::database::Database;
+use crate::grpc::{self, ErrorWrapper, Status};
 use crate::http::response;
 use crate::mqtt::handler::{self, AclRequest, Topic};
 
@@ -33,22 +35,28 @@ pub enum Error {
     WildcardTopic(String),
 }
 
-impl IntoResponse for Error {
-    fn into_response(self) -> Response {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use crate::auth::Error::{ExpiredJwt, ExpiredRefresh};
         use Error::*;
         if !matches!(self, Error::Auth(ExpiredJwt(_) | ExpiredRefresh(_))) {
             error!("{self}");
         }
         match self {
-            Auth(_) | Handler(handler::Error::Claims(_)) | ParseRequestToken(_) => {
-                response::unauthorized().into_response()
-            }
-            Database(_) => response::failed().into_response(),
-            Handler(_) => response::bad_params().into_response(),
-            ParseJson(rejection) => (rejection.status(), rejection.body_text()).into_response(),
-            WildcardTopic(_) => response::unauthorized(),
+            Auth(_)
+            | Handler(handler::Error::Claims(_))
+            | ParseRequestToken(_)
+            | WildcardTopic(_) => Status::unauthorized("Unauthorized"),
+            Database(_) => Status::internal("Database error"),
+            Handler(_) => Status::invalid_argument("Invalid arguments"),
+            ParseJson(rejection) => Status::unparseable_request(rejection.body_text()),
         }
+    }
+}
+
+impl From<JsonRejection> for ErrorWrapper<Error> {
+    fn from(value: JsonRejection) -> Self {
+        Self(value.into())
     }
 }
 
@@ -62,17 +70,24 @@ where
         .with_state(context)
 }
 
+#[debug_handler]
 #[allow(clippy::unused_async)]
-async fn auth(WithRejection(value, _): WithRejection<Json<Value>, Error>) -> impl IntoResponse {
+async fn auth(
+    WithRejection(value, _): WithRejection<Json<Value>, ErrorWrapper<Error>>,
+) -> Response {
     debug!("MQTT auth payload: {value:?}");
     response::ok()
 }
 
+#[debug_handler]
 async fn acl(
     State(ctx): State<Arc<Context>>,
-    WithRejection(req, _): WithRejection<Json<AclRequest>, Error>,
-) -> Result<impl IntoResponse, Error> {
-    let token = req.username.parse().map_err(Error::ParseRequestToken)?;
+    WithRejection(req, _): WithRejection<Json<AclRequest>, ErrorWrapper<Error>>,
+) -> Result<Response, super::Error> {
+    let token = req
+        .username
+        .parse()
+        .map_err(|err| ErrorWrapper(Error::ParseRequestToken(err)))?;
     let mut conn = ctx.pool.conn().await?;
 
     if ctx
@@ -89,12 +104,14 @@ async fn acl(
         Topic::Hosts(host_id) => Resource::from(*host_id).into(),
         Topic::Nodes(node_id) => Resource::from(*node_id).into(),
         Topic::BvHostsStatus(host_id) => Resource::from(*host_id).into(),
-        Topic::Wildcard(topic) => return Err(Error::WildcardTopic(topic.clone())),
+        Topic::Wildcard(topic) => {
+            return Err(ErrorWrapper(Error::WildcardTopic(topic.clone())).into())
+        }
     };
 
     ctx.auth
         .authorize_token(&token, MqttPerm::Acl.into(), Some(resources), &mut conn)
         .await
         .map(|_authz| response::ok())
-        .map_err(Into::into)
+        .map_err(|err| ErrorWrapper(err).into())
 }

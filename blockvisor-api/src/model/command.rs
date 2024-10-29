@@ -9,12 +9,13 @@ use diesel_derive_enum::DbEnum;
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::resource::{HostId, NodeId};
 use crate::database::Conn;
+use crate::grpc;
 use crate::grpc::api;
+use crate::grpc::Status;
 
 use super::schema::{commands, sql_types};
 use super::{Host, Node};
@@ -55,10 +56,10 @@ pub enum Error {
     HostCommandWithNodeId,
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             DeleteHostPending(NotFound)
             | DeleteNodePending(NotFound)
@@ -67,8 +68,8 @@ impl From<Error> for Status {
             | HostPending(NotFound) => Status::not_found("Not found."),
             ParseId(_) => Status::invalid_argument("id"),
             RetryHint(_) => Status::invalid_argument("retry_hint_seconds"),
-            Host(err) => err.into(),
-            Node(err) => err.into(),
+            Host(err) => err.report(),
+            Node(err) => err.report(),
             _ => Status::internal("Internal error."),
         }
     }

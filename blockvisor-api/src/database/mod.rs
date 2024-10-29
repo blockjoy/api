@@ -20,7 +20,6 @@ use thiserror::Error;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_postgres_rustls::MakeRustlsConnect;
 use tonic::metadata::AsciiMetadataValue;
-use tonic::Status;
 use tracing::warn;
 
 use crate::auth::rbac::Perms;
@@ -28,7 +27,7 @@ use crate::auth::resource::Resources;
 use crate::auth::{self, AuthZ, Authorize};
 use crate::config::database::Config;
 use crate::config::Context;
-use crate::grpc::{self, NaiveMeta, ResponseMessage};
+use crate::grpc::{self, ErrorWrapper, NaiveMeta, ResponseMessage, Status};
 use crate::model::rbac::{RbacPerm, RbacRole};
 use crate::mqtt::Message;
 
@@ -45,37 +44,38 @@ pub(crate) trait Transaction {
     /// Run a non-transactional closure to read from the database.
     ///
     /// Note that the function parameter constraints are not strictly necessary
-    /// but mimic `Transaction::write` to make it easy to switch between each.
-    // async fn read<'a, F, T, E>(&'a self, f: F) -> Result<Response<T>, Status>
-    // where
-    //     F: for<'c> FnOnce(ReadConn<'c, 'a>) -> ScopedBoxFuture<'a, 'c, Result<T, E>> + Send + 'a,
-    //     T: Send + 'a,
-    //     E: std::error::Error + From<diesel::result::Error> + Into<Status> + Send + 'a;
-    async fn read<'a, F, Response, ResponseInner, Err, ErrOuter>(
+    /// but mimic `Transaction::write` to make it easy to switch between each.=
+    async fn read<'a, F, Response, ResponseInner, ErrInner, ErrOuter>(
         &'a self,
         f: F,
     ) -> Result<Response, ErrOuter>
     where
-        F: for<'c> FnOnce(ReadConn<'c, 'a>) -> ScopedBoxFuture<'a, 'c, Result<ResponseInner, Err>>
+        F: for<'c> FnOnce(
+                ReadConn<'c, 'a>,
+            ) -> ScopedBoxFuture<'a, 'c, Result<ResponseInner, ErrInner>>
             + Send
             + 'a,
         Response: ResponseMessage<ResponseInner>,
         ResponseInner: Send + 'a,
-        Err: std::error::Error + From<diesel::result::Error> + Into<ErrOuter> + Send + 'a,
+        ErrInner: grpc::ResponseError + std::error::Error + From<diesel::result::Error> + Send + 'a,
+        ErrOuter: From<ErrorWrapper<ErrInner>>,
         ErrOuter: From<Error>;
 
     /// Run a transactional closure to write to the database.
-    async fn write<'a, F, Response, ResponseInner, Err, ErrOuter>(
+    async fn write<'a, F, Response, ResponseInner, ErrInner, ErrOuter>(
         &'a self,
         f: F,
     ) -> Result<Response, ErrOuter>
     where
-        F: for<'c> FnOnce(WriteConn<'c, 'a>) -> ScopedBoxFuture<'a, 'c, Result<ResponseInner, Err>>
+        F: for<'c> FnOnce(
+                WriteConn<'c, 'a>,
+            ) -> ScopedBoxFuture<'a, 'c, Result<ResponseInner, ErrInner>>
             + Send
             + 'a,
         Response: ResponseMessage<ResponseInner>,
         ResponseInner: Send + 'a,
-        Err: std::error::Error + From<diesel::result::Error> + Into<ErrOuter> + Send + 'a,
+        ErrInner: grpc::ResponseError + std::error::Error + From<diesel::result::Error> + Send + 'a,
+        ErrOuter: From<ErrorWrapper<ErrInner>>,
         ErrOuter: From<Error>;
 }
 
@@ -91,13 +91,19 @@ pub enum Error {
     PoolConnection(bb8::RunError),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             BuildPool(_) | PoolConnection(_) => Status::internal("Internal error."),
-            CreatePerms(err) | CreateRoles(err) => err.into(),
+            CreatePerms(err) | CreateRoles(err) => err.report(),
         }
+    }
+}
+
+impl From<Error> for tonic::Status {
+    fn from(_value: Error) -> Self {
+        tonic::Status::internal("database error")
     }
 }
 
@@ -214,37 +220,43 @@ impl<C> Transaction for C
 where
     C: AsRef<Context> + Send + Sync,
 {
-    async fn read<'a, F, Response, ResponseInner, Err, ErrOuter>(
+    async fn read<'a, F, Response, ResponseInner, ErrInner, ErrOuter>(
         &'a self,
         f: F,
     ) -> Result<Response, ErrOuter>
     where
-        F: for<'c> FnOnce(ReadConn<'c, 'a>) -> ScopedBoxFuture<'a, 'c, Result<ResponseInner, Err>>
+        F: for<'c> FnOnce(
+                ReadConn<'c, 'a>,
+            ) -> ScopedBoxFuture<'a, 'c, Result<ResponseInner, ErrInner>>
             + Send
             + 'a,
         Response: ResponseMessage<ResponseInner>,
         ResponseInner: Send + 'a,
-        Err: std::error::Error + From<diesel::result::Error> + Into<ErrOuter> + Send + 'a,
+        ErrInner: grpc::ResponseError + std::error::Error + From<diesel::result::Error> + Send + 'a,
+        ErrOuter: From<ErrorWrapper<ErrInner>>,
         ErrOuter: From<Error>,
     {
         let ctx = self.as_ref();
         let conn = &mut ctx.conn().await?;
         let read = ReadConn { conn, ctx };
-        let response = f(read).await.map_err(Into::into)?;
+        let response = f(read).await.map_err(ErrorWrapper)?;
         Ok(Response::construct(response, NaiveMeta::new()))
     }
 
-    async fn write<'a, F, Response, ResponseInner, Err, ErrOuter>(
+    async fn write<'a, F, Response, ResponseInner, ErrInner, ErrOuter>(
         &'a self,
         f: F,
     ) -> Result<Response, ErrOuter>
     where
-        F: for<'c> FnOnce(WriteConn<'c, 'a>) -> ScopedBoxFuture<'a, 'c, Result<ResponseInner, Err>>
+        F: for<'c> FnOnce(
+                WriteConn<'c, 'a>,
+            ) -> ScopedBoxFuture<'a, 'c, Result<ResponseInner, ErrInner>>
             + Send
             + 'a,
         Response: ResponseMessage<ResponseInner>,
         ResponseInner: Send + 'a,
-        Err: std::error::Error + From<diesel::result::Error> + Into<ErrOuter> + Send + 'a,
+        ErrInner: grpc::ResponseError + std::error::Error + From<diesel::result::Error> + Send + 'a,
+        ErrOuter: From<ErrorWrapper<ErrInner>>,
         ErrOuter: From<Error>,
     {
         let ctx = self.as_ref();
@@ -264,7 +276,7 @@ where
                 f(write).scope_boxed()
             })
             .await
-            .map_err(Into::into)?;
+            .map_err(ErrorWrapper)?;
 
         while let Some(msg) = mqtt_rx.recv().await {
             if let Err(err) = ctx.notifier.send(msg).await {

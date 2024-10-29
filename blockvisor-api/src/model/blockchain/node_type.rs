@@ -10,11 +10,12 @@ use diesel_async::RunQueryDsl;
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::AuthZ;
 use crate::database::Conn;
+use crate::grpc;
+use crate::grpc::Status;
 use crate::model::schema::blockchain_node_types;
 use crate::model::NodeType;
 
@@ -36,10 +37,10 @@ pub enum Error {
     NodeTypeExists(BlockchainId, NodeType, diesel::result::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             BulkCreate(DatabaseError(UniqueViolation, _))
             | Create(DatabaseError(UniqueViolation, _)) => {
                 Status::already_exists("Already exists.")

@@ -1,7 +1,7 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::DiscoveryPerm;
@@ -9,7 +9,7 @@ use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction};
 
 use super::api::discovery_service_server::DiscoveryService;
-use super::{api, Grpc};
+use super::{api, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -21,14 +21,14 @@ pub enum Error {
     Diesel(#[from] diesel::result::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             Diesel(_) => Status::internal("Internal error."),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
         }
     }
 }
@@ -38,7 +38,7 @@ impl DiscoveryService for Grpc {
     async fn services(
         &self,
         req: Request<api::DiscoveryServiceServicesRequest>,
-    ) -> Result<Response<api::DiscoveryServiceServicesResponse>, Status> {
+    ) -> Result<Response<api::DiscoveryServiceServicesResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| services(req, meta.into(), read).scope_boxed())
             .await

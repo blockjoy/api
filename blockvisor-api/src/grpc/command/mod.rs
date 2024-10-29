@@ -5,7 +5,7 @@ use cidr_utils::cidr::IpCidr;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::{error, warn};
 
 use crate::auth::rbac::{CommandAdminPerm, CommandPerm};
@@ -14,7 +14,7 @@ use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::grpc::api::command_service_server::CommandService;
 use crate::grpc::common::{FirewallAction, FirewallDirection, FirewallProtocol, FirewallRule};
-use crate::grpc::{api, common, Grpc};
+use crate::grpc::{self, api, common, Grpc, Status};
 use crate::model::blockchain::{Blockchain, BlockchainProperty, BlockchainVersion};
 use crate::model::command::{CommandFilter, ExitCode, UpdateCommand};
 use crate::model::node::{NodeStatus, UpdateNode};
@@ -67,11 +67,11 @@ pub enum Error {
     Success(#[from] self::success::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             MissingNodeId => Status::invalid_argument("command.node_id"),
             ParseExitCode => Status::invalid_argument("exit_code"),
             ParseNodeId(_) => Status::invalid_argument("node_id"),
@@ -81,16 +81,16 @@ impl From<Error> for Status {
             Diesel(_) | IpNotCidr | MissingBlockchainPropertyId | NotImplemented | GrpcHost(_) => {
                 Status::internal("Internal error.")
             }
-            Auth(err) => err.into(),
-            Blockchain(err) => err.into(),
-            BlockchainProperty(err) => err.into(),
-            BlockchainVersion(err) => err.into(),
-            Claims(err) => err.into(),
-            Command(err) => err.into(),
-            Host(err) => err.into(),
-            Node(err) => err.into(),
-            Resource(err) => err.into(),
-            Success(err) => err.into(),
+            Auth(err) => err.report(),
+            Blockchain(err) => err.report(),
+            BlockchainProperty(err) => err.report(),
+            BlockchainVersion(err) => err.report(),
+            Claims(err) => err.report(),
+            Command(err) => err.report(),
+            Host(err) => err.report(),
+            Node(err) => err.report(),
+            Resource(err) => err.report(),
+            Success(err) => err.report(),
         }
     }
 }
@@ -100,7 +100,7 @@ impl CommandService for Grpc {
     async fn list(
         &self,
         req: Request<api::CommandServiceListRequest>,
-    ) -> Result<Response<api::CommandServiceListResponse>, Status> {
+    ) -> Result<Response<api::CommandServiceListResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta.into(), read).scope_boxed())
             .await
@@ -109,7 +109,7 @@ impl CommandService for Grpc {
     async fn update(
         &self,
         req: Request<api::CommandServiceUpdateRequest>,
-    ) -> Result<Response<api::CommandServiceUpdateResponse>, Status> {
+    ) -> Result<Response<api::CommandServiceUpdateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update(req, meta.into(), write).scope_boxed())
             .await
@@ -118,7 +118,7 @@ impl CommandService for Grpc {
     async fn ack(
         &self,
         req: Request<api::CommandServiceAckRequest>,
-    ) -> Result<Response<api::CommandServiceAckResponse>, Status> {
+    ) -> Result<Response<api::CommandServiceAckResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| ack(req, meta.into(), write).scope_boxed())
             .await
@@ -127,7 +127,7 @@ impl CommandService for Grpc {
     async fn pending(
         &self,
         req: Request<api::CommandServicePendingRequest>,
-    ) -> Result<Response<api::CommandServicePendingResponse>, Status> {
+    ) -> Result<Response<api::CommandServicePendingResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| pending(req, meta.into(), read).scope_boxed())
             .await

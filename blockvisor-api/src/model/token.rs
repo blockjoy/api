@@ -10,11 +10,11 @@ use displaydoc::Display;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::resource::{OrgId, ResourceId, ResourceType, UserId};
 use crate::database::Conn;
+use crate::grpc::{self, Status};
 
 use super::schema::{sql_types, tokens};
 
@@ -34,10 +34,10 @@ pub enum Error {
     ResetHostProvision(UserId, OrgId, diesel::result::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             DeleteHostProvision(_, _, NotFound)
             | HostProvisionByToken(NotFound)
             | HostProvisionByUser(_, _, NotFound)

@@ -16,7 +16,7 @@ use tracing::{debug, error};
 
 use crate::config::Context;
 use crate::database::{Transaction, WriteConn};
-use crate::grpc::{api, command};
+use crate::grpc::{self, api, command, ErrorWrapper, Status};
 use crate::model::command::NewCommand;
 use crate::model::{CommandType, Host, Node, Subscription};
 
@@ -42,16 +42,15 @@ pub enum Error {
     Subscription(#[from] crate::model::subscription::Error),
 }
 
-impl From<Error> for super::Error {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("Chargebee webhook: {err:?}");
-        let (message, status) = match err {
-            IncorrectChargebeeSecret => ("Not found", 404),
+        error!("Chargebee webhook: {self:?}");
+        match self {
+            IncorrectChargebeeSecret => Status::not_found("Not found"),
             Command(_) | Database(_) | GrpcCommand(_) | IpAddress(_) | Node(_) | Host(_)
-            | ParseIpAddr(_) | Subscription(_) => ("Internal error", 500),
-        };
-        super::Error::new(message, status)
+            | ParseIpAddr(_) | Subscription(_) => Status::internal("Internal error"),
+        }
     }
 }
 
@@ -96,7 +95,7 @@ async fn callback(
     if ctx.config.chargebee.secret != secret {
         // We return a 404 if the secret is incorrect, so we don't give away
         // that there is a secret in this url that might be brute-forced.
-        return Err(Error::IncorrectChargebeeSecret.into());
+        return Err(ErrorWrapper(Error::IncorrectChargebeeSecret).into());
     }
 
     // We only start parsing the json after the secret is verfied so people
@@ -105,7 +104,7 @@ async fn callback(
         Ok(body) => body,
         Err(err) => {
             error!("Failed to parse chargebee callback body `{body}`: {err:?}");
-            return Err(Error::IncorrectChargebeeSecret.into());
+            return Err(ErrorWrapper(Error::IncorrectChargebeeSecret).into());
         }
     };
 

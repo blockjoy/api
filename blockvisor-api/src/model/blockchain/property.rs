@@ -7,11 +7,10 @@ use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::database::Conn;
-use crate::grpc::{api, common};
+use crate::grpc::{self, api, common, Status};
 use crate::model::schema::{blockchain_properties, sql_types};
 
 use super::{BlockchainId, BlockchainNodeTypeId, BlockchainVersion, BlockchainVersionId};
@@ -34,10 +33,10 @@ pub enum Error {
     UnspecifiedUiType,
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             ByBlockchainIds(_, NotFound)
             | ByPropertyIds(_, NotFound)
             | ByVersionId(_, NotFound)

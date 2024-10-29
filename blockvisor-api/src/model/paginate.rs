@@ -12,7 +12,8 @@ use diesel_async::methods::LoadQuery;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::Status;
+
+use crate::grpc::{self, Status};
 
 pub trait Paginate: Sized {
     fn paginate(self, limit: u64, offset: u64) -> Result<Paginated<Self>, Error>;
@@ -48,10 +49,10 @@ pub enum Error {
     Query(diesel::result::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             Limit(_) => Status::invalid_argument("limit"),
             Offset(_) => Status::invalid_argument("offset"),
             Query(diesel::result::Error::NotFound) => Status::not_found("Not found."),

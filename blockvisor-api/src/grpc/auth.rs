@@ -1,7 +1,7 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::{error, warn};
 
 use crate::auth::claims::{Claims, Expirable, Granted};
@@ -14,7 +14,7 @@ use crate::database::{Transaction, WriteConn};
 use crate::model::{Host, Node, Org, User};
 
 use super::api::auth_service_server::AuthService;
-use super::{api, Grpc};
+use super::{api, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -56,27 +56,27 @@ pub enum Error {
     User(#[from] crate::model::user::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             ClaimsNotUser | Jwt(_) | ParseToken(_) | RefreshResource => {
-                Status::permission_denied("Access denied.")
+                Status::forbidden("Access denied.")
             }
             Diesel(_) | Email(_) => Status::internal("Internal error."),
-            NotBearer => Status::unauthenticated("Not bearer."),
+            NotBearer => Status::unauthorized("Not bearer."),
             NoRefresh => Status::invalid_argument("No refresh token."),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseUserId(_) => Status::invalid_argument("user_id"),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
-            Host(err) => err.into(),
-            Node(err) => err.into(),
-            Org(err) => err.into(),
-            Rbac(err) => err.into(),
-            Refresh(err) => err.into(),
-            User(err) => err.into(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
+            Host(err) => err.report(),
+            Node(err) => err.report(),
+            Org(err) => err.report(),
+            Rbac(err) => err.report(),
+            Refresh(err) => err.report(),
+            User(err) => err.report(),
         }
     }
 }
@@ -86,7 +86,7 @@ impl AuthService for Grpc {
     async fn login(
         &self,
         req: Request<api::AuthServiceLoginRequest>,
-    ) -> Result<Response<api::AuthServiceLoginResponse>, Status> {
+    ) -> Result<Response<api::AuthServiceLoginResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| login(req, meta.into(), write).scope_boxed())
             .await
@@ -95,7 +95,7 @@ impl AuthService for Grpc {
     async fn confirm(
         &self,
         req: Request<api::AuthServiceConfirmRequest>,
-    ) -> Result<Response<api::AuthServiceConfirmResponse>, Status> {
+    ) -> Result<Response<api::AuthServiceConfirmResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| confirm(req, meta.into(), write).scope_boxed())
             .await
@@ -104,7 +104,7 @@ impl AuthService for Grpc {
     async fn refresh(
         &self,
         req: Request<api::AuthServiceRefreshRequest>,
-    ) -> Result<Response<api::AuthServiceRefreshResponse>, Status> {
+    ) -> Result<Response<api::AuthServiceRefreshResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| refresh(req, meta.into(), write).scope_boxed())
             .await
@@ -113,7 +113,7 @@ impl AuthService for Grpc {
     async fn reset_password(
         &self,
         req: Request<api::AuthServiceResetPasswordRequest>,
-    ) -> Result<Response<api::AuthServiceResetPasswordResponse>, Status> {
+    ) -> Result<Response<api::AuthServiceResetPasswordResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| reset_password(req, meta.into(), write).scope_boxed())
             .await
@@ -122,7 +122,7 @@ impl AuthService for Grpc {
     async fn update_password(
         &self,
         req: Request<api::AuthServiceUpdatePasswordRequest>,
-    ) -> Result<Response<api::AuthServiceUpdatePasswordResponse>, Status> {
+    ) -> Result<Response<api::AuthServiceUpdatePasswordResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update_password(req, meta.into(), write).scope_boxed())
             .await
@@ -131,7 +131,7 @@ impl AuthService for Grpc {
     async fn update_ui_password(
         &self,
         req: Request<api::AuthServiceUpdateUiPasswordRequest>,
-    ) -> Result<Response<api::AuthServiceUpdateUiPasswordResponse>, Status> {
+    ) -> Result<Response<api::AuthServiceUpdateUiPasswordResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update_ui_password(req, meta.into(), write).scope_boxed())
             .await
@@ -140,7 +140,7 @@ impl AuthService for Grpc {
     async fn list_permissions(
         &self,
         req: Request<api::AuthServiceListPermissionsRequest>,
-    ) -> Result<Response<api::AuthServiceListPermissionsResponse>, Status> {
+    ) -> Result<Response<api::AuthServiceListPermissionsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| list_permissions(req, meta.into(), write).scope_boxed())
             .await

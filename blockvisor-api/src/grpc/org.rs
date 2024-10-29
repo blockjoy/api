@@ -5,7 +5,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use futures::future::OptionFuture;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::{debug, error};
 
 use crate::auth::rbac::{OrgAddressPerm, OrgAdminPerm, OrgBillingPerm, OrgPerm, OrgProvisionPerm};
@@ -18,7 +18,7 @@ use crate::model::{Address, Invitation, NewAddress, Org, Token, User};
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::org_service_server::OrgService;
-use super::{api, common, Grpc};
+use super::{api, common, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -82,13 +82,13 @@ pub enum Error {
     User(#[from] crate::model::user::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             ClaimsNotUser | DeletePersonal | CanOnlyRemoveSelf => {
-                Status::permission_denied("Access denied.")
+                Status::forbidden("Access denied.")
             }
             ConvertNoOrg | Diesel(_) | ParseMax(_) | Stripe(_) | StripeCurrency(_)
             | StripeInvoice(_) => Status::internal("Internal error."),
@@ -103,15 +103,15 @@ impl From<Error> for Status {
             NoOwner(_) => Status::failed_precondition("Org has no owner."),
             NoStripeCustomer(_) => Status::failed_precondition("No customer for that org."),
             NoStripeSubscription(_) => Status::failed_precondition("No subscription for that org."),
-            Address(err) => err.into(),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
-            Invitation(err) => err.into(),
-            Model(err) => err.into(),
-            Rbac(err) => err.into(),
-            Resource(err) => err.into(),
-            Token(err) => err.into(),
-            User(err) => err.into(),
+            Address(err) => err.report(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
+            Invitation(err) => err.report(),
+            Model(err) => err.report(),
+            Rbac(err) => err.report(),
+            Resource(err) => err.report(),
+            Token(err) => err.report(),
+            User(err) => err.report(),
         }
     }
 }
@@ -121,7 +121,7 @@ impl OrgService for Grpc {
     async fn create(
         &self,
         req: Request<api::OrgServiceCreateRequest>,
-    ) -> Result<Response<api::OrgServiceCreateResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceCreateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
@@ -130,7 +130,7 @@ impl OrgService for Grpc {
     async fn get(
         &self,
         req: Request<api::OrgServiceGetRequest>,
-    ) -> Result<Response<api::OrgServiceGetResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceGetResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get(req, meta.into(), read).scope_boxed())
             .await
@@ -139,7 +139,7 @@ impl OrgService for Grpc {
     async fn list(
         &self,
         req: Request<api::OrgServiceListRequest>,
-    ) -> Result<Response<api::OrgServiceListResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceListResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta.into(), read).scope_boxed())
             .await
@@ -148,7 +148,7 @@ impl OrgService for Grpc {
     async fn update(
         &self,
         req: Request<api::OrgServiceUpdateRequest>,
-    ) -> Result<Response<api::OrgServiceUpdateResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceUpdateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update(req, meta.into(), write).scope_boxed())
             .await
@@ -157,7 +157,7 @@ impl OrgService for Grpc {
     async fn delete(
         &self,
         req: Request<api::OrgServiceDeleteRequest>,
-    ) -> Result<Response<api::OrgServiceDeleteResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceDeleteResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await
@@ -166,7 +166,7 @@ impl OrgService for Grpc {
     async fn remove_member(
         &self,
         req: Request<api::OrgServiceRemoveMemberRequest>,
-    ) -> Result<Response<api::OrgServiceRemoveMemberResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceRemoveMemberResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| remove_member(req, meta.into(), write).scope_boxed())
             .await
@@ -175,7 +175,7 @@ impl OrgService for Grpc {
     async fn get_provision_token(
         &self,
         req: Request<api::OrgServiceGetProvisionTokenRequest>,
-    ) -> Result<Response<api::OrgServiceGetProvisionTokenResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceGetProvisionTokenResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_provision_token(req, meta.into(), read).scope_boxed())
             .await
@@ -184,7 +184,7 @@ impl OrgService for Grpc {
     async fn reset_provision_token(
         &self,
         req: Request<api::OrgServiceResetProvisionTokenRequest>,
-    ) -> Result<Response<api::OrgServiceResetProvisionTokenResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceResetProvisionTokenResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| reset_provision_token(req, meta.into(), write).scope_boxed())
             .await
@@ -193,7 +193,7 @@ impl OrgService for Grpc {
     async fn init_card(
         &self,
         req: Request<api::OrgServiceInitCardRequest>,
-    ) -> Result<Response<api::OrgServiceInitCardResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceInitCardResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| init_card(req, meta.into(), write).scope_boxed())
             .await
@@ -202,7 +202,7 @@ impl OrgService for Grpc {
     async fn list_payment_methods(
         &self,
         req: Request<api::OrgServiceListPaymentMethodsRequest>,
-    ) -> Result<Response<api::OrgServiceListPaymentMethodsResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceListPaymentMethodsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list_payment_methods(req, meta.into(), read).scope_boxed())
             .await
@@ -211,7 +211,7 @@ impl OrgService for Grpc {
     async fn billing_details(
         &self,
         req: Request<api::OrgServiceBillingDetailsRequest>,
-    ) -> Result<Response<api::OrgServiceBillingDetailsResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceBillingDetailsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| billing_details(req, meta.into(), read).scope_boxed())
             .await
@@ -220,7 +220,7 @@ impl OrgService for Grpc {
     async fn get_address(
         &self,
         req: Request<api::OrgServiceGetAddressRequest>,
-    ) -> Result<Response<api::OrgServiceGetAddressResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceGetAddressResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_address(req, meta.into(), read).scope_boxed())
             .await
@@ -229,7 +229,7 @@ impl OrgService for Grpc {
     async fn set_address(
         &self,
         req: Request<api::OrgServiceSetAddressRequest>,
-    ) -> Result<Response<api::OrgServiceSetAddressResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceSetAddressResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| set_address(req, meta.into(), read).scope_boxed())
             .await
@@ -238,7 +238,7 @@ impl OrgService for Grpc {
     async fn delete_address(
         &self,
         req: Request<api::OrgServiceDeleteAddressRequest>,
-    ) -> Result<Response<api::OrgServiceDeleteAddressResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceDeleteAddressResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| delete_address(req, meta.into(), read).scope_boxed())
             .await
@@ -247,7 +247,7 @@ impl OrgService for Grpc {
     async fn get_invoices(
         &self,
         req: Request<api::OrgServiceGetInvoicesRequest>,
-    ) -> Result<Response<api::OrgServiceGetInvoicesResponse>, Status> {
+    ) -> Result<Response<api::OrgServiceGetInvoicesResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get_invoices(req, meta.into(), read).scope_boxed())
             .await

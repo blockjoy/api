@@ -8,7 +8,6 @@ use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tonic::metadata::AsciiMetadataValue;
-use tonic::Status;
 use tracing::warn;
 
 use crate::auth::claims::Expirable;
@@ -47,17 +46,17 @@ pub enum Error {
     TokenExpired(String),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> grpc::Status {
         use Error::*;
-        match err {
+        match self {
             EmptyCookieRefresh | MissingCookieExpires => {
-                Status::unauthenticated("Invalid refresh cookie.")
+                grpc::Status::unauthorized("Invalid refresh cookie.")
             }
             MissingCookieHeader | MissingCookieRefresh => {
-                Status::unauthenticated("Missing refresh cookie.")
+                grpc::Status::unauthorized("Missing refresh cookie.")
             }
-            _ => Status::internal("Internal error."),
+            _ => grpc::Status::internal("Internal error."),
         }
     }
 }

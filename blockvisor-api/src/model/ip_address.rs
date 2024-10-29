@@ -8,11 +8,11 @@ use diesel_async::RunQueryDsl;
 use displaydoc::Display;
 use ipnetwork::IpNetwork;
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::resource::HostId;
 use crate::database::Conn;
+use crate::grpc::{self, Status};
 
 use super::schema::{ip_addresses, nodes};
 
@@ -44,10 +44,10 @@ pub enum Error {
     Update(diesel::result::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             FindByIp(_, NotFound) => Status::not_found("Not found."),
             NextForHost(NotFound) => {

@@ -31,6 +31,7 @@ pub mod common {
     }
 }
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use axum::http::HeaderValue;
@@ -133,6 +134,113 @@ impl From<NaiveMeta> for tonic::metadata::MetadataMap {
 impl From<axum::http::header::HeaderMap> for NaiveMeta {
     fn from(data: axum::http::header::HeaderMap) -> Self {
         Self { data }
+    }
+}
+
+/// Sometimes the http status codes are a more granular error reporting mechanism, and sometimes
+/// the tonic status codes are. Compare for example http errors 401 and 403, which both correspond
+/// to `tonic::Status::permission_denied`. Therefore, we use this enum here which is more granular
+/// than either `hyper::StatusCode` and `tonic::Status`.
+pub(crate) enum Status {
+    NotFound(Cow<'static, str>),
+    AlreadyExists(Cow<'static, str>),
+    Forbidden(Cow<'static, str>),
+    Unauthorized(Cow<'static, str>),
+    FailedPrecondition(Cow<'static, str>),
+    InvalidArgument(Cow<'static, str>),
+    UnparseableRequest(Cow<'static, str>),
+    OutOfRange(Cow<'static, str>),
+    Internal(Cow<'static, str>),
+}
+
+impl Status {
+    pub fn not_found(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::NotFound(message.into())
+    }
+
+    pub fn already_exists(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::AlreadyExists(message.into())
+    }
+
+    pub fn forbidden(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::Forbidden(message.into())
+    }
+
+    pub fn unauthorized(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::Unauthorized(message.into())
+    }
+
+    pub fn failed_precondition(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::FailedPrecondition(message.into())
+    }
+
+    pub fn invalid_argument(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::InvalidArgument(message.into())
+    }
+
+    pub fn unparseable_request(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::UnparseableRequest(message.into())
+    }
+
+    pub fn out_of_range(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::OutOfRange(message.into())
+    }
+
+    pub fn internal(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::Internal(message.into())
+    }
+}
+
+pub(crate) trait ResponseError {
+    fn report(&self) -> Status;
+
+    fn error_grpc(&self) -> tonic::Status {
+        use Status::*;
+        let status = self.report();
+        match status {
+            NotFound(message) => tonic::Status::not_found(message.into_owned()),
+            AlreadyExists(message) => tonic::Status::already_exists(message.into_owned()),
+            Forbidden(message) => tonic::Status::permission_denied(message.into_owned()),
+            Unauthorized(message) => tonic::Status::permission_denied(message.into_owned()),
+            FailedPrecondition(message) => tonic::Status::failed_precondition(message.into_owned()),
+            InvalidArgument(message) => tonic::Status::invalid_argument(message.into_owned()),
+            UnparseableRequest(message) => tonic::Status::invalid_argument(message.into_owned()),
+            OutOfRange(message) => tonic::Status::out_of_range(message.into_owned()),
+            Internal(message) => tonic::Status::internal(message.into_owned()),
+        }
+    }
+
+    fn error_http(&self) -> (hyper::StatusCode, serde_json::Value) {
+        use Status::*;
+        let status = self.report();
+        let body =
+            |message: Cow<'static, str>| serde_json::json!({"message": message.into_owned()});
+        match status {
+            NotFound(message) => (hyper::StatusCode::NOT_FOUND, body(message)),
+            AlreadyExists(message) => (hyper::StatusCode::CONFLICT, body(message)),
+            Forbidden(message) => (hyper::StatusCode::FORBIDDEN, body(message)),
+            Unauthorized(message) => (hyper::StatusCode::UNAUTHORIZED, body(message)),
+            FailedPrecondition(message) => (hyper::StatusCode::PRECONDITION_FAILED, body(message)),
+            InvalidArgument(message) => (hyper::StatusCode::BAD_REQUEST, body(message)),
+            UnparseableRequest(message) => (hyper::StatusCode::UNPROCESSABLE_ENTITY, body(message)),
+            OutOfRange(message) => (hyper::StatusCode::RANGE_NOT_SATISFIABLE, body(message)),
+            Internal(message) => (hyper::StatusCode::INTERNAL_SERVER_ERROR, body(message)),
+        }
+    }
+}
+
+pub(crate) struct ErrorWrapper<T>(pub T);
+
+impl<T: ResponseError> From<ErrorWrapper<T>> for tonic::Status {
+    fn from(value: ErrorWrapper<T>) -> Self {
+        value.0.error_grpc()
+    }
+}
+
+impl<T: ResponseError> From<ErrorWrapper<T>> for crate::http::handlers::Error {
+    fn from(value: ErrorWrapper<T>) -> Self {
+        let (status, message) = value.0.error_http();
+        crate::http::handlers::Error::new(message, status)
     }
 }
 

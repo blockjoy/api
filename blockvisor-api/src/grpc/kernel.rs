@@ -1,7 +1,7 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::KernelPerm;
@@ -9,6 +9,8 @@ use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction};
 use crate::grpc::api::kernel_service_server::KernelService;
 use crate::grpc::{api, common, Grpc};
+
+use super::Status;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -24,15 +26,15 @@ pub enum Error {
     Storage(#[from] crate::storage::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             Diesel(_) | Storage(_) => Status::internal("Internal error."),
             MissingId => Status::invalid_argument("id"),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
         }
     }
 }
@@ -42,7 +44,7 @@ impl KernelService for Grpc {
     async fn retrieve(
         &self,
         req: Request<api::KernelServiceRetrieveRequest>,
-    ) -> Result<Response<api::KernelServiceRetrieveResponse>, Status> {
+    ) -> Result<Response<api::KernelServiceRetrieveResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| retrieve_kernel_(req, meta.into(), read).scope_boxed())
             .await
@@ -51,7 +53,7 @@ impl KernelService for Grpc {
     async fn list_kernel_versions(
         &self,
         req: Request<api::KernelServiceListKernelVersionsRequest>,
-    ) -> Result<Response<api::KernelServiceListKernelVersionsResponse>, Status> {
+    ) -> Result<Response<api::KernelServiceListKernelVersionsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list_kernel_versions(req, meta.into(), read).scope_boxed())
             .await

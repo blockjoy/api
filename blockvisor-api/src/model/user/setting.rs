@@ -4,10 +4,10 @@ use diesel_async::RunQueryDsl;
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::Status;
 
 use crate::auth::resource::UserId;
 use crate::database::Conn;
+use crate::grpc::{self, Status};
 use crate::model::schema::user_settings;
 
 #[derive(Debug, Display, Error)]
@@ -20,10 +20,10 @@ pub enum Error {
     ByUser(UserId, diesel::result::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             Create(_) | Delete(_) | ByUser(_, _) => Status::internal("Internal error."),
         }
     }

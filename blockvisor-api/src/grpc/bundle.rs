@@ -1,7 +1,7 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::BundlePerm;
@@ -9,6 +9,8 @@ use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction};
 use crate::grpc::api::bundle_service_server::BundleService;
 use crate::grpc::{api, common, Grpc};
+
+use super::Status;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -26,15 +28,15 @@ pub enum Error {
     Storage(#[from] crate::storage::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
+        error!("{self}");
+        match self {
             Diesel(_) | NotUsed | Storage(_) => Status::internal("Internal error."),
             MissingId => Status::invalid_argument("id"),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
         }
     }
 }
@@ -44,7 +46,7 @@ impl BundleService for Grpc {
     async fn retrieve(
         &self,
         req: Request<api::BundleServiceRetrieveRequest>,
-    ) -> Result<Response<api::BundleServiceRetrieveResponse>, Status> {
+    ) -> Result<Response<api::BundleServiceRetrieveResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| retrieve(req, meta.into(), read).scope_boxed())
             .await
@@ -53,7 +55,7 @@ impl BundleService for Grpc {
     async fn list_bundle_versions(
         &self,
         req: Request<api::BundleServiceListBundleVersionsRequest>,
-    ) -> Result<Response<api::BundleServiceListBundleVersionsResponse>, Status> {
+    ) -> Result<Response<api::BundleServiceListBundleVersionsResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list_bundle_versions(req, meta.into(), read).scope_boxed())
             .await
@@ -62,7 +64,7 @@ impl BundleService for Grpc {
     async fn delete(
         &self,
         req: Request<api::BundleServiceDeleteRequest>,
-    ) -> Result<Response<api::BundleServiceDeleteResponse>, Status> {
+    ) -> Result<Response<api::BundleServiceDeleteResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| delete(req, meta.into(), read).scope_boxed())
             .await

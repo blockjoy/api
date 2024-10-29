@@ -1,7 +1,7 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::SubscriptionPerm;
@@ -12,7 +12,7 @@ use crate::model::org::Org;
 use crate::model::subscription::{NewSubscription, Subscription};
 
 use super::api::subscription_service_server::SubscriptionService;
-use super::{api, Grpc};
+use super::{api, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -44,22 +44,20 @@ pub enum Error {
     UserNotInOrg,
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
-            ClaimsNotUser | UserMismatch | UserNotInOrg => {
-                Status::permission_denied("Access denied.")
-            }
+        error!("{self}");
+        match self {
+            ClaimsNotUser | UserMismatch | UserNotInOrg => Status::forbidden("Access denied."),
             Diesel(_) => Status::internal("Internal error."),
             MissingUserId | ParseUserId(_) => Status::invalid_argument("user_id"),
             MissingOrgId | ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseId(_) => Status::invalid_argument("id"),
-            Auth(err) => err.into(),
-            Claims(err) => err.into(),
-            Model(err) => err.into(),
-            Org(err) => err.into(),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
+            Model(err) => err.report(),
+            Org(err) => err.report(),
         }
     }
 }
@@ -69,7 +67,7 @@ impl SubscriptionService for Grpc {
     async fn create(
         &self,
         req: Request<api::SubscriptionServiceCreateRequest>,
-    ) -> Result<Response<api::SubscriptionServiceCreateResponse>, Status> {
+    ) -> Result<Response<api::SubscriptionServiceCreateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
@@ -78,7 +76,7 @@ impl SubscriptionService for Grpc {
     async fn get(
         &self,
         req: Request<api::SubscriptionServiceGetRequest>,
-    ) -> Result<Response<api::SubscriptionServiceGetResponse>, Status> {
+    ) -> Result<Response<api::SubscriptionServiceGetResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| get(req, meta.into(), read).scope_boxed())
             .await
@@ -87,7 +85,7 @@ impl SubscriptionService for Grpc {
     async fn list(
         &self,
         req: Request<api::SubscriptionServiceListRequest>,
-    ) -> Result<Response<api::SubscriptionServiceListResponse>, Status> {
+    ) -> Result<Response<api::SubscriptionServiceListResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta.into(), read).scope_boxed())
             .await
@@ -96,7 +94,7 @@ impl SubscriptionService for Grpc {
     async fn update(
         &self,
         req: Request<api::SubscriptionServiceUpdateRequest>,
-    ) -> Result<Response<api::SubscriptionServiceUpdateResponse>, Status> {
+    ) -> Result<Response<api::SubscriptionServiceUpdateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|read| update(req, meta.into(), read).scope_boxed())
             .await
@@ -105,7 +103,7 @@ impl SubscriptionService for Grpc {
     async fn delete(
         &self,
         req: Request<api::SubscriptionServiceDeleteRequest>,
-    ) -> Result<Response<api::SubscriptionServiceDeleteResponse>, Status> {
+    ) -> Result<Response<api::SubscriptionServiceDeleteResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await

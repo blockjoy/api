@@ -7,11 +7,11 @@ use diesel::{ExpressionMethods, Insertable, QueryDsl, Queryable};
 use diesel_async::RunQueryDsl;
 use diesel_derive_newtype::DieselNewType;
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::resource::{NodeId, ResourceEntry, ResourceId, ResourceType, UserId};
 use crate::database::Conn;
+use crate::grpc::{self, Status};
 use crate::model::schema::node_reports;
 
 #[derive(Debug, displaydoc::Display, Error)]
@@ -24,10 +24,10 @@ pub enum Error {
     FindByNodes(HashSet<NodeId>, diesel::result::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             FindByNode(_, NotFound) | FindByNodes(_, NotFound) => Status::not_found("Not found."),
             _ => Status::internal("Internal error."),
         }

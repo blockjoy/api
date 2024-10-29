@@ -1,7 +1,7 @@
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 use tracing::error;
 
 use crate::auth::rbac::ApiKeyPerm;
@@ -12,7 +12,7 @@ use crate::model::api_key::{ApiKey, NewApiKey, UpdateLabel, UpdateScope};
 use crate::util::NanosUtc;
 
 use super::api::api_key_service_server::ApiKeyService;
-use super::{api, common, Grpc};
+use super::{api, common, Grpc, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -42,21 +42,21 @@ pub enum Error {
     ParseResourceType(crate::auth::resource::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl super::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        error!("{err}");
-        match err {
-            ClaimsNotUser => Status::permission_denied("Access denied."),
-            Diesel(_) | MissingUpdatedAt => Status::internal("Internal error."),
-            MissingCreateScope => Status::invalid_argument("scope"),
-            MissingScopeResourceId | ParseResourceId(_) => Status::invalid_argument("resource_id"),
-            NothingToUpdate => Status::failed_precondition("Nothing to update."),
-            ParseKeyId(_) => Status::invalid_argument("id"),
-            ParseResourceType(_) => Status::invalid_argument("resource"),
-            Auth(err) => err.into(),
-            Claims(_err) => todo!(),
-            Model(_err) => todo!(),
+        error!("{self}");
+        match self {
+            ClaimsNotUser => Status::forbidden("Access denied."),
+            Diesel(_) | MissingUpdatedAt => Status::forbidden("Internal error."),
+            MissingCreateScope => Status::forbidden("scope"),
+            MissingScopeResourceId | ParseResourceId(_) => Status::forbidden("resource_id"),
+            NothingToUpdate => Status::forbidden("Nothing to update."),
+            ParseKeyId(_) => Status::forbidden("id"),
+            ParseResourceType(_) => Status::forbidden("resource"),
+            Auth(err) => err.report(),
+            Claims(err) => err.report(),
+            Model(err) => err.report(),
         }
     }
 }
@@ -66,7 +66,7 @@ impl ApiKeyService for Grpc {
     async fn create(
         &self,
         req: Request<api::ApiKeyServiceCreateRequest>,
-    ) -> Result<Response<api::ApiKeyServiceCreateResponse>, Status> {
+    ) -> Result<Response<api::ApiKeyServiceCreateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| create(req, meta.into(), write).scope_boxed())
             .await
@@ -75,7 +75,7 @@ impl ApiKeyService for Grpc {
     async fn list(
         &self,
         req: Request<api::ApiKeyServiceListRequest>,
-    ) -> Result<Response<api::ApiKeyServiceListResponse>, Status> {
+    ) -> Result<Response<api::ApiKeyServiceListResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.read(|read| list(req, meta.into(), read).scope_boxed())
             .await
@@ -84,7 +84,7 @@ impl ApiKeyService for Grpc {
     async fn update(
         &self,
         req: Request<api::ApiKeyServiceUpdateRequest>,
-    ) -> Result<Response<api::ApiKeyServiceUpdateResponse>, Status> {
+    ) -> Result<Response<api::ApiKeyServiceUpdateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| update(req, meta.into(), write).scope_boxed())
             .await
@@ -93,7 +93,7 @@ impl ApiKeyService for Grpc {
     async fn regenerate(
         &self,
         req: Request<api::ApiKeyServiceRegenerateRequest>,
-    ) -> Result<Response<api::ApiKeyServiceRegenerateResponse>, Status> {
+    ) -> Result<Response<api::ApiKeyServiceRegenerateResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| regenerate(req, meta.into(), write).scope_boxed())
             .await
@@ -102,7 +102,7 @@ impl ApiKeyService for Grpc {
     async fn delete(
         &self,
         req: Request<api::ApiKeyServiceDeleteRequest>,
-    ) -> Result<Response<api::ApiKeyServiceDeleteResponse>, Status> {
+    ) -> Result<Response<api::ApiKeyServiceDeleteResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
         self.write(|write| delete(req, meta.into(), write).scope_boxed())
             .await
@@ -128,7 +128,7 @@ pub async fn create(
     })
 }
 
-async fn list(
+pub async fn list(
     _: api::ApiKeyServiceListRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -142,7 +142,7 @@ async fn list(
     Ok(api::ApiKeyServiceListResponse { api_keys })
 }
 
-async fn update(
+pub async fn update(
     req: api::ApiKeyServiceUpdateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -179,7 +179,7 @@ async fn update(
     })
 }
 
-async fn regenerate(
+pub async fn regenerate(
     req: api::ApiKeyServiceRegenerateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -199,7 +199,7 @@ async fn regenerate(
     })
 }
 
-async fn delete(
+pub async fn delete(
     req: api::ApiKeyServiceDeleteRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,

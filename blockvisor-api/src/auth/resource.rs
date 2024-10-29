@@ -8,11 +8,10 @@ use displaydoc::Display as DisplayDoc;
 use serde::{Deserialize, Serialize};
 use strum::{EnumString, IntoStaticStr};
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::database::Conn;
-use crate::grpc::common;
+use crate::grpc::{self, common, Status};
 use crate::model::schema::sql_types;
 use crate::model::User;
 
@@ -28,13 +27,13 @@ pub enum Error {
     User(#[from] crate::model::user::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             MissingResourceId | ParseResourceId(_) => Status::invalid_argument("resource_id"),
             UnknownResourceType => Status::invalid_argument("resource"),
-            User(err) => err.into(),
+            User(err) => err.report(),
         }
     }
 }

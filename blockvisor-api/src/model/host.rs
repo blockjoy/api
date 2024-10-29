@@ -14,13 +14,12 @@ use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display;
 use ipnetwork::IpNetwork;
 use thiserror::Error;
-use tonic::Status;
 
 use crate::auth::rbac::HostBillingPerm;
 use crate::auth::resource::{HostId, OrgId, UserId};
 use crate::auth::AuthZ;
 use crate::database::Conn;
-use crate::grpc::{api, common};
+use crate::grpc::{self, api, common, Status};
 use crate::storage::metadata::HardwareRequirements;
 use crate::util::{SearchOperator, SortOrder};
 
@@ -80,10 +79,10 @@ pub enum Error {
     UpdateMetrics(diesel::result::Error, HostId),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             Delete(_, NotFound)
             | FindById(_, NotFound)
@@ -94,10 +93,10 @@ impl From<Error> for Status {
             }
             NoUpdate => Status::failed_precondition("Nothing to update."),
             ParseIp(_) => Status::invalid_argument("ip_addr"),
-            Paginate(err) => err.into(),
-            IpAddress(err) => err.into(),
-            Org(err) => err.into(),
-            Region(err) => err.into(),
+            Paginate(err) => err.report(),
+            IpAddress(err) => err.report(),
+            Org(err) => err.report(),
+            Region(err) => err.report(),
             _ => Status::internal("Internal error."),
         }
     }

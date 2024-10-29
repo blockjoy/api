@@ -6,11 +6,11 @@ use diesel_async::RunQueryDsl;
 use diesel_derive_enum::DbEnum;
 use displaydoc::Display;
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::resource::{HostId, NodeId, OrgId};
 use crate::database::Conn;
+use crate::grpc::{self, Status};
 use crate::model::schema::{node_logs, sql_types};
 use crate::model::{BlockchainId, Host};
 
@@ -28,13 +28,13 @@ pub enum Error {
     Host(#[from] crate::model::host::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             Create(_) => Status::already_exists("Already exists."),
             ByNode(_) | ByNodeSince(_) => Status::not_found("Not found."),
-            Host(err) => err.into(),
+            Host(err) => err.report(),
         }
     }
 }

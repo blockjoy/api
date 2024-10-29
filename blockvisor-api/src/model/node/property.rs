@@ -7,11 +7,11 @@ use diesel_async::RunQueryDsl;
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::auth::resource::NodeId;
 use crate::database::Conn;
+use crate::grpc::{self, Status};
 use crate::model::blockchain::BlockchainPropertyId;
 use crate::model::schema::node_properties;
 
@@ -25,10 +25,10 @@ pub enum Error {
     ByNodeIds(HashSet<NodeId>, diesel::result::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             ByNodeId(_, NotFound) | ByNodeIds(_, NotFound) => Status::not_found("Not found."),
             _ => Status::internal("Internal error."),
         }

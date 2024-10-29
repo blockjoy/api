@@ -15,13 +15,13 @@ use displaydoc::Display;
 use password_hash::{PasswordVerifier, Salt};
 use rand::rngs::OsRng;
 use thiserror::Error;
-use tonic::Status;
 use validator::Validate;
 
 use crate::auth::rbac::{OrgRole, Role};
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
 use crate::email::Language;
+use crate::grpc::{self, Status};
 use crate::util::{SearchOperator, SortOrder};
 
 use super::org::NewOrg;
@@ -90,10 +90,10 @@ pub enum Error {
     VerifyPassword(argon2::password_hash::Error),
 }
 
-impl From<Error> for Status {
-    fn from(err: Error) -> Self {
+impl grpc::ResponseError for Error {
+    fn report(&self) -> Status {
         use Error::*;
-        match err {
+        match self {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             ConfirmNone
             | Delete(NotFound)
@@ -104,10 +104,10 @@ impl From<Error> for Status {
             | FindByIds(_, NotFound) => Status::not_found("Not found."),
             AlreadyConfirmed => Status::failed_precondition("Already confirmed."),
             NotConfirmed => Status::failed_precondition("User is not confirmed."),
-            LoginEmail | VerifyPassword(_) => Status::unauthenticated("Invalid email or password."),
-            Paginate(err) => err.into(),
-            Org(err) => err.into(),
-            Rbac(err) => err.into(),
+            LoginEmail | VerifyPassword(_) => Status::unauthorized("Invalid email or password."),
+            Paginate(err) => err.report(),
+            Org(err) => err.report(),
+            Rbac(err) => err.report(),
             _ => Status::internal("Internal error."),
         }
     }
