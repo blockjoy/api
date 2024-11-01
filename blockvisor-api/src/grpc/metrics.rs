@@ -1,7 +1,4 @@
-//! The metrics service is the service that relates to the metrics for nodes and hosts that we
-//! gather. At some point we may switch to a provisioned metrics service, so for now this service
-//! does not store a history of metrics. Rather, it overwrites the metrics that are know for each
-//! time new ones are provided. This makes sure that the database doesn't grow overly large.
+//! This module contains models for interacting with database tables.
 
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;

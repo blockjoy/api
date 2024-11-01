@@ -98,7 +98,7 @@ mod tests {
     #[tokio::test]
     async fn http_body() {
         let resp = failed().into_response();
-        let bytes = hyper::body::to_bytes(resp).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
         let body = String::from_utf8(bytes.to_vec()).unwrap();
         assert_eq!(body, r#"{"message":"Failed."}"#);
     }

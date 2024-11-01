@@ -46,10 +46,7 @@ async fn user_can_create_and_list_api_keys() {
     let keys1 = list_api_keys(&test, &token1).await.unwrap().api_keys;
     assert_eq!(keys1.len(), 1);
     assert_eq!(keys1[0].label.as_ref().unwrap(), label1);
-    assert_eq!(
-        keys1[0].created_at.clone().unwrap(),
-        created1.created_at.unwrap()
-    );
+    assert_eq!(keys1[0].created_at.unwrap(), created1.created_at.unwrap());
 
     // token2 can list keys for user2
     let keys2 = list_api_keys(&test, &token2).await.unwrap().api_keys;
@@ -75,7 +72,7 @@ async fn user_can_update_label() {
 
     let keys = list_api_keys(&test, &key1.token).await.unwrap().api_keys;
     assert_eq!(keys[0].label.as_ref().unwrap(), "after");
-    assert_eq!(keys[0].updated_at.clone().unwrap(), updated_at);
+    assert_eq!(keys[0].updated_at.unwrap(), updated_at);
 
     // key2.token cannot update key_id label
     let result = update(&test, &key2.token, &key_id, Some("nope"), None).await;

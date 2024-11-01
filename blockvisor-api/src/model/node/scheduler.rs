@@ -4,11 +4,7 @@ use crate::grpc::api;
 use crate::model::schema::sql_types;
 use crate::model::Region;
 
-/// This struct contains fields by which we can customize which host to pick when starting a new
-/// node. The fields are sorted by precendence from top to bottom, i.e. if the `similarity` field
-/// and the `resource` field are both set, then `similarity` takes precedence over `resource`. Note
-/// that the final field of this struct is required, in order to make sure that the affinity of
-/// nodes is always defined.
+/// Controls how a node is placed onto an appropriate host.
 #[derive(Debug)]
 pub struct NodeScheduler {
     /// Controls in which region the node should be deployed.

@@ -67,9 +67,7 @@ pub enum NodeLogEvent {
     UpgradeFailed,
 }
 
-/// Records of this table indicate that some event related to node deployments has happened. Note
-/// that there is some redundancy in this table, because we want to be able to keep this log
-/// meaningful as records are deleted from the `nodes` table.
+/// Records to indicate that some node deployment event has happened.
 #[derive(Debug, Queryable)]
 pub struct NodeLog {
     pub id: Uuid,

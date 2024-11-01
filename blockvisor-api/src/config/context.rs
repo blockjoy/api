@@ -68,11 +68,13 @@ pub struct Context {
 
 impl Context {
     pub async fn new() -> Result<Arc<Self>, Error> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let config = Config::new().map_err(Error::Config)?;
         Self::builder_from(config).await?.build()
     }
 
     pub async fn from_default_toml() -> Result<Arc<Self>, Error> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let config = Config::from_default_toml().map_err(Error::Config)?;
         Self::builder_from(config).await?.build()
     }
@@ -106,6 +108,7 @@ impl Context {
         use crate::storage::tests::TestStorage;
         use crate::stripe::tests::MockStripe;
 
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let config = Config::from_default_toml().map_err(Error::Config)?;
         let mut rng = OsRng;
         let db = TestDb::new(&config.database, &mut rng).await;

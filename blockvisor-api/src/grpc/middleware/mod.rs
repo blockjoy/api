@@ -1,9 +1,10 @@
 use std::task::{Context, Poll};
 
 use futures::future::BoxFuture;
-use hyper::{Body, Request, Response};
-use opentelemetry::global;
+use hyper::body::Body;
+use hyper::{Request, Response};
 use opentelemetry::trace::{FutureExt, SpanKind, Status, TraceContextExt, Tracer};
+use opentelemetry::{global, KeyValue};
 use opentelemetry_http::HeaderExtractor;
 use opentelemetry_semantic_conventions::trace::{HTTP_RESPONSE_STATUS_CODE, RPC_GRPC_STATUS_CODE};
 use tonic::body::BoxBody;
@@ -26,9 +27,10 @@ pub struct MetricsService<S> {
     service: S,
 }
 
-impl<S> Service<Request<Body>> for MetricsService<S>
+impl<B, S> Service<Request<B>> for MetricsService<S>
 where
-    S: Service<Request<Body>, Response = Response<BoxBody>> + Clone + Send + 'static,
+    B: Body + Send + 'static,
+    S: Service<Request<B>, Response = Response<BoxBody>> + Clone + Send + 'static,
     S::Future: Send + 'static,
     S::Error: ToString,
 {
@@ -40,7 +42,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Request<Body>) -> Self::Future {
+    fn call(&mut self, request: Request<B>) -> Self::Future {
         let path = request.uri().path();
         let path = path.strip_prefix('/').unwrap_or(path).to_string();
 
@@ -76,8 +78,11 @@ where
                         None => Code::Ok,
                     };
 
-                    span.set_attribute(RPC_GRPC_STATUS_CODE.i64(grpc_status as i64));
-                    span.set_attribute(HTTP_RESPONSE_STATUS_CODE.i64(i64::from(http_status)));
+                    span.set_attribute(KeyValue::new(RPC_GRPC_STATUS_CODE, grpc_status as i64));
+                    span.set_attribute(KeyValue::new(
+                        HTTP_RESPONSE_STATUS_CODE,
+                        i64::from(http_status),
+                    ));
                     span.end();
 
                     Ok(response)

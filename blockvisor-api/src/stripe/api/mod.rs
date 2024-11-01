@@ -1,8 +1,7 @@
 //! Types reimplemented from <https://crates.io/crates/cloudflare>.
-//! Note that several of the fields in the api definitions are commented out. We do this because
-//! they often contain nested definition's that we do not use, and we don't want to pay the
-//! maintenance / binary size / compilation time cost of having them commented in. If you do need a
-//! field that is commented out, feel free to comment it in.
+//!
+//! Note that several of the fields in the api definitions are commented out
+//! because they often contain nested definition's that we do not use.
 
 pub mod account;
 pub mod address;
@@ -43,9 +42,13 @@ pub trait StripeEndpoint: Send + Sync + Sized {
     }
 }
 
-/// An id or object. By default stripe will return an id for most fields, but if more detail is
-/// necessary the `expand` parameter can be provided to ask for the id to be loaded as an object
-/// instead. For more details <https://stripe.com/docs/api/expanding_objects>.
+/// An id or object.
+///
+/// By default stripe will return an id for most fields, but if more detail is
+/// necessary the `expand` parameter can be provided to ask for the id to be
+/// loaded as an object instead.
+///
+/// For more details: <https://stripe.com/docs/api/expanding_objects>.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum IdOrObject<Id, Object> {

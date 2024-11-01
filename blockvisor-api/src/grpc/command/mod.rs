@@ -1,7 +1,7 @@
 mod recover;
 mod success;
 
-use cidr_utils::cidr::IpCidr;
+use cidr::IpCidr;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
@@ -41,8 +41,6 @@ pub enum Error {
     GrpcHost(Box<crate::grpc::node::Error>),
     /// Command host error: {0}
     Host(#[from] crate::model::host::Error),
-    /// IP is not a CIDR.
-    IpNotCidr,
     /// Missing BlockchainPropertyId. This should not happen.
     MissingBlockchainPropertyId,
     /// Missing `command.node_id`.
@@ -55,6 +53,10 @@ pub enum Error {
     ParseExitCode,
     /// Failed to parse HostId: {0}
     ParseHostId(uuid::Error),
+    /// Failed to parse allowed IP as CIDR: {0}
+    ParseIpAllow(cidr::errors::NetworkParseError),
+    /// Failed to parse denied IP as CIDR: {0}
+    ParseIpDeny(cidr::errors::NetworkParseError),
     /// Failed to parse NodeId: {0}
     ParseNodeId(uuid::Error),
     /// Failed to parse CommandId: {0}
@@ -77,8 +79,10 @@ impl From<Error> for Status {
             ParseNodeId(_) => Status::invalid_argument("node_id"),
             ParseHostId(_) => Status::invalid_argument("host_id"),
             ParseId(_) => Status::invalid_argument("id"),
+            ParseIpAllow(_) => Status::invalid_argument("allow_ips"),
+            ParseIpDeny(_) => Status::invalid_argument("deny_ips"),
             RetryHint(_) => Status::invalid_argument("retry_hint_seconds"),
-            Diesel(_) | IpNotCidr | MissingBlockchainPropertyId | NotImplemented | GrpcHost(_) => {
+            Diesel(_) | GrpcHost(_) | MissingBlockchainPropertyId | NotImplemented => {
                 Status::internal("Internal error.")
             }
             Auth(err) => err.into(),
@@ -538,9 +542,7 @@ fn firewall_rules(node: &Node) -> Result<Vec<FirewallRule>, Error> {
 
     // TODO: newtype with cidr checks for FilteredIpAddr
     for ip in node.allow_ips()? {
-        if !IpCidr::is_ip_cidr(&ip.ip) {
-            return Err(Error::IpNotCidr);
-        }
+        let _cidr: IpCidr = ip.ip.parse().map_err(Error::ParseIpAllow)?;
 
         rules.push(FirewallRule {
             name: format!("allow: {}", ip.ip),
@@ -553,9 +555,7 @@ fn firewall_rules(node: &Node) -> Result<Vec<FirewallRule>, Error> {
     }
 
     for ip in node.deny_ips()? {
-        if !IpCidr::is_ip_cidr(&ip.ip) {
-            return Err(Error::IpNotCidr);
-        }
+        let _cidr: IpCidr = ip.ip.parse().map_err(Error::ParseIpDeny)?;
 
         rules.push(FirewallRule {
             name: format!("deny: {}", ip.ip),

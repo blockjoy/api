@@ -3,7 +3,7 @@ pub mod response;
 
 use std::sync::Arc;
 
-use axum::routing::Router;
+use axum::Router;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};

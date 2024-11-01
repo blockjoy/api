@@ -4,7 +4,7 @@ use diesel_migrations::MigrationHarness;
 use tracing::info;
 
 use blockvisor_api::config::{Config, Context};
-use blockvisor_api::database::{self, Database, Pool};
+use blockvisor_api::database::{self, Database, Pool, MIGRATIONS};
 use blockvisor_api::server;
 
 #[tokio::main]
@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
 fn run_migrations(config: &Config) -> Result<()> {
     PgConnection::establish(config.database.url.as_str())
         .context("failed to establish db connection")?
-        .run_pending_migrations(blockvisor_api::database::MIGRATIONS)
+        .run_pending_migrations(MIGRATIONS)
         .map(|_versions| ())
         .map_err(|err| anyhow!("failed to run db migrations: {err}"))
 }

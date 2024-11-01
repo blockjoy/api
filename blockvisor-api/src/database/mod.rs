@@ -1,21 +1,24 @@
 #[cfg(any(test, feature = "integration-test"))]
 pub mod seed;
 
+use std::future::Future;
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use derive_more::{Deref, DerefMut};
 use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::bb8::{self, PooledConnection};
-use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig};
 use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 use diesel_migrations::EmbeddedMigrations;
 use displaydoc::Display;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
-use rustls::client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier};
-use rustls::{Certificate, CertificateError, ClientConfig, RootCertStore, ServerName};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::client::WebPkiServerVerifier;
+use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{CertificateError, ClientConfig, DigitallySignedStruct, RootCertStore};
 use thiserror::Error;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_postgres_rustls::MakeRustlsConnect;
@@ -33,11 +36,10 @@ use crate::mqtt::Message;
 
 pub const MIGRATIONS: EmbeddedMigrations = diesel_migrations::embed_migrations!();
 
-// NOTE: the return type here is `impl Future blabla` because we want this trait to be async and
-// and also have `pub` visibility.
+// returns `impl Future` for async trait with `pub` visibility
 pub trait Database {
     /// Return a new connection to the database.
-    fn conn(&self) -> impl std::future::Future<Output = Result<Conn<'_>, Error>>;
+    fn conn(&self) -> impl Future<Output = Result<Conn<'_>, Error>>;
 }
 
 pub(crate) trait Transaction {
@@ -183,16 +185,18 @@ pub struct Pool(bb8::Pool<AsyncPgConnection>);
 
 impl Pool {
     pub async fn new(config: &Config) -> Result<Self, Error> {
-        let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_setup(
+        let mut manager_config = ManagerConfig::default();
+        manager_config.custom_setup = Box::new(establish_connection);
+        let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_config(
             config.url.as_str(),
-            establish_connection,
+            manager_config,
         );
 
         bb8::Pool::builder()
-            .max_size(config.pool.max_conns)
-            .min_idle(Some(config.pool.min_conns))
-            .max_lifetime(Some(*config.pool.max_lifetime))
-            .idle_timeout(Some(*config.pool.idle_timeout))
+            .max_size(config.max_conns)
+            .min_idle(Some(config.min_conns))
+            .max_lifetime(Some(*config.max_lifetime))
+            .idle_timeout(Some(*config.idle_timeout))
             .build(manager)
             .await
             .map(Self)
@@ -297,8 +301,8 @@ where
 fn establish_connection(config: &str) -> BoxFuture<'_, ConnectionResult<AsyncPgConnection>> {
     let fut = async {
         let client_config = ClientConfig::builder()
-            .with_safe_defaults()
-            .with_custom_certificate_verifier(Arc::new(DontVerifyHostName::new(root_certs())))
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(IgnoreIssuer::new()))
             .with_no_client_auth();
         let tls = MakeRustlsConnect::new(client_config);
 
@@ -318,62 +322,75 @@ fn establish_connection(config: &str) -> BoxFuture<'_, ConnectionResult<AsyncPgC
     fut.boxed()
 }
 
-fn root_certs() -> RootCertStore {
-    let mut roots = RootCertStore::empty();
-    let certs = rustls_native_certs::load_native_certs().expect("Certs not loadable!");
-    let certs: Vec<_> = certs.into_iter().map(|cert| cert.0).collect();
-    roots.add_parsable_certificates(&certs);
-    roots
+// Because the server certificate has an IP address rather than hostname, we
+// ignore `CertificateError::UnknownIssuer` server verification errors.
+#[derive(Debug)]
+struct IgnoreIssuer {
+    pki: Arc<WebPkiServerVerifier>,
+    provider: Arc<CryptoProvider>,
 }
 
-/// And now we come upon a sad state of affairs. The database is served not from a host name but
-/// from an IP-address. This means that we cannot verify the hostname of the SSL certificate and we
-/// have to implement a custom certificate verifier for our certificate. The custom implementation
-/// falls back to the stardard `WebPkiVerifier`, but when it sees an `UnsupportedNameType` error
-/// being returned from the verification process, it marks the verification as succeeded. This
-/// emulates the default behaviour of `SQLx` and libpq.
-struct DontVerifyHostName {
-    pki: WebPkiVerifier,
-}
-
-impl DontVerifyHostName {
-    fn new(roots: RootCertStore) -> Self {
-        Self {
-            pki: WebPkiVerifier::new(roots, None),
+impl IgnoreIssuer {
+    fn new() -> Self {
+        let mut root_certs = RootCertStore::empty();
+        for cert in rustls_native_certs::load_native_certs().expect("load native certs") {
+            root_certs.add(cert).expect("add root cert");
         }
+
+        let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        let pki = WebPkiServerVerifier::builder_with_provider(root_certs.into(), provider.clone())
+            .build()
+            .expect("pki cert verifier");
+
+        IgnoreIssuer { pki, provider }
     }
 }
 
-impl ServerCertVerifier for DontVerifyHostName {
+impl ServerCertVerifier for IgnoreIssuer {
     fn verify_server_cert(
         &self,
-        end_entity: &Certificate,
-        intermediates: &[Certificate],
-        server_name: &ServerName,
-        signed_cert_timestamps: &mut dyn Iterator<Item = &[u8]>,
-        ocsp_response: &[u8],
-        now: SystemTime,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp: &[u8],
+        now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let result = self.pki.verify_server_cert(
-            end_entity,
-            intermediates,
-            server_name,
-            signed_cert_timestamps,
-            ocsp_response,
-            now,
-        );
-
-        match result {
+        match self
+            .pki
+            .verify_server_cert(end_entity, intermediates, server_name, ocsp, now)
+        {
             Ok(verified) => Ok(verified),
             Err(rustls::Error::InvalidCertificate(CertificateError::UnknownIssuer)) => {
                 Ok(ServerCertVerified::assertion())
             }
-            Err(err) => {
-                // TODO: return an error here when this warning no longer shows in logs
-                warn!("Failed to verify database server certificate: {err}");
-                Ok(ServerCertVerified::assertion())
-            }
+            Err(err) => Err(err),
         }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        let algorithms = &self.provider.signature_verification_algorithms;
+        verify_tls12_signature(message, cert, dss, algorithms)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        let algorithms = &self.provider.signature_verification_algorithms;
+        verify_tls13_signature(message, cert, dss, algorithms)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }
 
@@ -438,7 +455,7 @@ pub mod tests {
             let manager =
                 AsyncDieselConnectionManager::<AsyncPgConnection>::new(test_db_url.clone());
             let pool = bb8::Pool::builder()
-                .max_size(config.pool.max_conns)
+                .max_size(config.max_conns)
                 .build(manager)
                 .await
                 .map(Pool)

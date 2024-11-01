@@ -46,7 +46,7 @@ pub struct Email {
 
 impl Email {
     pub fn new(config: &Config, cipher: Arc<Cipher>) -> Result<Self, Error> {
-        let sender = Box::new(v3::Sender::new(config.email.sendgrid_api_key.clone()));
+        let sender = Box::new(v3::Sender::new(config.email.sendgrid_api_key.clone(), None));
         let templates = Templates::new(&config.email.template_dir)?;
         let base_url = config.email.ui_base_url.clone();
         let expires = config.token.expire;

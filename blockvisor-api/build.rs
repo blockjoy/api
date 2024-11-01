@@ -23,7 +23,7 @@ fn main() -> Result<()> {
         .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
         .compile_well_known_types(true)
         .extern_path(".google.protobuf", "::prost_wkt_types")
-        .compile(&proto_files()?, &includes)
+        .compile_protos(&proto_files()?, &includes)
         .context("Failed to compile protos")
 }
 

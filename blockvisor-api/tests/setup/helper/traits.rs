@@ -1,15 +1,12 @@
 use std::fmt::Debug;
 use std::future::Future;
-use std::sync::Arc;
+use std::net::SocketAddr;
 
-use hyper::Uri;
-use tempfile::TempPath;
-use tokio::net::UnixStream;
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::Channel;
 use tonic::{IntoRequest, Request, Response, Status};
+use tracing::debug;
 
 use blockvisor_api::auth::token::jwt::Jwt;
-use tracing::debug;
 
 pub trait GrpcClient<T> {
     fn create(channel: Channel) -> Self;
@@ -34,7 +31,7 @@ grpc_clients! [
 ];
 
 pub trait SocketRpc {
-    fn input_socket(&self) -> Arc<TempPath>;
+    fn socket_addr(&self) -> SocketAddr;
 
     async fn root_jwt(&self) -> Jwt;
 
@@ -173,15 +170,8 @@ pub trait SocketRpc {
         Resp: Send + Debug,
         Client: GrpcClient<Channel> + Send + Debug + 'static,
     {
-        let socket = self.input_socket();
-        let channel = Endpoint::try_from("http://any.url")
-            .unwrap()
-            .connect_with_connector(tower::service_fn(move |_: Uri| {
-                let socket = socket.clone();
-                async move { UnixStream::connect(&*socket).await }
-            }))
-            .await
-            .unwrap();
+        let uri = format!("tls://{}", self.socket_addr()).parse().unwrap();
+        let channel = Channel::builder(uri).connect().await.unwrap();
         let mut client = Client::create(channel);
 
         debug!("{:?}", req.get_ref());

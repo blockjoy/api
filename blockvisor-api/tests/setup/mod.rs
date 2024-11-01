@@ -1,12 +1,12 @@
 pub mod helper;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use rand::distributions::{Alphanumeric, DistString};
 use rand::rngs::OsRng;
-use tempfile::{NamedTempFile, TempPath};
-use tokio::net::UnixListener;
-use tokio_stream::wrappers::UnixListenerStream;
+use tokio::net::TcpListener;
+use tokio_stream::wrappers::TcpListenerStream;
 
 use blockvisor_api::auth::claims::{Claims, Expirable};
 use blockvisor_api::auth::rbac::{ApiKeyRole, Roles, ViewRole};
@@ -29,7 +29,7 @@ use self::helper::traits::SocketRpc;
 pub struct TestServer {
     db: TestDb,
     context: Arc<Context>,
-    socket: Arc<TempPath>,
+    addr: SocketAddr,
 }
 
 #[allow(dead_code)]
@@ -38,10 +38,9 @@ impl TestServer {
         let (context, db) = Context::with_mocked().await.unwrap();
         // let _ = context.config.log.try_start();
 
-        let socket = Arc::new(NamedTempFile::new().unwrap().into_temp_path());
-        std::fs::remove_file(&*socket).unwrap();
-        let listener = UnixListener::bind(&*socket).unwrap();
-        let stream = UnixListenerStream::new(listener);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let stream = TcpListenerStream::new(listener);
 
         let server_context = context.clone();
         tokio::spawn(async move {
@@ -51,11 +50,7 @@ impl TestServer {
                 .unwrap()
         });
 
-        TestServer {
-            db,
-            context,
-            socket,
-        }
+        TestServer { db, context, addr }
     }
 
     pub async fn conn(&self) -> Conn<'_> {
@@ -170,8 +165,8 @@ impl TestServer {
 }
 
 impl SocketRpc for TestServer {
-    fn input_socket(&self) -> Arc<TempPath> {
-        self.socket.clone()
+    fn socket_addr(&self) -> SocketAddr {
+        self.addr
     }
 
     async fn root_jwt(&self) -> Jwt {

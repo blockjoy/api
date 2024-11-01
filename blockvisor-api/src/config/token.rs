@@ -2,7 +2,7 @@ use std::convert::Infallible;
 use std::str::FromStr;
 use std::time::Duration;
 
-use derive_more::{Deref, FromStr};
+use derive_more::Deref;
 use displaydoc::Display;
 use serde::Deserialize;
 use serde_with::{serde_as, DurationSeconds};
@@ -87,11 +87,11 @@ pub enum SecretError {
     ParseRefresh(provider::Error),
 }
 
-#[derive(Debug, Deref, Deserialize, FromStr)]
+#[derive(Debug, Deref, Deserialize, derive_more::FromStr)]
 #[deref(forward)]
 pub struct JwtSecret(Redacted<String>);
 
-#[derive(Debug, Deref, Deserialize, FromStr)]
+#[derive(Debug, Deref, Deserialize, derive_more::FromStr)]
 #[deref(forward)]
 pub struct RefreshSecret(Redacted<String>);
 

@@ -8,90 +8,93 @@ edition = "2021"
 name = "blockvisor-api"
 
 [dependencies]
-anyhow = "1.0.72"
-argh = "0.1.12"
-argon2 = "0.5.0"
-axum = { version = "0.6.20", features = ["macros"] }
-axum-extra = "0.8.0"
-axum-tracing-opentelemetry = "0.14.1"
-aws-sdk-s3 = { version = "0.39.1", features = ["behavior-version-latest"] }
-base64 = "0.21.2"
-blake3 = "1.4.0"
-chrono = { version = "0.4.26", features = ["serde"] }
-cidr-utils = "0.5.10"
-derive_more = "0.99.17"
-diesel = { version = "2.1.0", default-features = false, features = ["postgres", "without-deprecated", "uuid", "chrono", "serde_json", "network-address", "64-column-tables"] }
-diesel-async = { version = "0.3.2", features = ["bb8", "postgres"] }
-diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
-diesel-derive-newtype = "2.1.0"
-diesel_migrations = { version = "2.1.0", features = ["postgres"] }
-displaydoc = "0.2.4"
-futures = "0.3.28"
-futures-util = "0.3.28"
-h2 = "0.4.0"
-handlebars = "4.3.7"
-humantime-serde = "1.1.1"
-hyper = "0.14.26"
-ipnet = "2.7.2"
+anyhow = "1.0"
+argh = "0.1"
+argon2 = "0.5"
+aws-sdk-s3 = { version = "1.17", features = ["behavior-version-latest"] }
+axum = { version = "0.7", features = ["macros"] }
+axum-extra = "0.9"
+axum-tracing-opentelemetry = "0.21"
+base64 = "0.22"
+blake3 = "1.4"
+chrono = { version = "0.4", features = ["serde"] }
+cidr = "0.3"
+derive_more = { version = "1.0", features = ["full"] }
+diesel = { version = "2.2", default-features = false, features = ["postgres", "without-deprecated", "uuid", "chrono", "serde_json", "network-address", "64-column-tables"] }
+diesel-async = { version = "0.5", features = ["bb8", "postgres"] }
+diesel-derive-enum = { version = "2.1", features = ["postgres"] }
+diesel-derive-newtype = "2.1"
+diesel_migrations = { version = "2.2", features = ["postgres"] }
+displaydoc = "0.2"
+futures = "0.3"
+futures-util = "0.3"
+h2 = "0.4"
+handlebars = "6.0"
+http = "1.1"
+http-body = "1.0"
+http-body-util = "0.1"
+humantime-serde = "1.1"
+hyper = "1.1"
+ipnet = "2.7"
 ipnetwork = "0.20"
-itertools = "0.12.0"
-jsonwebtoken = "9.0.0"
-maplit = "1.0.2"
-mockall = { version = "0.11.4", features = [] }
-mockito = "1.1.0"
-opentelemetry = "0.21.0"
-opentelemetry-http = "0.10.0"
-opentelemetry-otlp = { version = "0.14.0", features = ["http-proto", "grpc-tonic"] }
-opentelemetry_sdk = { version = "0.21.1", features = ["rt-tokio"] }
-opentelemetry-semantic-conventions = "0.13.0"
-password-hash = "0.5.0"
-paste = "1.0.14"
+itertools = "0.13"
+jsonwebtoken = "9.0"
+maplit = "1.0"
+mockall = "0.13"
+mockito = "1.4"
+opentelemetry = "0.26"
+opentelemetry-http = "0.26"
+opentelemetry-otlp = { version = "0.26", features = ["http-proto", "grpc-tonic"] }
+opentelemetry-semantic-conventions = { version = "0.26", features = ["semconv_experimental"] }
+opentelemetry_sdk = { version = "0.26", features = ["rt-tokio"] }
+password-hash = "0.5"
+paste = "1.0"
 petname = { version = "2.0.0-beta.4", default-features = false, features = ["default-rng", "default-words"] }
-pin-project = "1.1.0"
-prost = "0.12.1"
-prost-types = "0.12.1"
-prost-wkt-types = "0.5.0"
-rand = "0.8.5"
-reqwest = { version = "0.11.18", features = ["json"] }
-rhai = { version = "1.15.0", features = ["serde", "sync"] }
-rumqttc = "0.23.0"
-rustls = { version = "0.21.2", features = ["dangerous_configuration"] }
-rustls-native-certs = "0.6.3"
-semver = "1.0.17"
-sendgrid = { version = "0.19.0", default-features = false, features = ["rustls", "async"] }
-serde = { version = "1.0.164", features = ["derive", "rc"] }
-serde-enum-str = { version = "0.4.0" }
-serde_json = { version = "1.0.97", features = ["raw_value"] }
-serde_urlencoded = "0.7.1"
-serde_with = { version = "3.3.0", features = ["chrono_0_4"] }
-strum = { version = "0.25.0", features = ["derive"] }
-thiserror = "1.0.40"
-tokio = { version = "1.28.2", features = ["io-util", "macros", "sync", "rt-multi-thread"] }
-tokio-postgres = "0.7.8"
-tokio-postgres-rustls = "0.10.0"
-tokio-stream = { version = "0.1.14", features = ["net"] }
-toml = "0.8.1"
-tonic = { version = "0.10.1", features = ["tls-roots", "gzip"] }
-tower = { version = "0.4.13", features = ["tokio", "tracing", "util"] }
-tower-http = { version = "0.4.1", features = ["cors", "trace", "compression-gzip", "auth"] }
-tracing = "0.1.37"
-tracing-error = "0.2.0"
-tracing-log = "0.2.0"
-tracing-opentelemetry = "0.22.0"
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-url = { version = "2.4.0", features = ["serde"] }
-uuid = { version = "1.3.4", features = ["serde", "v4"] }
-validator = { version = "0.16.1", features = ["derive"] }
-zeroize = { version = "1.6.0", features = ["zeroize_derive"] }
+pin-project = "1.1"
+prost = "0.13"
+prost-types = "0.13"
+prost-wkt-types = "0.6.0"
+rand = "0.8"
+reqwest = { version = "0.12", features = ["json"] }
+rhai = { version = "1.17", features = ["serde", "sync"] }
+rumqttc = { version = "0.24", features = ["use-rustls"] }
+rustls = "0.23"
+rustls-native-certs = "0.8"
+semver = "1.0"
+sendgrid = { version = "0.23", default-features = false, features = ["rustls"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde-enum-str = { version = "0.4" }
+serde_json = { version = "1.0", features = ["raw_value"] }
+serde_urlencoded = "0.7"
+serde_with = { version = "3.6", features = ["chrono_0_4"] }
+strum = { version = "0.26", features = ["derive"] }
+thiserror = "1.0"
+tokio = { version = "1.35", features = ["io-util", "macros", "rt-multi-thread", "sync"] }
+tokio-postgres = "0.7"
+tokio-postgres-rustls = "0.12"
+tokio-stream = { version = "0.1", features = ["net"] }
+toml = "0.8"
+tonic = { version = "0.12", features = ["gzip", "tls-roots"] }
+tower = { version = "0.5", features = ["make", "steer", "tokio", "tracing", "util"] }
+tower-http = { version = "0.6", features = ["auth", "compression-gzip", "cors", "trace"] }
+tracing = "0.1"
+tracing-error = "0.2"
+tracing-log = "0.2"
+tracing-opentelemetry = "0.27"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2.4", features = ["serde"] }
+uuid = { version = "1.3", features = ["serde", "v4"] }
+validator = { version = "0.18", features = ["derive"] }
+zeroize = { version = "1.6", features = ["zeroize_derive"] }
 
 [dev-dependencies]
 blockvisor-api = { path = ".", features = ["integration-test"] }
-temp-env = "0.3.4"
-tempfile = "3.6.0"
+http-body-util = "0.1"
+temp-env = "0.3"
 
 [build-dependencies]
-anyhow = "1.0.72"
-tonic-build = "0.10.1"
+anyhow = "1.0"
+tonic-build = "0.12"
 
 [features]
 default = []

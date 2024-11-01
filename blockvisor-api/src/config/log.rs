@@ -1,13 +1,13 @@
 use std::time::Duration;
 
 use displaydoc::Display;
+use opentelemetry::propagation::TextMapCompositePropagator;
+use opentelemetry::trace::TracerProvider;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::propagation::{
-    BaggagePropagator, TextMapCompositePropagator, TraceContextPropagator,
-};
+use opentelemetry_sdk::propagation::{BaggagePropagator, TraceContextPropagator};
 use opentelemetry_sdk::runtime::Tokio;
-use opentelemetry_sdk::trace::{BatchConfig, Sampler};
+use opentelemetry_sdk::trace::{BatchConfigBuilder, Sampler};
 use opentelemetry_sdk::{trace, Resource};
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use serde::Deserialize;
@@ -86,11 +86,12 @@ impl Config {
         ]));
 
         let resource = Resource::new(vec![KeyValue::new(SERVICE_NAME, self.service_name())]);
-        let trace_config = trace::config()
+        let trace_config = trace::Config::default()
             .with_resource(resource)
             .with_sampler(Sampler::AlwaysOn);
-        let batch_config =
-            BatchConfig::default().with_scheduled_delay(*self.opentelemetry.export_interval);
+        let batch_config = BatchConfigBuilder::default()
+            .with_scheduled_delay(*self.opentelemetry.export_interval)
+            .build();
 
         let exporter = opentelemetry_otlp::new_exporter()
             .tonic()
@@ -101,7 +102,8 @@ impl Config {
             .with_trace_config(trace_config)
             .with_batch_config(batch_config)
             .install_batch(Tokio)
-            .map_err(Error::StartTracer)?;
+            .map_err(Error::StartTracer)?
+            .tracer("otlp");
 
         let registry = Registry::default()
             .with(env)

@@ -4,7 +4,6 @@ use derive_more::{Deref, FromStr};
 use displaydoc::Display;
 use rumqttc::v5::MqttOptions;
 use rumqttc::Transport;
-use rustls::ClientConfig;
 use serde::Deserialize;
 use thiserror::Error;
 use uuid::Uuid;
@@ -24,10 +23,6 @@ const PASSWORD_ENTRY: &str = "mqtt.password";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
-    /// Failed to add TLS certificate: {0}
-    AddCert(rustls::Error),
-    /// Failed to load TLS certificate: {0}
-    LoadCert(std::io::Error),
     /// Failed to parse {PASSWORD_ENTRY:?}: {0}
     ParsePassword(provider::Error),
     /// Failed to parse {SERVER_ADDRESS_ENTRY:?}: {0}
@@ -59,20 +54,7 @@ impl Config {
         options.set_clean_start(true);
 
         if self.server_port == 8883 {
-            let mut root_certificates = rustls::RootCertStore::empty();
-            let certificates = rustls_native_certs::load_native_certs().map_err(Error::LoadCert)?;
-            for cert in certificates {
-                root_certificates
-                    .add(&rustls::Certificate(cert.0))
-                    .map_err(Error::AddCert)?;
-            }
-
-            let client_config = ClientConfig::builder()
-                .with_safe_defaults()
-                .with_root_certificates(root_certificates)
-                .with_no_client_auth();
-
-            options.set_transport(Transport::tls_with_config(client_config.into()));
+            options.set_transport(Transport::tls_with_config(Default::default()));
         }
 
         Ok(options)

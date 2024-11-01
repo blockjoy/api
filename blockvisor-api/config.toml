@@ -12,10 +12,6 @@ ttl = 300
 
 [database]
 url = "postgres://blockvisor:password@localhost:25432/blockvisor_db"
-bind_ip = "0.0.0.0"
-bind_port = 8080
-
-[database.pool]
 max_conns = 10
 min_conns = 2
 max_lifetime = "1d"
@@ -41,6 +37,10 @@ server_address = "127.0.0.1"
 server_port = 21883
 username = "blockvisor"
 password = "password"
+
+[server]
+ip = "0.0.0.0"
+port = 8080
 
 [storage]
 prefix = "chains"
