@@ -48,12 +48,12 @@ impl From<Error> for Status {
         error!("{err}");
         match err {
             ClaimsNotUser => Status::forbidden("Access denied."),
-            Diesel(_) | MissingUpdatedAt => Status::forbidden("Internal error."),
-            MissingCreateScope => Status::forbidden("scope"),
-            MissingScopeResourceId | ParseResourceId(_) => Status::forbidden("resource_id"),
-            NothingToUpdate => Status::forbidden("Nothing to update."),
-            ParseKeyId(_) => Status::forbidden("id"),
-            ParseResourceType(_) => Status::forbidden("resource"),
+            Diesel(_) | MissingUpdatedAt => Status::internal("Internal error."),
+            MissingCreateScope => Status::invalid_argument("scope"),
+            MissingScopeResourceId | ParseResourceId(_) => Status::invalid_argument("resource_id"),
+            NothingToUpdate => Status::failed_precondition("Nothing to update."),
+            ParseKeyId(_) => Status::invalid_argument("id"),
+            ParseResourceType(_) => Status::invalid_argument("resource"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
             Model(err) => err.into(),

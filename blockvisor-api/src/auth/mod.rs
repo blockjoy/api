@@ -109,11 +109,11 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             Database(_) => Status::internal("Internal error."),
-            DecodeJwt(_) => Status::unauthorized("Invalid JWT token."),
-            DecodeRefresh(_) | RefreshHeader(_) => Status::unauthorized("Invalid refresh token."),
+            DecodeJwt(_) => Status::forbidden("Invalid JWT token."),
+            DecodeRefresh(_) | RefreshHeader(_) => Status::forbidden("Invalid refresh token."),
             ExpiredJwt(_) => Status::unauthorized(TOKEN_EXPIRED),
             ExpiredRefresh(_) => Status::unauthorized(TOKEN_EXPIRED),
-            ValidateApiKey(_) => Status::unauthorized("Invalid API key."),
+            ValidateApiKey(_) => Status::forbidden("Invalid API key."),
             Claims(err) => err.into(),
             ParseRequestToken(err) => err.into(),
         }

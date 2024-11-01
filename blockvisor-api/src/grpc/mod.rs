@@ -38,7 +38,7 @@ use axum::http::HeaderValue;
 use axum::Extension;
 use derive_more::Deref;
 use tonic::codec::CompressionEncoding;
-use tonic::metadata::{AsciiMetadataValue, MetadataMap};
+use tonic::metadata::AsciiMetadataValue;
 use tonic::transport::server::Router;
 use tonic::transport::Server;
 use tower::layer::util::{Identity, Stack};
@@ -101,9 +101,10 @@ impl NaiveMeta {
     }
 
     pub fn insert_grpc(&mut self, k: &'static str, v: impl Into<AsciiMetadataValue>) {
-        let mut map = MetadataMap::new();
-        map.insert(k, v.into());
-        self.data.extend(map.into_headers());
+        let ascii = v.into();
+        // SAFETY: unwrap here is safe because these bytes were just retrieved from an ASCII string.
+        let v = HeaderValue::from_bytes(&ascii.as_bytes()).unwrap();
+        self.data.insert(k, v);
     }
 
     pub fn get_http(&self, k: &str) -> Option<&HeaderValue> {

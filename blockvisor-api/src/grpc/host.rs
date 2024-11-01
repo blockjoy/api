@@ -105,7 +105,6 @@ impl From<Error> for Status {
             CpuCount(_) | DiskSize(_) | MemSize(_) => Status::out_of_range("Host resource."),
             HasNodes => Status::failed_precondition("This host still has nodes."),
             HostProvisionByToken(_) => Status::forbidden("Invalid token."),
-            // HostProvisionByToken(_) => super::Status::forbidden("Invalid token."),
             ParseBlockchainId(_) => Status::invalid_argument("blockchain_id"),
             ParseId(_) => Status::invalid_argument("id"),
             ParseIp(_) => Status::invalid_argument("ips"),

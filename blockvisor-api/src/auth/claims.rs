@@ -46,7 +46,7 @@ impl From<Error> for Status {
             EnsureHost(..) | EnsureNode(..) | EnsureOrg(..) | EnsureUser(..) => {
                 Status::forbidden("Access denied.")
             }
-            MissingPerm(perm, _) => Status::unauthorized(format!("Missing permission: {perm}")),
+            MissingPerm(perm, _) => Status::forbidden(format!("Missing permission: {perm}")),
             Host(err) => err.into(),
             Node(err) => err.into(),
             Org(err) => err.into(),
