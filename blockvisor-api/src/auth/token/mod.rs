@@ -8,7 +8,10 @@ use derive_more::{Deref, From};
 use displaydoc::Display;
 use thiserror::Error;
 
-use crate::{config::token::SecretConfig, grpc};
+use crate::{
+    config::token::SecretConfig,
+    grpc::{self, Status},
+};
 
 use self::api_key::{KeyId, Secret};
 
@@ -29,14 +32,14 @@ pub enum Error {
     ParseSecret(api_key::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> grpc::Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             AuthHeaderPrefix | ParseAuthHeader(_) | ParseKeyId(_) | ParseSecret(_) => {
-                grpc::Status::unauthorized("Bad auth header.")
+                Status::unauthorized("Bad auth header.")
             }
-            MissingAuthHeader => grpc::Status::unauthorized("Missing auth header."),
+            MissingAuthHeader => Status::unauthorized("Missing auth header."),
         }
     }
 }

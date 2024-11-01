@@ -28,7 +28,7 @@ use crate::auth::rbac::{BlockchainAdminPerm, BlockchainPerm};
 use crate::auth::resource::OrgId;
 use crate::auth::AuthZ;
 use crate::database::Conn;
-use crate::grpc::{self, api, Status};
+use crate::grpc::{api, Status};
 use crate::model::node::{ContainerStatus, NodeStatus, SyncStatus};
 use crate::model::schema::sql_types;
 use crate::util::{SearchOperator, SortOrder};
@@ -62,10 +62,10 @@ pub enum Error {
     Update(BlockchainId, diesel::result::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             FindAll(NotFound)
             | FindByName(_, NotFound)
             | FindId(_, NotFound)

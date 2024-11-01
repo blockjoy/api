@@ -42,11 +42,11 @@ pub enum Error {
     ParseResourceType(crate::auth::resource::Error),
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             ClaimsNotUser => Status::forbidden("Access denied."),
             Diesel(_) | MissingUpdatedAt => Status::forbidden("Internal error."),
             MissingCreateScope => Status::forbidden("scope"),
@@ -54,9 +54,9 @@ impl super::ResponseError for Error {
             NothingToUpdate => Status::forbidden("Nothing to update."),
             ParseKeyId(_) => Status::forbidden("id"),
             ParseResourceType(_) => Status::forbidden("resource"),
-            Auth(err) => err.report(),
-            Claims(err) => err.report(),
-            Model(err) => err.report(),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Model(err) => err.into(),
         }
     }
 }

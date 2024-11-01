@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::auth::resource::{HostId, NodeId, OrgId};
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 use crate::model::schema::{node_logs, sql_types};
 use crate::model::{BlockchainId, Host};
 
@@ -28,13 +28,13 @@ pub enum Error {
     Host(#[from] crate::model::host::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             Create(_) => Status::already_exists("Already exists."),
             ByNode(_) | ByNodeSince(_) => Status::not_found("Not found."),
-            Host(err) => err.report(),
+            Host(err) => err.into(),
         }
     }
 }

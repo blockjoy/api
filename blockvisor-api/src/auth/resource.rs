@@ -11,7 +11,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::database::Conn;
-use crate::grpc::{self, common, Status};
+use crate::grpc::{common, Status};
 use crate::model::schema::sql_types;
 use crate::model::User;
 
@@ -27,13 +27,13 @@ pub enum Error {
     User(#[from] crate::model::user::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             MissingResourceId | ParseResourceId(_) => Status::invalid_argument("resource_id"),
             UnknownResourceType => Status::invalid_argument("resource"),
-            User(err) => err.report(),
+            User(err) => err.into(),
         }
     }
 }

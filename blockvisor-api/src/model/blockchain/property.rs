@@ -10,7 +10,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::database::Conn;
-use crate::grpc::{self, api, common, Status};
+use crate::grpc::{api, common, Status};
 use crate::model::schema::{blockchain_properties, sql_types};
 
 use super::{BlockchainId, BlockchainNodeTypeId, BlockchainVersion, BlockchainVersionId};
@@ -33,10 +33,10 @@ pub enum Error {
     UnspecifiedUiType,
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             ByBlockchainIds(_, NotFound)
             | ByPropertyIds(_, NotFound)
             | ByVersionId(_, NotFound)

@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::auth::resource::{OrgId, ResourceId, ResourceType, UserId};
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 
 use super::schema::{sql_types, tokens};
 
@@ -34,10 +34,10 @@ pub enum Error {
     ResetHostProvision(UserId, OrgId, diesel::result::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             DeleteHostProvision(_, _, NotFound)
             | HostProvisionByToken(NotFound)
             | HostProvisionByUser(_, _, NotFound)

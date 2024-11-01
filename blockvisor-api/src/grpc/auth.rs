@@ -56,11 +56,11 @@ pub enum Error {
     User(#[from] crate::model::user::Error),
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             ClaimsNotUser | Jwt(_) | ParseToken(_) | RefreshResource => {
                 Status::forbidden("Access denied.")
             }
@@ -69,14 +69,14 @@ impl super::ResponseError for Error {
             NoRefresh => Status::invalid_argument("No refresh token."),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseUserId(_) => Status::invalid_argument("user_id"),
-            Auth(err) => err.report(),
-            Claims(err) => err.report(),
-            Host(err) => err.report(),
-            Node(err) => err.report(),
-            Org(err) => err.report(),
-            Rbac(err) => err.report(),
-            Refresh(err) => err.report(),
-            User(err) => err.report(),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Host(err) => err.into(),
+            Node(err) => err.into(),
+            Org(err) => err.into(),
+            Rbac(err) => err.into(),
+            Refresh(err) => err.into(),
+            User(err) => err.into(),
         }
     }
 }

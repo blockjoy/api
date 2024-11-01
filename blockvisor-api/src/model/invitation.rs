@@ -15,7 +15,6 @@ use uuid::Uuid;
 
 use crate::auth::resource::{OrgId, Resource, ResourceEntry, ResourceId, ResourceType};
 use crate::database::Conn;
-use crate::grpc;
 use crate::grpc::Status;
 
 use super::schema::invitations;
@@ -48,10 +47,10 @@ pub enum Error {
     Revoke(diesel::result::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             Accept(NotFound)
             | Decline(NotFound)

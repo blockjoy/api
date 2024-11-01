@@ -47,11 +47,11 @@ pub enum Error {
     UserSettings(#[from] crate::model::user::setting::Error),
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             Diesel(_) | Email(_) | ParseInvitationId(_) => Status::internal("Internal error."),
             ParseId(_) => Status::invalid_argument("id"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
@@ -59,10 +59,10 @@ impl super::ResponseError for Error {
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
-            Auth(err) => err.report(),
-            Claims(err) => err.report(),
-            Model(err) => err.report(),
-            UserSettings(err) => err.report(),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Model(err) => err.into(),
+            UserSettings(err) => err.into(),
         }
     }
 }

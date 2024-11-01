@@ -16,7 +16,6 @@ use crate::auth::rbac::ViewRole;
 use crate::auth::rbac::{Perm, Role};
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
-use crate::grpc;
 use crate::grpc::Status;
 
 use super::schema::{permissions, role_permissions, roles, user_roles};
@@ -69,10 +68,10 @@ pub enum Error {
     UserNotInOrg(UserId, OrgId),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             CreatePerm(_, DatabaseError(UniqueViolation, _))
             | CreateRole(_, DatabaseError(UniqueViolation, _)) => {
                 Status::already_exists("Already exists.")

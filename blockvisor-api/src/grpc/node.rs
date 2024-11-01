@@ -130,11 +130,11 @@ pub enum Error {
     User(#[from] crate::model::user::Error),
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             Diesel(_) | GenerateName | MissingPropertyId(_) | ModelProperty(_) | ParseIpAddr(_)
             | PropertyNotFound(_) | Storage(_) => Status::internal("Internal error."),
             AllowIps(_) => Status::invalid_argument("allow_ips"),
@@ -158,25 +158,25 @@ impl super::ResponseError for Error {
             UpgradeBlockchain => Status::failed_precondition("Same blockchain."),
             UpgradeNodeType => Status::failed_precondition("Same node type."),
             UpdateStatusMissingNode(_, _, _) => Status::not_found("No such node"),
-            Auth(err) => err.report(),
-            AuthToken(err) => err.report(),
-            Blockchain(err) => err.report(),
-            BlockchainNodeType(err) => err.report(),
-            BlockchainProperty(err) => err.report(),
-            BlockchainVersion(err) => err.report(),
-            Claims(err) => err.report(),
-            Command(err) => err.report(),
-            CommandGrpc(err) => err.report(),
-            Host(err) => err.report(),
-            IpAddress(err) => err.report(),
-            Model(err) => err.report(),
-            NodeType(err) => err.report(),
-            Org(err) => err.report(),
-            ParseNodeVersion(err) => err.report(),
-            Region(err) => err.report(),
-            Report(err) => err.report(),
-            Resource(err) => err.report(),
-            User(err) => err.report(),
+            Auth(err) => err.into(),
+            AuthToken(err) => err.into(),
+            Blockchain(err) => err.into(),
+            BlockchainNodeType(err) => err.into(),
+            BlockchainProperty(err) => err.into(),
+            BlockchainVersion(err) => err.into(),
+            Claims(err) => err.into(),
+            Command(err) => err.into(),
+            CommandGrpc(err) => err.into(),
+            Host(err) => err.into(),
+            IpAddress(err) => err.into(),
+            Model(err) => err.into(),
+            NodeType(err) => err.into(),
+            Org(err) => err.into(),
+            ParseNodeVersion(err) => err.into(),
+            Region(err) => err.into(),
+            Report(err) => err.into(),
+            Resource(err) => err.into(),
+            User(err) => err.into(),
         }
     }
 }

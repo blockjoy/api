@@ -656,7 +656,10 @@ pub mod tests {
             .await;
 
         server
-            .mock("GET", mockito::Matcher::Regex("^/v1/subscription_items"))
+            .mock(
+                "GET",
+                mockito::Matcher::Regex("^/v1/subscription_items".into()),
+            )
             .with_status(200)
             .with_body(mock_subscription_items())
             .create_async()

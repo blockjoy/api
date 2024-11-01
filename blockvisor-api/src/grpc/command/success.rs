@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::auth::resource::NodeId;
 use crate::auth::AuthZ;
 use crate::database::WriteConn;
-use crate::grpc::{self, api, Status};
+use crate::grpc::{api, Status};
 use crate::model::blockchain::Blockchain;
 use crate::model::command::{Command, CommandId, CommandType, NewCommand};
 use crate::model::node::{
@@ -29,17 +29,17 @@ pub enum Error {
     Node(#[from] crate::model::node::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             Json(_) => Status::internal("Internal error."),
             MissingNodeId(_) => Status::invalid_argument("node_id"),
-            DeleteNode(_, _, err) => err.report(),
-            MqttStart(err) => (*err).report(),
-            Blockchain(err) => err.report(),
-            Command(err) => err.report(),
-            Node(err) => err.report(),
+            DeleteNode(_, _, err) => err.into(),
+            MqttStart(err) => (*err).into(),
+            Blockchain(err) => err.into(),
+            Command(err) => err.into(),
+            Node(err) => err.into(),
         }
     }
 }

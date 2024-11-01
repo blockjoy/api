@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::auth::resource::NodeId;
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 use crate::model::blockchain::BlockchainPropertyId;
 use crate::model::schema::node_properties;
 
@@ -25,10 +25,10 @@ pub enum Error {
     ByNodeIds(HashSet<NodeId>, diesel::result::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             ByNodeId(_, NotFound) | ByNodeIds(_, NotFound) => Status::not_found("Not found."),
             _ => Status::internal("Internal error."),
         }

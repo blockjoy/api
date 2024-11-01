@@ -26,15 +26,15 @@ pub enum Error {
     Storage(#[from] crate::storage::Error),
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             Diesel(_) | Storage(_) => Status::internal("Internal error."),
             MissingId => Status::invalid_argument("id"),
-            Auth(err) => err.report(),
-            Claims(err) => err.report(),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
         }
     }
 }

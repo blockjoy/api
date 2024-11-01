@@ -1,9 +1,6 @@
 use axum::response::IntoResponse;
 
-use crate::{
-    database,
-    grpc::{ErrorWrapper, ResponseError},
-};
+use crate::{database, grpc::Status};
 
 pub mod api_key;
 pub mod chargebee;
@@ -17,7 +14,7 @@ pub(crate) struct Error {
 }
 
 impl Error {
-    pub fn new(message: serde_json::Value, status: hyper::StatusCode) -> Self {
+    pub const fn new(message: serde_json::Value, status: hyper::StatusCode) -> Self {
         Self {
             inner: message,
             status,
@@ -31,9 +28,11 @@ impl IntoResponse for Error {
     }
 }
 
-impl<T: ResponseError> IntoResponse for ErrorWrapper<T> {
+pub(crate) struct ErrorWrapper<T>(pub T);
+
+impl<T: Into<Status>> IntoResponse for ErrorWrapper<T> {
     fn into_response(self) -> axum::response::Response {
-        let error: Error = self.into();
+        let error: Error = self.0.into().into();
         error.into_response()
     }
 }

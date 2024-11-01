@@ -82,11 +82,11 @@ pub enum Error {
     UnserializableJobs(serde_json::Error),
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             Diesel(_) | UnserializableJobs(_) => Status::internal("Internal error."),
             BlockAge(_) => Status::invalid_argument("block_age"),
             BlockHeight(_) => Status::invalid_argument("height"),
@@ -104,13 +104,13 @@ impl super::ResponseError for Error {
             UsedCpu(_) => Status::invalid_argument("used_cpu"),
             UsedDisk(_) => Status::invalid_argument("used_disk_space"),
             UsedMemory(_) => Status::invalid_argument("used_memory"),
-            Auth(err) => err.report(),
-            Claims(err) => err.report(),
-            Host(err) => err.report(),
-            HostGrpc(err) => err.report(),
-            Node(err) => err.report(),
-            NodeGrpc(err) => err.report(),
-            Resource(err) => err.report(),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Host(err) => err.into(),
+            HostGrpc(err) => err.into(),
+            Node(err) => err.into(),
+            NodeGrpc(err) => err.into(),
+            Resource(err) => err.into(),
         }
     }
 }
@@ -130,7 +130,7 @@ impl MetricsService for Grpc {
                 .await;
         match outcome?.into_inner() {
             RespOrError::Resp(resp) => Ok(tonic::Response::new(resp)),
-            RespOrError::Error(error) => Err(super::ErrorWrapper(error).into()),
+            RespOrError::Error(error) => Err(Status::from(error).into()),
         }
     }
 
@@ -144,7 +144,7 @@ impl MetricsService for Grpc {
                 .await;
         match outcome?.into_inner() {
             RespOrError::Resp(resp) => Ok(tonic::Response::new(resp)),
-            RespOrError::Error(error) => Err(super::ErrorWrapper(error).into()),
+            RespOrError::Error(error) => Err(Status::from(error).into()),
         }
     }
 }

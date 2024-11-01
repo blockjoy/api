@@ -21,7 +21,7 @@ use crate::auth::rbac::{OrgRole, Role};
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
 use crate::email::Language;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 use crate::util::{SearchOperator, SortOrder};
 
 use super::org::NewOrg;
@@ -90,10 +90,10 @@ pub enum Error {
     VerifyPassword(argon2::password_hash::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             ConfirmNone
             | Delete(NotFound)
@@ -105,9 +105,9 @@ impl grpc::ResponseError for Error {
             AlreadyConfirmed => Status::failed_precondition("Already confirmed."),
             NotConfirmed => Status::failed_precondition("User is not confirmed."),
             LoginEmail | VerifyPassword(_) => Status::unauthorized("Invalid email or password."),
-            Paginate(err) => err.report(),
-            Org(err) => err.report(),
-            Rbac(err) => err.report(),
+            Paginate(err) => err.into(),
+            Org(err) => err.into(),
+            Rbac(err) => err.into(),
             _ => Status::internal("Internal error."),
         }
     }

@@ -7,7 +7,7 @@ use tracing::{error, warn};
 use crate::auth::AuthZ;
 use crate::cloudflare;
 use crate::database::WriteConn;
-use crate::grpc::{self, api, Status};
+use crate::grpc::{api, Status};
 use crate::model::command::NewCommand;
 use crate::model::node::{NewNodeLog, NodeLogEvent, UpdateNode};
 use crate::model::{Blockchain, Command, CommandType, Host, IpAddress, Node};
@@ -36,19 +36,19 @@ pub enum Error {
     FindIp(crate::model::ip_address::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             Cloudflare(_) => Status::internal("Internal error."),
             CreateNodeId => Status::invalid_argument("node_id"),
-            FindIp(err) => err.report(),
-            Blockchain(err) => err.report(),
-            CancelationLog(err) | DeploymentLog(err) => err.report(),
-            Command(err) => err.report(),
-            Host(err) => err.report(),
-            Node(err) | UpdateNode(err) => err.report(),
+            FindIp(err) => err.into(),
+            Blockchain(err) => err.into(),
+            CancelationLog(err) | DeploymentLog(err) => err.into(),
+            Command(err) => err.into(),
+            Host(err) => err.into(),
+            Node(err) | UpdateNode(err) => err.into(),
         }
     }
 }

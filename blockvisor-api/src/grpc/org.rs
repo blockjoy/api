@@ -82,11 +82,11 @@ pub enum Error {
     User(#[from] crate::model::user::Error),
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             ClaimsNotUser | DeletePersonal | CanOnlyRemoveSelf => {
                 Status::forbidden("Access denied.")
             }
@@ -103,15 +103,15 @@ impl super::ResponseError for Error {
             NoOwner(_) => Status::failed_precondition("Org has no owner."),
             NoStripeCustomer(_) => Status::failed_precondition("No customer for that org."),
             NoStripeSubscription(_) => Status::failed_precondition("No subscription for that org."),
-            Address(err) => err.report(),
-            Auth(err) => err.report(),
-            Claims(err) => err.report(),
-            Invitation(err) => err.report(),
-            Model(err) => err.report(),
-            Rbac(err) => err.report(),
-            Resource(err) => err.report(),
-            Token(err) => err.report(),
-            User(err) => err.report(),
+            Address(err) => err.into(),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Invitation(err) => err.into(),
+            Model(err) => err.into(),
+            Rbac(err) => err.into(),
+            Resource(err) => err.into(),
+            Token(err) => err.into(),
+            User(err) => err.into(),
         }
     }
 }

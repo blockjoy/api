@@ -15,7 +15,7 @@ use tracing::{debug, error};
 use crate::auth::resource::{OrgId, UserId};
 use crate::config::Context;
 use crate::database::{Transaction, WriteConn};
-use crate::grpc::{self, ErrorWrapper, Status};
+use crate::grpc::Status;
 use crate::model::{self, User};
 use crate::stripe::api::event;
 
@@ -47,11 +47,11 @@ pub enum Error {
     UnparseableStripeBody(serde_json::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("Stripe webhook: {self:?}");
-        match self {
+        error!("Stripe webhook: {err:?}");
+        match err {
             MissingMetadata => Status::invalid_argument("Metadata field not set"),
             MissingUserId => Status::invalid_argument("User id missing from metadata"),
             BadUserId(_) => Status::invalid_argument("Could not parse user id"),
@@ -84,7 +84,7 @@ async fn setup_intent_succeeded(
     let event: event::Event = match serde_json::from_str(&body) {
         Ok(body) => body,
         Err(err) => {
-            return Err(ErrorWrapper(Error::UnparseableStripeBody(err)).into());
+            return Err(Status::from(Error::UnparseableStripeBody(err)).into());
         }
     };
 

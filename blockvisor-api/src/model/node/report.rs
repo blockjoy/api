@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::auth::resource::{NodeId, ResourceEntry, ResourceId, ResourceType, UserId};
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 use crate::model::schema::node_reports;
 
 #[derive(Debug, displaydoc::Display, Error)]
@@ -24,10 +24,10 @@ pub enum Error {
     FindByNodes(HashSet<NodeId>, diesel::result::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             FindByNode(_, NotFound) | FindByNodes(_, NotFound) => Status::not_found("Not found."),
             _ => Status::internal("Internal error."),
         }

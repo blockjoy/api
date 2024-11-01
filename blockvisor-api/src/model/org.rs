@@ -16,7 +16,7 @@ use crate::auth::rbac::OrgRole;
 use crate::auth::rbac::Role;
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 use crate::stripe::api::customer::CustomerId;
 use crate::util::{SearchOperator, SortOrder};
 
@@ -71,18 +71,18 @@ pub enum Error {
     Update(diesel::result::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             Delete(_, NotFound)
             | FindById(_, NotFound)
             | FindByIds(_, NotFound)
             | FindPersonal(_, NotFound) => Status::not_found("Not found."),
-            Paginate(err) => err.report(),
-            Rbac(err) => err.report(),
-            Token(err) => err.report(),
+            Paginate(err) => err.into(),
+            Rbac(err) => err.into(),
+            Token(err) => err.into(),
             _ => Status::internal("Internal error."),
         }
     }

@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::auth::resource::{Resource, ResourceEntry, ResourceId, ResourceType, UserId};
 use crate::auth::token::api_key::{BearerSecret, KeyHash, KeyId, Salt, Secret};
 use crate::database::{Conn, WriteConn};
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 
 use super::schema::api_keys;
 
@@ -35,10 +35,10 @@ pub enum Error {
     UpdateLabel(diesel::result::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             CreateNew(DatabaseError(UniqueViolation, _)) => {
                 Status::already_exists("Already exists.")
             }

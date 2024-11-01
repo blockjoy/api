@@ -189,15 +189,10 @@ impl Status {
     pub fn internal(message: impl Into<Cow<'static, str>>) -> Self {
         Self::Internal(message.into())
     }
-}
 
-pub(crate) trait ResponseError {
-    fn report(&self) -> Status;
-
-    fn error_grpc(&self) -> tonic::Status {
+    fn error_grpc(self) -> tonic::Status {
         use Status::*;
-        let status = self.report();
-        match status {
+        match self {
             NotFound(message) => tonic::Status::not_found(message.into_owned()),
             AlreadyExists(message) => tonic::Status::already_exists(message.into_owned()),
             Forbidden(message) => tonic::Status::permission_denied(message.into_owned()),
@@ -210,12 +205,11 @@ pub(crate) trait ResponseError {
         }
     }
 
-    fn error_http(&self) -> (hyper::StatusCode, serde_json::Value) {
+    fn error_http(self) -> (hyper::StatusCode, serde_json::Value) {
         use Status::*;
-        let status = self.report();
         let body =
             |message: Cow<'static, str>| serde_json::json!({"message": message.into_owned()});
-        match status {
+        match self {
             NotFound(message) => (hyper::StatusCode::NOT_FOUND, body(message)),
             AlreadyExists(message) => (hyper::StatusCode::CONFLICT, body(message)),
             Forbidden(message) => (hyper::StatusCode::FORBIDDEN, body(message)),
@@ -229,17 +223,15 @@ pub(crate) trait ResponseError {
     }
 }
 
-pub(crate) struct ErrorWrapper<T>(pub T);
-
-impl<T: ResponseError> From<ErrorWrapper<T>> for tonic::Status {
-    fn from(value: ErrorWrapper<T>) -> Self {
-        value.0.error_grpc()
+impl From<Status> for tonic::Status {
+    fn from(value: Status) -> Self {
+        value.error_grpc()
     }
 }
 
-impl<T: ResponseError> From<ErrorWrapper<T>> for crate::http::handlers::Error {
-    fn from(value: ErrorWrapper<T>) -> Self {
-        let (status, message) = value.0.error_http();
+impl From<Status> for crate::http::handlers::Error {
+    fn from(value: Status) -> Self {
+        let (status, message) = value.error_http();
         crate::http::handlers::Error::new(message, status)
     }
 }

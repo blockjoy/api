@@ -13,7 +13,6 @@ use uuid::Uuid;
 
 use crate::auth::resource::{HostId, NodeId};
 use crate::database::Conn;
-use crate::grpc;
 use crate::grpc::api;
 use crate::grpc::Status;
 
@@ -56,10 +55,10 @@ pub enum Error {
     HostCommandWithNodeId,
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             DeleteHostPending(NotFound)
             | DeleteNodePending(NotFound)
@@ -68,8 +67,8 @@ impl grpc::ResponseError for Error {
             | HostPending(NotFound) => Status::not_found("Not found."),
             ParseId(_) => Status::invalid_argument("id"),
             RetryHint(_) => Status::invalid_argument("retry_hint_seconds"),
-            Host(err) => err.report(),
-            Node(err) => err.report(),
+            Host(err) => err.into(),
+            Node(err) => err.into(),
             _ => Status::internal("Internal error."),
         }
     }

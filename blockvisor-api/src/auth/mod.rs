@@ -104,18 +104,18 @@ pub enum Error {
     ValidateApiKey(token::api_key::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             Database(_) => Status::internal("Internal error."),
             DecodeJwt(_) => Status::unauthorized("Invalid JWT token."),
             DecodeRefresh(_) | RefreshHeader(_) => Status::unauthorized("Invalid refresh token."),
             ExpiredJwt(_) => Status::unauthorized(TOKEN_EXPIRED),
             ExpiredRefresh(_) => Status::unauthorized(TOKEN_EXPIRED),
             ValidateApiKey(_) => Status::unauthorized("Invalid API key."),
-            Claims(err) => err.report(),
-            ParseRequestToken(err) => err.report(),
+            Claims(err) => err.into(),
+            ParseRequestToken(err) => err.into(),
         }
     }
 }

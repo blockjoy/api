@@ -8,7 +8,7 @@ use displaydoc::Display as DisplayDoc;
 use semver::Version;
 use thiserror::Error;
 
-use crate::grpc::{self, common, Status};
+use crate::grpc::{common, Status};
 use crate::model::schema::sql_types;
 
 #[derive(Debug, DisplayDoc, Error)]
@@ -19,10 +19,10 @@ pub enum Error {
     UnknownNodeType(String),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             ParseVersion(_) => Status::invalid_argument("version"),
             UnknownNodeType(_) => Status::internal("Internal error."),
         }

@@ -94,11 +94,11 @@ pub enum Error {
     UnknownSortField,
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             Diesel(_)
             | MissingModel
             | MissingNetworksVersion
@@ -119,20 +119,20 @@ impl super::ResponseError for Error {
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
-            Auth(err) => err.report(),
-            Blockchain(err) => err.report(),
-            BlockchainNodeType(err) => err.report(),
-            BlockchainVersion(err) => err.report(),
-            Claims(err) => err.report(),
-            Command(err) => err.report(),
-            CommandGrpc(err) => err.report(),
-            Node(err) => err.report(),
-            NodeLog(err) => err.report(),
-            NodeType(err) => err.report(),
-            Property(err) => err.report(),
-            Region(err) => err.report(),
-            Storage(err) => err.report(),
-            StorageNetworks(_, err) => err.report(),
+            Auth(err) => err.into(),
+            Blockchain(err) => err.into(),
+            BlockchainNodeType(err) => err.into(),
+            BlockchainVersion(err) => err.into(),
+            Claims(err) => err.into(),
+            Command(err) => err.into(),
+            CommandGrpc(err) => err.into(),
+            Node(err) => err.into(),
+            NodeLog(err) => err.into(),
+            NodeType(err) => err.into(),
+            Property(err) => err.into(),
+            Region(err) => err.into(),
+            Storage(err) => err.into(),
+            StorageNetworks(_, err) => err.into(),
         }
     }
 }

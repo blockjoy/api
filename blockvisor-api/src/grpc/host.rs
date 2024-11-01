@@ -95,11 +95,11 @@ pub enum Error {
     UnknownSortField,
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             CreateTokenNotUser | Diesel(_) | Jwt(_) | LookupMissingOrg(_) | MissingTokenOrgId
             | ParseNodeCount(_) | Refresh(_) => Status::internal("Internal error."),
             CpuCount(_) | DiskSize(_) | MemSize(_) => Status::out_of_range("Host resource."),
@@ -116,17 +116,17 @@ impl super::ResponseError for Error {
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
             InvalidManagedBy(_) => Status::invalid_argument("managed_by"),
-            Auth(err) => err.report(),
-            Claims(err) => err.report(),
-            Blockchain(err) => err.report(),
-            Command(err) => err.report(),
-            CommandApi(err) => err.report(),
-            Host(err) => err.report(),
-            IpAddress(err) => err.report(),
-            Node(err) => err.report(),
-            Org(err) => err.report(),
-            Region(err) => err.report(),
-            Storage(err) => err.report(),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Blockchain(err) => err.into(),
+            Command(err) => err.into(),
+            CommandApi(err) => err.into(),
+            Host(err) => err.into(),
+            IpAddress(err) => err.into(),
+            Node(err) => err.into(),
+            Org(err) => err.into(),
+            Region(err) => err.into(),
+            Storage(err) => err.into(),
         }
     }
 }

@@ -44,20 +44,20 @@ pub enum Error {
     UserNotInOrg,
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             ClaimsNotUser | UserMismatch | UserNotInOrg => Status::forbidden("Access denied."),
             Diesel(_) => Status::internal("Internal error."),
             MissingUserId | ParseUserId(_) => Status::invalid_argument("user_id"),
             MissingOrgId | ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseId(_) => Status::invalid_argument("id"),
-            Auth(err) => err.report(),
-            Claims(err) => err.report(),
-            Model(err) => err.report(),
-            Org(err) => err.report(),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Model(err) => err.into(),
+            Org(err) => err.into(),
         }
     }
 }

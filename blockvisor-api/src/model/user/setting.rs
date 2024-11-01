@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::auth::resource::UserId;
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 use crate::model::schema::user_settings;
 
 #[derive(Debug, Display, Error)]
@@ -20,10 +20,10 @@ pub enum Error {
     ByUser(UserId, diesel::result::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             Create(_) | Delete(_) | ByUser(_, _) => Status::internal("Internal error."),
         }
     }

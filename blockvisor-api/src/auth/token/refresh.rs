@@ -13,7 +13,7 @@ use tracing::warn;
 use crate::auth::claims::Expirable;
 use crate::auth::resource::{Resource, ResourceEntry, ResourceId, ResourceType};
 use crate::config::token::{RefreshSecret, RefreshSecrets};
-use crate::grpc;
+use crate::grpc::{self, Status};
 
 const ALGORITHM: Algorithm = Algorithm::HS512;
 const COOKIE_HEADER: &str = "cookie";
@@ -46,17 +46,17 @@ pub enum Error {
     TokenExpired(String),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> grpc::Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             EmptyCookieRefresh | MissingCookieExpires => {
-                grpc::Status::unauthorized("Invalid refresh cookie.")
+                Status::unauthorized("Invalid refresh cookie.")
             }
             MissingCookieHeader | MissingCookieRefresh => {
-                grpc::Status::unauthorized("Missing refresh cookie.")
+                Status::unauthorized("Missing refresh cookie.")
             }
-            _ => grpc::Status::internal("Internal error."),
+            _ => Status::internal("Internal error."),
         }
     }
 }

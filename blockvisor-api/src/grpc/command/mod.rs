@@ -14,7 +14,7 @@ use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::grpc::api::command_service_server::CommandService;
 use crate::grpc::common::{FirewallAction, FirewallDirection, FirewallProtocol, FirewallRule};
-use crate::grpc::{self, api, common, Grpc, Status};
+use crate::grpc::{api, common, Grpc, Status};
 use crate::model::blockchain::{Blockchain, BlockchainProperty, BlockchainVersion};
 use crate::model::command::{CommandFilter, ExitCode, UpdateCommand};
 use crate::model::node::{NodeStatus, UpdateNode};
@@ -67,11 +67,11 @@ pub enum Error {
     Success(#[from] self::success::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             MissingNodeId => Status::invalid_argument("command.node_id"),
             ParseExitCode => Status::invalid_argument("exit_code"),
             ParseNodeId(_) => Status::invalid_argument("node_id"),
@@ -81,16 +81,16 @@ impl grpc::ResponseError for Error {
             Diesel(_) | IpNotCidr | MissingBlockchainPropertyId | NotImplemented | GrpcHost(_) => {
                 Status::internal("Internal error.")
             }
-            Auth(err) => err.report(),
-            Blockchain(err) => err.report(),
-            BlockchainProperty(err) => err.report(),
-            BlockchainVersion(err) => err.report(),
-            Claims(err) => err.report(),
-            Command(err) => err.report(),
-            Host(err) => err.report(),
-            Node(err) => err.report(),
-            Resource(err) => err.report(),
-            Success(err) => err.report(),
+            Auth(err) => err.into(),
+            Blockchain(err) => err.into(),
+            BlockchainProperty(err) => err.into(),
+            BlockchainVersion(err) => err.into(),
+            Claims(err) => err.into(),
+            Command(err) => err.into(),
+            Host(err) => err.into(),
+            Node(err) => err.into(),
+            Resource(err) => err.into(),
+            Success(err) => err.into(),
         }
     }
 }

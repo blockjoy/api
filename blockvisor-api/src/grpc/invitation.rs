@@ -70,11 +70,11 @@ pub enum Error {
     WrongOrg,
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             Diesel(_) | Email(_) | Message(_) => Status::internal("Internal error."),
             ClaimsNotUser | ClaimsNotUserOrOrg | HostClaims | ListResource | MissingEmail
             | NodeClaims | WrongEmail | WrongOrg => Status::forbidden("Access denied."),
@@ -85,12 +85,12 @@ impl super::ResponseError for Error {
             ParseId(_) => Status::invalid_argument("invitation_id"),
             ParseInvitedBy(_) => Status::invalid_argument("invited_by"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
-            Auth(err) => err.report(),
-            Claims(err) => err.report(),
-            Model(err) => err.report(),
-            Org(err) => err.report(),
-            Resource(err) => err.report(),
-            User(err) => err.report(),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Model(err) => err.into(),
+            Org(err) => err.into(),
+            Resource(err) => err.into(),
+            User(err) => err.into(),
         }
     }
 }

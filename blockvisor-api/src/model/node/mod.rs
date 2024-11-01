@@ -46,7 +46,7 @@ use crate::auth::resource::{
 use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
 use crate::grpc::api;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 use crate::storage::image::ImageId;
 use crate::stripe::api::subscription::SubscriptionItem;
 use crate::stripe::Payment;
@@ -154,19 +154,19 @@ pub enum Error {
     UnparsableJobs(serde_json::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        tracing::error!("{self}");
-        match self {
+        tracing::error!("{err}");
+        match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             Delete(_, NotFound)
             | FindById(_, NotFound)
             | FindByIds(_, NotFound)
             | UpgradeableByType(_, _, NotFound) => Status::not_found("Not found."),
             NoMatchingHost => Status::failed_precondition("No matching host."),
-            Org(err) => err.report(),
-            Paginate(err) => err.report(),
+            Org(err) => err.into(),
+            Paginate(err) => err.into(),
             _ => Status::internal("Internal error."),
         }
     }

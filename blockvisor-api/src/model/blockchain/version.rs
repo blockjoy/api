@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthZ;
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 use crate::model::node::{NodeType, NodeVersion};
 use crate::model::schema::{blockchain_node_types, blockchain_versions};
 
@@ -37,17 +37,17 @@ pub enum Error {
     VersionExists,
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             Create(DatabaseError(UniqueViolation, _)) | VersionExists => {
                 Status::already_exists("Already exists.")
             }
             FindVersion(_, _, _, NotFound) | FindById(_, NotFound) | FindByIds(_, NotFound) => {
                 Status::not_found("Not found.")
             }
-            NodeType(err) => err.report(),
+            NodeType(err) => err.into(),
             _ => Status::internal("Internal error."),
         }
     }

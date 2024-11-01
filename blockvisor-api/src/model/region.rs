@@ -10,7 +10,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 
 use super::schema::regions;
 
@@ -26,10 +26,10 @@ pub enum Error {
     GetOrCreate(String, diesel::result::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             ById(_, NotFound) | ByIds(_, NotFound) | ByName(_, NotFound) => {
                 Status::not_found("Not found.")
             }

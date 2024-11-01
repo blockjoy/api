@@ -27,7 +27,7 @@ use crate::auth::resource::Resources;
 use crate::auth::{self, AuthZ, Authorize};
 use crate::config::database::Config;
 use crate::config::Context;
-use crate::grpc::{self, ErrorWrapper, NaiveMeta, ResponseMessage, Status};
+use crate::grpc::{self, NaiveMeta, ResponseMessage, Status};
 use crate::model::rbac::{RbacPerm, RbacRole};
 use crate::mqtt::Message;
 
@@ -57,9 +57,9 @@ pub(crate) trait Transaction {
             + 'a,
         Response: ResponseMessage<ResponseInner>,
         ResponseInner: Send + 'a,
-        ErrInner: grpc::ResponseError + std::error::Error + From<diesel::result::Error> + Send + 'a,
-        ErrOuter: From<ErrorWrapper<ErrInner>>,
-        ErrOuter: From<Error>;
+        ErrInner: std::error::Error + From<diesel::result::Error> + Send + 'a,
+        Status: From<ErrInner>,
+        ErrOuter: From<Status> + From<Error>;
 
     /// Run a transactional closure to write to the database.
     async fn write<'a, F, Response, ResponseInner, ErrInner, ErrOuter>(
@@ -74,9 +74,9 @@ pub(crate) trait Transaction {
             + 'a,
         Response: ResponseMessage<ResponseInner>,
         ResponseInner: Send + 'a,
-        ErrInner: grpc::ResponseError + std::error::Error + From<diesel::result::Error> + Send + 'a,
-        ErrOuter: From<ErrorWrapper<ErrInner>>,
-        ErrOuter: From<Error>;
+        ErrInner: std::error::Error + From<diesel::result::Error> + Send + 'a,
+        Status: From<ErrInner>,
+        ErrOuter: From<Status> + From<Error>;
 }
 
 #[derive(Debug, Display, Error)]
@@ -91,12 +91,12 @@ pub enum Error {
     PoolConnection(bb8::RunError),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             BuildPool(_) | PoolConnection(_) => Status::internal("Internal error."),
-            CreatePerms(err) | CreateRoles(err) => err.report(),
+            CreatePerms(err) | CreateRoles(err) => err.into(),
         }
     }
 }
@@ -232,14 +232,14 @@ where
             + 'a,
         Response: ResponseMessage<ResponseInner>,
         ResponseInner: Send + 'a,
-        ErrInner: grpc::ResponseError + std::error::Error + From<diesel::result::Error> + Send + 'a,
-        ErrOuter: From<ErrorWrapper<ErrInner>>,
-        ErrOuter: From<Error>,
+        ErrInner: std::error::Error + From<diesel::result::Error> + Send + 'a,
+        Status: From<ErrInner>,
+        ErrOuter: From<Status> + From<Error>,
     {
         let ctx = self.as_ref();
         let conn = &mut ctx.conn().await?;
         let read = ReadConn { conn, ctx };
-        let response = f(read).await.map_err(ErrorWrapper)?;
+        let response = f(read).await.map_err(Status::from)?;
         Ok(Response::construct(response, NaiveMeta::new()))
     }
 
@@ -255,9 +255,9 @@ where
             + 'a,
         Response: ResponseMessage<ResponseInner>,
         ResponseInner: Send + 'a,
-        ErrInner: grpc::ResponseError + std::error::Error + From<diesel::result::Error> + Send + 'a,
-        ErrOuter: From<ErrorWrapper<ErrInner>>,
-        ErrOuter: From<Error>,
+        ErrInner: std::error::Error + From<diesel::result::Error> + Send + 'a,
+        Status: From<ErrInner>,
+        ErrOuter: From<Status> + From<Error>,
     {
         let ctx = self.as_ref();
         let conn = &mut ctx.conn().await?;
@@ -276,7 +276,7 @@ where
                 f(write).scope_boxed()
             })
             .await
-            .map_err(ErrorWrapper)?;
+            .map_err(Status::from)?;
 
         while let Some(msg) = mqtt_rx.recv().await {
             if let Err(err) = ctx.notifier.send(msg).await {

@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::auth::resource::OrgId;
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 
 use super::schema::addresses;
 
@@ -28,10 +28,10 @@ pub enum Error {
     Update(diesel::result::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
             FindById(_, NotFound) | FindByOrgId(_, NotFound) => Status::not_found("Not found."),
             _ => Status::internal("Internal error."),

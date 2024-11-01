@@ -50,11 +50,11 @@ pub enum Error {
     TooManySlots,
 }
 
-impl super::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        error!("{self}");
-        match self {
+        error!("{err}");
+        match err {
             Diesel(_) => Status::internal("Internal error."),
             MissingId | ParseImageId(_) => Status::invalid_argument("id"),
             ParseChunk(_) => Status::invalid_argument("chunks"),
@@ -62,9 +62,9 @@ impl super::ResponseError for Error {
             ParseCompression(_) => Status::invalid_argument("compression"),
             ChunkIndex(_) | TooManyChunks => Status::out_of_range("chunk_indexes"),
             SlotIndex(_) | TooManySlots => Status::out_of_range("slot_indexes"),
-            Auth(err) => err.report(),
-            Claims(err) => err.report(),
-            Storage(err) => err.report(),
+            Auth(err) => err.into(),
+            Claims(err) => err.into(),
+            Storage(err) => err.into(),
         }
     }
 }

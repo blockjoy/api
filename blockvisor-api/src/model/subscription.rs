@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::auth::resource::{OrgId, UserId};
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 
 use super::schema::subscriptions;
 
@@ -36,10 +36,10 @@ pub enum Error {
     NoneDeleted,
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             CreateNew(DatabaseError(UniqueViolation, _)) => {
                 Status::already_exists("Already exists.")
             }

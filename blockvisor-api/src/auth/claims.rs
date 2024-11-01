@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::database::Conn;
-use crate::grpc::{self, Status};
+use crate::grpc::Status;
 use crate::model::rbac::{RbacPerm, RbacUser};
 use crate::model::{Host, Node};
 use crate::util::SecondsUtc;
@@ -39,19 +39,19 @@ pub enum Error {
     User(#[from] crate::model::user::Error),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use Error::*;
-        match self {
+        match err {
             EnsureHost(..) | EnsureNode(..) | EnsureOrg(..) | EnsureUser(..) => {
                 Status::forbidden("Access denied.")
             }
             MissingPerm(perm, _) => Status::unauthorized(format!("Missing permission: {perm}")),
-            Host(err) => err.report(),
-            Node(err) => err.report(),
-            Org(err) => err.report(),
-            Rbac(err) => err.report(),
-            User(err) => err.report(),
+            Host(err) => err.into(),
+            Node(err) => err.into(),
+            Org(err) => err.into(),
+            Rbac(err) => err.into(),
+            User(err) => err.into(),
         }
     }
 }

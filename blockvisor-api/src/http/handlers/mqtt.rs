@@ -15,9 +15,11 @@ use crate::auth::rbac::{MqttAdminPerm, MqttPerm};
 use crate::auth::resource::{Resource, Resources};
 use crate::config::Context;
 use crate::database::Database;
-use crate::grpc::{self, ErrorWrapper, Status};
+use crate::grpc::Status;
 use crate::http::response;
 use crate::mqtt::handler::{self, AclRequest, Topic};
+
+use super::ErrorWrapper;
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -35,14 +37,14 @@ pub enum Error {
     WildcardTopic(String),
 }
 
-impl grpc::ResponseError for Error {
-    fn report(&self) -> Status {
+impl From<Error> for Status {
+    fn from(err: Error) -> Self {
         use crate::auth::Error::{ExpiredJwt, ExpiredRefresh};
         use Error::*;
-        if !matches!(self, Error::Auth(ExpiredJwt(_) | ExpiredRefresh(_))) {
-            error!("{self}");
+        if !matches!(err, Error::Auth(ExpiredJwt(_) | ExpiredRefresh(_))) {
+            error!("{err}");
         }
-        match self {
+        match err {
             Auth(_)
             | Handler(handler::Error::Claims(_))
             | ParseRequestToken(_)
@@ -82,12 +84,12 @@ async fn auth(
 #[debug_handler]
 async fn acl(
     State(ctx): State<Arc<Context>>,
-    WithRejection(req, _): WithRejection<Json<AclRequest>, ErrorWrapper<Error>>,
+    WithRejection(Json(req), _): WithRejection<Json<AclRequest>, ErrorWrapper<Error>>,
 ) -> Result<Response, super::Error> {
     let token = req
         .username
         .parse()
-        .map_err(|err| ErrorWrapper(Error::ParseRequestToken(err)))?;
+        .map_err(|err| Status::from(Error::ParseRequestToken(err)))?;
     let mut conn = ctx.pool.conn().await?;
 
     if ctx
@@ -99,19 +101,17 @@ async fn acl(
         return Ok(response::ok());
     }
 
-    let resources: Resources = match &req.topic {
-        Topic::Orgs(org_id) => Resource::from(*org_id).into(),
-        Topic::Hosts(host_id) => Resource::from(*host_id).into(),
-        Topic::Nodes(node_id) => Resource::from(*node_id).into(),
-        Topic::BvHostsStatus(host_id) => Resource::from(*host_id).into(),
-        Topic::Wildcard(topic) => {
-            return Err(ErrorWrapper(Error::WildcardTopic(topic.clone())).into())
-        }
+    let resources: Resources = match req.topic {
+        Topic::Orgs(org_id) => Resource::from(org_id).into(),
+        Topic::Hosts(host_id) => Resource::from(host_id).into(),
+        Topic::Nodes(node_id) => Resource::from(node_id).into(),
+        Topic::BvHostsStatus(host_id) => Resource::from(host_id).into(),
+        Topic::Wildcard(topic) => return Err(Status::from(Error::WildcardTopic(topic)).into()),
     };
 
     ctx.auth
         .authorize_token(&token, MqttPerm::Acl.into(), Some(resources), &mut conn)
         .await
         .map(|_authz| response::ok())
-        .map_err(|err| ErrorWrapper(err).into())
+        .map_err(|err| Status::from(err).into())
 }
