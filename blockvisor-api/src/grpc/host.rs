@@ -23,7 +23,7 @@ use crate::storage::image::ImageId;
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::host_service_server::HostService;
-use super::{api, common, Grpc, Status};
+use super::{api, common, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -216,7 +216,7 @@ impl HostService for Grpc {
 
 pub async fn create(
     req: api::HostServiceCreateRequest,
-    _: super::NaiveMeta,
+    _: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceCreateResponse, Error> {
     let token = Token::host_provision_by_token(&req.provision_token, &mut write)
@@ -270,7 +270,7 @@ pub async fn create(
 
 pub async fn get(
     req: api::HostServiceGetRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceGetResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
@@ -286,7 +286,7 @@ pub async fn get(
 
 pub async fn list(
     req: api::HostServiceListRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceListResponse, Error> {
     let filter = req.into_filter()?;
@@ -305,7 +305,7 @@ pub async fn list(
 
 pub async fn update(
     req: api::HostServiceUpdateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceUpdateResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
@@ -331,7 +331,7 @@ pub async fn update(
 
 pub async fn delete(
     req: api::HostServiceDeleteRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceDeleteResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
@@ -348,7 +348,7 @@ pub async fn delete(
 
 pub async fn start(
     req: api::HostServiceStartRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceStartResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
@@ -366,7 +366,7 @@ pub async fn start(
 
 pub async fn stop(
     req: api::HostServiceStopRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceStopResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
@@ -384,7 +384,7 @@ pub async fn stop(
 
 pub async fn restart(
     req: api::HostServiceRestartRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::HostServiceRestartResponse, Error> {
     let id: HostId = req.id.parse().map_err(Error::ParseId)?;
@@ -402,7 +402,7 @@ pub async fn restart(
 
 pub async fn regions(
     req: api::HostServiceRegionsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::HostServiceRegionsResponse, Error> {
     let (org_id, authz) = if let Some(org_id) = &req.org_id {

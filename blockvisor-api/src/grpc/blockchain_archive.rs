@@ -14,7 +14,7 @@ use crate::grpc::{api, Grpc};
 use crate::storage::image::ImageId;
 use crate::storage::manifest::DownloadManifest;
 
-use super::Status;
+use super::{Metadata, Status};
 
 const DEFAULT_EXPIRES: u32 = 7 * 24 * 60 * 60;
 const MAX_CHUNK_INDEXES: usize = 100;
@@ -113,7 +113,7 @@ impl BlockchainArchiveService for Grpc {
 
 pub async fn get_download_metadata(
     req: api::BlockchainArchiveServiceGetDownloadMetadataRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainArchiveServiceGetDownloadMetadataResponse, Error> {
     read.auth_all(&meta, BlockchainArchivePerm::GetDownloadMetadata)
@@ -137,7 +137,7 @@ pub async fn get_download_metadata(
 
 pub async fn get_download_chunks(
     req: api::BlockchainArchiveServiceGetDownloadChunksRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainArchiveServiceGetDownloadChunksResponse, Error> {
     read.auth_all(&meta, BlockchainArchivePerm::GetDownloadChunks)
@@ -171,7 +171,7 @@ pub async fn get_download_chunks(
 
 pub async fn get_upload_slots(
     req: api::BlockchainArchiveServiceGetUploadSlotsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainArchiveServiceGetUploadSlotsResponse, Error> {
     read.auth_all(&meta, BlockchainArchivePerm::GetUploadSlots)
@@ -208,7 +208,7 @@ pub async fn get_upload_slots(
 
 pub async fn put_download_manifest(
     req: api::BlockchainArchiveServicePutDownloadManifestRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainArchiveServicePutDownloadManifestResponse, Error> {
     read.auth_all(&meta, BlockchainArchivePerm::PutDownloadManifest)

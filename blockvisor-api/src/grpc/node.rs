@@ -30,7 +30,7 @@ use crate::util::{HashVec, NanosUtc};
 
 use super::api::node_placement::Placement;
 use super::api::node_service_server::NodeService;
-use super::{api, common, Grpc, Status};
+use super::{api, common, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -285,7 +285,7 @@ impl NodeService for Grpc {
 
 pub async fn get(
     req: api::NodeServiceGetRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::NodeServiceGetResponse, Error> {
     let node_id = req.id.parse().map_err(Error::ParseId)?;
@@ -302,7 +302,7 @@ pub async fn get(
 
 pub async fn list(
     req: api::NodeServiceListRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::NodeServiceListResponse, Error> {
     let filter = req.into_filter()?;
@@ -321,7 +321,7 @@ pub async fn list(
 
 pub async fn create(
     req: api::NodeServiceCreateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceCreateResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -407,7 +407,7 @@ pub async fn create(
 
 pub async fn upgrade(
     req: api::NodeServiceUpgradeRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpgradeResponse, Error> {
     let ids = req
@@ -456,7 +456,7 @@ pub async fn upgrade(
 
 pub async fn update_config(
     req: api::NodeServiceUpdateConfigRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateConfigResponse, Error> {
     let ids = req
@@ -505,7 +505,7 @@ pub async fn update_config(
 
 pub async fn update_status(
     req: api::NodeServiceUpdateStatusRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceUpdateStatusResponse, Error> {
     let ids = req
@@ -542,7 +542,7 @@ pub async fn update_status(
 
 pub async fn delete(
     req: api::NodeServiceDeleteRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceDeleteResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
@@ -575,7 +575,7 @@ pub async fn delete(
 
 pub async fn report(
     req: api::NodeServiceReportRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceReportResponse, Error> {
     let node_id: NodeId = req.node_id.parse().map_err(Error::ParseId)?;
@@ -595,7 +595,7 @@ pub async fn report(
 
 pub async fn start(
     req: api::NodeServiceStartRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceStartResponse, Error> {
     let node_id: NodeId = req.id.parse().map_err(Error::ParseId)?;
@@ -617,7 +617,7 @@ pub async fn start(
 
 pub async fn stop(
     req: api::NodeServiceStopRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceStopResponse, Error> {
     let node_id = req.id.parse().map_err(Error::ParseId)?;
@@ -639,7 +639,7 @@ pub async fn stop(
 
 pub async fn restart(
     req: api::NodeServiceRestartRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::NodeServiceRestartResponse, Error> {
     let node_id = req.id.parse().map_err(Error::ParseId)?;

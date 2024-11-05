@@ -22,7 +22,7 @@ use crate::storage::Storage;
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::blockchain_service_server::BlockchainService;
-use super::{api, common, Grpc, Status};
+use super::{api, common, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -223,7 +223,7 @@ impl BlockchainService for Grpc {
 
 pub async fn get(
     req: api::BlockchainServiceGetRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServiceGetResponse, Error> {
     let authz = match read.auth_all(&meta, BlockchainAdminPerm::Get).await {
@@ -256,7 +256,7 @@ pub async fn get(
 
 pub async fn get_image(
     req: api::BlockchainServiceGetImageRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServiceGetImageResponse, Error> {
     read.auth_all(&meta, BlockchainPerm::GetImage).await?;
@@ -274,7 +274,7 @@ pub async fn get_image(
 
 pub async fn get_plugin(
     req: api::BlockchainServiceGetPluginRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServiceGetPluginResponse, Error> {
     read.auth_all(&meta, BlockchainPerm::GetPlugin).await?;
@@ -295,7 +295,7 @@ pub async fn get_plugin(
 
 pub async fn get_requirements(
     req: api::BlockchainServiceGetRequirementsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServiceGetRequirementsResponse, Error> {
     read.auth_all(&meta, BlockchainPerm::GetRequirements)
@@ -314,7 +314,7 @@ pub async fn get_requirements(
 
 pub async fn list(
     req: api::BlockchainServiceListRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServiceListResponse, Error> {
     let authz = match read.auth_all(&meta, BlockchainAdminPerm::List).await {
@@ -349,7 +349,7 @@ pub async fn list(
 
 pub async fn list_image_versions(
     req: api::BlockchainServiceListImageVersionsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServiceListImageVersionsResponse, Error> {
     let _ = read
@@ -366,7 +366,7 @@ pub async fn list_image_versions(
 /// Add a new `NodeType` to an existing blockchain.
 pub async fn add_node_type(
     req: api::BlockchainServiceAddNodeTypeRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::BlockchainServiceAddNodeTypeResponse, Error> {
     write
@@ -394,7 +394,7 @@ pub async fn add_node_type(
 /// `{blockchain}/{node_type}/{version}/babel.rhai`
 pub async fn add_version(
     req: api::BlockchainServiceAddVersionRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::BlockchainServiceAddVersionResponse, Error> {
     let authz = write
@@ -440,7 +440,7 @@ pub async fn add_version(
 
 pub async fn pricing(
     req: api::BlockchainServicePricingRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BlockchainServicePricingResponse, Error> {
     let authz = read.auth_all(&meta, BlockchainPerm::GetPricing).await?;

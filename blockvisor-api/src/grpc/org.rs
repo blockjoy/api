@@ -18,7 +18,7 @@ use crate::model::{Address, Invitation, NewAddress, Org, Token, User};
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::org_service_server::OrgService;
-use super::{api, common, Grpc, Status};
+use super::{api, common, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -256,7 +256,7 @@ impl OrgService for Grpc {
 
 pub async fn create(
     req: api::OrgServiceCreateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceCreateResponse, Error> {
     let authz = write.auth_all(&meta, OrgPerm::Create).await?;
@@ -279,7 +279,7 @@ pub async fn create(
 
 pub async fn get(
     req: api::OrgServiceGetRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetResponse, Error> {
     let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
@@ -294,7 +294,7 @@ pub async fn get(
 
 pub async fn list(
     req: api::OrgServiceListRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceListResponse, Error> {
     let filter = req.into_filter()?;
@@ -312,7 +312,7 @@ pub async fn list(
 
 pub async fn update(
     req: api::OrgServiceUpdateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceUpdateResponse, Error> {
     let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
@@ -337,7 +337,7 @@ pub async fn update(
 
 pub async fn delete(
     req: api::OrgServiceDeleteRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceDeleteResponse, Error> {
     let org_id: OrgId = req.id.parse().map_err(Error::ParseId)?;
@@ -364,7 +364,7 @@ pub async fn delete(
 
 pub async fn remove_member(
     req: api::OrgServiceRemoveMemberRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceRemoveMemberResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -413,7 +413,7 @@ pub async fn remove_member(
 
 pub async fn get_provision_token(
     req: api::OrgServiceGetProvisionTokenRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetProvisionTokenResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -429,7 +429,7 @@ pub async fn get_provision_token(
 
 pub async fn reset_provision_token(
     req: api::OrgServiceResetProvisionTokenRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceResetProvisionTokenResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -447,7 +447,7 @@ pub async fn reset_provision_token(
 
 pub async fn init_card(
     req: api::OrgServiceInitCardRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceInitCardResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
@@ -466,7 +466,7 @@ pub async fn init_card(
 
 pub async fn list_payment_methods(
     req: api::OrgServiceListPaymentMethodsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceListPaymentMethodsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -507,7 +507,7 @@ pub async fn list_payment_methods(
 
 pub async fn billing_details(
     req: api::OrgServiceBillingDetailsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceBillingDetailsResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -557,7 +557,7 @@ pub async fn billing_details(
 
 pub async fn get_address(
     req: api::OrgServiceGetAddressRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -574,7 +574,7 @@ pub async fn get_address(
 
 pub async fn set_address(
     req: api::OrgServiceSetAddressRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceSetAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -636,7 +636,7 @@ pub async fn set_address(
 
 pub async fn delete_address(
     req: api::OrgServiceDeleteAddressRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceDeleteAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -652,7 +652,7 @@ pub async fn delete_address(
 
 pub async fn get_invoices(
     req: api::OrgServiceGetInvoicesRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: ReadConn<'_, '_>,
 ) -> Result<api::OrgServiceGetInvoicesResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;

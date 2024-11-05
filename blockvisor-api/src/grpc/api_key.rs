@@ -12,7 +12,7 @@ use crate::model::api_key::{ApiKey, NewApiKey, UpdateLabel, UpdateScope};
 use crate::util::NanosUtc;
 
 use super::api::api_key_service_server::ApiKeyService;
-use super::{api, common, Grpc, Status};
+use super::{api, common, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -111,7 +111,7 @@ impl ApiKeyService for Grpc {
 
 pub async fn create(
     req: api::ApiKeyServiceCreateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceCreateResponse, Error> {
     let scope = req.scope.ok_or(Error::MissingCreateScope)?;
@@ -130,7 +130,7 @@ pub async fn create(
 
 pub async fn list(
     _: api::ApiKeyServiceListRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceListResponse, Error> {
     let authz = read.auth_all(&meta, ApiKeyPerm::List).await?;
@@ -144,7 +144,7 @@ pub async fn list(
 
 pub async fn update(
     req: api::ApiKeyServiceUpdateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceUpdateResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
@@ -181,7 +181,7 @@ pub async fn update(
 
 pub async fn regenerate(
     req: api::ApiKeyServiceRegenerateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceRegenerateResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;
@@ -201,7 +201,7 @@ pub async fn regenerate(
 
 pub async fn delete(
     req: api::ApiKeyServiceDeleteRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::ApiKeyServiceDeleteResponse, Error> {
     let key_id = req.id.parse().map_err(Error::ParseKeyId)?;

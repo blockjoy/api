@@ -12,7 +12,7 @@ use crate::model::org::Org;
 use crate::model::subscription::{NewSubscription, Subscription};
 
 use super::api::subscription_service_server::SubscriptionService;
-use super::{api, Grpc, Status};
+use super::{api, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -112,7 +112,7 @@ impl SubscriptionService for Grpc {
 
 pub async fn create(
     req: api::SubscriptionServiceCreateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceCreateResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -136,7 +136,7 @@ pub async fn create(
 
 pub async fn get(
     req: api::SubscriptionServiceGetRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceGetResponse, Error> {
     let org_id = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -151,7 +151,7 @@ pub async fn get(
 
 pub async fn list(
     req: api::SubscriptionServiceListRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceListResponse, Error> {
     let user_id = req.user_id.ok_or(Error::MissingUserId)?;
@@ -170,7 +170,7 @@ pub async fn list(
 // Note that for now this just checks if a permission is available.
 pub async fn update(
     req: api::SubscriptionServiceUpdateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceUpdateResponse, Error> {
     let org_id = req.org_id.ok_or(Error::MissingOrgId)?;
@@ -182,7 +182,7 @@ pub async fn update(
 
 pub async fn delete(
     req: api::SubscriptionServiceDeleteRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::SubscriptionServiceDeleteResponse, Error> {
     let sub_id = req.id.parse().map_err(Error::ParseId)?;

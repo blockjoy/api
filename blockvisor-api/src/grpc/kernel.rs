@@ -10,7 +10,7 @@ use crate::database::{ReadConn, Transaction};
 use crate::grpc::api::kernel_service_server::KernelService;
 use crate::grpc::{api, common, Grpc};
 
-use super::Status;
+use super::{Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -62,7 +62,7 @@ impl KernelService for Grpc {
 
 pub async fn retrieve_kernel(
     req: api::KernelServiceRetrieveRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::KernelServiceRetrieveResponse, Error> {
     read.auth_all(&meta, KernelPerm::Retrieve).await?;
@@ -79,7 +79,7 @@ pub async fn retrieve_kernel(
 
 pub async fn list_kernel_versions(
     _: api::KernelServiceListKernelVersionsRequest,
-    _: super::NaiveMeta,
+    _: Metadata,
     read: ReadConn<'_, '_>,
 ) -> Result<api::KernelServiceListKernelVersionsResponse, Error> {
     let identifiers = read.ctx.storage.list_kernels().await?;

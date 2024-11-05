@@ -21,6 +21,8 @@ use crate::model::node::{NodeStatus, UpdateNode};
 use crate::model::{Command, CommandType, Host, Node};
 use crate::util::NanosUtc;
 
+use super::Metadata;
+
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// Auth check failed: {0}
@@ -140,7 +142,7 @@ impl CommandService for Grpc {
 
 async fn list(
     req: api::CommandServiceListRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::CommandServiceListResponse, Error> {
     let filter = req.as_filter()?;
@@ -163,7 +165,7 @@ async fn list(
 
 async fn update(
     req: api::CommandServiceUpdateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::CommandServiceUpdateResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
@@ -194,7 +196,7 @@ async fn update(
 
 async fn ack(
     req: api::CommandServiceAckRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::CommandServiceAckResponse, Error> {
     let id = req.id.parse().map_err(Error::ParseId)?;
@@ -218,7 +220,7 @@ async fn ack(
 
 async fn pending(
     req: api::CommandServicePendingRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::CommandServicePendingResponse, Error> {
     let host_id = req.host_id.parse().map_err(Error::ParseHostId)?;

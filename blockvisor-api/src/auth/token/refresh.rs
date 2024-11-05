@@ -13,7 +13,7 @@ use tracing::warn;
 use crate::auth::claims::Expirable;
 use crate::auth::resource::{Resource, ResourceEntry, ResourceId, ResourceType};
 use crate::config::token::{RefreshSecret, RefreshSecrets};
-use crate::grpc::{self, Status};
+use crate::grpc::{Metadata, Status};
 
 const ALGORITHM: Algorithm = Algorithm::HS512;
 const COOKIE_HEADER: &str = "cookie";
@@ -214,10 +214,10 @@ impl RequestCookie {
     }
 }
 
-impl TryFrom<&grpc::NaiveMeta> for RequestCookie {
+impl TryFrom<&Metadata> for RequestCookie {
     type Error = Error;
 
-    fn try_from(meta: &grpc::NaiveMeta) -> Result<Self, Self::Error> {
+    fn try_from(meta: &Metadata) -> Result<Self, Self::Error> {
         meta.get_http(COOKIE_HEADER)
             .ok_or(Error::MissingCookieHeader)?
             .to_str()
@@ -276,10 +276,10 @@ impl FromStr for RequestCookie {
 #[cfg(test)]
 mod tests {
     use axum::http::HeaderValue;
-    use grpc::NaiveMeta;
     use uuid::Uuid;
 
     use crate::config::Context;
+    use crate::grpc::Metadata;
     use crate::util::SecondsUtc;
 
     use super::*;
@@ -302,11 +302,11 @@ mod tests {
     async fn test_empty_refresh() {
         let ctx = Context::from_default_toml().await.unwrap();
 
-        let mut meta = NaiveMeta::new();
+        let mut meta = Metadata::new();
         meta.insert_http(COOKIE_HEADER, ";refresh=".parse::<HeaderValue>().unwrap());
         assert!(ctx.auth.refresh(&meta).is_err());
 
-        let mut meta = NaiveMeta::new();
+        let mut meta = Metadata::new();
         meta.insert_http(COOKIE_HEADER, "refresh=;".parse::<HeaderValue>().unwrap());
         assert!(ctx.auth.refresh(&meta).is_err());
     }
@@ -316,7 +316,7 @@ mod tests {
         let ctx = Context::from_default_toml().await.unwrap();
         let refresh = Refresh::from_now(seconds(60), Resource::Host(Uuid::new_v4().into()));
 
-        let mut meta = NaiveMeta::new();
+        let mut meta = Metadata::new();
         let cookie = ctx.auth.cipher.refresh.cookie(&refresh).unwrap();
         meta.insert_grpc(COOKIE_HEADER, cookie.header().unwrap());
 
@@ -332,7 +332,7 @@ mod tests {
         let refresh = Refresh::from_now(seconds(60), user_id);
         let encoded = ctx.auth.cipher.refresh.encode(&refresh).unwrap();
 
-        let mut meta = NaiveMeta::new();
+        let mut meta = Metadata::new();
         meta.insert_http(
             COOKIE_HEADER,
             format!("other_meta=v1; refresh={}; another=v2; ", *encoded)

@@ -16,7 +16,7 @@ use crate::model::user::User;
 use crate::util::{HashVec, NanosUtc};
 
 use super::api::invitation_service_server::InvitationService;
-use super::{api, common, Grpc, Status};
+use super::{api, common, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -145,7 +145,7 @@ impl InvitationService for Grpc {
 
 pub async fn create(
     req: api::InvitationServiceCreateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceCreateResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
@@ -221,7 +221,7 @@ pub async fn create(
 
 pub async fn list(
     req: api::InvitationServiceListRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::InvitationServiceListResponse, Error> {
     let resource: Resource = if let Some(org_id) = &req.org_id {
@@ -256,7 +256,7 @@ pub async fn list(
 
 pub async fn accept(
     req: api::InvitationServiceAcceptRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceAcceptResponse, Error> {
     let id = req.invitation_id.parse().map_err(Error::ParseId)?;
@@ -300,7 +300,7 @@ pub async fn accept(
 
 pub async fn decline(
     req: api::InvitationServiceDeclineRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceDeclineResponse, Error> {
     let id = req.invitation_id.parse().map_err(Error::ParseId)?;
@@ -344,7 +344,7 @@ pub async fn decline(
 
 pub async fn revoke(
     req: api::InvitationServiceRevokeRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::InvitationServiceRevokeResponse, Error> {
     let id = req.invitation_id.parse().map_err(Error::ParseId)?;

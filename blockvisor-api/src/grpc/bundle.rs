@@ -10,7 +10,7 @@ use crate::database::{ReadConn, Transaction};
 use crate::grpc::api::bundle_service_server::BundleService;
 use crate::grpc::{api, common, Grpc};
 
-use super::Status;
+use super::{Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -74,7 +74,7 @@ impl BundleService for Grpc {
 /// Retrieve image for specific version and state.
 pub async fn retrieve(
     req: api::BundleServiceRetrieveRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BundleServiceRetrieveResponse, Error> {
     read.auth_all(&meta, BundlePerm::Retrieve).await?;
@@ -92,7 +92,7 @@ pub async fn retrieve(
 /// List all available bundle versions.
 pub async fn list_bundle_versions(
     _: api::BundleServiceListBundleVersionsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BundleServiceListBundleVersionsResponse, Error> {
     read.auth_all(&meta, BundlePerm::ListBundleVersions).await?;
@@ -104,7 +104,7 @@ pub async fn list_bundle_versions(
 /// Delete bundle from storage.
 pub async fn delete(
     _: api::BundleServiceDeleteRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::BundleServiceDeleteResponse, Error> {
     read.auth_all(&meta, BundlePerm::Delete).await?;

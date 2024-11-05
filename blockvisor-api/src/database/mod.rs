@@ -30,7 +30,7 @@ use crate::auth::resource::Resources;
 use crate::auth::{self, AuthZ, Authorize};
 use crate::config::database::Config;
 use crate::config::Context;
-use crate::grpc::{self, NaiveMeta, ResponseMessage, Status};
+use crate::grpc::{self, Metadata, ResponseMessage, Status};
 use crate::model::rbac::{RbacPerm, RbacRole};
 use crate::mqtt::Message;
 
@@ -104,8 +104,21 @@ impl From<Error> for Status {
 }
 
 impl From<Error> for tonic::Status {
-    fn from(_value: Error) -> Self {
-        tonic::Status::internal("database error")
+    fn from(value: Error) -> Self {
+        match value {
+            Error::BuildPool(_err) => tonic::Status::internal("Failed to create db pool"),
+            Error::CreatePerms(err) => {
+                let status: Status = err.into();
+                status.into()
+            }
+            Error::CreateRoles(err) => {
+                let status: Status = err.into();
+                status.into()
+            }
+            Error::PoolConnection(_err) => {
+                tonic::Status::internal("Failed to create db connection")
+            }
+        }
     }
 }
 
@@ -125,7 +138,7 @@ pub struct ReadConn<'c, 't> {
 impl<'c, 't> Authorize for ReadConn<'c, 't> {
     async fn authorize(
         &mut self,
-        meta: &grpc::NaiveMeta,
+        meta: &grpc::Metadata,
         perms: Perms,
         resources: Option<Resources>,
     ) -> Result<AuthZ, auth::Error> {
@@ -154,7 +167,7 @@ pub struct WriteConn<'c, 't> {
 impl<'c, 't> Authorize for WriteConn<'c, 't> {
     async fn authorize(
         &mut self,
-        meta: &grpc::NaiveMeta,
+        meta: &grpc::Metadata,
         perms: Perms,
         resources: Option<Resources>,
     ) -> Result<AuthZ, auth::Error> {
@@ -244,7 +257,7 @@ where
         let conn = &mut ctx.conn().await?;
         let read = ReadConn { conn, ctx };
         let response = f(read).await.map_err(Status::from)?;
-        Ok(Response::construct(response, NaiveMeta::new()))
+        Ok(Response::construct(response, Metadata::new()))
     }
 
     async fn write<'a, F, Response, ResponseInner, ErrInner, ErrOuter>(
@@ -288,7 +301,7 @@ where
             }
         }
 
-        let mut meta = NaiveMeta::new();
+        let mut meta = Metadata::new();
         while let Some((key, val)) = meta_rx.recv().await {
             meta.insert_grpc(key, val);
         }

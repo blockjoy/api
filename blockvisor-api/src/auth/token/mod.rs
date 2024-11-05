@@ -8,10 +8,8 @@ use derive_more::{Deref, From};
 use displaydoc::Display;
 use thiserror::Error;
 
-use crate::{
-    config::token::SecretConfig,
-    grpc::{self, Status},
-};
+use crate::config::token::SecretConfig;
+use crate::grpc::{Metadata, Status};
 
 use self::api_key::{KeyId, Secret};
 
@@ -64,10 +62,10 @@ pub enum RequestToken {
     Bearer(BearerToken),
 }
 
-impl TryFrom<&grpc::NaiveMeta> for RequestToken {
+impl TryFrom<&Metadata> for RequestToken {
     type Error = Error;
 
-    fn try_from(meta: &grpc::NaiveMeta) -> Result<Self, Self::Error> {
+    fn try_from(meta: &Metadata) -> Result<Self, Self::Error> {
         meta.get_http(AUTH_HEADER)
             .ok_or(Error::MissingAuthHeader)?
             .to_str()

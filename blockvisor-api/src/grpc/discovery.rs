@@ -9,7 +9,7 @@ use crate::auth::Authorize;
 use crate::database::{ReadConn, Transaction};
 
 use super::api::discovery_service_server::DiscoveryService;
-use super::{api, Grpc, Status};
+use super::{api, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -47,7 +47,7 @@ impl DiscoveryService for Grpc {
 
 pub async fn services(
     _: api::DiscoveryServiceServicesRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::DiscoveryServiceServicesResponse, Error> {
     read.auth_all(&meta, DiscoveryPerm::Services).await?;

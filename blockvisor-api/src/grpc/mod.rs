@@ -79,11 +79,11 @@ impl Grpc {
 }
 
 /// A map of metadata that can either be used for either http or grpc requests.
-pub struct NaiveMeta {
+pub struct Metadata {
     data: axum::http::HeaderMap,
 }
 
-impl NaiveMeta {
+impl Metadata {
     pub fn new() -> Self {
         Self {
             data: axum::http::HeaderMap::new(),
@@ -106,13 +106,13 @@ impl NaiveMeta {
     }
 }
 
-impl Default for NaiveMeta {
+impl Default for Metadata {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl From<tonic::metadata::MetadataMap> for NaiveMeta {
+impl From<tonic::metadata::MetadataMap> for Metadata {
     fn from(value: tonic::metadata::MetadataMap) -> Self {
         Self {
             data: value.into_headers(),
@@ -120,13 +120,13 @@ impl From<tonic::metadata::MetadataMap> for NaiveMeta {
     }
 }
 
-impl From<NaiveMeta> for tonic::metadata::MetadataMap {
-    fn from(value: NaiveMeta) -> Self {
+impl From<Metadata> for tonic::metadata::MetadataMap {
+    fn from(value: Metadata) -> Self {
         Self::from_headers(value.data)
     }
 }
 
-impl From<axum::http::header::HeaderMap> for NaiveMeta {
+impl From<axum::http::header::HeaderMap> for Metadata {
     fn from(data: axum::http::header::HeaderMap) -> Self {
         Self { data }
     }
@@ -232,17 +232,17 @@ impl From<Status> for crate::http::handlers::Error {
 }
 
 pub trait ResponseMessage<T> {
-    fn construct(message: T, meta: NaiveMeta) -> Self;
+    fn construct(message: T, meta: Metadata) -> Self;
 }
 
 impl<T> ResponseMessage<T> for tonic::Response<T> {
-    fn construct(message: T, meta: NaiveMeta) -> Self {
+    fn construct(message: T, meta: Metadata) -> Self {
         tonic::Response::from_parts(meta.into(), message, Default::default())
     }
 }
 
 impl<T> ResponseMessage<T> for axum::Json<T> {
-    fn construct(message: T, _meta: NaiveMeta) -> axum::Json<T> {
+    fn construct(message: T, _meta: Metadata) -> axum::Json<T> {
         axum::Json(message)
     }
 }

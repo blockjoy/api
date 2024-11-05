@@ -15,7 +15,7 @@ use crate::model::user::{NewUser, UpdateUser, User, UserFilter, UserSearch, User
 use crate::util::NanosUtc;
 
 use super::api::user_service_server::UserService;
-use super::{api, Grpc, Status};
+use super::{api, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -171,7 +171,7 @@ impl UserService for Grpc {
 
 pub async fn create(
     req: api::UserServiceCreateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceCreateResponse, Error> {
     // This endpoint does not necessarily require authentication, since this is where users first
@@ -205,7 +205,7 @@ pub async fn create(
 
 pub async fn get(
     req: api::UserServiceGetRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::UserServiceGetResponse, Error> {
     let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
@@ -221,7 +221,7 @@ pub async fn get(
 
 pub async fn list(
     req: api::UserServiceListRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::UserServiceListResponse, Error> {
     let filter = req.into_filter()?;
@@ -240,7 +240,7 @@ pub async fn list(
 
 pub async fn update(
     req: api::UserServiceUpdateRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceUpdateResponse, Error> {
     let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
@@ -257,7 +257,7 @@ pub async fn update(
 
 pub async fn delete(
     req: api::UserServiceDeleteRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceDeleteResponse, Error> {
     let user_id: UserId = req.id.parse().map_err(Error::ParseId)?;
@@ -270,7 +270,7 @@ pub async fn delete(
 
 pub async fn get_billing(
     req: api::UserServiceGetBillingRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::UserServiceGetBillingResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
@@ -285,7 +285,7 @@ pub async fn get_billing(
 
 pub async fn update_billing(
     req: api::UserServiceUpdateBillingRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceUpdateBillingResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
@@ -302,7 +302,7 @@ pub async fn update_billing(
 
 pub async fn delete_billing(
     req: api::UserServiceDeleteBillingRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceDeleteBillingResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
@@ -316,7 +316,7 @@ pub async fn delete_billing(
 
 pub async fn get_settings(
     req: api::UserServiceGetSettingsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut read: ReadConn<'_, '_>,
 ) -> Result<api::UserServiceGetSettingsResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
@@ -340,7 +340,7 @@ pub async fn get_settings(
 
 pub async fn update_settings(
     req: api::UserServiceUpdateSettingsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceUpdateSettingsResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;
@@ -366,7 +366,7 @@ pub async fn update_settings(
 
 pub async fn delete_settings(
     req: api::UserServiceDeleteSettingsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::UserServiceDeleteSettingsResponse, Error> {
     let user_id: UserId = req.user_id.parse().map_err(Error::ParseUserId)?;

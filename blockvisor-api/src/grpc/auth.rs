@@ -14,7 +14,7 @@ use crate::database::{Transaction, WriteConn};
 use crate::model::{Host, Node, Org, User};
 
 use super::api::auth_service_server::AuthService;
-use super::{api, Grpc, Status};
+use super::{api, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -149,7 +149,7 @@ impl AuthService for Grpc {
 
 pub async fn login(
     req: api::AuthServiceLoginRequest,
-    _: super::NaiveMeta,
+    _: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceLoginResponse, Error> {
     // No auth claims are required as the password is checked instead.
@@ -171,7 +171,7 @@ pub async fn login(
 
 pub async fn confirm(
     _: api::AuthServiceConfirmRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceConfirmResponse, Error> {
     let authz = write.auth_all(&meta, AuthPerm::Confirm).await?;
@@ -194,7 +194,7 @@ pub async fn confirm(
 
 pub async fn refresh(
     req: api::AuthServiceRefreshRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceRefreshResponse, Error> {
     let claims = match req.token.parse().map_err(Error::ParseToken)? {
@@ -248,7 +248,7 @@ pub async fn refresh(
 /// then done through the `update` function.
 pub async fn reset_password(
     req: api::AuthServiceResetPasswordRequest,
-    _: super::NaiveMeta,
+    _: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceResetPasswordResponse, Error> {
     // We are going to query the user and send them an email, but when something goes wrong we
@@ -269,7 +269,7 @@ pub async fn reset_password(
 
 pub async fn update_password(
     req: api::AuthServiceUpdatePasswordRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceUpdatePasswordResponse, Error> {
     let authz = write.auth_all(&meta, AuthPerm::UpdatePassword).await?;
@@ -285,7 +285,7 @@ pub async fn update_password(
 
 pub async fn update_ui_password(
     req: api::AuthServiceUpdateUiPasswordRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceUpdateUiPasswordResponse, Error> {
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;
@@ -304,7 +304,7 @@ pub async fn update_ui_password(
 
 pub async fn list_permissions(
     req: api::AuthServiceListPermissionsRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<api::AuthServiceListPermissionsResponse, Error> {
     let user_id = req.user_id.parse().map_err(Error::ParseUserId)?;

@@ -17,7 +17,7 @@ use crate::model::{Host, Node};
 use crate::util::HashVec;
 
 use super::api::metrics_service_server::MetricsService;
-use super::{api, common, Grpc, Status};
+use super::{api, common, Grpc, Metadata, Status};
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -153,7 +153,7 @@ pub enum RespOrError<T> {
 
 pub async fn node(
     req: api::MetricsServiceNodeRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<RespOrError<api::MetricsServiceNodeResponse>, Error> {
     // First we split our map of `node_id`: `update info` into two vectors, so we can parse and
@@ -218,7 +218,7 @@ pub async fn node(
 
 pub async fn host(
     req: api::MetricsServiceHostRequest,
-    meta: super::NaiveMeta,
+    meta: Metadata,
     mut write: WriteConn<'_, '_>,
 ) -> Result<RespOrError<api::MetricsServiceHostResponse>, Error> {
     let updates = req
