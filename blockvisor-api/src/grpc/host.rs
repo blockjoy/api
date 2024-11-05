@@ -214,7 +214,7 @@ impl HostService for Grpc {
     }
 }
 
-async fn create(
+pub async fn create(
     req: api::HostServiceCreateRequest,
     _: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -268,7 +268,7 @@ async fn create(
     })
 }
 
-async fn get(
+pub async fn get(
     req: api::HostServiceGetRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -284,7 +284,7 @@ async fn get(
     Ok(api::HostServiceGetResponse { host: Some(host) })
 }
 
-async fn list(
+pub async fn list(
     req: api::HostServiceListRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -303,7 +303,7 @@ async fn list(
     Ok(api::HostServiceListResponse { hosts, host_count })
 }
 
-async fn update(
+pub async fn update(
     req: api::HostServiceUpdateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -329,7 +329,7 @@ async fn update(
     Ok(api::HostServiceUpdateResponse {})
 }
 
-async fn delete(
+pub async fn delete(
     req: api::HostServiceDeleteRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -346,7 +346,7 @@ async fn delete(
     Ok(api::HostServiceDeleteResponse {})
 }
 
-async fn start(
+pub async fn start(
     req: api::HostServiceStartRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -364,7 +364,7 @@ async fn start(
     Ok(api::HostServiceStartResponse {})
 }
 
-async fn stop(
+pub async fn stop(
     req: api::HostServiceStopRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -382,7 +382,7 @@ async fn stop(
     Ok(api::HostServiceStopResponse {})
 }
 
-async fn restart(
+pub async fn restart(
     req: api::HostServiceRestartRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -400,7 +400,7 @@ async fn restart(
     Ok(api::HostServiceRestartResponse {})
 }
 
-async fn regions(
+pub async fn regions(
     req: api::HostServiceRegionsRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,

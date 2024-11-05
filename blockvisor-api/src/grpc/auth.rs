@@ -147,7 +147,7 @@ impl AuthService for Grpc {
     }
 }
 
-async fn login(
+pub async fn login(
     req: api::AuthServiceLoginRequest,
     _: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -169,7 +169,7 @@ async fn login(
     })
 }
 
-async fn confirm(
+pub async fn confirm(
     _: api::AuthServiceConfirmRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -192,7 +192,7 @@ async fn confirm(
     })
 }
 
-async fn refresh(
+pub async fn refresh(
     req: api::AuthServiceRefreshRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -246,7 +246,7 @@ async fn refresh(
 
 /// This endpoint triggers the sending of the reset-password email. The actual resetting is
 /// then done through the `update` function.
-async fn reset_password(
+pub async fn reset_password(
     req: api::AuthServiceResetPasswordRequest,
     _: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -267,7 +267,7 @@ async fn reset_password(
     Ok(api::AuthServiceResetPasswordResponse {})
 }
 
-async fn update_password(
+pub async fn update_password(
     req: api::AuthServiceUpdatePasswordRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -283,7 +283,7 @@ async fn update_password(
     Ok(api::AuthServiceUpdatePasswordResponse {})
 }
 
-async fn update_ui_password(
+pub async fn update_ui_password(
     req: api::AuthServiceUpdateUiPasswordRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -302,7 +302,7 @@ async fn update_ui_password(
     Ok(api::AuthServiceUpdateUiPasswordResponse {})
 }
 
-async fn list_permissions(
+pub async fn list_permissions(
     req: api::AuthServiceListPermissionsRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,

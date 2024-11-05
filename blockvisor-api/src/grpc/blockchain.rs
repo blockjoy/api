@@ -221,7 +221,7 @@ impl BlockchainService for Grpc {
     }
 }
 
-async fn get(
+pub async fn get(
     req: api::BlockchainServiceGetRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -254,7 +254,7 @@ async fn get(
     })
 }
 
-async fn get_image(
+pub async fn get_image(
     req: api::BlockchainServiceGetImageRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -272,7 +272,7 @@ async fn get_image(
     })
 }
 
-async fn get_plugin(
+pub async fn get_plugin(
     req: api::BlockchainServiceGetPluginRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -293,7 +293,7 @@ async fn get_plugin(
     })
 }
 
-async fn get_requirements(
+pub async fn get_requirements(
     req: api::BlockchainServiceGetRequirementsRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -312,7 +312,7 @@ async fn get_requirements(
     })
 }
 
-async fn list(
+pub async fn list(
     req: api::BlockchainServiceListRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -347,7 +347,7 @@ async fn list(
     })
 }
 
-async fn list_image_versions(
+pub async fn list_image_versions(
     req: api::BlockchainServiceListImageVersionsRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -364,7 +364,7 @@ async fn list_image_versions(
 }
 
 /// Add a new `NodeType` to an existing blockchain.
-async fn add_node_type(
+pub async fn add_node_type(
     req: api::BlockchainServiceAddNodeTypeRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -392,7 +392,7 @@ async fn add_node_type(
 ///
 /// The transaction will fail if it can't retrieve storage networks from:
 /// `{blockchain}/{node_type}/{version}/babel.rhai`
-async fn add_version(
+pub async fn add_version(
     req: api::BlockchainServiceAddVersionRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -438,7 +438,7 @@ async fn add_version(
     })
 }
 
-async fn pricing(
+pub async fn pricing(
     req: api::BlockchainServicePricingRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,

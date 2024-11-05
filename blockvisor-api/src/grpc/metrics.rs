@@ -146,12 +146,12 @@ impl MetricsService for Grpc {
     }
 }
 
-enum RespOrError<T> {
+pub enum RespOrError<T> {
     Resp(T),
     Error(Error),
 }
 
-async fn node(
+pub async fn node(
     req: api::MetricsServiceNodeRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -216,7 +216,7 @@ async fn node(
     }
 }
 
-async fn host(
+pub async fn host(
     req: api::MetricsServiceHostRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,

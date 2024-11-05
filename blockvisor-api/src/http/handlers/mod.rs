@@ -3,10 +3,23 @@ use axum::response::IntoResponse;
 use crate::{database, grpc::Status};
 
 pub mod api_key;
+pub mod auth;
+pub mod blockchain;
+pub mod blockchain_archive;
+pub mod bundle;
 pub mod chargebee;
+pub mod discovery;
 pub mod health;
+pub mod host;
+pub mod invitation;
+pub mod kernel;
+pub mod metrics;
 pub mod mqtt;
+pub mod node;
+pub mod org;
 pub mod stripe;
+pub mod subscription;
+pub mod user;
 
 pub(crate) struct Error {
     inner: serde_json::Value,

@@ -254,7 +254,7 @@ impl OrgService for Grpc {
     }
 }
 
-async fn create(
+pub async fn create(
     req: api::OrgServiceCreateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -277,7 +277,7 @@ async fn create(
     Ok(api::OrgServiceCreateResponse { org: Some(org) })
 }
 
-async fn get(
+pub async fn get(
     req: api::OrgServiceGetRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -292,7 +292,7 @@ async fn get(
     Ok(api::OrgServiceGetResponse { org: Some(org) })
 }
 
-async fn list(
+pub async fn list(
     req: api::OrgServiceListRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -310,7 +310,7 @@ async fn list(
     Ok(api::OrgServiceListResponse { orgs, org_count })
 }
 
-async fn update(
+pub async fn update(
     req: api::OrgServiceUpdateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -335,7 +335,7 @@ async fn update(
     Ok(api::OrgServiceUpdateResponse {})
 }
 
-async fn delete(
+pub async fn delete(
     req: api::OrgServiceDeleteRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -362,7 +362,7 @@ async fn delete(
     Ok(api::OrgServiceDeleteResponse {})
 }
 
-async fn remove_member(
+pub async fn remove_member(
     req: api::OrgServiceRemoveMemberRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -411,7 +411,7 @@ async fn remove_member(
     Ok(api::OrgServiceRemoveMemberResponse {})
 }
 
-async fn get_provision_token(
+pub async fn get_provision_token(
     req: api::OrgServiceGetProvisionTokenRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -427,7 +427,7 @@ async fn get_provision_token(
     })
 }
 
-async fn reset_provision_token(
+pub async fn reset_provision_token(
     req: api::OrgServiceResetProvisionTokenRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -445,7 +445,7 @@ async fn reset_provision_token(
     })
 }
 
-async fn init_card(
+pub async fn init_card(
     req: api::OrgServiceInitCardRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -464,7 +464,7 @@ async fn init_card(
     Ok(api::OrgServiceInitCardResponse { client_secret })
 }
 
-async fn list_payment_methods(
+pub async fn list_payment_methods(
     req: api::OrgServiceListPaymentMethodsRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -505,7 +505,7 @@ async fn list_payment_methods(
     Ok(api::OrgServiceListPaymentMethodsResponse { methods })
 }
 
-async fn billing_details(
+pub async fn billing_details(
     req: api::OrgServiceBillingDetailsRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -555,7 +555,7 @@ async fn billing_details(
     })
 }
 
-async fn get_address(
+pub async fn get_address(
     req: api::OrgServiceGetAddressRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -572,7 +572,7 @@ async fn get_address(
     })
 }
 
-async fn set_address(
+pub async fn set_address(
     req: api::OrgServiceSetAddressRequest,
     meta: super::NaiveMeta,
     mut write: ReadConn<'_, '_>,
@@ -634,7 +634,7 @@ async fn set_address(
     Ok(api::OrgServiceSetAddressResponse {})
 }
 
-async fn delete_address(
+pub async fn delete_address(
     req: api::OrgServiceDeleteAddressRequest,
     meta: super::NaiveMeta,
     mut write: ReadConn<'_, '_>,
@@ -650,7 +650,7 @@ async fn delete_address(
     Ok(api::OrgServiceDeleteAddressResponse {})
 }
 
-async fn get_invoices(
+pub async fn get_invoices(
     req: api::OrgServiceGetInvoicesRequest,
     meta: super::NaiveMeta,
     mut write: ReadConn<'_, '_>,

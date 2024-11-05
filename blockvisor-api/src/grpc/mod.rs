@@ -247,12 +247,6 @@ impl<T> ResponseMessage<T> for axum::Json<T> {
     }
 }
 
-impl ResponseMessage<&'static str> for &'static str {
-    fn construct(message: &'static str, _: NaiveMeta) -> &'static str {
-        message
-    }
-}
-
 macro_rules! gzip_service {
     ($service:ident, $grpc:expr) => {
         $service::new($grpc)

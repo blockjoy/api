@@ -45,7 +45,7 @@ impl DiscoveryService for Grpc {
     }
 }
 
-async fn services(
+pub async fn services(
     _: api::DiscoveryServiceServicesRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,

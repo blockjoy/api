@@ -283,7 +283,7 @@ impl NodeService for Grpc {
     }
 }
 
-async fn get(
+pub async fn get(
     req: api::NodeServiceGetRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -300,7 +300,7 @@ async fn get(
     })
 }
 
-async fn list(
+pub async fn list(
     req: api::NodeServiceListRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -319,7 +319,7 @@ async fn list(
     Ok(api::NodeServiceListResponse { nodes, node_count })
 }
 
-async fn create(
+pub async fn create(
     req: api::NodeServiceCreateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -405,7 +405,7 @@ async fn create(
     Ok(api::NodeServiceCreateResponse { nodes })
 }
 
-async fn upgrade(
+pub async fn upgrade(
     req: api::NodeServiceUpgradeRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -454,7 +454,7 @@ async fn upgrade(
     Ok(api::NodeServiceUpgradeResponse {})
 }
 
-async fn update_config(
+pub async fn update_config(
     req: api::NodeServiceUpdateConfigRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -503,7 +503,7 @@ async fn update_config(
     Ok(api::NodeServiceUpdateConfigResponse {})
 }
 
-async fn update_status(
+pub async fn update_status(
     req: api::NodeServiceUpdateStatusRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -540,7 +540,7 @@ async fn update_status(
     Ok(api::NodeServiceUpdateStatusResponse {})
 }
 
-async fn delete(
+pub async fn delete(
     req: api::NodeServiceDeleteRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -573,7 +573,7 @@ async fn delete(
     Ok(api::NodeServiceDeleteResponse {})
 }
 
-async fn report(
+pub async fn report(
     req: api::NodeServiceReportRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -593,7 +593,7 @@ async fn report(
     })
 }
 
-async fn start(
+pub async fn start(
     req: api::NodeServiceStartRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -615,7 +615,7 @@ async fn start(
     Ok(api::NodeServiceStartResponse {})
 }
 
-async fn stop(
+pub async fn stop(
     req: api::NodeServiceStopRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -637,7 +637,7 @@ async fn stop(
     Ok(api::NodeServiceStopResponse {})
 }
 
-async fn restart(
+pub async fn restart(
     req: api::NodeServiceRestartRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,

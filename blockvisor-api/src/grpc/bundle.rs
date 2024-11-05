@@ -72,7 +72,7 @@ impl BundleService for Grpc {
 }
 
 /// Retrieve image for specific version and state.
-async fn retrieve(
+pub async fn retrieve(
     req: api::BundleServiceRetrieveRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -90,7 +90,7 @@ async fn retrieve(
 }
 
 /// List all available bundle versions.
-async fn list_bundle_versions(
+pub async fn list_bundle_versions(
     _: api::BundleServiceListBundleVersionsRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -102,7 +102,7 @@ async fn list_bundle_versions(
 }
 
 /// Delete bundle from storage.
-async fn delete(
+pub async fn delete(
     _: api::BundleServiceDeleteRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,

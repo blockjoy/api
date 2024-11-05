@@ -110,7 +110,7 @@ impl SubscriptionService for Grpc {
     }
 }
 
-async fn create(
+pub async fn create(
     req: api::SubscriptionServiceCreateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -134,7 +134,7 @@ async fn create(
     })
 }
 
-async fn get(
+pub async fn get(
     req: api::SubscriptionServiceGetRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -149,7 +149,7 @@ async fn get(
     })
 }
 
-async fn list(
+pub async fn list(
     req: api::SubscriptionServiceListRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -168,7 +168,7 @@ async fn list(
 }
 
 // Note that for now this just checks if a permission is available.
-async fn update(
+pub async fn update(
     req: api::SubscriptionServiceUpdateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -180,7 +180,7 @@ async fn update(
     Ok(api::SubscriptionServiceUpdateResponse {})
 }
 
-async fn delete(
+pub async fn delete(
     req: api::SubscriptionServiceDeleteRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,

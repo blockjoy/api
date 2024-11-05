@@ -169,7 +169,7 @@ impl UserService for Grpc {
     }
 }
 
-async fn create(
+pub async fn create(
     req: api::UserServiceCreateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -203,7 +203,7 @@ async fn create(
     })
 }
 
-async fn get(
+pub async fn get(
     req: api::UserServiceGetRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -219,7 +219,7 @@ async fn get(
     })
 }
 
-async fn list(
+pub async fn list(
     req: api::UserServiceListRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -238,7 +238,7 @@ async fn list(
     Ok(api::UserServiceListResponse { users, user_count })
 }
 
-async fn update(
+pub async fn update(
     req: api::UserServiceUpdateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -255,7 +255,7 @@ async fn update(
     })
 }
 
-async fn delete(
+pub async fn delete(
     req: api::UserServiceDeleteRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -268,7 +268,7 @@ async fn delete(
     Ok(api::UserServiceDeleteResponse {})
 }
 
-async fn get_billing(
+pub async fn get_billing(
     req: api::UserServiceGetBillingRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -283,7 +283,7 @@ async fn get_billing(
     })
 }
 
-async fn update_billing(
+pub async fn update_billing(
     req: api::UserServiceUpdateBillingRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -300,7 +300,7 @@ async fn update_billing(
     })
 }
 
-async fn delete_billing(
+pub async fn delete_billing(
     req: api::UserServiceDeleteBillingRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -314,7 +314,7 @@ async fn delete_billing(
     Ok(api::UserServiceDeleteBillingResponse {})
 }
 
-async fn get_settings(
+pub async fn get_settings(
     req: api::UserServiceGetSettingsRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -338,7 +338,7 @@ async fn get_settings(
     Ok(api::UserServiceGetSettingsResponse { settings })
 }
 
-async fn update_settings(
+pub async fn update_settings(
     req: api::UserServiceUpdateSettingsRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -364,7 +364,7 @@ async fn update_settings(
     })
 }
 
-async fn delete_settings(
+pub async fn delete_settings(
     req: api::UserServiceDeleteSettingsRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,

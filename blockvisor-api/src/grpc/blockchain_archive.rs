@@ -111,7 +111,7 @@ impl BlockchainArchiveService for Grpc {
     }
 }
 
-async fn get_download_metadata(
+pub async fn get_download_metadata(
     req: api::BlockchainArchiveServiceGetDownloadMetadataRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -135,7 +135,7 @@ async fn get_download_metadata(
     })
 }
 
-async fn get_download_chunks(
+pub async fn get_download_chunks(
     req: api::BlockchainArchiveServiceGetDownloadChunksRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -169,7 +169,7 @@ async fn get_download_chunks(
     })
 }
 
-async fn get_upload_slots(
+pub async fn get_upload_slots(
     req: api::BlockchainArchiveServiceGetUploadSlotsRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -206,7 +206,7 @@ async fn get_upload_slots(
     })
 }
 
-async fn put_download_manifest(
+pub async fn put_download_manifest(
     req: api::BlockchainArchiveServicePutDownloadManifestRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,

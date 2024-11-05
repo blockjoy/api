@@ -143,7 +143,7 @@ impl InvitationService for Grpc {
     }
 }
 
-async fn create(
+pub async fn create(
     req: api::InvitationServiceCreateRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -219,7 +219,7 @@ async fn create(
     })
 }
 
-async fn list(
+pub async fn list(
     req: api::InvitationServiceListRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -254,7 +254,7 @@ async fn list(
     Ok(api::InvitationServiceListResponse { invitations })
 }
 
-async fn accept(
+pub async fn accept(
     req: api::InvitationServiceAcceptRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -298,7 +298,7 @@ async fn accept(
     Ok(api::InvitationServiceAcceptResponse {})
 }
 
-async fn decline(
+pub async fn decline(
     req: api::InvitationServiceDeclineRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,
@@ -342,7 +342,7 @@ async fn decline(
     Ok(api::InvitationServiceDeclineResponse {})
 }
 
-async fn revoke(
+pub async fn revoke(
     req: api::InvitationServiceRevokeRequest,
     meta: super::NaiveMeta,
     mut write: WriteConn<'_, '_>,

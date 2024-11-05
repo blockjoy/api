@@ -46,7 +46,7 @@ impl KernelService for Grpc {
         req: Request<api::KernelServiceRetrieveRequest>,
     ) -> Result<Response<api::KernelServiceRetrieveResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| retrieve_kernel_(req, meta.into(), read).scope_boxed())
+        self.read(|read| retrieve_kernel(req, meta.into(), read).scope_boxed())
             .await
     }
 
@@ -60,7 +60,7 @@ impl KernelService for Grpc {
     }
 }
 
-async fn retrieve_kernel_(
+pub async fn retrieve_kernel(
     req: api::KernelServiceRetrieveRequest,
     meta: super::NaiveMeta,
     mut read: ReadConn<'_, '_>,
@@ -77,7 +77,7 @@ async fn retrieve_kernel_(
     })
 }
 
-async fn list_kernel_versions(
+pub async fn list_kernel_versions(
     _: api::KernelServiceListKernelVersionsRequest,
     _: super::NaiveMeta,
     read: ReadConn<'_, '_>,
