@@ -309,10 +309,10 @@ pub fn server(context: &Arc<Context>) -> Router<CorsServer> {
 pub enum BillingAmountError {
     /// Billing amount provided without an `amount` field.
     NoAmount,
-    /// Unknown currency: {0}
-    UnknownCurrency(i32),
-    /// Unknown period: {0}
-    UnknownPeriod(i32),
+    /// Unknown currency.
+    UnknownCurrency,
+    /// Unknown period.
+    UnknownPeriod,
 }
 
 impl common::BillingAmount {
@@ -323,14 +323,10 @@ impl common::BillingAmount {
         }
         Some(common::BillingAmount {
             amount: Some(common::Amount {
-                currency: match cost.currency {
-                    model::Currency::Usd => common::Currency::Usd,
-                } as i32,
+                currency: common::Currency::from(cost.currency) as i32,
                 amount_minor_units: cost.amount,
             }),
-            period: match cost.period {
-                model::Period::Monthly => common::Period::Monthly,
-            } as i32,
+            period: common::Period::from(cost.period) as i32,
         })
     }
 
@@ -341,14 +337,10 @@ impl common::BillingAmount {
         }
         Some(common::BillingAmount {
             amount: Some(common::Amount {
-                currency: match cost.currency {
-                    model::Currency::Usd => common::Currency::Usd,
-                } as i32,
+                currency: common::Currency::from(cost.currency) as i32,
                 amount_minor_units: cost.amount,
             }),
-            period: match cost.period {
-                model::Period::Monthly => common::Period::Monthly,
-            } as i32,
+            period: common::Period::from(cost.period) as i32,
         })
     }
 
@@ -356,18 +348,50 @@ impl common::BillingAmount {
         let amount = self.amount.ok_or(BillingAmountError::NoAmount)?;
         Ok(model::Amount {
             amount: amount.amount_minor_units,
-            currency: match amount.currency() {
-                common::Currency::Usd => model::Currency::Usd,
-                common::Currency::Unspecified => {
-                    return Err(BillingAmountError::UnknownCurrency(amount.currency));
-                }
-            },
-            period: match self.period() {
-                common::Period::Monthly => model::Period::Monthly,
-                common::Period::Unspecified => {
-                    return Err(BillingAmountError::UnknownPeriod(self.period));
-                }
-            },
+            currency: model::Currency::try_from(amount.currency())?,
+            period: model::Period::try_from(self.period())?,
         })
+    }
+}
+
+impl From<model::Currency> for common::Currency {
+    fn from(value: model::Currency) -> Self {
+        match value {
+            model::Currency::Usd => common::Currency::Usd,
+        }
+    }
+}
+
+impl From<model::Period> for common::Period {
+    fn from(value: model::Period) -> Self {
+        match value {
+            model::Period::Monthly => common::Period::Monthly,
+        }
+    }
+}
+
+impl TryFrom<common::Currency> for model::Currency {
+    type Error = BillingAmountError;
+
+    fn try_from(value: common::Currency) -> Result<Self, Self::Error> {
+        match value {
+            common::Currency::Usd => Ok(model::Currency::Usd),
+            common::Currency::Unspecified => {
+                return Err(BillingAmountError::UnknownPeriod);
+            }
+        }
+    }
+}
+
+impl TryFrom<common::Period> for model::Period {
+    type Error = BillingAmountError;
+
+    fn try_from(value: common::Period) -> Result<Self, Self::Error> {
+        match value {
+            common::Period::Monthly => Ok(model::Period::Monthly),
+            common::Period::Unspecified => {
+                return Err(BillingAmountError::UnknownPeriod);
+            }
+        }
     }
 }
