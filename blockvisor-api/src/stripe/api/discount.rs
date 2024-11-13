@@ -134,7 +134,7 @@ impl TryFrom<&DiscountAmount> for api::Discount {
                     .transpose()
                     .map_err(Error::Currency)?
                     .unwrap_or(common::Currency::Usd) as i32,
-                value: discount_amount.amount,
+                amount_minor_units: discount_amount.amount,
             }),
         })
     }

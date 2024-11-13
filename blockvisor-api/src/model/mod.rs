@@ -78,3 +78,44 @@ impl serialize::ToSql<sql_types::Text, pg::Pg> for Url {
         <String as serialize::ToSql<sql_types::Text, pg::Pg>>::to_sql(&value, &mut out.reborrow())
     }
 }
+
+#[derive(
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    expression::AsExpression,
+    deserialize::FromSqlRow,
+)]
+#[diesel(sql_type = sql_types::Jsonb)]
+pub struct Cost {
+    pub amount: i64,
+    pub currency: String,
+    pub period: String,
+}
+
+#[derive(Debug, displaydoc::Display, thiserror::Error)]
+enum CostError {
+    /// Failed to parse cost `{1}`: {0}
+    Parse(serde_json::Error, serde_json::Value),
+}
+
+impl deserialize::FromSql<sql_types::Jsonb, pg::Pg> for Cost {
+    fn from_sql(value: pg::PgValue<'_>) -> deserialize::Result<Self> {
+        let value: serde_json::Value =
+            deserialize::FromSql::<sql_types::Jsonb, pg::Pg>::from_sql(value)?;
+        Ok(serde_json::from_value(value.clone()).map_err(|e| CostError::Parse(e, value))?)
+    }
+}
+
+impl serialize::ToSql<sql_types::Jsonb, pg::Pg> for Cost {
+    fn to_sql<'b>(&'b self, out: &mut serialize::Output<'b, '_, pg::Pg>) -> serialize::Result {
+        let value = serde_json::to_value(self)?;
+        <serde_json::Value as serialize::ToSql<sql_types::Jsonb, pg::Pg>>::to_sql(
+            &value,
+            &mut out.reborrow(),
+        )
+    }
+}

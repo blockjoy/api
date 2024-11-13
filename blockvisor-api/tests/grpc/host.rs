@@ -26,6 +26,7 @@ async fn unauthenticated_without_token_for_update() {
         total_disk_space: None,
         managed_by: None,
         update_tags: None,
+        cost: None,
     };
     let status = test.send(Service::update, req).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unauthenticated);
@@ -48,6 +49,7 @@ async fn permission_denied_with_token_ownership_for_update() {
         total_disk_space: None,
         managed_by: None,
         update_tags: None,
+        cost: None,
     };
 
     let status = test
@@ -73,6 +75,7 @@ async fn permission_denied_with_user_token_for_update() {
         total_disk_space: None,
         managed_by: None,
         update_tags: None,
+        cost: None,
     };
 
     let status = test.send_admin(Service::update, req).await.unwrap_err();
@@ -132,6 +135,7 @@ async fn ok_for_update() {
         total_disk_space: None,
         managed_by: None,
         update_tags: None,
+        cost: None,
     };
 
     test.send_with(Service::update, req, &jwt).await.unwrap();
@@ -234,6 +238,7 @@ async fn can_update_host_info() {
         region_id: None,
         managed_by: None,
         tags: None,
+        cost: None,
     };
     let mut conn = test.conn().await;
     let update = update_host.update(&mut conn).await.unwrap();
@@ -260,7 +265,7 @@ async fn org_admin_can_view_billing_cost() {
     let resp = test.send_admin(Service::get, req).await.unwrap();
 
     let billing_amount = resp.host.unwrap().billing_amount.unwrap();
-    assert_eq!(billing_amount.amount.unwrap().value, 123)
+    assert_eq!(billing_amount.amount.unwrap().amount_minor_units, 123)
 }
 
 #[tokio::test]

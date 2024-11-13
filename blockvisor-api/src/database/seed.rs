@@ -181,7 +181,7 @@ async fn create_hosts(user: &User, org_id: OrgId, region: &Region, conn: &mut Co
     let billing = common::BillingAmount {
         amount: Some(common::Amount {
             currency: common::Currency::Usd as i32,
-            value: 123,
+            amount_minor_units: 123,
         }),
         period: common::Period::Monthly as i32,
     };
@@ -333,6 +333,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'host-admin-list'),
         ('blockjoy-admin', 'host-admin-regions'),
         ('blockjoy-admin', 'host-admin-update'),
+        ('blockjoy-admin', 'host-admin-cost'),
         ('blockjoy-admin', 'invitation-admin-create'),
         ('blockjoy-admin', 'invitation-admin-list'),
         ('blockjoy-admin', 'invitation-admin-revoke'),
@@ -349,6 +350,7 @@ async fn setup_rbac(conn: &mut Conn<'_>) {
         ('blockjoy-admin', 'node-admin-update-config'),
         ('blockjoy-admin', 'node-admin-update-status'),
         ('blockjoy-admin', 'node-admin-upgrade'),
+        ('blockjoy-admin', 'node-admin-cost'),
         ('blockjoy-admin', 'org-address-delete'),
         ('blockjoy-admin', 'org-address-get'),
         ('blockjoy-admin', 'org-address-set'),

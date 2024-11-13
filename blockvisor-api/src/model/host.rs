@@ -153,6 +153,7 @@ pub struct Host {
     pub managed_by: ManagedBy,
     pub node_count: i32,
     pub tags: Vec<Option<String>>,
+    pub cost: Option<super::Cost>,
 }
 
 impl AsRef<Host> for Host {
@@ -615,6 +616,7 @@ pub struct UpdateHost<'a> {
     pub region_id: Option<RegionId>,
     pub managed_by: Option<ManagedBy>,
     pub tags: Option<Vec<Option<String>>>,
+    pub cost: Option<super::Cost>,
 }
 
 impl UpdateHost<'_> {
@@ -634,6 +636,7 @@ impl UpdateHost<'_> {
             region_id: None,
             managed_by: None,
             tags: None,
+            cost: None,
         }
     }
 
@@ -716,7 +719,7 @@ impl MonthlyCostUsd {
             _ => Err(Error::BillingAmountPeriod(billing.period)),
         }?;
 
-        Ok(MonthlyCostUsd(amount.value))
+        Ok(MonthlyCostUsd(amount.amount_minor_units))
     }
 }
 

@@ -72,6 +72,7 @@ async fn responds_ok_for_update_config() {
                 }],
             })),
         }),
+        cost: None,
     };
 
     test.send_with(Service::update_config, req, &jwt)

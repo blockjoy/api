@@ -100,6 +100,8 @@ pub enum Error {
     HostCandidateFailed,
     /// Ip address error: {0}
     IpAddr(#[from] super::ip_address::Error),
+    /// The stripe `item` for this node doesn't have an associated `price`.
+    ItemWithoutPrice,
     /// Found a stripe item that isn't in any extant subscription.
     ItemWithoutSubscription,
     /// Failed to get next host ip for node: {0}
@@ -132,6 +134,8 @@ pub enum Error {
     ParseHostId(uuid::Error),
     /// Failed to parse IpAddr: {0}
     ParseIpAddr(std::net::AddrParseError),
+    /// The stripe `price` for this node doesn't have an associated `amount`.
+    PriceWithoutAmount,
     /// Node region error: {0}
     Region(#[from] crate::model::region::Error),
     /// Failed to regenerate node name. This should not happen.
@@ -217,6 +221,7 @@ pub struct Node {
     pub display_name: String,
     pub stripe_item_id: Option<SubscriptionItemId>,
     pub tags: Vec<Option<String>>,
+    pub cost: Option<super::Cost>,
 }
 
 impl Node {
@@ -832,13 +837,23 @@ impl NewNode {
 
         // Users that have the billing-exempt permission do not need billing
         let needs_billing = !authz.has_perm(BillingPerm::Exempt);
-        let item_id = if needs_billing {
+        let (item_id, price) = if needs_billing {
             let sku = Blockchain::sku(&self.network, blockchain, region)?;
             let item = create_subscription_item(org, &sku, &**write.ctx.stripe.as_ref()).await?;
-            Some(item.id)
+            let price = item
+                .price
+                .ok_or(Error::ItemWithoutPrice)?
+                .unit_amount
+                .ok_or(Error::PriceWithoutAmount)?;
+            (Some(item.id), Some(price))
         } else {
-            None
+            (None, None)
         };
+        let cost = price.map(|amount| super::Cost {
+            amount,
+            currency: "USD".to_string(),
+            period: "monthly".to_string(),
+        });
 
         loop {
             let name = Petnames::small()
@@ -859,6 +874,7 @@ impl NewNode {
                     nodes::dns_record_id.eq(&dns_id),
                     nodes::url.eq(&dns_record.name),
                     nodes::stripe_item_id.eq(&item_id),
+                    nodes::cost.eq(&cost),
                 ))
                 .get_result(&mut write)
                 .await

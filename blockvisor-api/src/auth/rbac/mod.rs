@@ -139,6 +139,7 @@ define_perms! {
         List,
         Update,
         Regions,
+        Cost,
     }
 
     HostBilling => {
@@ -213,6 +214,7 @@ define_perms! {
         UpdateConfig,
         UpdateStatus,
         Transfer,
+        Cost,
     }
 
     Org => {

@@ -227,6 +227,7 @@ diesel::table! {
         managed_by -> EnumManagedBy,
         node_count -> Int4,
         tags -> Array<Nullable<Text>>,
+        cost -> Nullable<Jsonb>,
     }
 }
 
@@ -352,6 +353,7 @@ diesel::table! {
         display_name -> Text,
         stripe_item_id -> Nullable<Text>,
         tags -> Array<Nullable<Text>>,
+        cost -> Nullable<Jsonb>,
     }
 }
 

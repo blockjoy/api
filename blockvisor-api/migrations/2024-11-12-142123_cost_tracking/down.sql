@@ -1,0 +1,2 @@
+ALTER TABLE nodes DROP COLUMN cost;
+ALTER TABLE hosts DROP COLUMN cost;

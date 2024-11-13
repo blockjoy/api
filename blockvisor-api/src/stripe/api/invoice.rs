@@ -590,7 +590,7 @@ impl TryFrom<Invoice> for api::Invoice {
                             - discounts
                                 .iter()
                                 .filter_map(|discount| discount.amount.as_ref())
-                                .map(|amount| amount.value)
+                                .map(|amount| amount.amount_minor_units)
                                 .sum::<i64>(),
                         subtotal: item.amount,
                         unit_amount: item.price.and_then(|p| p.unit_amount),

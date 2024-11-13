@@ -76,7 +76,7 @@ impl TryFrom<&Price> for common::BillingAmount {
                     .ok_or(Error::MissingCurrency)
                     .and_then(|c| common::Currency::try_from(c).map_err(Error::Currency))?
                     as i32,
-                value: price.unit_amount.ok_or(Error::MissingAmount)?,
+                amount_minor_units: price.unit_amount.ok_or(Error::MissingAmount)?,
             }),
             period: common::Period::Monthly.into(),
         })

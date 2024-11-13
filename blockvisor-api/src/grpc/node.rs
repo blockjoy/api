@@ -471,6 +471,9 @@ pub async fn update_config(
     let authz = if req.new_org_id.is_some() {
         let perms = [NodeAdminPerm::UpdateConfig, NodeAdminPerm::Transfer];
         write.auth_all(&meta, perms).await?
+    } else if req.cost.is_some() {
+        // Only admins can update the node cost.
+        write.auth(&meta, NodeAdminPerm::UpdateConfig, &ids).await?
     } else {
         write
             .auth_or_all(
@@ -707,6 +710,7 @@ impl api::Node {
             region.as_ref(),
             reports,
             &users,
+            authz,
         )
     }
 
@@ -779,7 +783,7 @@ impl api::Node {
                 let reports = reports.remove(&node.id).unwrap_or_default();
 
                 Some(api::Node::new(
-                    node, org, host, blockchain, properties, region, reports, &users,
+                    node, org, host, blockchain, properties, region, reports, &users, authz,
                 ))
             })
             .collect()
@@ -795,6 +799,7 @@ impl api::Node {
         region: Option<&Region>,
         reports: Vec<NodeReport>,
         users: &HashMap<UserId, User>,
+        authz: &AuthZ,
     ) -> Result<Self, Error> {
         let scheduler = node
             .scheduler_resource
@@ -838,6 +843,8 @@ impl api::Node {
 
         let jobs = node.jobs()?;
         let jobs = jobs.into_iter().map(api::NodeJob::from_model).collect();
+
+        let cost = common::BillingAmount::from_node(&node, &authz);
 
         Ok(api::Node {
             id: node.id.to_string(),
@@ -895,6 +902,29 @@ impl api::Node {
             url: node.url,
             old_node_id: None,
             tags: Some(node.tags.into_iter().collect()),
+            cost,
+        })
+    }
+}
+
+impl common::BillingAmount {
+    pub fn from_node(node: &Node, authz: &AuthZ) -> Option<Self> {
+        let cost = node.cost.as_ref()?;
+        if !authz.has_perm(NodeAdminPerm::Cost) {
+            return None;
+        }
+        Some(common::BillingAmount {
+            amount: Some(common::Amount {
+                currency: match cost.currency.as_str() {
+                    "usd" => common::Currency::Usd,
+                    _ => common::Currency::Unspecified,
+                } as i32,
+                amount_minor_units: cost.amount,
+            }),
+            period: match cost.period.as_str() {
+                "monthly" => common::Period::Monthly,
+                _ => common::Period::Unspecified,
+            } as i32,
         })
     }
 }
