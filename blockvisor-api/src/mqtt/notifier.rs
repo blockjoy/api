@@ -59,7 +59,10 @@ impl Notifier {
         loop {
             match event_loop.poll().await {
                 Ok(Event::Incoming(Packet::SubAck(_))) => break,
-                Ok(event) => trace!("startup MQTT event: {event:?}"),
+                Ok(event) => {
+                    println!("(P) startup MQTT event: {event:?}");
+                    trace!("startup MQTT event: {event:?}");
+                }
                 Err(err) => return Err(Error::StartPolling(err)),
             };
         }
@@ -77,11 +80,16 @@ impl Notifier {
                 match event_loop.poll().await {
                     Ok(Event::Incoming(Packet::Publish(packet))) => {
                         if let Err(err) = mqtt.handle_packet(packet, &pool).await {
+                            println!("(P) Failed to handle MQTT host event: {err}");
                             warn!("Failed to handle MQTT host event: {err}");
                         }
                     }
-                    Ok(event) => trace!("incoming MQTT event: {event:?}"),
+                    Ok(event) => {
+                        println!("(P) incoming MQTT event: {event:?}");
+                        trace!("incoming MQTT event: {event:?}")
+                    }
                     Err(err) => {
+                        println!("(P) MQTT polling failure: {err}");
                         warn!("MQTT polling failure: {err}");
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
