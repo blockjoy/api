@@ -37,6 +37,8 @@ use std::sync::Arc;
 use axum::http::HeaderValue;
 use axum::Extension;
 use derive_more::Deref;
+use displaydoc::Display;
+use thiserror::Error;
 use tonic::codec::CompressionEncoding;
 use tonic::metadata::AsciiMetadataValue;
 use tonic::transport::server::Router;
@@ -46,8 +48,11 @@ use tower_http::classify::{GrpcErrorsAsFailures, SharedClassifier};
 use tower_http::cors::{self, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use crate::auth::rbac::{HostAdminPerm, NodeAdminPerm};
+use crate::auth::AuthZ;
 use crate::config::Context;
 use crate::database::Pool;
+use crate::model;
 
 use self::api::api_key_service_server::ApiKeyServiceServer;
 use self::api::auth_service_server::AuthServiceServer;
@@ -298,4 +303,71 @@ pub fn server(context: &Arc<Context>) -> Router<CorsServer> {
         .add_service(gzip_service!(OrgServiceServer, grpc.clone()))
         .add_service(gzip_service!(SubscriptionServiceServer, grpc.clone()))
         .add_service(gzip_service!(UserServiceServer, grpc))
+}
+
+#[derive(Debug, Display, Error)]
+pub enum BillingAmountError {
+    /// Billing amount provided without an `amount` field.
+    NoAmount,
+    /// Unknown currency: {0}
+    UnknownCurrency(i32),
+    /// Unknown period: {0}
+    UnknownPeriod(i32),
+}
+
+impl common::BillingAmount {
+    fn from_host(host: &model::Host, authz: &AuthZ) -> Option<Self> {
+        let cost = host.cost?;
+        if !authz.has_perm(HostAdminPerm::Cost) {
+            return None;
+        }
+        Some(common::BillingAmount {
+            amount: Some(common::Amount {
+                currency: match cost.currency {
+                    model::Currency::Usd => common::Currency::Usd,
+                } as i32,
+                amount_minor_units: cost.amount,
+            }),
+            period: match cost.period {
+                model::Period::Monthly => common::Period::Monthly,
+            } as i32,
+        })
+    }
+
+    fn from_node(node: &model::Node, authz: &AuthZ) -> Option<Self> {
+        let cost = node.cost?;
+        if !authz.has_perm(NodeAdminPerm::Cost) {
+            return None;
+        }
+        Some(common::BillingAmount {
+            amount: Some(common::Amount {
+                currency: match cost.currency {
+                    model::Currency::Usd => common::Currency::Usd,
+                } as i32,
+                amount_minor_units: cost.amount,
+            }),
+            period: match cost.period {
+                model::Period::Monthly => common::Period::Monthly,
+            } as i32,
+        })
+    }
+
+    fn into_amount(self) -> Result<model::Amount, BillingAmountError> {
+        let amount = self.amount.ok_or(BillingAmountError::NoAmount)?;
+        Ok(model::Amount {
+            amount: amount.amount_minor_units,
+            currency: match amount.currency() {
+                common::Currency::Usd => model::Currency::Usd,
+                common::Currency::Unspecified => {
+                    return Err(BillingAmountError::UnknownCurrency(amount.currency));
+                }
+            },
+            period: match self.period() {
+                common::Period::Monthly => model::Period::Monthly,
+                common::Period::Unspecified => {
+                    return Err(BillingAmountError::UnknownPeriod(self.period));
+                }
+            },
+        })
+    }
 }

@@ -221,7 +221,7 @@ pub struct Node {
     pub display_name: String,
     pub stripe_item_id: Option<SubscriptionItemId>,
     pub tags: Vec<Option<String>>,
-    pub cost: Option<super::Cost>,
+    pub cost: Option<super::Amount>,
 }
 
 impl Node {
@@ -849,10 +849,10 @@ impl NewNode {
         } else {
             (None, None)
         };
-        let cost = price.map(|amount| super::Cost {
+        let cost = price.map(|amount| super::Amount {
             amount,
-            currency: "USD".to_string(),
-            period: "monthly".to_string(),
+            currency: super::Currency::Usd,
+            period: super::Period::Monthly,
         });
 
         loop {

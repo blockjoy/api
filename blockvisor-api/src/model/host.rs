@@ -153,7 +153,7 @@ pub struct Host {
     pub managed_by: ManagedBy,
     pub node_count: i32,
     pub tags: Vec<Option<String>>,
-    pub cost: Option<super::Cost>,
+    pub cost: Option<super::Amount>,
 }
 
 impl AsRef<Host> for Host {
@@ -616,7 +616,7 @@ pub struct UpdateHost<'a> {
     pub region_id: Option<RegionId>,
     pub managed_by: Option<ManagedBy>,
     pub tags: Option<Vec<Option<String>>>,
-    pub cost: Option<super::Cost>,
+    pub cost: Option<super::Amount>,
 }
 
 impl UpdateHost<'_> {

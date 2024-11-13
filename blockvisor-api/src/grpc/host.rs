@@ -18,7 +18,7 @@ use crate::model::host::{
     ConnectionStatus, Host, HostFilter, HostSearch, HostSort, HostType, ManagedBy, MonthlyCostUsd,
     NewHost, UpdateHost,
 };
-use crate::model::{Blockchain, CommandType, Cost, IpAddress, Node, Org, Region, RegionId, Token};
+use crate::model::{Blockchain, CommandType, IpAddress, Node, Org, Region, RegionId, Token};
 use crate::storage::image::ImageId;
 use crate::util::{HashVec, NanosUtc};
 
@@ -52,7 +52,7 @@ pub enum Error {
     /// Host token error: {0}
     HostProvisionByToken(crate::model::token::Error),
     /// Invalid cost.
-    InvalidCost,
+    InvalidCost(super::BillingAmountError),
     /// Invalid value for ManagedBy enum: {0}.
     InvalidManagedBy(i32),
     /// Host model error: {0}
@@ -116,7 +116,7 @@ impl From<Error> for Status {
             SearchOperator(_) => Status::invalid_argument("search.operator"),
             SortOrder(_) => Status::invalid_argument("sort.order"),
             UnknownSortField => Status::invalid_argument("sort.field"),
-            InvalidCost => Status::invalid_argument("host.cost"),
+            InvalidCost(_) => Status::invalid_argument("host.cost"),
             InvalidManagedBy(_) => Status::invalid_argument("managed_by"),
             Auth(err) => err.into(),
             Claims(err) => err.into(),
@@ -610,43 +610,6 @@ impl common::BillingAmount {
     }
 }
 
-impl common::BillingAmount {
-    pub fn from_host(host: &Host, authz: &AuthZ) -> Option<Self> {
-        let cost = host.cost.as_ref()?;
-        if !authz.has_perm(HostAdminPerm::Cost) {
-            return None;
-        }
-        Some(common::BillingAmount {
-            amount: Some(common::Amount {
-                currency: match cost.currency.as_str() {
-                    "usd" => common::Currency::Usd,
-                    _ => common::Currency::Unspecified,
-                } as i32,
-                amount_minor_units: cost.amount,
-            }),
-            period: match cost.period.as_str() {
-                "monthly" => common::Period::Monthly,
-                _ => common::Period::Unspecified,
-            } as i32,
-        })
-    }
-
-    pub fn into_cost(self) -> Option<Cost> {
-        let amount = self.amount?;
-        Some(Cost {
-            amount: amount.amount_minor_units,
-            currency: match amount.currency() {
-                common::Currency::Usd => "usd".to_string(),
-                common::Currency::Unspecified => return None,
-            },
-            period: match self.period() {
-                common::Period::Monthly => "monthly".to_string(),
-                common::Period::Unspecified => return None,
-            },
-        })
-    }
-}
-
 impl api::HostServiceCreateRequest {
     fn as_new(
         &self,
@@ -781,8 +744,7 @@ impl api::HostServiceUpdateRequest {
                 .and_then(|ut| ut.as_update(host.tags.iter().flatten())),
             cost: self
                 .cost
-                .as_ref()
-                .map(|cost| cost.clone().into_cost().ok_or(Error::InvalidCost))
+                .map(|cost| cost.into_amount().map_err(Error::InvalidCost))
                 .transpose()?,
         })
     }

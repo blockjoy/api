@@ -907,28 +907,6 @@ impl api::Node {
     }
 }
 
-impl common::BillingAmount {
-    pub fn from_node(node: &Node, authz: &AuthZ) -> Option<Self> {
-        let cost = node.cost.as_ref()?;
-        if !authz.has_perm(NodeAdminPerm::Cost) {
-            return None;
-        }
-        Some(common::BillingAmount {
-            amount: Some(common::Amount {
-                currency: match cost.currency.as_str() {
-                    "usd" => common::Currency::Usd,
-                    _ => common::Currency::Unspecified,
-                } as i32,
-                amount_minor_units: cost.amount,
-            }),
-            period: match cost.period.as_str() {
-                "monthly" => common::Period::Monthly,
-                _ => common::Period::Unspecified,
-            } as i32,
-        })
-    }
-}
-
 impl api::NodeServiceCreateRequest {
     pub async fn as_new(
         &self,
