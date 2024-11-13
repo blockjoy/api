@@ -23,7 +23,7 @@ use thiserror::Error;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_postgres_rustls::MakeRustlsConnect;
 use tonic::metadata::AsciiMetadataValue;
-use tracing::warn;
+use tracing::{trace, warn};
 
 use crate::auth::rbac::Perms;
 use crate::auth::resource::Resources;
@@ -296,7 +296,11 @@ where
             .map_err(Status::from)?;
 
         while let Some(msg) = mqtt_rx.recv().await {
-            if let Err(err) = ctx.notifier.send(msg).await {
+            let Some(notifier) = ctx.notifier.as_ref() else {
+                trace!("No MQTT notifier configured, ignoring messages");
+                break;
+            };
+            if let Err(err) = notifier.send(msg).await {
                 warn!("Failed to send MQTT message: {err}");
             }
         }

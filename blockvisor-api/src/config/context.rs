@@ -59,7 +59,7 @@ pub struct Context {
     pub config: Arc<Config>,
     pub dns: Arc<Box<dyn Dns + Send + Sync + 'static>>,
     pub email: Arc<Email>,
-    pub notifier: Arc<Notifier>,
+    pub notifier: Option<Arc<Notifier>>,
     pub pool: Pool,
     pub rng: Arc<Mutex<OsRng>>,
     pub storage: Arc<Storage>,
@@ -84,9 +84,13 @@ impl Context {
         let dns = Cloudflare::new(config.cloudflare.clone()).map_err(Error::Cloudflare)?;
         let email = Email::new(&config, auth.cipher.clone()).map_err(Error::Email)?;
         let pool = Pool::new(&config.database).await.map_err(Error::Pool)?;
-        let notifier = Notifier::new(config.mqtt.options()?, pool.clone())
-            .await
-            .map_err(Error::Notifier)?;
+        let notifier = match Notifier::new(config.mqtt.options()?, pool.clone()).await {
+            Ok(notifier) => Some(notifier),
+            Err(err) => {
+                println!("Warning: Starting without MQTT: {:?}", Error::Notifier(err));
+                None
+            }
+        };
         let storage = Storage::new_s3(&config.storage);
         let stripe = Stripe::new(config.stripe.clone()).map_err(Error::Stripe)?;
 
@@ -127,7 +131,7 @@ impl Context {
             .auth(auth)
             .dns(dns)
             .email(email)
-            .notifier(notifier)
+            .notifier(Some(notifier))
             .pool(pool)
             .rng(rng)
             .storage(storage)
@@ -159,7 +163,13 @@ impl Builder {
             config: self.config.ok_or(Error::MissingConfig).map(Arc::new)?,
             dns: self.dns.ok_or(Error::MissingDns).map(Arc::new)?,
             email: self.email.ok_or(Error::MissingEmail).map(Arc::new)?,
-            notifier: self.notifier.ok_or(Error::MissingNotifier)?,
+            notifier: match self.notifier {
+                Some(notifier) => Some(notifier),
+                None => {
+                    println!("WARNING: Running without mqtt");
+                    None
+                }
+            },
             pool: self.pool.ok_or(Error::MissingPool)?,
             rng: Arc::new(Mutex::new(self.rng.unwrap_or_default())),
             storage: self.storage.ok_or(Error::MissingStorage).map(Arc::new)?,
@@ -195,8 +205,8 @@ impl Builder {
     }
 
     #[must_use]
-    pub fn notifier(mut self, notifier: Arc<Notifier>) -> Self {
-        self.notifier = Some(notifier);
+    pub fn notifier(mut self, notifier: Option<Arc<Notifier>>) -> Self {
+        self.notifier = notifier;
         self
     }
 

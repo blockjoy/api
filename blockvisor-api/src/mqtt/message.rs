@@ -336,7 +336,7 @@ mod tests {
         let command =
             crate::grpc::command::node_delete(&command, db.seed.node.clone(), db.seed.host.clone())
                 .unwrap();
-        ctx.notifier.send(command).await.unwrap();
+        ctx.notifier.as_ref().unwrap().send(command).await.unwrap();
     }
 
     #[tokio::test]
@@ -353,13 +353,13 @@ mod tests {
         let resource = user_update(&user);
 
         let msg = api::HostMessage::created(api_host.clone(), resource.clone());
-        ctx.notifier.send(msg).await.unwrap();
+        ctx.notifier.as_ref().unwrap().send(msg).await.unwrap();
 
         let msg = api::HostMessage::updated(api_host, resource.clone());
-        ctx.notifier.send(msg).await.unwrap();
+        ctx.notifier.as_ref().unwrap().send(msg).await.unwrap();
 
         let msg = api::HostMessage::deleted(&host, resource);
-        ctx.notifier.send(msg).await.unwrap();
+        ctx.notifier.as_ref().unwrap().send(msg).await.unwrap();
     }
 
     #[tokio::test]
@@ -377,12 +377,12 @@ mod tests {
         let resource = user_update(&user);
 
         let msg = api::NodeMessage::created(api_node.clone(), resource.clone());
-        ctx.notifier.send(msg).await.unwrap();
+        ctx.notifier.as_ref().unwrap().send(msg).await.unwrap();
 
         let msg = api::NodeMessage::updated(api_node, resource.clone());
-        ctx.notifier.send(msg).await.unwrap();
+        ctx.notifier.as_ref().unwrap().send(msg).await.unwrap();
 
         let msg = api::NodeMessage::deleted(&node, Some(resource));
-        ctx.notifier.send(msg).await.unwrap();
+        ctx.notifier.as_ref().unwrap().send(msg).await.unwrap();
     }
 }
