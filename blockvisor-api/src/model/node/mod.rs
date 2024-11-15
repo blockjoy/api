@@ -835,9 +835,10 @@ impl NewNode {
             .await
             .map_err(Error::NextHostIp)?;
 
-        // Users that have the billing-exempt permission do not need billing
-        let needs_billing = !authz.has_perm(BillingPerm::Exempt);
-        let (item_id, price) = if needs_billing {
+        // Users that have the billing-exempt permission or that are launching a node on their own
+        // host do not need billing.
+        let billing_exempt = authz.has_perm(BillingPerm::Exempt) || host.org_id == self.org_id;
+        let (item_id, price) = if !billing_exempt {
             let sku = Blockchain::sku(&self.network, blockchain, region)?;
             let item = create_subscription_item(org, &sku, &**write.ctx.stripe.as_ref()).await?;
             let price = item

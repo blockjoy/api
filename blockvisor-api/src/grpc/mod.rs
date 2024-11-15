@@ -376,9 +376,7 @@ impl TryFrom<common::Currency> for model::Currency {
     fn try_from(value: common::Currency) -> Result<Self, Self::Error> {
         match value {
             common::Currency::Usd => Ok(model::Currency::Usd),
-            common::Currency::Unspecified => {
-                return Err(BillingAmountError::UnknownPeriod);
-            }
+            common::Currency::Unspecified => Err(BillingAmountError::UnknownPeriod),
         }
     }
 }
@@ -389,9 +387,7 @@ impl TryFrom<common::Period> for model::Period {
     fn try_from(value: common::Period) -> Result<Self, Self::Error> {
         match value {
             common::Period::Monthly => Ok(model::Period::Monthly),
-            common::Period::Unspecified => {
-                return Err(BillingAmountError::UnknownPeriod);
-            }
+            common::Period::Unspecified => Err(BillingAmountError::UnknownPeriod),
         }
     }
 }

@@ -844,7 +844,7 @@ impl api::Node {
         let jobs = node.jobs()?;
         let jobs = jobs.into_iter().map(api::NodeJob::from_model).collect();
 
-        let cost = common::BillingAmount::from_node(&node, &authz);
+        let cost = common::BillingAmount::from_node(&node, authz);
 
         Ok(api::Node {
             id: node.id.to_string(),
