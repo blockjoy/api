@@ -560,7 +560,7 @@ pub async fn delete(
         ..Default::default()
     };
     let node = node.update(&update, &mut write).await?;
-    Node::delete(node.id, &mut write).await?;
+    Node::delete(&node, &mut write).await?;
 
     // Send delete node command
     let new_command = NewCommand::node(&node, CommandType::NodeDelete)?;

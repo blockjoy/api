@@ -1,5 +1,6 @@
 use displaydoc::Display;
 use thiserror::Error;
+use tracing::warn;
 
 use crate::auth::resource::NodeId;
 use crate::auth::AuthZ;
@@ -116,15 +117,16 @@ async fn node_deleted(cmd: &Command, write: &mut WriteConn<'_, '_>) -> Result<()
         .await?
         .ok_or_else(|| Error::MissingNodeId(cmd.id))?;
 
+    if node.deleted_at.is_none() {
+        // TODO: This should go on a queue for inconsistencies that we register
+        warn!("Received a deleted confirmation for a node that is not deleted");
+    }
+
     let update = UpdateNode {
         node_status: Some(NodeStatus::Deleted),
         ..Default::default()
     };
-    let node = node.update(&update, write).await?;
-
-    Node::delete(node.id, write)
-        .await
-        .map_err(|err| Error::DeleteNode(cmd.id, node.id, err))?;
+    node.update(&update, write).await?;
 
     Ok(())
 }

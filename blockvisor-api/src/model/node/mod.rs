@@ -70,6 +70,8 @@ const DELETED_STATUSES: [NodeStatus; 3] = [
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
+    /// Cannot delete node `{0}`, it is already deleted.
+    AlreadyDeleted(NodeId),
     /// Blockchain error for node: {0}
     Blockchain(#[from] super::blockchain::Error),
     /// Node Command error: {0}
@@ -314,12 +316,15 @@ impl Node {
             .map_err(Error::Update)
     }
 
-    pub async fn delete(id: NodeId, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
-        let node: Node = diesel::update(nodes::table.find(id))
+    pub async fn delete(node: &Node, write: &mut WriteConn<'_, '_>) -> Result<(), Error> {
+        if node.deleted_at.is_some() {
+            return Err(Error::AlreadyDeleted(node.id));
+        }
+        let node: Node = diesel::update(nodes::table.find(node.id))
             .set(nodes::deleted_at.eq(Utc::now()))
             .get_result(write)
             .await
-            .map_err(|err| Error::Delete(id, err))?;
+            .map_err(|err| Error::Delete(node.id, err))?;
 
         Org::decrement_node(node.org_id, write).await?;
         Host::decrement_node(node.host_id, write).await?;
@@ -838,7 +843,9 @@ impl NewNode {
         // Users that have the billing-exempt permission or that are launching a node on their own
         // host do not need billing.
         let billing_exempt = authz.has_perm(BillingPerm::Exempt) || host.org_id == self.org_id;
-        let (item_id, price) = if !billing_exempt {
+        let (item_id, price) = if billing_exempt {
+            (None, None)
+        } else {
             let sku = Blockchain::sku(&self.network, blockchain, region)?;
             let item = create_subscription_item(org, &sku, &**write.ctx.stripe.as_ref()).await?;
             let price = item
@@ -847,8 +854,6 @@ impl NewNode {
                 .unit_amount
                 .ok_or(Error::PriceWithoutAmount)?;
             (Some(item.id), Some(price))
-        } else {
-            (None, None)
         };
         let cost = price.map(|amount| super::Amount {
             amount,
