@@ -474,7 +474,7 @@ pub async fn update_config(
     } else if req.cost.is_some() {
         // Only admins can update the node cost.
         let perms = [NodeAdminPerm::UpdateConfig, NodeAdminPerm::UpdateConfig];
-        write.auth_all(&meta, NodeAdminPerm::UpdateConfig).await?
+        write.auth_all(&meta, perms).await?
     } else {
         write
             .auth_or_all(
