@@ -54,10 +54,10 @@ use crate::util::{SearchOperator, SortOrder};
 
 use self::node_type::NodeNetwork;
 
-use super::abbrev;
 use super::blockchain::{Blockchain, BlockchainId};
 use super::host::{Host, HostRequirements, HostType};
 use super::schema::{hosts, nodes, regions};
+use super::{abbrev, Amount};
 use super::{Command, IpAddress, Org, Paginate, Region, RegionId};
 
 type NotDeleted = dsl::Filter<nodes::table, dsl::IsNull<nodes::deleted_at>>;
@@ -1050,6 +1050,7 @@ pub struct UpdateNode<'a> {
     pub address: Option<&'a str>,
     pub note: Option<&'a str>,
     pub tags: Option<Vec<Option<String>>>,
+    pub cost: Option<Amount>,
 }
 
 /// Update node columns related to metrics.

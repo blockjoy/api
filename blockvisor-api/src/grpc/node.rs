@@ -68,6 +68,8 @@ pub enum Error {
     Host(#[from] crate::model::host::Error),
     /// Node ip address error: {0}
     IpAddress(#[from] crate::model::ip_address::Error),
+    /// Invalid cost.
+    InvalidCost(super::BillingAmountError),
     /// Failed to parse mem size bytes: {0}
     MemSize(std::num::TryFromIntError),
     /// No node ids given.
@@ -141,6 +143,7 @@ impl From<Error> for Status {
             BlockHeight(_) => Status::invalid_argument("block_height"),
             DenyIps(_) => Status::invalid_argument("deny_ips"),
             DiskSize(_) => Status::invalid_argument("disk_size_bytes"),
+            InvalidCost(_) => Status::invalid_argument("cost"),
             MemSize(_) => Status::invalid_argument("mem_size_bytes"),
             MissingIds => Status::invalid_argument("ids"),
             MissingPlacement => Status::invalid_argument("placement"),
@@ -1155,6 +1158,10 @@ impl api::NodeServiceUpdateConfigRequest {
                 .update_tags
                 .as_ref()
                 .and_then(|ut| ut.as_update(node.tags.iter().flatten())),
+            cost: self
+                .cost
+                .map(|cost| cost.into_amount().map_err(Error::InvalidCost))
+                .transpose()?,
         })
     }
 }
@@ -1178,6 +1185,7 @@ impl api::NodeServiceUpdateStatusRequest {
             address: self.address.as_deref(),
             note: None,
             tags: None,
+            cost: None,
         })
     }
 }
