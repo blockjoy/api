@@ -70,6 +70,7 @@ async fn responds_ok_for_pending() {
         address: None,
         note: None,
         tags: None,
+        cost: None,
     };
     node.update(&update, &mut conn).await.unwrap();
 
