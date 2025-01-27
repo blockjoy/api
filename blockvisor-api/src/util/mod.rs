@@ -9,6 +9,8 @@ use std::hash::Hash;
 
 /// Ensure consistent kebab-case formatting and SQL injection safety.
 pub const LOWER_KEBAB_CASE: &str = "abcdefghijklmnopqrstuvwxyz1234567890-";
+/// Allow key-value kebab-case formatting (e.g. `x:foo-y:bar`).
+pub const KEY_VAL_KEBAB_CASE: &str = "abcdefghijklmnopqrstuvwxyz1234567890-:";
 
 pub trait HashVec {
     type Elem;

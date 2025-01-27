@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::{fmt, str};
 
 use chrono::{DateTime, Utc};
@@ -19,7 +19,7 @@ use crate::grpc::{api, common, Status};
 use crate::model::schema::protocol_versions;
 use crate::model::sql::Version;
 use crate::model::Region;
-use crate::util::{NanosUtc, LOWER_KEBAB_CASE};
+use crate::util::{NanosUtc, KEY_VAL_KEBAB_CASE, LOWER_KEBAB_CASE};
 
 use super::{ProtocolId, Visibility};
 
@@ -43,6 +43,8 @@ pub enum Error {
     ByKey(VersionKey, diesel::result::Error),
     /// Failed to parse VersionKey `{0}` into 2 parts delimited by `/`.
     KeyParts(String),
+    /// Not colon-separated key:value pair: {0}
+    NotKeyValue(String),
     /// Field `version_key.protocol_key` is not lower-kebab-case: {0}
     ProtocolKeyChars(String),
     /// Protocol key must be at least 3 characters: {0}
@@ -63,6 +65,7 @@ impl From<Error> for Status {
             ById(_, NotFound) | ByIds(_, NotFound) | ByKey(_, NotFound) | NoVersions => {
                 Status::not_found("Not found.")
             }
+            NotKeyValue(_) => Status::failed_precondition("variant-key not key-value pairs"),
             ProtocolKeyChars(_) | ProtocolKeyLen(_) => {
                 Status::invalid_argument("version_key.protocol_key")
             }
@@ -314,11 +317,27 @@ impl VariantKey {
     pub fn new(key: String) -> Result<Self, Error> {
         if key.len() < 3 {
             Err(Error::VariantKeyLen(key))
-        } else if !key.chars().all(|c| LOWER_KEBAB_CASE.contains(c)) {
+        } else if !key.chars().all(|c| KEY_VAL_KEBAB_CASE.contains(c)) {
             Err(Error::VariantKeyChars(key))
         } else {
-            Ok(VariantKey(key))
+            let variant = VariantKey(key);
+            variant.as_map()?;
+            Ok(variant)
         }
+    }
+
+    /// Try and parse the `VariantKey` as key-value pairs.
+    ///
+    /// For example, `x:foo-y:bar` becomes:
+    /// hashmap! { "x" => "foo", "y" => bar }
+    pub fn as_map(&self) -> Result<HashMap<&str, &str>, Error> {
+        self.0
+            .split('-')
+            .map(|pair| match pair.split_once(':') {
+                Some((key, value)) => Ok((key, value)),
+                None => Err(Error::NotKeyValue(pair.into())),
+            })
+            .collect()
     }
 }
 
@@ -375,5 +394,31 @@ impl str::FromStr for VersionKey {
         let protocol_key = ProtocolKey::new(parts[0].to_string())?;
         let variant_key = VariantKey::new(parts[1].to_string())?;
         Ok(VersionKey::new(protocol_key, variant_key))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_variant_key() {
+        let tests = [
+            ("", false),
+            ("nope", false),
+            ("yes:please", true),
+            ("this:is-also:fine", true),
+            ("this:is-not", false),
+            ("we:can-have:many-key:pairs", true),
+            ("Not:Allowed", false),
+        ];
+
+        for (test, valid) in tests {
+            if valid {
+                VariantKey::new(test.to_string()).unwrap();
+            } else {
+                assert!(VariantKey::new(test.to_string()).is_err())
+            }
+        }
     }
 }

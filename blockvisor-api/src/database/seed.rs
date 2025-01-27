@@ -33,14 +33,14 @@ pub const PROTOCOL_ID: &str = "ab5d8cfc-77b1-4265-9fee-ba71ba9de092";
 pub const PROTOCOL_KEY: &str = "ethereum";
 pub const PROTOCOL_VISIBILITY: &str = "public";
 pub const PROTOCOL_VERSION_ID: &str = "a69e7195-8a78-4e3a-a79e-4ac89edf1d68";
-pub const VARIANT_KEY: &str = "sepolia";
+pub const VARIANT_KEY: &str = "net:mainnet";
 pub const SEMANTIC_VERSION: &str = "1.2.3";
 pub const SKU_CODE: &str = "ETH-TN";
 
 pub const ORG_ID: &str = "08dede71-b97d-47c1-a91d-6ba0997b3cdd";
 pub const ORG_PROTOCOL_ID: &str = "9331899f-3b13-4d03-ade5-5580ca93ed01";
 pub const ORG_PROTOCOL_KEY: &str = "solana";
-pub const ORG_VARIANT_KEY: &str = "testnet";
+pub const ORG_VARIANT_KEY: &str = "net:testnet-data:archive";
 pub const ORG_PROTOCOL_VERSION_ID: &str = "77b22a4a-a656-4d02-ab52-b56806047a56";
 pub const ORG_SEMANTIC_VERSION: &str = "1.2.4";
 pub const ORG_IMAGE_ID: &str = "5537849e-9003-46c0-8129-b465ffbb06f2";
