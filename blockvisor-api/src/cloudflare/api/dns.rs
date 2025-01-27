@@ -35,7 +35,7 @@ pub struct DnsRecord {
     /// Whether the record is receiving the performance and security benefits of Cloudflare
     pub proxied: bool,
     /// The domain of the record
-    pub zone_name: String,
+    pub zone_name: Option<String>,
 }
 
 /// Extra Cloudflare-specific information about the record

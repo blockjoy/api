@@ -195,12 +195,18 @@ pub mod tests {
                 },
                 id: format!("{id:x}"),
                 proxied: false,
-                zone_name: "zone".into(),
+                zone_name: Some("zone".into()),
             },
             result_info: None,
             messages: serde_json::Value::Null,
             errors: vec![],
         }
+    }
+
+    #[tokio::test]
+    async fn test_parse_dns() {
+        let test1 = r#"{"result":{"id":"45afecb529c9029d909e1a2ca863fd9d","name":"formally-knowing-eel.n0des.xyz","type":"A","content":"127.0.0.8","proxiable":false,"proxied":false,"ttl":300,"settings":{},"meta":{"auto_added":false,"managed_by_apps":false,"managed_by_argo_tunnel":false},"comment":null,"tags":[],"created_on":"2025-01-27T16:29:07.984046Z","modified_on":"2025-01-27T16:29:07.984046Z"},"success":true,"errors":[],"messages":[]}"#;
+        let _: ApiSuccess<DnsRecord> = serde_json::from_str(test1).unwrap();
     }
 
     #[tokio::test]
