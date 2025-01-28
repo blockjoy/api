@@ -157,7 +157,9 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            Create(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Node already exists.")
+            }
             Delete(_, NotFound)
             | FindById(_, NotFound)
             | FindDeletedOrgId(_, NotFound)
@@ -166,7 +168,7 @@ impl From<Error> for Status {
             | FindByVersionIds(_, NotFound) => Status::not_found("Not found."),
             HostFreeCpu(_) => Status::failed_precondition("Host has too little available cpu."),
             HostFreeDisk(_) => Status::failed_precondition("Host has too little available memory."),
-            HostFreeIp(_) => Status::failed_precondition("Host has too few available IP's ."),
+            HostFreeIp(_) => Status::failed_precondition("Host has too few available IP's."),
             HostFreeMem(_) => Status::failed_precondition("Host has too little available disk."),
             MissingTransferPerm => Status::forbidden("Missing permission."),
             NoMatchingHost => Status::failed_precondition("No matching host."),

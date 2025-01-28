@@ -40,7 +40,7 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             BulkCreate(DatabaseError(UniqueViolation, _)) => {
-                Status::already_exists("Already exists.")
+                Status::already_exists("Ip address already exists.")
             }
             AssignedForHosts(_, NotFound) => Status::not_found("Not found."),
             NextForHost(_, NotFound) => Status::failed_precondition("host has no ips"),

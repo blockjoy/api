@@ -35,7 +35,9 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            Create(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Node log already exists.")
+            }
             ByNodeId(_, NotFound) => Status::not_found("Not found."),
             _ => Status::internal("Internal error."),
         }

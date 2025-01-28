@@ -36,7 +36,7 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             CreateNew(DatabaseError(UniqueViolation, _)) => {
-                Status::already_exists("Already exists.")
+                Status::already_exists("Api key already exists.")
             }
             DeleteKey(NotFound) | FindById(NotFound) | FindByUser(NotFound) | NoKeysDeleted => {
                 Status::not_found("Not found.")

@@ -40,7 +40,9 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            Create(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Region already exists.")
+            }
             ById(_, NotFound) | ByIds(_, NotFound) => Status::not_found("Not found."),
             KeyChars(_) | KeyLen(_) => Status::invalid_argument("region_key"),
             _ => Status::internal("Internal error."),

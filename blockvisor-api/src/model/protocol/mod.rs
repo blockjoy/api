@@ -60,7 +60,9 @@ impl From<Error> for Status {
             ById(_, NotFound) | ByIds(_, NotFound) | ByKey(_, NotFound) => {
                 Status::not_found("Not found.")
             }
-            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            Create(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Protocol already exists.")
+            }
             UnknownVisibility => Status::invalid_argument("visibility"),
             Paginate(err) => err.into(),
             Region(err) => err.into(),

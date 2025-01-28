@@ -51,7 +51,9 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            Create(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Invitation already exists.")
+            }
             Accept(NotFound)
             | Decline(NotFound)
             | FindById(_, NotFound)

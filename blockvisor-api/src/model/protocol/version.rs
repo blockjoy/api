@@ -59,7 +59,9 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            Create(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Protocol version already exists.")
+            }
             ById(_, NotFound) | ByIds(_, NotFound) | ByKey(_, NotFound) | NoVersions => {
                 Status::not_found("Not found.")
             }
