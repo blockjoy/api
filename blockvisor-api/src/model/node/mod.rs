@@ -532,13 +532,17 @@ impl Node {
             })
             .map(|version| version.id)
             .collect();
+        let mut to_upgrade = Node::by_version_ids(&from_versions, write)
+            .await?
+            .into_iter()
+            .filter(|node| node.auto_upgrade)
+            .peekable();
+        if to_upgrade.peek().is_none() {
+            return Ok(());
+        }
         let image = Image::latest_build(to_version.id, org_id, authz, write)
             .await?
             .ok_or(Error::NoImage)?;
-        let to_upgrade = Node::by_version_ids(&from_versions, write)
-            .await?
-            .into_iter()
-            .filter(|node| node.auto_upgrade);
         for upgradeable_node in to_upgrade {
             upgradeable_node
                 .notify_upgrade(image.id, org_id, authz, write)
