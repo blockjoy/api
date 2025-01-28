@@ -170,6 +170,7 @@ impl From<Error> for Status {
             HostFreeDisk(_) => Status::failed_precondition("Host has too little available memory."),
             HostFreeIp(_) => Status::failed_precondition("Host has too few available IP's."),
             HostFreeMem(_) => Status::failed_precondition("Host has too little available disk."),
+            NoImage => Status::failed_precondition("Failed to find an image for this version."),
             MissingTransferPerm => Status::forbidden("Missing permission."),
             NoMatchingHost => Status::failed_precondition("No matching host."),
             UpdateSameOrg => Status::already_exists("new_org_id"),
