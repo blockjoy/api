@@ -45,7 +45,7 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            ById(_, NotFound) => Status::not_found("Not found."),
+            ById(_, NotFound) => Status::not_found("Image rule not found."),
             UnknownAction => Status::invalid_argument("action"),
             UnknownDirection => Status::invalid_argument("direction"),
             UnknownProtocol => Status::invalid_argument("protocol"),

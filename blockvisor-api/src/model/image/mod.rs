@@ -57,9 +57,9 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            ById(_, NotFound) | ByBuild(_, _, _, NotFound) | Update(_, NotFound) => {
-                Status::not_found("Not found.")
-            }
+            ById(_, NotFound) => Status::not_found("Image not found."),
+            ByBuild(_, _, _, NotFound) => Status::not_found("No image for that build."),
+            Update(_, NotFound) => Status::not_found("No image updated."),
             _ => Status::internal("Internal error."),
         }
     }

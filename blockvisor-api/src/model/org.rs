@@ -80,7 +80,7 @@ impl From<Error> for Status {
             Delete(_, NotFound)
             | FindById(_, NotFound)
             | FindByIds(_, NotFound)
-            | FindPersonal(_, NotFound) => Status::not_found("Not found."),
+            | FindPersonal(_, NotFound) => Status::not_found("Org not found."),
             Paginate(err) => err.into(),
             Rbac(err) => err.into(),
             Token(err) => err.into(),

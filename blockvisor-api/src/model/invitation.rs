@@ -59,7 +59,7 @@ impl From<Error> for Status {
             | FindById(_, NotFound)
             | FindByOrgId(_, NotFound)
             | Received(_, NotFound)
-            | RemoveOrgUser(_, NotFound) => Status::not_found("Not found."),
+            | RemoveOrgUser(_, NotFound) => Status::not_found("Invitation not found."),
             _ => Status::internal("Internal error."),
         }
     }

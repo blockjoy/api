@@ -49,7 +49,7 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            Query(NotFound) => Status::not_found("Not found."),
+            Query(NotFound) => Status::not_found("Pagination resulted in no records returned."),
             Query(_) | Total(_) => Status::internal("Internal error."),
         }
     }

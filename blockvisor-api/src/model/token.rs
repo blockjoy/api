@@ -41,7 +41,7 @@ impl From<Error> for Status {
             DeleteHostProvision(_, _, NotFound)
             | HostProvisionByToken(NotFound)
             | HostProvisionByUser(_, _, NotFound)
-            | ResetHostProvision(_, _, NotFound) => Status::not_found("Not found."),
+            | ResetHostProvision(_, _, NotFound) => Status::not_found("Token not found."),
             _ => Status::internal("Internal error."),
         }
     }

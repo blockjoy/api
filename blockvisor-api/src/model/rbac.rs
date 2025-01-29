@@ -67,8 +67,8 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            FindOrgRoles(_, _, NotFound)
-            | FindPermsForRole(_, NotFound)
+            FindOrgRoles(_, _, NotFound) => Status::not_found("Org roles not found"),
+            FindPermsForRole(_, NotFound)
             | FindPermsForRoles(NotFound)
             | FindUserRolesForOrgIds(_, NotFound)
             | NothingDeleted

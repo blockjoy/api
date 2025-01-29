@@ -29,7 +29,9 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            FindByNode(_, NotFound) | FindByNodes(_, NotFound) => Status::not_found("Not found."),
+            FindByNode(_, NotFound) | FindByNodes(_, NotFound) => {
+                Status::not_found("Report not found.")
+            }
             _ => Status::internal("Internal error."),
         }
     }

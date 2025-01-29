@@ -38,7 +38,7 @@ impl From<Error> for Status {
             Create(DatabaseError(UniqueViolation, _)) => {
                 Status::already_exists("Node log already exists.")
             }
-            ByNodeId(_, NotFound) => Status::not_found("Not found."),
+            ByNodeId(_, NotFound) => Status::not_found("Log not found."),
             _ => Status::internal("Internal error."),
         }
     }

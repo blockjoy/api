@@ -61,7 +61,7 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             Client(client::Error::MissingKey(_, _)) | NoDataVersion => {
-                Status::not_found("Not found.")
+                Status::not_found("Store not found.")
             }
             Client(_)
             | Manifest(_)

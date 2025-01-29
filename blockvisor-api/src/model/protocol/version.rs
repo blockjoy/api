@@ -68,7 +68,7 @@ impl From<Error> for Status {
                 Status::already_exists("Protocol version already exists.")
             }
             ById(_, NotFound) | ByIds(_, NotFound) | ByKey(_, NotFound) | NoVersions => {
-                Status::not_found("Not found.")
+                Status::not_found("Version not found.")
             }
             MetadataKeyChars(_) | MetadataKeyLen(_) => Status::invalid_argument("metadata_key"),
             ProtocolKeyChars(_) | ProtocolKeyLen(_) => {

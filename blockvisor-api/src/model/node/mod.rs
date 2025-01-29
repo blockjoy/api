@@ -167,7 +167,7 @@ impl From<Error> for Status {
             | FindHostId(_, NotFound)
             | FindHostIds(_, NotFound)
             | FindOrgId(_, NotFound)
-            | FindByVersionIds(_, NotFound) => Status::not_found("Not found."),
+            | FindByVersionIds(_, NotFound) => Status::not_found("Node not found."),
             AlreadyDeleted(_)
             | Cloudflare(_)
             | Create(_)

@@ -93,7 +93,7 @@ impl From<Error> for Status {
             | FindById(_, NotFound)
             | FindByIds(_, NotFound)
             | FindDeletedOrgId(_, NotFound)
-            | FindOrgId(_, NotFound) => Status::not_found("Not found."),
+            | FindOrgId(_, NotFound) => Status::not_found("Host not found."),
             BillingMissingAmount | BillingCurrencyUnknown | BillingPeriodUnknown => {
                 Status::invalid_argument("billing_amount")
             }

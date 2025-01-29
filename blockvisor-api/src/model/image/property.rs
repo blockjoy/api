@@ -49,7 +49,7 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            ById(_, NotFound) => Status::not_found("Not found."),
+            ById(_, NotFound) => Status::not_found("Image property ot found."),
             GroupMultipleDefaults(_) | GroupNoDefault(_) => {
                 Status::failed_precondition("is_group_default")
             }

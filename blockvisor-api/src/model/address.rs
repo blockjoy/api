@@ -35,7 +35,9 @@ impl From<Error> for Status {
             Create(DatabaseError(UniqueViolation, _)) => {
                 Status::already_exists("Address already exists.")
             }
-            FindById(_, NotFound) | FindByOrgId(_, NotFound) => Status::not_found("Not found."),
+            FindById(_, NotFound) | FindByOrgId(_, NotFound) => {
+                Status::not_found("Address not found.")
+            }
             _ => Status::internal("Internal error."),
         }
     }

@@ -43,7 +43,7 @@ impl From<Error> for Status {
             Create(DatabaseError(UniqueViolation, _)) => {
                 Status::already_exists("Region already exists.")
             }
-            ById(_, NotFound) | ByIds(_, NotFound) => Status::not_found("Not found."),
+            ById(_, NotFound) | ByIds(_, NotFound) => Status::not_found("Region not found."),
             KeyChars(_) | KeyLen(_) => Status::invalid_argument("region_key"),
             _ => Status::internal("Internal error."),
         }

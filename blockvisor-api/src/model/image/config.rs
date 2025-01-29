@@ -80,7 +80,7 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            ById(_, NotFound) => Status::not_found("Not found."),
+            ById(_, NotFound) => Status::not_found("Image config not found."),
             ChangeProperty(key) | UpdateKeyMissing(key) => {
                 Status::not_found(format!("property.key: {key}"))
             }

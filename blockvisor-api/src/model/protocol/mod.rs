@@ -58,7 +58,7 @@ impl From<Error> for Status {
         use Error::*;
         match err {
             ById(_, NotFound) | ByIds(_, NotFound) | ByKey(_, NotFound) => {
-                Status::not_found("Not found.")
+                Status::not_found("Protocol not found.")
             }
             Create(DatabaseError(UniqueViolation, _)) => {
                 Status::already_exists("Protocol already exists.")

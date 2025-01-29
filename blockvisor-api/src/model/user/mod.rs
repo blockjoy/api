@@ -102,7 +102,7 @@ impl From<Error> for Status {
             | FindAll(NotFound)
             | FindByEmail(_, NotFound)
             | FindById(_, NotFound)
-            | FindByIds(_, NotFound) => Status::not_found("Not found."),
+            | FindByIds(_, NotFound) => Status::not_found("User not found."),
             AlreadyConfirmed => Status::failed_precondition("Already confirmed."),
             NotConfirmed => Status::failed_precondition("User is not confirmed."),
             LoginEmail | VerifyPassword(_) => Status::forbidden("Invalid email or password."),

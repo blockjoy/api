@@ -39,7 +39,7 @@ impl From<Error> for Status {
                 Status::already_exists("Api key already exists.")
             }
             DeleteKey(NotFound) | FindById(NotFound) | FindByUser(NotFound) | NoKeysDeleted => {
-                Status::not_found("Not found.")
+                Status::not_found("Api key not found.")
             }
             CreateNew(_) | DeleteKey(_) | FindById(_) | FindByUser(_) | MultipleKeysDeleted(_) => {
                 Status::internal("Internal error.")

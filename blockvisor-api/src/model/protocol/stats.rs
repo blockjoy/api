@@ -44,7 +44,9 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            ForProtocol(_, NotFound) | ForVersion(_, NotFound) => Status::not_found("Not found."),
+            ForProtocol(_, NotFound) | ForVersion(_, NotFound) => {
+                Status::not_found("Stats not found.")
+            }
             MissingViewAll => Status::forbidden("Access denied."),
             _ => Status::internal("Internal error."),
         }
