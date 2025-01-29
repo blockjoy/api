@@ -525,7 +525,8 @@ impl Node {
             lower < than && lower.major == than.major
         };
 
-        let version_key = VersionKey::new(version.protocol_key, version.variant_key);
+        let version_key =
+            VersionKey::new(version.protocol_key.clone(), version.variant_key.clone());
         let old_versions = ProtocolVersion::by_key(&version_key, org_id, authz, write)
             .await?
             .into_iter()
@@ -538,7 +539,8 @@ impl Node {
             .filter(|node| node.auto_upgrade);
 
         for node in old_nodes {
-            node.notify_upgrade(image.id, org_id, authz, write).await?;
+            node.notify_upgrade(image, &version, org_id, authz, write)
+                .await?;
         }
 
         Ok(())
@@ -546,14 +548,16 @@ impl Node {
 
     pub async fn notify_upgrade(
         self,
-        image_id: ImageId,
+        image: &Image,
+        version: &ProtocolVersion,
         org_id: Option<OrgId>,
         authz: &AuthZ,
         write: &mut WriteConn<'_, '_>,
     ) -> Result<Self, Error> {
         let upgrade = UpgradeNode {
             id: self.id,
-            image_id,
+            image,
+            version,
             org_id,
         };
         let upgraded = upgrade.apply(authz, write).await?;
@@ -926,30 +930,29 @@ impl UpdateNodeMetrics {
 }
 
 #[derive(Debug)]
-pub struct UpgradeNode {
+pub struct UpgradeNode<'a> {
     pub id: NodeId,
-    pub image_id: ImageId,
+    pub image: &'a Image,
+    pub version: &'a ProtocolVersion,
     pub org_id: Option<OrgId>,
 }
 
-impl UpgradeNode {
+impl UpgradeNode<'_> {
     pub async fn apply(self, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Node, Error> {
         let node = Node::by_id(self.id, conn).await?;
         let config = Config::by_id(node.config_id, conn).await?;
 
-        if self.image_id == config.image_id {
+        if self.image.id == config.image_id {
             return Err(Error::UpgradeSameImage);
         }
 
-        let image = Image::by_id(self.image_id, self.org_id, authz, conn).await?;
-        let version =
-            ProtocolVersion::by_id(image.protocol_version_id, self.org_id, authz, conn).await?;
-
         let old_config = config.node_config()?;
-        let new_config = old_config.upgrade(image, self.org_id, conn).await?;
+        let new_config = old_config
+            .upgrade(self.image.clone(), self.org_id, conn)
+            .await?;
 
         let new_config = NewConfig {
-            image_id: self.image_id,
+            image_id: self.image.id,
             archive_id: new_config.image.archive_id,
             config_type: ConfigType::Node,
             config: new_config.into(),
@@ -958,16 +961,16 @@ impl UpgradeNode {
 
         let event = LogEvent::UpgradeStarted(log::UpgradeStarted {
             old: node.image_id,
-            new: self.image_id,
+            new: self.image.id,
         });
         NewNodeLog::from(&node, authz, event).create(conn).await?;
 
         diesel::update(nodes::table.find(self.id))
             .set((
-                nodes::image_id.eq(self.image_id),
+                nodes::image_id.eq(self.image.id),
                 nodes::config_id.eq(config.id),
-                nodes::protocol_version_id.eq(version.id),
-                nodes::semantic_version.eq(version.semantic_version),
+                nodes::protocol_version_id.eq(self.version.id),
+                nodes::semantic_version.eq(&self.version.semantic_version),
                 nodes::next_state.eq(Some(NextState::Upgrading)),
                 nodes::updated_at.eq(Utc::now()),
             ))

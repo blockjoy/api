@@ -653,8 +653,11 @@ pub async fn upgrade_image(
 
     let nodes = Node::by_ids(&ids, &mut write).await?;
 
+    let image = Image::by_id(image_id, org_id, &authz, &mut write).await?;
+    let version =
+        ProtocolVersion::by_id(image.protocol_version_id, org_id, &authz, &mut write).await?;
     for node in nodes {
-        node.notify_upgrade(image_id, org_id, &authz, &mut write)
+        node.notify_upgrade(&image, &version, org_id, &authz, &mut write)
             .await?;
     }
 
