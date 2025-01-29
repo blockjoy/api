@@ -644,6 +644,7 @@ diesel::table! {
         visibility -> EnumVisibility,
         created_at -> Timestamptz,
         updated_at -> Nullable<Timestamptz>,
+        metadata -> Jsonb,
     }
 }
 

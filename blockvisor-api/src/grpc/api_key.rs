@@ -145,7 +145,9 @@ pub async fn delete(
 ) -> Result<api::ApiKeyServiceDeleteResponse, Error> {
     let key_id = req.api_key_id.parse().map_err(Error::ParseId)?;
     let existing = ApiKey::by_id(key_id, &mut write).await?;
-    write.auth_for(&meta, ApiKeyPerm::Delete, &existing).await?;
+    write
+        .auth_for(&meta, ApiKeyPerm::Delete, existing.user_id)
+        .await?;
 
     ApiKey::delete(key_id, &mut write).await?;
 

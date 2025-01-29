@@ -206,7 +206,7 @@ pub async fn get_upload_slots(
             .await?;
         (Some(org_id), authz)
     } else {
-        let authz = read.auth(&meta, admin_perm).await?;
+        let authz = read.auth_any(&meta, [admin_perm, user_perm]).await?;
         (None, authz)
     };
 
@@ -254,7 +254,7 @@ pub async fn put_download_manifest(
             .await?;
         (Some(org_id), authz)
     } else {
-        let authz = read.auth(&meta, admin_perm).await?;
+        let authz = read.auth_any(&meta, [admin_perm, user_perm]).await?;
         (None, authz)
     };
 

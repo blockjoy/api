@@ -69,6 +69,7 @@ async fn add_a_new_version() {
             protocol_key: ORG_PROTOCOL_KEY.into(),
             variant_key: VARIANT_KEY.into(),
         }),
+        metadata: vec![],
         semantic_version: version.to_string(),
         sku_code: "TN".to_string(),
         description: None,

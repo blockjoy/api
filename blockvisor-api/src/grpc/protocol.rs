@@ -12,7 +12,7 @@ use crate::auth::{AuthZ, Authorize};
 use crate::database::{Conn, ReadConn, Transaction, WriteConn};
 use crate::model::protocol::stats::NodeStats;
 use crate::model::protocol::version::{
-    NewVersion, ProtocolKey, ProtocolVersion, UpdateVersion, VersionKey,
+    NewVersion, ProtocolKey, ProtocolVersion, UpdateVersion, VersionKey, VersionMetadata,
 };
 use crate::model::protocol::{
     NewProtocol, Protocol, ProtocolFilter, ProtocolSearch, ProtocolSort, UpdateProtocol,
@@ -270,11 +270,18 @@ pub async fn add_version(
     let version_key = VersionKey::try_from(req.version_key.ok_or(Error::MissingVersionKey)?)?;
     let protocol = Protocol::by_key(&version_key.protocol_key, org_id, &authz, &mut write).await?;
 
+    let metadata = req
+        .metadata
+        .into_iter()
+        .map(|meta| meta.try_into().map_err(Into::into))
+        .collect::<Result<Vec<VersionMetadata>, Error>>()?;
+
     let new_version = NewVersion {
         org_id: protocol.org_id.or(org_id),
         protocol_id: protocol.id,
         protocol_key: version_key.protocol_key,
         variant_key: version_key.variant_key,
+        metadata: metadata.into(),
         semantic_version: &req.semantic_version.parse().map_err(Error::ParseVersion)?,
         sku_code: &req.sku_code,
         description: req.description,

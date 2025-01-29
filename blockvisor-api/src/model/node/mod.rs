@@ -36,7 +36,7 @@ use crate::auth::rbac::{BillingPerm, NodeAdminPerm};
 use crate::auth::resource::{HostId, NodeId, OrgId, Resource, ResourceId, ResourceType, UserId};
 use crate::auth::AuthZ;
 use crate::database::{Conn, WriteConn};
-use crate::grpc::Status;
+use crate::grpc::{api, Status};
 use crate::model::sql::{self, Amount, Currency, IpNetwork, Period, Tags, Version};
 use crate::stripe::api::subscription::SubscriptionItemId;
 use crate::util::{SearchOperator, SortOrder};
@@ -67,8 +67,6 @@ pub enum Error {
     Delete(NodeId, diesel::result::Error),
     /// Failed to find deleted node by id `{0}`: {1}
     FindDeletedById(NodeId, diesel::result::Error),
-    /// Failed to find nodes by host ids `{0:?}`: {1}
-    FindByHostIds(HashSet<HostId>, diesel::result::Error),
     /// Failed to find node by id `{0}`: {1}
     FindById(NodeId, diesel::result::Error),
     /// Failed to find nodes by ids `{0:?}`: {1}
@@ -81,6 +79,8 @@ pub enum Error {
     FindDeletedOrgId(NodeId, diesel::result::Error),
     /// Failed to find host id for node {0}: {1}
     FindHostId(NodeId, diesel::result::Error),
+    /// Failed to find nodes by host ids `{0:?}`: {1}
+    FindHostIds(HashSet<HostId>, diesel::result::Error),
     /// Failed to find org id for node {0}: {1}
     FindOrgId(NodeId, diesel::result::Error),
     /// Failed to generate node name. This should not happen.
@@ -113,8 +113,6 @@ pub enum Error {
     NodeLog(#[from] self::log::Error),
     /// Failed to find a matching host.
     NoMatchingHost,
-    /// Failed to find an image for this version.
-    NoImage,
     /// Node org error: {0}
     Org(#[from] crate::model::org::Error),
     /// Node pagination: {0}
@@ -157,23 +155,55 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            Create(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Node already exists.")
+            }
             Delete(_, NotFound)
             | FindById(_, NotFound)
+            | FindByIds(_, NotFound)
+            | FindDeletedById(_, NotFound)
+            | FindDeletedHostId(_, NotFound)
             | FindDeletedOrgId(_, NotFound)
             | FindHostId(_, NotFound)
+            | FindHostIds(_, NotFound)
             | FindOrgId(_, NotFound)
             | FindByVersionIds(_, NotFound) => Status::not_found("Not found."),
-            HostFreeCpu(_) => Status::failed_precondition("Host cpu."),
-            HostFreeDisk(_) => Status::failed_precondition("Host memory."),
-            HostFreeIp(_) => Status::failed_precondition("Host IP."),
-            HostFreeMem(_) => Status::failed_precondition("Host disk."),
+            AlreadyDeleted(_)
+            | Cloudflare(_)
+            | Create(_)
+            | Delete(_, _)
+            | FindById(_, _)
+            | FindByIds(_, _)
+            | FindDeletedById(_, _)
+            | FindDeletedHostId(_, _)
+            | FindDeletedOrgId(_, _)
+            | FindHostId(_, _)
+            | FindHostIds(_, _)
+            | FindOrgId(_, _)
+            | FindByVersionIds(_, _)
+            | GenerateName
+            | HostHasNodes(_, _)
+            | ItemWithoutPrice
+            | PriceWithoutAmount
+            | Stripe(_)
+            | UpdateConfig(_)
+            | UpdateMetrics(_, _)
+            | UpdateStatus(_)
+            | Upgrade(_)
+            | VmCpu(_)
+            | VmDisk(_)
+            | VmMemory(_) => Status::internal("Internal error."),
+            HostFreeCpu(_) => Status::failed_precondition("Host has too little available cpu."),
+            HostFreeDisk(_) => Status::failed_precondition("Host has too little available memory."),
+            HostFreeIp(_) => Status::failed_precondition("Host has too few available IPs."),
+            HostFreeMem(_) => Status::failed_precondition("Host has too little available disk."),
             MissingTransferPerm => Status::forbidden("Missing permission."),
             NoMatchingHost => Status::failed_precondition("No matching host."),
             UpdateSameOrg => Status::already_exists("new_org_id"),
             UpgradeSameImage => Status::already_exists("image_id"),
             Command(err) => (*err).into(),
             Config(err) => err.into(),
+            Grpc(err) => (*err).into(),
             Host(err) => err.into(),
             Image(err) => err.into(),
             IpAddress(err) => err.into(),
@@ -186,7 +216,6 @@ impl From<Error> for Status {
             Region(err) => err.into(),
             Report(err) => err.into(),
             Store(err) => err.into(),
-            _ => Status::internal("Internal error."),
         }
     }
 }
@@ -274,7 +303,7 @@ impl Node {
             .filter(nodes::deleted_at.is_null())
             .get_results(conn)
             .await
-            .map_err(|err| Error::FindByHostIds(host_ids.clone(), err))
+            .map_err(|err| Error::FindHostIds(host_ids.clone(), err))
     }
 
     pub async fn by_version_ids(
@@ -365,19 +394,19 @@ impl Node {
 
         // FIXME: secrets integration
         /*
-        let prefix = format!("node/{id}/secret");
-        let secrets = write.ctx.vault.read().await.list_path(&prefix).await?;
-        if let Some(names) = secrets {
+            let prefix = format!("node/{id}/secret");
+            let secrets = write.ctx.vault.read().await.list_path(&prefix).await?;
+            if let Some(names) = secrets {
             for name in names {
-                let path = format!("{prefix}/{name}");
-                let result = write.ctx.vault.read().await.delete_path(&path).await;
-                match result {
-                    Ok(()) | Err(crate::store::vault::Error::PathNotFound) => (),
-                    Err(err) => return Err(err.into()),
-                }
-            }
+            let path = format!("{prefix}/{name}");
+            let result = write.ctx.vault.read().await.delete_path(&path).await;
+            match result {
+            Ok(()) | Err(crate::store::vault::Error::PathNotFound) => (),
+            Err(err) => return Err(err.into()),
         }
-        */
+        }
+        }
+             */
 
         if let Some(ref item_id) = node.stripe_item_id {
             write.ctx.stripe.remove_subscription(item_id).await?;
@@ -485,22 +514,51 @@ impl Node {
         report.create(conn).await.map_err(Error::Report)
     }
 
+    pub async fn notify_auto_upgrades(
+        image: &Image,
+        version: ProtocolVersion,
+        org_id: Option<OrgId>,
+        authz: &AuthZ,
+        write: &mut WriteConn<'_, '_>,
+    ) -> Result<(), Error> {
+        let is_lower_but_compatible = |lower: &semver::Version, than: &semver::Version| {
+            lower < than && lower.major == than.major
+        };
+
+        let version_key = VersionKey::new(version.protocol_key, version.variant_key);
+        let old_versions = ProtocolVersion::by_key(&version_key, org_id, authz, write)
+            .await?
+            .into_iter()
+            .filter(|pv| is_lower_but_compatible(&pv.semantic_version, &version.semantic_version))
+            .map(|version| version.id)
+            .collect();
+        let old_nodes = Node::by_version_ids(&old_versions, write)
+            .await?
+            .into_iter()
+            .filter(|node| node.auto_upgrade);
+
+        for node in old_nodes {
+            node.notify_upgrade(image.id, org_id, authz, write).await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn notify_upgrade(
         self,
-        to_image_id: ImageId,
+        image_id: ImageId,
         org_id: Option<OrgId>,
         authz: &AuthZ,
         write: &mut WriteConn<'_, '_>,
     ) -> Result<Self, Error> {
-        use crate::grpc::api;
-
         let upgrade = UpgradeNode {
             id: self.id,
-            image_id: to_image_id,
+            image_id,
             org_id,
         };
-        let updated = upgrade.apply(authz, write).await?;
-        let cmd = NewCommand::node(&updated, CommandType::NodeUpgrade)
+        let upgraded = upgrade.apply(authz, write).await?;
+
+        let cmd = NewCommand::node(&upgraded, CommandType::NodeUpgrade)
             .map_err(|err| Error::Command(Box::new(err)))?
             .create(write)
             .await
@@ -509,42 +567,8 @@ impl Node {
             .await
             .map_err(|err| Error::Grpc(Box::new(err)))?;
         write.mqtt(cmd);
-        Ok(updated)
-    }
 
-    pub async fn notify_auto_upgrades(
-        to_version: ProtocolVersion,
-        org_id: Option<OrgId>,
-        authz: &AuthZ,
-        write: &mut WriteConn<'_, '_>,
-    ) -> Result<(), Error> {
-        let version_key = VersionKey::new(to_version.protocol_key, to_version.variant_key);
-        let is_lower_but_compatible = |lower: &semver::Version, than: &semver::Version| {
-            lower < than && lower.major == than.major
-        };
-        let from_versions = ProtocolVersion::by_key(&version_key, org_id, authz, write)
-            .await?
-            .into_iter()
-            .filter(|version| {
-                // Check that this version is lower than the version we are upgrading to, but still
-                // compatible with it.
-                is_lower_but_compatible(&version.semantic_version, &to_version.semantic_version)
-            })
-            .map(|version| version.id)
-            .collect();
-        let image = Image::latest_build(to_version.id, org_id, authz, write)
-            .await?
-            .ok_or(Error::NoImage)?;
-        let to_upgrade = Node::by_version_ids(&from_versions, write)
-            .await?
-            .into_iter()
-            .filter(|node| node.auto_upgrade);
-        for upgradeable_node in to_upgrade {
-            upgradeable_node
-                .notify_upgrade(image.id, org_id, authz, write)
-                .await?;
-        }
-        Ok(())
+        Ok(upgraded)
     }
 
     pub fn created_by(&self) -> Resource {

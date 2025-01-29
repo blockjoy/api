@@ -210,7 +210,7 @@ async fn add_image(
         protocol_version_id: version.id,
         org_id: version.org_id.or(org_id),
         image_uri: req.image_uri,
-        build_version: latest.map_or(1, |image| image.build_version + 1),
+        build_version: latest.as_ref().map_or(1, |image| image.build_version + 1),
         description: req.description,
         min_cpu_cores: i64::try_from(req.min_cpu_cores).map_err(Error::MinCpu)?,
         min_memory_bytes: i64::try_from(req.min_memory_bytes).map_err(Error::MinMemory)?,
@@ -308,7 +308,7 @@ async fn add_image(
         return Err(Error::MissingKeyCombos(new_archive_powerset));
     };
 
-    Node::notify_auto_upgrades(version, org_id, &authz, &mut write).await?;
+    Node::notify_auto_upgrades(&image, version, org_id, &authz, &mut write).await?;
 
     Ok(api::ImageServiceAddImageResponse {
         image: Some(api::Image::from(image, properties, rules)?),

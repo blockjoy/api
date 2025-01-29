@@ -9,6 +9,7 @@ use diesel::result::Error::{DatabaseError, NotFound};
 use diesel_async::RunQueryDsl;
 use diesel_derive_newtype::DieselNewType;
 use displaydoc::Display as DisplayDoc;
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -17,7 +18,7 @@ use crate::auth::AuthZ;
 use crate::database::Conn;
 use crate::grpc::{api, common, Status};
 use crate::model::schema::protocol_versions;
-use crate::model::sql::Version;
+use crate::model::sql::{ProtocolVersionMetadata, Version};
 use crate::model::Region;
 use crate::util::{NanosUtc, LOWER_KEBAB_CASE};
 
@@ -43,6 +44,10 @@ pub enum Error {
     ByKey(VersionKey, diesel::result::Error),
     /// Failed to parse VersionKey `{0}` into 2 parts delimited by `/`.
     KeyParts(String),
+    /// Metadata key must be at least 3 characters: {0}
+    MetadataKeyLen(String),
+    /// Field `metadata_key` is not lower-kebab-case: {0}
+    MetadataKeyChars(String),
     /// Field `version_key.protocol_key` is not lower-kebab-case: {0}
     ProtocolKeyChars(String),
     /// Protocol key must be at least 3 characters: {0}
@@ -59,10 +64,13 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            Create(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Protocol version already exists.")
+            }
             ById(_, NotFound) | ByIds(_, NotFound) | ByKey(_, NotFound) | NoVersions => {
                 Status::not_found("Not found.")
             }
+            MetadataKeyChars(_) | MetadataKeyLen(_) => Status::invalid_argument("metadata_key"),
             ProtocolKeyChars(_) | ProtocolKeyLen(_) => {
                 Status::invalid_argument("version_key.protocol_key")
             }
@@ -92,6 +100,7 @@ pub struct ProtocolVersion {
     pub visibility: Visibility,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
+    pub metadata: ProtocolVersionMetadata,
 }
 
 impl ProtocolVersion {
@@ -238,6 +247,7 @@ impl From<ProtocolVersion> for api::ProtocolVersion {
                 protocol_key: version.protocol_key.into(),
                 variant_key: version.variant_key.into(),
             }),
+            metadata: version.metadata.into_iter().map(Into::into).collect(),
             semantic_version: version.semantic_version.to_string(),
             sku_code: version.sku_code,
             description: version.description,
@@ -255,6 +265,7 @@ pub struct NewVersion<'v> {
     pub protocol_id: ProtocolId,
     pub protocol_key: ProtocolKey,
     pub variant_key: VariantKey,
+    pub metadata: ProtocolVersionMetadata,
     pub semantic_version: &'v Version,
     pub sku_code: &'v str,
     pub description: Option<String>,
@@ -375,5 +386,60 @@ impl str::FromStr for VersionKey {
         let protocol_key = ProtocolKey::new(parts[0].to_string())?;
         let variant_key = VariantKey::new(parts[1].to_string())?;
         Ok(VersionKey::new(protocol_key, variant_key))
+    }
+}
+
+// A key identifier to protocol version metadata.
+#[derive(Clone, Debug, Display, PartialEq, Eq, Serialize, DieselNewType, Deref, Into)]
+pub struct MetadataKey(String);
+
+impl MetadataKey {
+    pub fn new(key: String) -> Result<Self, Error> {
+        if key.len() < 3 {
+            Err(Error::MetadataKeyLen(key))
+        } else if !key.chars().all(|c| LOWER_KEBAB_CASE.contains(c)) {
+            Err(Error::MetadataKeyChars(key))
+        } else {
+            Ok(MetadataKey(key))
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for MetadataKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        String::deserialize(deserializer)
+            .and_then(|s| MetadataKey::new(s).map_err(serde::de::Error::custom))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VersionMetadata {
+    pub key: MetadataKey,
+    pub value: String,
+    pub description: Option<String>,
+}
+
+impl TryFrom<common::VersionMetadata> for VersionMetadata {
+    type Error = Error;
+
+    fn try_from(metadata: common::VersionMetadata) -> Result<Self, Self::Error> {
+        Ok(VersionMetadata {
+            key: MetadataKey::new(metadata.metadata_key)?,
+            value: metadata.value,
+            description: metadata.description,
+        })
+    }
+}
+
+impl From<VersionMetadata> for common::VersionMetadata {
+    fn from(metadata: VersionMetadata) -> Self {
+        common::VersionMetadata {
+            metadata_key: metadata.key.into(),
+            value: metadata.value,
+            description: metadata.description,
+        }
     }
 }

@@ -17,14 +17,16 @@ const CONTENT_JSON: &str = "application/json";
 pub enum Error {
     /// Failed to build cloudflare Client: {0}
     BuildClient(reqwest::Error),
+    /// Failed to get response from cloudflare: {0}
+    GetResponse(reqwest::Error),
     /// Failed to join cloudflare endpoint url: {0}
     JoinEndpoint(url::ParseError),
     /// Failed to parse cloudflare API endpoint: {0}
     ParseEndpoint(url::ParseError),
     /// Failed to parse cloudflare response errors: {0}
     ParseErrors(reqwest::Error),
-    /// Failed to parse cloudflare response: {0}
-    ParseResponse(reqwest::Error),
+    /// Failed to parse cloudflare response with error `{0}`. Response body was: {1}
+    ParseResponse(serde_json::Error, String),
     /// Error code {0} from cloudflare: {1:?}
     ResponseErrors(reqwest::StatusCode, ApiErrors),
     /// Failed to send cloudflare request: {0}
@@ -89,7 +91,10 @@ impl Client {
         let status = response.status();
 
         if status.is_success() {
-            let success: ApiSuccess<_> = response.json().await.map_err(Error::ParseResponse)?;
+            let resp_text = response.text().await.map_err(Error::GetResponse)?;
+
+            let success: ApiSuccess<_> =
+                serde_json::from_str(&resp_text).map_err(|e| Error::ParseResponse(e, resp_text))?;
             Ok(success.result)
         } else {
             let errors: ApiErrors = response.json().await.map_err(Error::ParseErrors)?;

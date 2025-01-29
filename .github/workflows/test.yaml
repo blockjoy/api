@@ -42,26 +42,30 @@ jobs:
           submodules: true
 
       - name: Install dependencies
-        run: >
+        run: |
           apt update
-          && apt install -y libpq-dev libssl-dev pkg-config
-          && PROTO_URL=https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-linux-x86_64.zip
-          && curl -L $PROTO_URL -o protoc.zip
-          && unzip -o protoc.zip -d protoc
-          && rm -rf /usr/local/include/google
-          && mv protoc/bin/* /usr/local/bin
-          && mv protoc/include/google /usr/local/include/
+          apt install -y libpq-dev libssl-dev pkg-config
+          PROTO_URL=https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-linux-x86_64.zip
+          curl -L $PROTO_URL -o protoc.zip
+          unzip -o protoc.zip -d protoc
+          rm -rf /usr/local/include/google
+          mv protoc/bin/* /usr/local/bin
+          mv protoc/include/google /usr/local/include/
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cargo tests
-        run: >
+        run: |
           cargo clippy --all-features --all-targets -- -Dwarnings -Drust-2018-idioms
-          && cargo fmt --all -- --check
-          && cargo test --all-features --no-fail-fast --jobs 1
+          cargo fmt --all -- --check
+          cargo test --all-features --no-fail-fast --jobs 1

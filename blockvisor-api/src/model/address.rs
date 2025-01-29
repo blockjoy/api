@@ -32,7 +32,9 @@ impl From<Error> for Status {
     fn from(err: Error) -> Self {
         use Error::*;
         match err {
-            Create(DatabaseError(UniqueViolation, _)) => Status::already_exists("Already exists."),
+            Create(DatabaseError(UniqueViolation, _)) => {
+                Status::already_exists("Address already exists.")
+            }
             FindById(_, NotFound) | FindByOrgId(_, NotFound) => Status::not_found("Not found."),
             _ => Status::internal("Internal error."),
         }

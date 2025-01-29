@@ -59,7 +59,7 @@ impl TryFrom<common::BillingAmount> for Amount {
 impl FromSql<Jsonb, Pg> for Amount {
     fn from_sql(value: PgValue<'_>) -> deserialize::Result<Self> {
         let value: serde_json::Value = FromSql::<Jsonb, Pg>::from_sql(value)?;
-        Ok(serde_json::from_value(value.clone()).map_err(|err| Error::ParseAmount(value, err))?)
+        Amount::deserialize(&value).map_err(|err| Error::ParseAmount(value, err).into())
     }
 }
 

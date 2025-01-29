@@ -9,14 +9,16 @@ use diesel::deserialize::{FromSql, FromSqlRow};
 use diesel::expression::AsExpression;
 use diesel::pg::{Pg, PgValue};
 use diesel::serialize::{Output, ToSql};
-use diesel::sql_types::{Array, Inet, Nullable, SingleValue, Text};
+use diesel::sql_types::{Array, Inet, Jsonb, Nullable, SingleValue, Text};
 use diesel::{define_sql_function, deserialize, serialize};
 use displaydoc::Display as DisplayDoc;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::auth::claims::Granted;
 use crate::auth::rbac::Perm;
 use crate::grpc::{common, Status};
+use crate::model::protocol::VersionMetadata;
 use crate::util::LOWER_KEBAB_CASE;
 
 define_sql_function!(fn coalesce(x: Nullable<Text>, y: Text) -> Text);
@@ -35,6 +37,8 @@ pub enum Error {
     ParseUrl(String, url::ParseError),
     /// Failed to parse Version `{0}`: {1}
     ParseVersion(String, semver::Error),
+    /// Failed to parse ProtocolVersionMetadata `{0}`: {1}
+    ParseVersionMetadata(serde_json::Value, serde_json::Error),
     /// Tag is not lower-kebab-case: {0}
     TagChars(String),
     /// Tag must be at least 3 characters: {0}
@@ -241,5 +245,35 @@ impl ToSql<Array<Nullable<Text>>, Pg> for Permissions {
             &perms,
             &mut out.reborrow(),
         )
+    }
+}
+
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    From,
+    IntoIterator,
+)]
+#[diesel(sql_type = Jsonb)]
+pub struct ProtocolVersionMetadata(Vec<VersionMetadata>);
+
+impl FromSql<Jsonb, Pg> for ProtocolVersionMetadata {
+    fn from_sql(value: PgValue<'_>) -> deserialize::Result<Self> {
+        let value: serde_json::Value = FromSql::<Jsonb, Pg>::from_sql(value)?;
+        ProtocolVersionMetadata::deserialize(&value)
+            .map_err(|err| Error::ParseVersionMetadata(value, err).into())
+    }
+}
+
+impl ToSql<Jsonb, Pg> for ProtocolVersionMetadata {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
+        let value = serde_json::to_value(self)?;
+        <serde_json::Value as ToSql<Jsonb, Pg>>::to_sql(&value, &mut out.reborrow())
     }
 }

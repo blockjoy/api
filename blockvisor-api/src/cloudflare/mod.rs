@@ -186,7 +186,7 @@ pub mod tests {
                 locked: None,
                 name: "test".into(),
                 ttl: 1,
-                zone_id: "zone_id".into(),
+                zone_id: Some("zone_id".into()),
                 modified_on: Utc::now(),
                 created_on: Utc::now(),
                 proxiable: false,
