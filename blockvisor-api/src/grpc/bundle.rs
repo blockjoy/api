@@ -113,7 +113,11 @@ impl api::BundleIdentifier {
     pub fn maybe_from_key<K: AsRef<str>>(key: K) -> Option<Self> {
         let key = key.as_ref();
         Self::from_key(key)
-            .map_err(|err| warn!("Failed to parse bundle key `{key}`: {err}"))
+            .map_err(|err| {
+                if !matches!(err, Error::Suffix(ref filename) if filename.ends_with(".bzEmpty")) {
+                    warn!("Failed to parse bundle key `{key}`: {err}");
+                }
+            })
             .ok()
     }
 }
