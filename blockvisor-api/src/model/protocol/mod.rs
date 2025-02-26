@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::auth::AuthZ;
 use crate::auth::rbac::{ProtocolAdminPerm, ProtocolPerm};
 use crate::auth::resource::OrgId;
-use crate::database::{Conn, WriteConn};
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, common};
 use crate::model::sql;
 use crate::util::{SearchOperator, SortOrder};
@@ -92,7 +92,7 @@ impl Protocol {
         id: ProtocolId,
         org_id: Option<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         protocols::table
             .find(id)
@@ -107,7 +107,7 @@ impl Protocol {
         ids: &HashSet<ProtocolId>,
         org_ids: &HashSet<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         protocols::table
             .filter(protocols::id.eq_any(ids))
@@ -126,7 +126,7 @@ impl Protocol {
         key: &ProtocolKey,
         org_id: Option<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         protocols::table
             .filter(protocols::key.eq(key))
@@ -168,7 +168,7 @@ pub struct UpdateProtocol<'u> {
 }
 
 impl UpdateProtocol<'_> {
-    pub async fn apply(self, conn: &mut Conn<'_>) -> Result<Protocol, Error> {
+    pub async fn apply(self, conn: &mut WriteConn<'_, '_>) -> Result<Protocol, Error> {
         let id = self.id;
         diesel::update(protocols::table.find(id))
             .set((self, protocols::updated_at.eq(Utc::now())))
@@ -191,7 +191,7 @@ impl ProtocolFilter {
     pub async fn query(
         mut self,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<(Vec<Protocol>, u64), Error> {
         let mut query = protocols::table
             .filter(protocols::visibility.eq_any(<&[Visibility]>::from(authz)))

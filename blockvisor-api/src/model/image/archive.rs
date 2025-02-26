@@ -10,7 +10,7 @@ use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
 
 use crate::auth::resource::OrgId;
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, api};
 use crate::model::schema::archives;
 use crate::store::StoreKey;
@@ -60,7 +60,7 @@ impl Archive {
     pub async fn by_id(
         id: ArchiveId,
         org_id: Option<OrgId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         archives::table
             .find(id)
@@ -73,7 +73,7 @@ impl Archive {
     pub async fn by_image_id(
         image_id: ImageId,
         org_id: Option<OrgId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         archives::table
             .filter(archives::image_id.eq(image_id))
@@ -87,7 +87,7 @@ impl Archive {
         image_id: ImageId,
         org_id: Option<OrgId>,
         property_ids: Vec<ImagePropertyId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         archives::table
             .filter(archives::image_id.eq(image_id))
@@ -138,7 +138,7 @@ impl NewArchive {
 
     pub async fn bulk_create(
         archives: Vec<Self>,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<Vec<Archive>, Error> {
         diesel::insert_into(archives::table)
             .values(archives)
@@ -156,7 +156,7 @@ pub struct UpdateArchive {
 }
 
 impl UpdateArchive {
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Archive, Error> {
+    pub async fn update(self, conn: &mut WriteConn<'_, '_>) -> Result<Archive, Error> {
         let id = self.id;
         diesel::update(archives::table.find(id))
             .set(self)

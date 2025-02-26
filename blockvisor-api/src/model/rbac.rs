@@ -14,7 +14,8 @@ use crate::auth::rbac::OrgRole;
 use crate::auth::rbac::ViewRole;
 use crate::auth::rbac::{Perm, Role};
 use crate::auth::resource::{OrgId, UserId};
-use crate::database::Conn;
+use crate::database::ReadConn;
+use crate::database::WriteConn;
 use crate::grpc::Status;
 
 use super::schema::{permissions, role_permissions, roles, user_roles};
@@ -82,7 +83,7 @@ impl From<Error> for Status {
 pub struct RbacRole;
 
 impl RbacRole {
-    pub async fn create_all(conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn create_all(conn: &mut WriteConn<'_, '_>) -> Result<(), Error> {
         let roles: Vec<_> = Role::iter()
             .map(|role| (roles::name.eq(role.to_string())))
             .collect();
@@ -99,7 +100,7 @@ impl RbacRole {
     }
 
     #[allow(unused)]
-    async fn has_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<bool, Error>
+    async fn has_perm<P, R>(role: R, perm: P, conn: &mut ReadConn<'_, '_>) -> Result<bool, Error>
     where
         P: Into<Perm> + Send,
         R: Into<Role> + Send,
@@ -116,7 +117,7 @@ impl RbacRole {
     }
 
     #[allow(unused)]
-    async fn link_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<(), Error>
+    async fn link_perm<P, R>(role: R, perm: P, conn: &mut WriteConn<'_, '_>) -> Result<(), Error>
     where
         P: Into<Perm> + Send,
         R: Into<Role> + Send,
@@ -138,7 +139,7 @@ impl RbacRole {
     }
 
     #[allow(unused)]
-    async fn unlink_perm<P, R>(role: R, perm: P, conn: &mut Conn<'_>) -> Result<(), Error>
+    async fn unlink_perm<P, R>(role: R, perm: P, conn: &mut WriteConn<'_, '_>) -> Result<(), Error>
     where
         P: Into<Perm> + Send,
         R: Into<Role> + Send,
@@ -161,7 +162,7 @@ impl RbacRole {
 pub struct RbacPerm;
 
 impl RbacPerm {
-    pub async fn create_all(conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn create_all(conn: &mut WriteConn<'_, '_>) -> Result<(), Error> {
         let perms: Vec<_> = Perm::iter()
             .map(|perm| (permissions::name.eq(perm.to_string())))
             .collect();
@@ -177,7 +178,7 @@ impl RbacPerm {
         Ok(())
     }
 
-    pub async fn for_role<R>(role: R, conn: &mut Conn<'_>) -> Result<HashSet<Perm>, Error>
+    pub async fn for_role<R>(role: R, conn: &mut ReadConn<'_, '_>) -> Result<HashSet<Perm>, Error>
     where
         R: Into<Role> + Send,
     {
@@ -195,7 +196,7 @@ impl RbacPerm {
 
     pub async fn for_roles(
         roles: &HashSet<Role>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<HashSet<Perm>, Error> {
         role_permissions::table
             .filter(role_permissions::role.eq_any(roles.iter().map(ToString::to_string)))
@@ -215,7 +216,7 @@ impl RbacPerm {
         user_id: UserId,
         org_id: OrgId,
         ensure_member: bool,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<HashSet<Perm>, Error> {
         let roles = RbacUser::org_roles(user_id, org_id, ensure_member, conn).await?;
         let mut perms = RbacPerm::for_roles(&roles, conn).await?;
@@ -232,7 +233,7 @@ impl RbacUser {
         user_id: UserId,
         org_id: OrgId,
         ensure_member: bool,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<HashSet<Role>, Error> {
         let roles: Vec<_> = user_roles::table
             .filter(user_roles::user_id.eq(user_id))
@@ -252,7 +253,10 @@ impl RbacUser {
             .collect()
     }
 
-    pub async fn org_owners(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<UserId>, Error> {
+    pub async fn org_owners(
+        org_id: OrgId,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Vec<UserId>, Error> {
         user_roles::table
             .filter(user_roles::org_id.eq(org_id))
             .filter(user_roles::role.eq(OrgRole::Owner.to_string()))
@@ -265,7 +269,7 @@ impl RbacUser {
     /// The set of user permissions for roles that are not org-specific.
     pub async fn perms_for_non_org_roles(
         user_id: UserId,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<HashSet<Perm>, Error> {
         let mut perms = hashset! {};
 
@@ -284,7 +288,7 @@ impl RbacUser {
     pub async fn has_non_org_role<R>(
         user_id: UserId,
         role: R,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<bool, Error>
     where
         R: Into<Role> + Send,
@@ -304,7 +308,7 @@ impl RbacUser {
         user_id: UserId,
         org_id: OrgId,
         role: R,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<(), Error>
     where
         R: Into<Role> + Send,
@@ -330,7 +334,7 @@ impl RbacUser {
         user_id: UserId,
         org_id: OrgId,
         roles: I,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<(), Error>
     where
         I: Iterator<Item = R> + Send,
@@ -350,7 +354,7 @@ impl RbacUser {
         user_id: UserId,
         org_id: OrgId,
         role: Option<R>,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<(), Error>
     where
         R: Into<Role> + Send,
@@ -395,7 +399,7 @@ pub struct OrgUsers {
 impl OrgUsers {
     pub async fn for_org_ids(
         org_ids: &HashSet<OrgId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<HashMap<OrgId, OrgUsers>, Error> {
         let rows: Vec<UserRole> = user_roles::table
             .filter(user_roles::org_id.eq_any(org_ids))

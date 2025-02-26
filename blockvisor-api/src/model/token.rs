@@ -13,7 +13,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::auth::resource::{OrgId, Resource, ResourceId, ResourceType, UserId};
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::Status;
 
 use super::schema::{sql_types, tokens};
@@ -73,7 +73,7 @@ impl Token {
     pub async fn new_host_provision(
         user_id: UserId,
         org_id: OrgId,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<Self, Error> {
         let token = TokenValue::new(HOST_PROVISION_LEN);
 
@@ -93,7 +93,7 @@ impl Token {
     pub async fn host_provision_by_user(
         user_id: UserId,
         org_id: OrgId,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         tokens::table
             .filter(tokens::token_type.eq(TokenType::HostProvision))
@@ -105,7 +105,10 @@ impl Token {
             .map_err(|err| Error::HostProvisionByUser(user_id, org_id, err))
     }
 
-    pub async fn host_provision_by_token(token: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn host_provision_by_token(
+        token: &str,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Self, Error> {
         tokens::table
             .filter(tokens::token_type.eq(TokenType::HostProvision))
             .filter(tokens::token.eq(token))
@@ -117,7 +120,7 @@ impl Token {
     pub async fn reset_host_provision(
         user_id: UserId,
         org_id: OrgId,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<TokenValue, Error> {
         let token = TokenValue::new(HOST_PROVISION_LEN);
         let filter = tokens::table
@@ -135,10 +138,10 @@ impl Token {
         Ok(token)
     }
 
-    pub async fn delete_host_provision(
+    pub async fn delete_host_provision<'a, 't, 'c>(
         user_id: UserId,
         org_id: OrgId,
-        conn: &mut Conn<'_>,
+        conn: &'a mut WriteConn<'t, 'c>,
     ) -> Result<(), Error> {
         let filter = tokens::table
             .filter(tokens::token_type.eq(TokenType::HostProvision))

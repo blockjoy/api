@@ -128,6 +128,12 @@ impl From<axum::http::header::HeaderMap> for Metadata {
     }
 }
 
+impl Into<axum::http::header::HeaderMap> for Metadata {
+    fn into(self) -> axum::http::header::HeaderMap {
+        self.headers
+    }
+}
+
 /// Response status codes returned from both gRPC and http handlers.
 pub(crate) enum Status {
     NotFound(Cow<'static, str>),

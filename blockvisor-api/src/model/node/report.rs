@@ -11,7 +11,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::auth::resource::{NodeId, Resource, ResourceId, ResourceType};
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::Status;
 use crate::model::schema::node_reports;
 
@@ -65,7 +65,7 @@ pub struct NodeReport {
 }
 
 impl NodeReport {
-    pub async fn by_node(node_id: NodeId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_node(node_id: NodeId, conn: &mut ReadConn<'_, '_>) -> Result<Vec<Self>, Error> {
         node_reports::table
             .filter(node_reports::node_id.eq(node_id))
             .get_results(conn)
@@ -75,7 +75,7 @@ impl NodeReport {
 
     pub async fn by_node_ids(
         node_ids: &HashSet<NodeId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         node_reports::table
             .filter(node_reports::node_id.eq_any(node_ids))
@@ -99,7 +99,7 @@ pub struct NewNodeReport {
 }
 
 impl NewNodeReport {
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<NodeReport, Error> {
+    pub async fn create(self, conn: &mut WriteConn<'_, '_>) -> Result<NodeReport, Error> {
         let report = diesel::insert_into(node_reports::table)
             .values(self)
             .get_result(conn)

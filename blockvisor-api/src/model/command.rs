@@ -13,7 +13,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::auth::resource::{HostId, NodeId};
-use crate::database::Conn;
+use crate::database::ReadConn;
+use crate::database::WriteConn;
 use crate::grpc::Status;
 use crate::grpc::api;
 
@@ -129,7 +130,7 @@ pub struct Command {
 }
 
 impl Command {
-    pub async fn by_id(id: CommandId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: CommandId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         commands::table
             .find(id)
             .get_result(conn)
@@ -137,7 +138,10 @@ impl Command {
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn has_host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<bool, Error> {
+    pub async fn has_host_pending(
+        host_id: HostId,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<bool, Error> {
         let pending = commands::table
             .filter(commands::host_id.eq(host_id))
             .filter(commands::exit_code.is_null());
@@ -148,7 +152,10 @@ impl Command {
             .map_err(Error::HasHostPending)
     }
 
-    pub async fn host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<Vec<Command>, Error> {
+    pub async fn host_pending(
+        host_id: HostId,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Vec<Command>, Error> {
         commands::table
             .filter(commands::host_id.eq(host_id))
             .filter(commands::exit_code.is_null())
@@ -158,7 +165,10 @@ impl Command {
             .map_err(Error::HostPending)
     }
 
-    pub async fn list(filter: CommandFilter, conn: &mut Conn<'_>) -> Result<Vec<Command>, Error> {
+    pub async fn list(
+        filter: CommandFilter,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Vec<Command>, Error> {
         let mut query = commands::table.into_boxed();
 
         if let Some(host_id) = filter.host_id {
@@ -178,7 +188,10 @@ impl Command {
             .map_err(Error::Filter)
     }
 
-    pub async fn delete_host_pending(host_id: HostId, conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn delete_host_pending(
+        host_id: HostId,
+        conn: &mut WriteConn<'_, '_>,
+    ) -> Result<(), Error> {
         let pending = commands::table
             .filter(commands::host_id.eq(host_id))
             .filter(commands::exit_code.is_null());
@@ -190,7 +203,10 @@ impl Command {
             .map_err(Error::DeleteHostPending)
     }
 
-    pub async fn delete_node_pending(node_id: NodeId, conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn delete_node_pending(
+        node_id: NodeId,
+        conn: &mut WriteConn<'_, '_>,
+    ) -> Result<(), Error> {
         let pending = commands::table
             .filter(commands::node_id.eq(node_id))
             .filter(commands::exit_code.is_null());
@@ -202,14 +218,14 @@ impl Command {
             .map_err(Error::DeleteNodePending)
     }
 
-    pub async fn node(&self, conn: &mut Conn<'_>) -> Result<Option<Node>, Error> {
+    pub async fn node(&self, conn: &mut ReadConn<'_, '_>) -> Result<Option<Node>, Error> {
         match self.node_id {
             Some(node_id) => Ok(Some(Node::by_id(node_id, conn).await?)),
             None => Ok(None),
         }
     }
 
-    pub async fn ack(&self, conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn ack(&self, conn: &mut WriteConn<'_, '_>) -> Result<(), Error> {
         diesel::update(commands::table.find(self.id))
             .set(commands::acked_at.eq(Utc::now()))
             .execute(conn)
@@ -264,7 +280,7 @@ impl NewCommand {
         self
     }
 
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Command, Error> {
+    pub async fn create(self, conn: &mut WriteConn<'_, '_>) -> Result<Command, Error> {
         diesel::insert_into(commands::table)
             .values(self)
             .get_result(conn)
@@ -283,7 +299,11 @@ pub struct UpdateCommand {
 }
 
 impl UpdateCommand {
-    pub async fn apply(self, id: CommandId, conn: &mut Conn<'_>) -> Result<Command, Error> {
+    pub async fn apply(
+        self,
+        id: CommandId,
+        conn: &mut WriteConn<'_, '_>,
+    ) -> Result<Command, Error> {
         diesel::update(commands::table.find(id))
             .set(self)
             .get_result(conn)

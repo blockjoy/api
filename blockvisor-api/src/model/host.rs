@@ -14,7 +14,7 @@ use displaydoc::Display;
 use thiserror::Error;
 
 use crate::auth::resource::{HostId, OrgId, Resource, ResourceId, ResourceType};
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, common};
 use crate::model::sql::{self, Amount, IpNetwork, Tags, Version, greatest};
 use crate::util::{SearchOperator, SortOrder};
@@ -156,7 +156,7 @@ impl Host {
     pub async fn by_id(
         id: HostId,
         org_id: Option<OrgId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         hosts::table
             .find(id)
@@ -170,7 +170,7 @@ impl Host {
     pub async fn by_ids(
         ids: &HashSet<HostId>,
         org_ids: &HashSet<OrgId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         hosts::table
             .filter(hosts::id.eq_any(ids))
@@ -181,7 +181,7 @@ impl Host {
             .map_err(|err| Error::FindByIds(ids.clone(), err))
     }
 
-    pub async fn org_id(id: HostId, conn: &mut Conn<'_>) -> Result<Option<OrgId>, Error> {
+    pub async fn org_id(id: HostId, conn: &mut ReadConn<'_, '_>) -> Result<Option<OrgId>, Error> {
         hosts::table
             .find(id)
             .filter(hosts::deleted_at.is_null())
@@ -191,7 +191,10 @@ impl Host {
             .map_err(|err| Error::FindOrgId(id, err))
     }
 
-    pub async fn deleted_org_id(id: HostId, conn: &mut Conn<'_>) -> Result<Option<OrgId>, Error> {
+    pub async fn deleted_org_id(
+        id: HostId,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Option<OrgId>, Error> {
         hosts::table
             .find(id)
             .select(hosts::org_id)
@@ -200,7 +203,7 @@ impl Host {
             .map_err(|err| Error::FindDeletedOrgId(id, err))
     }
 
-    pub async fn add_node(node: &Node, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn add_node(node: &Node, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(hosts::table.find(node.host_id))
             .set((
                 hosts::node_count.eq(hosts::node_count + 1),
@@ -213,7 +216,7 @@ impl Host {
             .map_err(|err| Error::AddNode(node.host_id, err))
     }
 
-    pub async fn remove_node(node: &Node, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn remove_node(node: &Node, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(hosts::table.find(node.host_id))
             .set((
                 hosts::node_count.eq(greatest(0, hosts::node_count - 1)),
@@ -230,7 +233,7 @@ impl Host {
     pub async fn delete(
         id: HostId,
         org_id: Option<OrgId>,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<(), Error> {
         let row = hosts::table
             .find(id)
@@ -257,7 +260,7 @@ impl Host {
     pub async fn candidates(
         require: HostRequirements<'_>,
         limit: Option<i64>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<HostCandidate>, Error> {
         let free_cpu = hosts::cpu_cores - hosts::node_cpu_cores;
         let free_memory = hosts::memory_bytes - hosts::node_memory_bytes;
@@ -383,7 +386,11 @@ pub struct NewHost<'a> {
 }
 
 impl NewHost<'_> {
-    pub async fn create(self, ips: &[IpNetwork], conn: &mut Conn<'_>) -> Result<Host, Error> {
+    pub async fn create(
+        self,
+        ips: &[IpNetwork],
+        conn: &mut WriteConn<'_, '_>,
+    ) -> Result<Host, Error> {
         if let Some(org_id) = self.org_id {
             Org::add_host(org_id, conn).await?;
         }
@@ -431,7 +438,7 @@ impl UpdateHost<'_> {
         self
     }
 
-    pub async fn apply(self, id: HostId, conn: &mut Conn<'_>) -> Result<Host, Error> {
+    pub async fn apply(self, id: HostId, conn: &mut WriteConn<'_, '_>) -> Result<Host, Error> {
         if self == Self::default() {
             return Err(Error::NoUpdate);
         }
@@ -461,7 +468,7 @@ pub struct UpdateHostMetrics {
 }
 
 impl UpdateHostMetrics {
-    pub async fn apply(&self, conn: &mut Conn<'_>) -> Result<Host, Error> {
+    pub async fn apply(&self, conn: &mut WriteConn<'_, '_>) -> Result<Host, Error> {
         let row = hosts::table
             .find(self.id)
             .filter(hosts::deleted_at.is_null());
@@ -566,7 +573,7 @@ pub struct HostFilter {
 }
 
 impl HostFilter {
-    pub async fn query(mut self, conn: &mut Conn<'_>) -> Result<(Vec<Host>, u64), Error> {
+    pub async fn query(mut self, conn: &mut ReadConn<'_, '_>) -> Result<(Vec<Host>, u64), Error> {
         let mut query = hosts::table
             .filter(hosts::deleted_at.is_null())
             .into_boxed();

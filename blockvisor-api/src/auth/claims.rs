@@ -6,7 +6,7 @@ use displaydoc::Display;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::database::Conn;
+use crate::database::ReadConn;
 use crate::grpc::Status;
 use crate::model::rbac::{RbacPerm, RbacUser};
 use crate::model::{Host, Node};
@@ -127,7 +127,7 @@ impl Claims {
     pub async fn ensure_resources(
         &self,
         resources: Resources,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Option<Granted>, Error> {
         match resources {
             Resources::All => Ok(None),
@@ -150,7 +150,7 @@ impl Claims {
     pub async fn ensure_resource(
         &self,
         resource: Resource,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Option<Granted>, Error> {
         match resource {
             Resource::User(id) => self.ensure_user(id).map(|()| None),
@@ -174,7 +174,7 @@ impl Claims {
     pub async fn ensure_org(
         &self,
         org_id: OrgId,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Option<Granted>, Error> {
         match self.resource() {
             Resource::User(id) => Ok(Some(Granted(
@@ -195,7 +195,7 @@ impl Claims {
     pub async fn ensure_host(
         &self,
         host_id: HostId,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Option<Granted>, Error> {
         let org_id = Host::org_id(host_id, conn).await?;
         match (self.resource(), org_id) {
@@ -213,10 +213,10 @@ impl Claims {
     /// Ensure that `Claims` can access the target `NodeId`.
     ///
     /// Returns any additional permissions granted during authorization.
-    pub async fn ensure_node(
+    pub async fn ensure_node<'a, 't, 'c>(
         &self,
         node_id: NodeId,
-        conn: &mut Conn<'_>,
+        conn: &'a mut ReadConn<'t, 'c>,
     ) -> Result<Option<Granted>, Error> {
         let org_id = Node::deleted_org_id(node_id, conn).await?;
 
@@ -249,7 +249,7 @@ impl Granted {
     pub async fn all_orgs(
         user_id: UserId,
         granted: Option<Granted>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         let mut granted = granted.unwrap_or_default();
         let perms = RbacUser::perms_for_non_org_roles(user_id, conn).await?;
@@ -264,7 +264,7 @@ impl Granted {
     pub async fn from_access(
         access: &Access,
         granted: Option<Granted>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         let mut granted = granted.unwrap_or_default();
 
@@ -288,7 +288,7 @@ impl Granted {
         user_id: UserId,
         org_id: OrgId,
         ensure_member: bool,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         RbacPerm::for_org(user_id, org_id, ensure_member, conn)
             .await

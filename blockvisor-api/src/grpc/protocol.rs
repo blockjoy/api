@@ -9,7 +9,7 @@ use tracing::error;
 
 use crate::auth::rbac::{Perm, ProtocolAdminPerm, ProtocolPerm};
 use crate::auth::{AuthZ, Authorize};
-use crate::database::{Conn, ReadConn, Transaction, WriteConn};
+use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::model::protocol::stats::NodeStats;
 use crate::model::protocol::version::{
     NewVersion, ProtocolKey, ProtocolVersion, UpdateVersion, VersionKey, VersionMetadata,
@@ -634,7 +634,7 @@ impl api::Protocol {
     async fn from_models(
         protocols: Vec<Protocol>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         let ids: HashSet<_> = protocols.iter().map(|protocol| protocol.id).collect();
         let org_ids: HashSet<_> = protocols
@@ -670,7 +670,7 @@ impl api::Protocol {
     async fn from_model(
         protocol: Protocol,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         let mut protocols = Self::from_models(vec![protocol], authz, conn)
             .await?

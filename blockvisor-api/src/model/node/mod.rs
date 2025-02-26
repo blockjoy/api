@@ -35,7 +35,7 @@ use tracing::warn;
 use crate::auth::AuthZ;
 use crate::auth::rbac::{BillingPerm, NodeAdminPerm};
 use crate::auth::resource::{HostId, NodeId, OrgId, Resource, ResourceId, ResourceType, UserId};
-use crate::database::{Conn, WriteConn};
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, api};
 use crate::model::sql::{self, Amount, Currency, IpNetwork, Period, Tags, Version};
 use crate::stripe::api::subscription::SubscriptionItemId;
@@ -269,7 +269,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub async fn by_id(id: NodeId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: NodeId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         nodes::table
             .find(id)
             .filter(nodes::deleted_at.is_null())
@@ -278,7 +278,7 @@ impl Node {
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn deleted_by_id(id: NodeId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn deleted_by_id(id: NodeId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         nodes::table
             .find(id)
             .get_result(conn)
@@ -286,7 +286,10 @@ impl Node {
             .map_err(|err| Error::FindDeletedById(id, err))
     }
 
-    pub async fn by_ids(ids: &HashSet<NodeId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_ids(
+        ids: &HashSet<NodeId>,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Vec<Self>, Error> {
         nodes::table
             .filter(nodes::id.eq_any(ids))
             .filter(nodes::deleted_at.is_null())
@@ -298,7 +301,7 @@ impl Node {
     pub async fn by_host_ids(
         host_ids: &HashSet<HostId>,
         org_ids: &HashSet<OrgId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         nodes::table
             .filter(nodes::host_id.eq_any(host_ids))
@@ -311,7 +314,7 @@ impl Node {
 
     pub async fn by_version_ids(
         version_ids: &HashSet<VersionId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         nodes::table
             .filter(nodes::protocol_version_id.eq_any(version_ids))
@@ -321,7 +324,7 @@ impl Node {
             .map_err(|err| Error::FindByVersionIds(version_ids.clone(), err))
     }
 
-    pub async fn org_id(id: NodeId, conn: &mut Conn<'_>) -> Result<OrgId, Error> {
+    pub async fn org_id(id: NodeId, conn: &mut ReadConn<'_, '_>) -> Result<OrgId, Error> {
         nodes::table
             .find(id)
             .filter(nodes::deleted_at.is_null())
@@ -331,7 +334,7 @@ impl Node {
             .map_err(|err| Error::FindOrgId(id, err))
     }
 
-    pub async fn deleted_org_id(id: NodeId, conn: &mut Conn<'_>) -> Result<OrgId, Error> {
+    pub async fn deleted_org_id(id: NodeId, conn: &mut ReadConn<'_, '_>) -> Result<OrgId, Error> {
         nodes::table
             .find(id)
             .select(nodes::org_id)
@@ -340,7 +343,7 @@ impl Node {
             .map_err(|err| Error::FindDeletedOrgId(id, err))
     }
 
-    pub async fn host_id(id: NodeId, conn: &mut Conn<'_>) -> Result<HostId, Error> {
+    pub async fn host_id(id: NodeId, conn: &mut ReadConn<'_, '_>) -> Result<HostId, Error> {
         nodes::table
             .find(id)
             .filter(nodes::deleted_at.is_null())
@@ -350,7 +353,7 @@ impl Node {
             .map_err(|err| Error::FindHostId(id, err))
     }
 
-    pub async fn deleted_host_id(id: NodeId, conn: &mut Conn<'_>) -> Result<HostId, Error> {
+    pub async fn deleted_host_id(id: NodeId, conn: &mut ReadConn<'_, '_>) -> Result<HostId, Error> {
         nodes::table
             .find(id)
             .select(nodes::host_id)
@@ -359,7 +362,10 @@ impl Node {
             .map_err(|err| Error::FindDeletedHostId(id, err))
     }
 
-    pub async fn host_has_nodes(host_id: HostId, conn: &mut Conn<'_>) -> Result<bool, Error> {
+    pub async fn host_has_nodes(
+        host_id: HostId,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<bool, Error> {
         let query = nodes::table
             .filter(nodes::host_id.eq(host_id))
             .filter(nodes::deleted_at.is_null());
@@ -470,7 +476,7 @@ impl Node {
         Ok(Some(best))
     }
 
-    pub async fn scheduler(&self, conn: &mut Conn<'_>) -> Result<NodeScheduler, Error> {
+    pub async fn scheduler(&self, conn: &mut ReadConn<'_, '_>) -> Result<NodeScheduler, Error> {
         Ok(NodeScheduler {
             resource: self.scheduler_resource,
             similarity: self.scheduler_similarity,
@@ -478,7 +484,7 @@ impl Node {
         })
     }
 
-    pub async fn region(&self, conn: &mut Conn<'_>) -> Result<Option<Region>, Error> {
+    pub async fn region(&self, conn: &mut ReadConn<'_, '_>) -> Result<Option<Region>, Error> {
         let Some(region_id) = self.scheduler_region_id else {
             return Ok(None);
         };
@@ -507,7 +513,7 @@ impl Node {
         &self,
         created_by: Resource,
         message: String,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<NodeReport, Error> {
         let report = NewNodeReport {
             node_id: self.id,
@@ -786,7 +792,7 @@ impl NewNode {
         &self,
         scheduler: &NodeScheduler,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<HostCandidate, Error> {
         let config = Config::by_id(self.config_id, conn).await?;
         let node_config = config.node_config()?;
@@ -825,7 +831,7 @@ impl UpdateNode<'_> {
         self,
         id: NodeId,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<Node, Error> {
         let node = Node::by_id(id, conn).await?;
 
@@ -861,7 +867,7 @@ impl UpdateNodeConfig {
         self,
         id: NodeId,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<Node, Error> {
         let node = Node::by_id(id, conn).await?;
         let config = Config::by_id(node.config_id, conn).await?;
@@ -902,7 +908,7 @@ pub struct UpdateNodeState<'u> {
 }
 
 impl UpdateNodeState<'_> {
-    pub async fn apply(self, id: NodeId, conn: &mut Conn<'_>) -> Result<Node, Error> {
+    pub async fn apply(self, id: NodeId, conn: &mut WriteConn<'_, '_>) -> Result<Node, Error> {
         let row = nodes::table.find(id);
         diesel::update(row)
             .set((self, nodes::updated_at.eq(Utc::now())))
@@ -926,7 +932,7 @@ pub struct UpdateNodeMetrics {
 }
 
 impl UpdateNodeMetrics {
-    pub async fn apply(&self, conn: &mut Conn<'_>) -> Result<Node, Error> {
+    pub async fn apply(&self, conn: &mut WriteConn<'_, '_>) -> Result<Node, Error> {
         let row = nodes::table
             .find(self.id)
             .filter(nodes::deleted_at.is_null());
@@ -938,7 +944,10 @@ impl UpdateNodeMetrics {
             .map_err(|err| Error::UpdateMetrics(self.id, err))
     }
 
-    pub async fn apply_all(updates: Vec<Self>, conn: &mut Conn<'_>) -> Result<Vec<Node>, Error> {
+    pub async fn apply_all(
+        updates: Vec<Self>,
+        conn: &mut WriteConn<'_, '_>,
+    ) -> Result<Vec<Node>, Error> {
         let mut results = Vec::with_capacity(updates.len());
         for update in updates {
             match update.apply(conn).await {
@@ -960,7 +969,7 @@ pub struct UpgradeNode<'a> {
 }
 
 impl UpgradeNode<'_> {
-    pub async fn apply(self, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Node, Error> {
+    pub async fn apply(self, authz: &AuthZ, conn: &mut WriteConn<'_, '_>) -> Result<Node, Error> {
         let node = Node::by_id(self.id, conn).await?;
         let config = Config::by_id(node.config_id, conn).await?;
 
@@ -1098,7 +1107,7 @@ pub struct NodeFilter {
 impl NodeFilter {
     const DELETED_STATES: &[NodeState] = &[NodeState::Deleting, NodeState::Deleted];
 
-    pub async fn query(mut self, conn: &mut Conn<'_>) -> Result<(Vec<Node>, u64), Error> {
+    pub async fn query(mut self, conn: &mut ReadConn<'_, '_>) -> Result<(Vec<Node>, u64), Error> {
         let mut query = nodes::table
             .inner_join(protocol_versions::table)
             .into_boxed();
@@ -1254,7 +1263,6 @@ mod tests {
         let (mqtt_tx, _mqtt_rx) = mpsc::unbounded_channel();
         let mut write = WriteConn {
             conn: &mut db.conn().await,
-            ctx: &ctx,
             meta_tx,
             mqtt_tx,
         };

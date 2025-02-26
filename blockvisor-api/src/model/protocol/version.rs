@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthZ;
 use crate::auth::resource::OrgId;
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, api, common};
 use crate::model::Region;
 use crate::model::schema::protocol_versions;
@@ -110,7 +110,7 @@ impl ProtocolVersion {
         id: VersionId,
         org_id: Option<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         protocol_versions::table
             .find(id)
@@ -129,7 +129,7 @@ impl ProtocolVersion {
         ids: &HashSet<VersionId>,
         org_ids: &HashSet<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         protocol_versions::table
             .filter(protocol_versions::id.eq_any(ids))
@@ -148,7 +148,7 @@ impl ProtocolVersion {
         version_key: &'k VersionKey<'k>,
         org_id: Option<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         let mut versions: Vec<Self> = protocol_versions::table
             .filter(protocol_versions::protocol_key.eq(&version_key.protocol_key))
@@ -171,7 +171,7 @@ impl ProtocolVersion {
         version_key: &'k VersionKey<'k>,
         org_id: Option<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         let mut versions = Self::by_key(version_key, org_id, authz, conn).await?;
         if let Some(version) = versions.pop() {
@@ -185,7 +185,7 @@ impl ProtocolVersion {
         protocol_id: ProtocolId,
         org_id: Option<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         protocol_versions::table
             .filter(protocol_versions::protocol_id.eq(protocol_id))
@@ -204,7 +204,7 @@ impl ProtocolVersion {
         protocol_ids: &HashSet<ProtocolId>,
         org_ids: &HashSet<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         protocol_versions::table
             .filter(protocol_versions::protocol_id.eq_any(protocol_ids))
@@ -274,7 +274,7 @@ pub struct NewVersion<'v> {
 }
 
 impl NewVersion<'_> {
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<ProtocolVersion, Error> {
+    pub async fn create(self, conn: &mut WriteConn<'_, '_>) -> Result<ProtocolVersion, Error> {
         diesel::insert_into(protocol_versions::table)
             .values(self)
             .get_result(conn)
@@ -293,7 +293,7 @@ pub struct UpdateVersion<'u> {
 }
 
 impl UpdateVersion<'_> {
-    pub async fn apply(self, conn: &mut Conn<'_>) -> Result<ProtocolVersion, Error> {
+    pub async fn apply(self, conn: &mut WriteConn<'_, '_>) -> Result<ProtocolVersion, Error> {
         let id = self.id;
         diesel::update(protocol_versions::table.find(id))
             .set((self, protocol_versions::updated_at.eq(Utc::now())))

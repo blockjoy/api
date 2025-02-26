@@ -20,7 +20,7 @@ use validator::Validate;
 
 use crate::auth::rbac::{OrgRole, Role};
 use crate::auth::resource::{OrgId, UserId};
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, api};
 use crate::model::sql;
 use crate::util::{NanosUtc, SearchOperator, SortOrder};
@@ -129,7 +129,7 @@ pub struct User {
 }
 
 impl User {
-    pub async fn by_id(id: UserId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: UserId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         users::table
             .find(id)
             .filter(users::deleted_at.is_null())
@@ -140,7 +140,7 @@ impl User {
 
     pub async fn by_ids(
         user_ids: &HashSet<UserId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         users::table
             .filter(users::id.eq_any(user_ids))
@@ -150,7 +150,7 @@ impl User {
             .map_err(|err| Error::FindByIds(user_ids.clone(), err))
     }
 
-    pub async fn by_email(email: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_email(email: &str, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         users::table
             .filter(sql::lower(users::email).eq(&email.trim().to_lowercase()))
             .filter(users::deleted_at.is_null())
@@ -162,7 +162,7 @@ impl User {
     pub async fn by_org_role(
         org_id: OrgId,
         role: Role,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         users::table
             .inner_join(user_roles::table)
@@ -175,7 +175,7 @@ impl User {
             .map_err(|err| Error::FindByOrgRole(org_id, role, err))
     }
 
-    pub async fn owner(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn owner(org_id: OrgId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         let mut owners = users::table
             .inner_join(user_roles::table)
             .filter(users::deleted_at.is_null())
@@ -210,7 +210,7 @@ impl User {
             .map_err(Error::VerifyPassword)
     }
 
-    pub async fn update(&self, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn update(&self, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(users::table.find(self.id))
             .set(self)
             .get_result(conn)
@@ -221,7 +221,7 @@ impl User {
     pub async fn update_password(
         &self,
         password: &str,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<Self, Error> {
         let salt = SaltString::generate(&mut OsRng);
         let hash = Argon2::default()
@@ -239,7 +239,11 @@ impl User {
             .map_err(Error::UpdatePassword)
     }
 
-    pub async fn login(email: &str, password: &str, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn login(
+        email: &str,
+        password: &str,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Self, Error> {
         let user = match Self::by_email(email, conn).await {
             Ok(user) => Ok(user),
             Err(Error::FindByEmail(_, NotFound)) => Err(Error::LoginEmail),
@@ -254,7 +258,7 @@ impl User {
         }
     }
 
-    pub async fn confirm(user_id: UserId, conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn confirm(user_id: UserId, conn: &mut WriteConn<'_, '_>) -> Result<(), Error> {
         let target_user = users::table
             .find(user_id)
             .filter(users::confirmed_at.is_null())
@@ -274,7 +278,7 @@ impl User {
         }
     }
 
-    pub async fn is_confirmed(id: UserId, conn: &mut Conn<'_>) -> Result<bool, Error> {
+    pub async fn is_confirmed(id: UserId, conn: &mut ReadConn<'_, '_>) -> Result<bool, Error> {
         users::table
             .find(id)
             .filter(users::deleted_at.is_null())
@@ -284,7 +288,7 @@ impl User {
             .map_err(|err| Error::IsConfirmed(id, err))
     }
 
-    pub async fn delete(id: UserId, conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn delete(id: UserId, conn: &mut WriteConn<'_, '_>) -> Result<(), Error> {
         diesel::update(users::table.find(id))
             .set(users::deleted_at.eq(Utc::now()))
             .execute(conn)
@@ -349,7 +353,7 @@ pub struct UserFilter {
 }
 
 impl UserFilter {
-    pub async fn query(mut self, conn: &mut Conn<'_>) -> Result<(Vec<User>, u64), Error> {
+    pub async fn query(mut self, conn: &mut ReadConn<'_, '_>) -> Result<(Vec<User>, u64), Error> {
         let mut query = users::table.left_join(user_roles::table).into_boxed();
 
         if !self.user_ids.is_empty() {
@@ -456,7 +460,7 @@ impl<'a> NewUser<'a> {
             .map_err(Error::ValidateNew)
     }
 
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<User, Error> {
+    pub async fn create(self, conn: &mut WriteConn<'_, '_>) -> Result<User, Error> {
         let user: User = diesel::insert_into(users::table)
             .values(self)
             .get_result(conn)
@@ -478,7 +482,7 @@ pub struct UpdateUser<'a> {
 }
 
 impl UpdateUser<'_> {
-    pub async fn apply(self, conn: &mut Conn<'_>) -> Result<User, Error> {
+    pub async fn apply(self, conn: &mut WriteConn<'_, '_>) -> Result<User, Error> {
         let user_id = self.id;
         diesel::update(users::table.find(user_id))
             .set(self)

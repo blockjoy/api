@@ -10,7 +10,7 @@ use tracing::error;
 use crate::auth::rbac::{CryptPerm, NodeAdminPerm, NodePerm, Perm};
 use crate::auth::resource::{NodeId, OrgId, Resource};
 use crate::auth::{AuthZ, Authorize};
-use crate::database::{Conn, ReadConn, Transaction, WriteConn};
+use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::model::command::NewCommand;
 use crate::model::image::ConfigId;
 use crate::model::image::config::{Config, ConfigType, NewConfig, NodeConfig};
@@ -780,7 +780,7 @@ impl api::Node {
     pub async fn maybe_from_model(
         node: Node,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Option<Self>, Error> {
         use crate::model::protocol::Error as ProtocolError;
         use crate::model::protocol::version::Error as VersionError;
@@ -797,7 +797,11 @@ impl api::Node {
         }
     }
 
-    pub async fn from_model(node: Node, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn from_model(
+        node: Node,
+        authz: &AuthZ,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Self, Error> {
         let config = Config::by_id(node.config_id, conn).await?;
         let org = Org::by_id(node.org_id, conn).await?;
 
@@ -817,7 +821,7 @@ impl api::Node {
     pub async fn from_models(
         nodes: Vec<Node>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         let node_ids = nodes.iter().map(|n| n.id).collect();
 

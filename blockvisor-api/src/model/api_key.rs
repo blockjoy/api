@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::auth::resource::{Resource, ResourceId, ResourceType, UserId};
 use crate::auth::token::api_key::{BearerSecret, KeyHash, KeyId, Salt, Secret};
-use crate::database::{Conn, WriteConn};
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, api, common};
 use crate::model::sql::Permissions;
 use crate::util::NanosUtc;
@@ -62,7 +62,7 @@ pub struct ApiKey {
 }
 
 impl ApiKey {
-    pub async fn by_id(key_id: KeyId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(key_id: KeyId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         api_keys::table
             .find(key_id)
             .get_result(conn)
@@ -70,7 +70,10 @@ impl ApiKey {
             .map_err(Error::FindById)
     }
 
-    pub async fn by_user_id(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_user_id(
+        user_id: UserId,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Vec<Self>, Error> {
         api_keys::table
             .filter(api_keys::user_id.eq(user_id))
             .get_results(conn)
@@ -78,7 +81,7 @@ impl ApiKey {
             .map_err(Error::FindByUser)
     }
 
-    pub async fn delete(key_id: KeyId, conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn delete(key_id: KeyId, conn: &mut WriteConn<'_, '_>) -> Result<(), Error> {
         diesel::delete(api_keys::table.find(key_id))
             .execute(conn)
             .await

@@ -11,7 +11,7 @@ use tracing::error;
 use crate::auth::Authorize;
 use crate::auth::rbac::{OrgAddressPerm, OrgAdminPerm, OrgBillingPerm, OrgPerm, OrgProvisionPerm};
 use crate::auth::resource::{OrgId, UserId};
-use crate::database::{Conn, ReadConn, Transaction, WriteConn};
+use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::model::address::NewAddress;
 use crate::model::org::{NewOrg, OrgFilter, OrgSearch, OrgSort, UpdateOrg};
 use crate::model::rbac::{OrgUsers, RbacUser};
@@ -233,7 +233,7 @@ impl OrgService for Grpc {
         req: Request<api::OrgServiceSetAddressRequest>,
     ) -> Result<Response<api::OrgServiceSetAddressResponse>, tonic::Status> {
         let (meta, _, req) = req.into_parts();
-        self.read(|read| set_address(req, meta.into(), read).scope_boxed())
+        self.write(|write| set_address(req, meta.into(), write).scope_boxed())
             .await
     }
 
@@ -574,7 +574,7 @@ pub async fn get_address(
 pub async fn set_address(
     req: api::OrgServiceSetAddressRequest,
     meta: Metadata,
-    mut write: ReadConn<'_, '_>,
+    mut write: WriteConn<'_, '_>,
 ) -> Result<api::OrgServiceSetAddressResponse, Error> {
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
     write.auth_for(&meta, OrgAddressPerm::Set, org_id).await?;
@@ -681,7 +681,7 @@ impl api::Org {
     /// Converts a list of `orgs` into a list of `api::Org`.
     ///
     /// Performs O(1) database queries irrespective of the number of orgs.
-    pub async fn from_models<O>(orgs: &[O], conn: &mut Conn<'_>) -> Result<Vec<Self>, Error>
+    pub async fn from_models<O>(orgs: &[O], conn: &mut ReadConn<'_, '_>) -> Result<Vec<Self>, Error>
     where
         O: AsRef<Org> + Send + Sync,
     {
@@ -752,7 +752,7 @@ impl api::Org {
             .collect()
     }
 
-    pub async fn from_model(org: &Org, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn from_model(org: &Org, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         Self::from_models(&[org], conn)
             .await?
             .pop()

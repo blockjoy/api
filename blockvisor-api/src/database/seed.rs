@@ -20,7 +20,7 @@ use crate::model::sql::{IpNetwork, Tag};
 use crate::model::user::NewUser;
 use crate::model::{IpAddress, Org, User};
 
-use super::Conn;
+use super::{Conn, WriteConn};
 
 pub const SUPER_EMAIL: &str = "super@user.com";
 pub const ADMIN_EMAIL: &str = "admin@org.com";
@@ -96,7 +96,7 @@ pub struct Seed {
 }
 
 impl Seed {
-    pub async fn new(conn: &mut Conn<'_>) -> Self {
+    pub async fn new(conn: &mut WriteConn<'_, '_>) -> Self {
         setup_rbac(conn).await;
 
         let org = create_orgs(conn).await;
@@ -173,7 +173,7 @@ async fn create_image(conn: &mut Conn<'_>) -> (Protocol, ProtocolVersion, Image)
     (protocol, version, image)
 }
 
-async fn create_orgs(conn: &mut Conn<'_>) -> Org {
+async fn create_orgs(conn: &mut WriteConn<'_, '_>) -> Org {
     let org_id: OrgId = ORG_ID.parse().unwrap();
 
     diesel::insert_into(orgs::table)
@@ -190,7 +190,7 @@ async fn create_orgs(conn: &mut Conn<'_>) -> Org {
     Org::by_id(org_id, conn).await.unwrap()
 }
 
-async fn create_users(org_id: OrgId, conn: &mut Conn<'_>) -> (User, User, User) {
+async fn create_users(org_id: OrgId, conn: &mut WriteConn<'_, '_>) -> (User, User, User) {
     let new_user = |email, first, last| NewUser::new(email, first, last, LOGIN_PASSWORD).unwrap();
     let root = new_user(SUPER_EMAIL, "Super", "User")
         .create(conn)
@@ -239,7 +239,7 @@ async fn create_users(org_id: OrgId, conn: &mut Conn<'_>) -> (User, User, User) 
     (root, admin, member)
 }
 
-async fn create_region(conn: &mut Conn<'_>) -> Region {
+async fn create_region(conn: &mut WriteConn<'_, '_>) -> Region {
     let region = NewRegion {
         key: RegionKey::new("the-moon".into()).unwrap(),
         display_name: "to the moon",
@@ -252,7 +252,7 @@ async fn create_hosts(
     created_by_id: UserId,
     org_id: OrgId,
     region: &Region,
-    conn: &mut Conn<'_>,
+    conn: &mut WriteConn<'_, '_>,
 ) -> (Host, Host) {
     let bv_version = "0.1.0".parse().unwrap();
 
@@ -305,7 +305,7 @@ async fn create_hosts(
     (host1, host2)
 }
 
-async fn create_ip_range(host: &Host, conn: &mut Conn<'_>) -> (IpNetwork, IpNetwork) {
+async fn create_ip_range(host: &Host, conn: &mut WriteConn<'_, '_>) -> (IpNetwork, IpNetwork) {
     let ips = IP_RANGE
         .iter()
         .map(|ip| NewIpAddress::new(ip.parse().unwrap(), host.id))
@@ -327,7 +327,7 @@ async fn create_node(
     protocol: &Protocol,
     ip_address: IpNetwork,
     ip_gateway: IpNetwork,
-    conn: &mut Conn<'_>,
+    conn: &mut WriteConn<'_, '_>,
 ) -> (Node, Config) {
     let org_id: OrgId = ORG_ID.parse().unwrap();
     let node_id: NodeId = NODE_ID.parse().unwrap();
@@ -377,7 +377,7 @@ async fn create_node(
     (node, config)
 }
 
-async fn setup_rbac(conn: &mut Conn<'_>) {
+async fn setup_rbac(conn: &mut WriteConn<'_, '_>) {
     super::create_roles_and_perms(conn).await.unwrap();
 
     let query = "

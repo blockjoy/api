@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::auth::AuthZ;
 use crate::auth::rbac::ProtocolAdminPerm;
-use crate::database::Conn;
+use crate::database::ReadConn;
 use crate::grpc::{Status, api};
 use crate::model::node::NodeState;
 use crate::model::schema::nodes;
@@ -65,7 +65,7 @@ pub struct NodeStats {
 impl NodeStats {
     pub async fn for_protocol(
         protocol: &Protocol,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<NodeStats, Error> {
         nodes::table
             .filter(nodes::protocol_id.eq(protocol.id))
@@ -84,7 +84,7 @@ impl NodeStats {
 
     pub async fn for_version(
         version: &ProtocolVersion,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<NodeStats, Error> {
         nodes::table
             .filter(nodes::protocol_version_id.eq(version.id))
@@ -103,7 +103,7 @@ impl NodeStats {
 
     pub async fn for_all_protocols(
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<HashMap<ProtocolId, NodeStats>, Error> {
         if !authz.has_perm(ProtocolAdminPerm::ViewAllStats) {
             return Err(Error::MissingViewAll);
@@ -137,7 +137,7 @@ impl NodeStats {
 
     pub async fn for_all_versions(
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<HashMap<VersionId, NodeStats>, Error> {
         if !authz.has_perm(ProtocolAdminPerm::ViewAllStats) {
             return Err(Error::MissingViewAll);

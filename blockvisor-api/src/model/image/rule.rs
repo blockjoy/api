@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, common};
 use crate::model::schema::{image_rules, sql_types};
 
@@ -72,7 +72,7 @@ pub struct ImageRule {
 }
 
 impl ImageRule {
-    pub async fn by_id(id: ImageRuleId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: ImageRuleId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         image_rules::table
             .find(id)
             .get_result(conn)
@@ -80,7 +80,10 @@ impl ImageRule {
             .map_err(|err| Error::ById(id, err))
     }
 
-    pub async fn by_image_id(image_id: ImageId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_image_id(
+        image_id: ImageId,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Vec<Self>, Error> {
         image_rules::table
             .filter(image_rules::image_id.eq(image_id))
             .get_results(conn)
@@ -165,9 +168,9 @@ impl NewImageRule {
         })
     }
 
-    pub async fn bulk_create(
+    pub async fn bulk_create<'a, 't, 'c>(
         rules: Vec<Self>,
-        conn: &mut Conn<'_>,
+        conn: &'a mut WriteConn<'t, 'c>,
     ) -> Result<Vec<ImageRule>, Error> {
         diesel::insert_into(image_rules::table)
             .values(rules)

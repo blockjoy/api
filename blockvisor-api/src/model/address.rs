@@ -9,7 +9,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::auth::resource::OrgId;
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::Status;
 
 use super::schema::addresses;
@@ -59,7 +59,7 @@ pub struct Address {
 }
 
 impl Address {
-    pub async fn by_id(id: AddressId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: AddressId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         addresses::table
             .find(id)
             .get_result(conn)
@@ -67,7 +67,7 @@ impl Address {
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn by_org_id(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_org_id(org_id: OrgId, conn: &mut ReadConn<'_, '_>) -> Result<Vec<Self>, Error> {
         use super::schema::orgs;
         orgs::table
             .inner_join(addresses::table)
@@ -78,7 +78,7 @@ impl Address {
             .map_err(|err| Error::FindByOrgId(org_id, err))
     }
 
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn update(self, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(addresses::table.filter(addresses::id.eq(self.id)))
             .set(&self)
             .get_result(conn)
@@ -99,7 +99,7 @@ pub struct NewAddress<'a> {
 }
 
 impl NewAddress<'_> {
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Address, Error> {
+    pub async fn create(self, conn: &mut WriteConn<'_, '_>) -> Result<Address, Error> {
         diesel::insert_into(addresses::table)
             .values(self)
             .get_result(conn)

@@ -157,8 +157,7 @@ impl Authorize for ReadConn<'_, '_> {
 pub struct WriteConn<'c, 't> {
     #[deref]
     #[deref_mut]
-    pub conn: &'c mut Conn<'t>,
-    pub ctx: &'t Context,
+    pub conn: ReadConn<'c, 't>,
 
     pub meta_tx: UnboundedSender<(&'static str, AsciiMetadataValue)>,
     pub mqtt_tx: UnboundedSender<Message>,
@@ -285,8 +284,7 @@ where
         let response = conn
             .transaction(|conn| {
                 let write = WriteConn {
-                    conn,
-                    ctx,
+                    conn: ReadConn { conn, ctx },
                     meta_tx,
                     mqtt_tx,
                 };
@@ -408,7 +406,7 @@ impl ServerCertVerifier for IgnoreIssuer {
 }
 
 /// Ensure that all RBAC roles and permissions exist in the database.
-pub async fn create_roles_and_perms(conn: &mut Conn<'_>) -> Result<(), Error> {
+pub async fn create_roles_and_perms(conn: &mut WriteConn<'_, '_>) -> Result<(), Error> {
     RbacRole::create_all(conn)
         .await
         .map_err(Error::CreateRoles)?;
@@ -475,7 +473,17 @@ pub mod tests {
                 .unwrap();
 
             // Finally we seed the new database with test data.
-            let seed = Seed::new(&mut pool.conn().await.unwrap()).await;
+            let (meta_tx, _) = mpsc::unbounded_channel();
+            let (mqtt_tx, _) = mpsc::unbounded_channel();
+            let mut write = WriteConn {
+                conn: ReadConn {
+                    conn: &mut pool.conn().await.unwrap(),
+                    ctx: todo!(),
+                },
+                meta_tx,
+                mqtt_tx,
+            };
+            let seed = Seed::new(&mut write).await;
 
             TestDb {
                 pool,

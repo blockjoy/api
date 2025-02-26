@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthZ;
 use crate::auth::resource::OrgId;
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::Status;
 use crate::model::protocol::{VersionId, Visibility};
 use crate::model::schema::images;
@@ -108,7 +108,7 @@ impl Image {
         id: ImageId,
         org_id: Option<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         images::table
             .find(id)
@@ -123,7 +123,7 @@ impl Image {
         version_id: VersionId,
         org_id: Option<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         images::table
             .filter(images::protocol_version_id.eq(version_id))
@@ -139,7 +139,7 @@ impl Image {
         version_id: VersionId,
         org_id: Option<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Option<Self>, Error> {
         images::table
             .filter(images::protocol_version_id.eq(version_id))
@@ -156,7 +156,7 @@ impl Image {
         version_ids: &HashSet<VersionId>,
         org_id: Option<OrgId>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         images::table
             .filter(images::protocol_version_id.eq_any(version_ids))
@@ -172,7 +172,7 @@ impl Image {
         org_id: Option<OrgId>,
         build: i64,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         images::table
             .filter(images::protocol_version_id.eq(version_id))
@@ -204,7 +204,7 @@ pub struct NewImage {
 }
 
 impl NewImage {
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Image, Error> {
+    pub async fn create(self, conn: &mut WriteConn<'_, '_>) -> Result<Image, Error> {
         diesel::insert_into(images::table)
             .values(self)
             .get_result(conn)
@@ -221,7 +221,7 @@ pub struct UpdateImage {
 }
 
 impl UpdateImage {
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Image, Error> {
+    pub async fn update(self, conn: &mut WriteConn<'_, '_>) -> Result<Image, Error> {
         let id = self.id;
         diesel::update(images::table.find(id))
             .set(self)

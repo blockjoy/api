@@ -11,7 +11,7 @@ use tracing::{error, warn};
 use crate::auth::rbac::{CommandAdminPerm, CommandPerm};
 use crate::auth::resource::Resource;
 use crate::auth::{AuthZ, Authorize};
-use crate::database::{Conn, ReadConn, Transaction, WriteConn};
+use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::grpc::api::command_service_server::CommandService;
 use crate::grpc::{Grpc, Metadata, Status, api, common};
 use crate::model::command::{
@@ -373,7 +373,7 @@ impl api::Command {
     pub async fn from(
         command: &Command,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Option<Self>, Error> {
         match command.command_type {
             CommandType::HostStart
@@ -403,7 +403,7 @@ impl api::Command {
     pub async fn from_node(
         command: &Command,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Option<Self>, Error> {
         match command.command_type {
             CommandType::NodeCreate => node_create(command, authz, conn).await,
@@ -498,7 +498,7 @@ fn node_command(
 async fn node_create(
     command: &Command,
     authz: &AuthZ,
-    conn: &mut Conn<'_>,
+    conn: &mut ReadConn<'_, '_>,
 ) -> Result<Option<api::Command>, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
     let node = Node::by_id(node_id, conn).await?;
@@ -515,28 +515,34 @@ async fn node_create(
     node_command(command, node, node_cmd).map(Some)
 }
 
-async fn node_start(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+async fn node_start(command: &Command, conn: &mut ReadConn<'_, '_>) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
     let node = Node::by_id(node_id, conn).await?;
     let node_cmd = api::node_command::Command::Start(api::NodeStart {});
     node_command(command, node, node_cmd)
 }
 
-async fn node_stop(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+async fn node_stop(command: &Command, conn: &mut ReadConn<'_, '_>) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
     let node = Node::by_id(node_id, conn).await?;
     let node_cmd = api::node_command::Command::Stop(api::NodeStop {});
     node_command(command, node, node_cmd)
 }
 
-async fn node_restart(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+async fn node_restart(
+    command: &Command,
+    conn: &mut ReadConn<'_, '_>,
+) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
     let node = Node::by_id(node_id, conn).await?;
     let node_cmd = api::node_command::Command::Restart(api::NodeRestart {});
     node_command(command, node, node_cmd)
 }
 
-pub async fn node_update(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+pub async fn node_update(
+    command: &Command,
+    conn: &mut ReadConn<'_, '_>,
+) -> Result<api::Command, Error> {
     let bytes = command
         .protobuf
         .as_ref()
@@ -552,7 +558,7 @@ pub async fn node_update(command: &Command, conn: &mut Conn<'_>) -> Result<api::
 async fn node_upgrade(
     command: &Command,
     authz: &AuthZ,
-    conn: &mut Conn<'_>,
+    conn: &mut ReadConn<'_, '_>,
 ) -> Result<Option<api::Command>, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
     let node = Node::by_id(node_id, conn).await?;
@@ -569,7 +575,10 @@ async fn node_upgrade(
     node_command(command, node, node_cmd).map(Some)
 }
 
-pub async fn node_delete(command: &Command, conn: &mut Conn<'_>) -> Result<api::Command, Error> {
+pub async fn node_delete(
+    command: &Command,
+    conn: &mut ReadConn<'_, '_>,
+) -> Result<api::Command, Error> {
     let node_id = command.node_id.ok_or(Error::MissingNodeId)?;
     let node = Node::deleted_by_id(node_id, conn).await?;
     let node_cmd = api::node_command::Command::Delete(api::NodeDelete {});

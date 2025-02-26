@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthZ;
 use crate::auth::resource::{HostId, NodeId, OrgId, Resource, ResourceId, ResourceType};
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::Status;
 use crate::model::ImageId;
 use crate::model::schema::{node_logs, sql_types};
@@ -58,7 +58,10 @@ pub struct NodeLog {
 }
 
 impl NodeLog {
-    pub async fn by_node_id(node_id: NodeId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_node_id(
+        node_id: NodeId,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Vec<Self>, Error> {
         node_logs::table
             .filter(node_logs::node_id.eq(node_id))
             .get_results(conn)
@@ -99,7 +102,7 @@ impl NewNodeLog {
         Self::new(node.id, node.host_id, authz, event)
     }
 
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<NodeLog, Error> {
+    pub async fn create(self, conn: &mut WriteConn<'_, '_>) -> Result<NodeLog, Error> {
         diesel::insert_into(node_logs::table)
             .values(self)
             .get_result(conn)

@@ -15,7 +15,7 @@ use thiserror::Error;
 use crate::auth::rbac::OrgRole;
 use crate::auth::rbac::Role;
 use crate::auth::resource::{OrgId, UserId};
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::Status;
 use crate::model::sql;
 use crate::stripe::api::customer::CustomerId;
@@ -105,7 +105,7 @@ pub struct Org {
 }
 
 impl Org {
-    pub async fn by_id(id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: OrgId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         orgs::table
             .find(id)
             .filter(orgs::deleted_at.is_null())
@@ -114,7 +114,10 @@ impl Org {
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn by_ids(org_ids: &HashSet<OrgId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_ids(
+        org_ids: &HashSet<OrgId>,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Vec<Self>, Error> {
         orgs::table
             .filter(orgs::id.eq_any(org_ids))
             .filter(orgs::deleted_at.is_null())
@@ -123,7 +126,7 @@ impl Org {
             .map_err(|err| Error::FindByIds(org_ids.clone(), err))
     }
 
-    pub async fn find_personal(user_id: UserId, conn: &mut Conn<'_>) -> Result<Org, Error> {
+    pub async fn find_personal(user_id: UserId, conn: &mut ReadConn<'_, '_>) -> Result<Org, Error> {
         orgs::table
             .inner_join(user_roles::table)
             .filter(user_roles::user_id.eq(user_id))
@@ -138,7 +141,7 @@ impl Org {
     pub async fn set_customer_id(
         self,
         customer_id: &str,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<Org, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(self.id)))
             .set(orgs::stripe_customer_id.eq(customer_id))
@@ -151,7 +154,7 @@ impl Org {
         user_id: UserId,
         org_id: OrgId,
         role: OrgRole,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<Self, Error> {
         let roles = match role {
             OrgRole::Owner => [OrgRole::Owner, OrgRole::Admin, OrgRole::Member].iter(),
@@ -168,7 +171,7 @@ impl Org {
     pub async fn has_user(
         org_id: OrgId,
         user_id: UserId,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<bool, Error> {
         let target_user = user_roles::table
             .filter(user_roles::user_id.eq(user_id))
@@ -183,7 +186,7 @@ impl Org {
     pub async fn remove_user(
         user_id: UserId,
         org_id: OrgId,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<Self, Error> {
         Token::delete_host_provision(user_id, org_id, conn).await?;
         RbacUser::unlink_role(user_id, org_id, None::<Role>, conn).await?;
@@ -191,7 +194,7 @@ impl Org {
     }
 
     /// Marks the the given organization as deleted
-    pub async fn delete(&self, conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn delete(&self, conn: &mut WriteConn<'_, '_>) -> Result<(), Error> {
         let org_id = self.id;
         let to_delete = orgs::table
             .filter(orgs::id.eq(org_id))
@@ -205,7 +208,7 @@ impl Org {
             .map_err(|err| Error::Delete(org_id, err))
     }
 
-    pub async fn add_host(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn add_host(org_id: OrgId, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::host_count.eq(orgs::host_count + 1),
@@ -216,7 +219,7 @@ impl Org {
             .map_err(|err| Error::AddHost(org_id, err))
     }
 
-    pub async fn remove_host(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn remove_host(org_id: OrgId, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::host_count.eq(orgs::host_count - 1),
@@ -227,7 +230,7 @@ impl Org {
             .map_err(|err| Error::RemoveHost(org_id, err))
     }
 
-    pub async fn add_node(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn add_node(org_id: OrgId, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::node_count.eq(orgs::node_count + 1),
@@ -238,7 +241,7 @@ impl Org {
             .map_err(|err| Error::AddNode(org_id, err))
     }
 
-    pub async fn remove_node(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn remove_node(org_id: OrgId, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::node_count.eq(orgs::node_count - 1),
@@ -249,7 +252,7 @@ impl Org {
             .map_err(|err| Error::RemoveNode(org_id, err))
     }
 
-    pub async fn add_member(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn add_member(org_id: OrgId, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::member_count.eq(orgs::member_count + 1),
@@ -260,7 +263,7 @@ impl Org {
             .map_err(|err| Error::AddMember(org_id, err))
     }
 
-    pub async fn remove_member(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn remove_member(org_id: OrgId, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(orgs::table.filter(orgs::id.eq(org_id)))
             .set((
                 orgs::member_count.eq(orgs::member_count - 1),
@@ -339,7 +342,7 @@ pub struct OrgFilter {
 }
 
 impl OrgFilter {
-    pub async fn query(mut self, conn: &mut Conn<'_>) -> Result<(Vec<Org>, u64), Error> {
+    pub async fn query(mut self, conn: &mut ReadConn<'_, '_>) -> Result<(Vec<Org>, u64), Error> {
         let mut query = orgs::table.left_join(user_roles::table).into_boxed();
 
         if let Some(search) = self.search {
@@ -421,7 +424,7 @@ impl NewOrg<'_> {
         }
     }
 
-    pub async fn create(self, user_id: UserId, conn: &mut Conn<'_>) -> Result<Org, Error> {
+    pub async fn create(self, user_id: UserId, conn: &mut WriteConn<'_, '_>) -> Result<Org, Error> {
         let role = if self.is_personal {
             OrgRole::Personal
         } else {
@@ -447,7 +450,7 @@ pub struct UpdateOrg<'a> {
 }
 
 impl UpdateOrg<'_> {
-    pub async fn update(self, conn: &mut Conn<'_>) -> Result<Org, Error> {
+    pub async fn update(self, conn: &mut WriteConn<'_, '_>) -> Result<Org, Error> {
         diesel::update(orgs::table.find(self.id))
             .set((self, orgs::updated_at.eq(Utc::now())))
             .get_result(conn)

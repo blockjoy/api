@@ -14,7 +14,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::auth::resource::{OrgId, Resource, ResourceId, ResourceType};
-use crate::database::Conn;
+use crate::database::ReadConn;
+use crate::database::WriteConn;
 use crate::grpc::Status;
 
 use super::schema::invitations;
@@ -81,7 +82,7 @@ pub struct Invitation {
 }
 
 impl Invitation {
-    pub async fn by_id(id: InvitationId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: InvitationId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         invitations::table
             .find(id)
             .get_result(conn)
@@ -89,7 +90,7 @@ impl Invitation {
             .map_err(|err| Error::FindById(id, err))
     }
 
-    pub async fn by_org_id(org_id: OrgId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_org_id(org_id: OrgId, conn: &mut ReadConn<'_, '_>) -> Result<Vec<Self>, Error> {
         invitations::table
             .filter(invitations::org_id.eq(org_id))
             .get_results(conn)
@@ -99,7 +100,7 @@ impl Invitation {
 
     pub async fn for_org_ids(
         org_ids: &HashSet<OrgId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<HashMap<OrgId, Vec<Self>>, Error> {
         let invitations: Vec<Self> = invitations::table
             .filter(invitations::org_id.eq_any(org_ids))
@@ -119,7 +120,7 @@ impl Invitation {
         Ok(org_invitations)
     }
 
-    pub async fn received(email: &str, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn received(email: &str, conn: &mut ReadConn<'_, '_>) -> Result<Vec<Self>, Error> {
         invitations::table
             .filter(invitations::invitee_email.eq(email))
             .filter(invitations::accepted_at.is_null())
@@ -132,7 +133,7 @@ impl Invitation {
 
     pub async fn filter(
         filter: InvitationFilter<'_>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         let mut query = invitations::table.into_boxed();
 
@@ -169,7 +170,7 @@ impl Invitation {
     pub async fn has_open_invite(
         org_id: OrgId,
         email: &str,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<bool, Error> {
         let invitation = invitations::table
             .filter(invitations::org_id.eq(org_id))
@@ -183,7 +184,7 @@ impl Invitation {
             .map_err(Error::OpenInvite)
     }
 
-    pub async fn accept(self, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn accept(self, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(invitations::table.find(self.id))
             .set(invitations::accepted_at.eq(chrono::Utc::now()))
             .get_result(conn)
@@ -191,7 +192,7 @@ impl Invitation {
             .map_err(Error::Accept)
     }
 
-    pub async fn decline(&self, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn decline(&self, conn: &mut WriteConn<'_, '_>) -> Result<Self, Error> {
         diesel::update(invitations::table.find(self.id))
             .set(invitations::declined_at.eq(chrono::Utc::now()))
             .get_result(conn)
@@ -199,7 +200,7 @@ impl Invitation {
             .map_err(Error::Decline)
     }
 
-    pub async fn revoke(&self, conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn revoke(&self, conn: &mut WriteConn<'_, '_>) -> Result<(), Error> {
         diesel::delete(invitations::table.find(self.id))
             .execute(conn)
             .await
@@ -210,7 +211,7 @@ impl Invitation {
     pub async fn remove_by_org_user(
         user_email: &str,
         org_id: OrgId,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<(), Error> {
         let to_delete = invitations::table
             .filter(invitations::invitee_email.eq(user_email))
@@ -225,7 +226,7 @@ impl Invitation {
 
     pub async fn bulk_delete(
         ids: &HashSet<InvitationId>,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<(), Error> {
         let to_delete = invitations::table.filter(invitations::id.eq_any(ids));
         diesel::delete(to_delete)
@@ -271,7 +272,7 @@ impl NewInvitation {
         }
     }
 
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Invitation, Error> {
+    pub async fn create(self, conn: &mut WriteConn<'_, '_>) -> Result<Invitation, Error> {
         diesel::insert_into(invitations::table)
             .values(self)
             .get_result(conn)

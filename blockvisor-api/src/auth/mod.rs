@@ -10,7 +10,7 @@ use displaydoc::Display;
 use thiserror::Error;
 
 use crate::config::token::Config;
-use crate::database::Conn;
+use crate::database::ReadConn;
 use crate::grpc::{Metadata, Status};
 
 use self::claims::{Claims, Granted};
@@ -196,7 +196,7 @@ impl Auth {
         meta: &Metadata,
         perms: Perms,
         resources: Resources,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<AuthZ, Error> {
         let token: RequestToken = meta.try_into().map_err(Error::ParseRequestToken)?;
         self.authorize_token(&token, perms, resources, conn).await
@@ -207,7 +207,7 @@ impl Auth {
         token: &RequestToken,
         perms: Perms,
         resources: Resources,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<AuthZ, Error> {
         let claims = self.claims(token, conn).await?;
 
@@ -241,7 +241,11 @@ impl Auth {
         Ok(AuthZ { claims, granted })
     }
 
-    pub async fn claims(&self, token: &RequestToken, conn: &mut Conn<'_>) -> Result<Claims, Error> {
+    pub async fn claims(
+        &self,
+        token: &RequestToken,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Claims, Error> {
         match token {
             RequestToken::ApiKey(token) => Validated::from_token(token, conn)
                 .await

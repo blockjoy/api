@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::database::Conn;
+use crate::database::ReadConn;
 use crate::grpc::{Status, common};
 use crate::model::schema::sql_types;
 use crate::model::{Host, Node, Org, User};
@@ -89,7 +89,7 @@ impl Resource {
         matches!(self, Resource::Node(_)).then_some(NodeId(*self.id()))
     }
 
-    pub async fn id_exists(self, conn: &mut Conn<'_>) -> Result<ResourceId, Error> {
+    pub async fn id_exists(self, conn: &mut ReadConn<'_, '_>) -> Result<ResourceId, Error> {
         match self {
             Resource::User(id) => Ok(User::by_id(id, conn).await.map(|_| id.into())?),
             Resource::Org(id) => Ok(Org::by_id(id, conn).await.map(|_| id.into())?),
@@ -98,7 +98,7 @@ impl Resource {
         }
     }
 
-    pub async fn org_id(self, conn: &mut Conn<'_>) -> Result<OrgId, Error> {
+    pub async fn org_id(self, conn: &mut ReadConn<'_, '_>) -> Result<OrgId, Error> {
         match self {
             Resource::User(id) => Ok(Org::find_personal(id, conn).await.map(|org| org.id)?),
             Resource::Org(id) => Ok(id),

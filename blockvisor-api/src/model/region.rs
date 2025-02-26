@@ -10,7 +10,7 @@ use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, api};
 use crate::util::LOWER_KEBAB_CASE;
 
@@ -77,7 +77,7 @@ pub struct Region {
 }
 
 impl Region {
-    pub async fn by_id(id: RegionId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: RegionId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         regions::table
             .find(id)
             .get_result(conn)
@@ -87,7 +87,7 @@ impl Region {
 
     pub async fn by_ids(
         region_ids: &HashSet<RegionId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         regions::table
             .filter(regions::id.eq_any(region_ids))
@@ -96,7 +96,7 @@ impl Region {
             .map_err(|err| Error::ByIds(region_ids.clone(), err))
     }
 
-    pub async fn by_key(key: &RegionKey, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_key(key: &RegionKey, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         regions::table
             .filter(regions::key.eq(key))
             .get_result(conn)
@@ -114,7 +114,7 @@ pub struct NewRegion<'a> {
 }
 
 impl NewRegion<'_> {
-    pub async fn create(self, conn: &mut Conn<'_>) -> Result<Region, Error> {
+    pub async fn create(self, conn: &mut WriteConn<'_, '_>) -> Result<Region, Error> {
         diesel::insert_into(regions::table)
             .values(self)
             .get_result(conn)
@@ -143,7 +143,7 @@ pub struct UpdateRegion<'u> {
 }
 
 impl UpdateRegion<'_> {
-    pub async fn apply(self, conn: &mut Conn<'_>) -> Result<Region, Error> {
+    pub async fn apply(self, conn: &mut WriteConn<'_, '_>) -> Result<Region, Error> {
         let id = self.id;
         diesel::update(regions::table.find(id))
             .set(self)

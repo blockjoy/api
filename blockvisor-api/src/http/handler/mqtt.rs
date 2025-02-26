@@ -5,6 +5,7 @@ use axum::extract::{Json, State};
 use axum::response::Response;
 use axum::routing::{Router, post};
 use axum_extra::extract::WithRejection;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use serde_json::Value;
 use thiserror::Error;
@@ -13,7 +14,7 @@ use tracing::{debug, error};
 use crate::auth::rbac::{MqttAdminPerm, MqttPerm};
 use crate::auth::resource::{Resource, Resources};
 use crate::config::Context;
-use crate::database::Database;
+use crate::database::Transaction;
 use crate::grpc::Status;
 use crate::http::response;
 use crate::mqtt::handler::{self, AclRequest, Topic};
@@ -87,28 +88,34 @@ async fn acl(
         .username
         .parse()
         .map_err(|err| Status::from(Error::ParseRequestToken(err)))?;
-    let mut conn = ctx.pool.conn().await?;
+    ctx.read(|read| {
+        async {
+            if ctx
+                .auth
+                .authorize_token(&token, MqttAdminPerm::Acl.into(), Resources::All, &mut read)
+                .await
+                .is_ok()
+            {
+                return Ok(response::ok());
+            }
 
-    if ctx
-        .auth
-        .authorize_token(&token, MqttAdminPerm::Acl.into(), Resources::All, &mut conn)
-        .await
-        .is_ok()
-    {
-        return Ok(response::ok());
-    }
+            let resources: Resources = match req.topic {
+                Topic::Orgs(org_id) => Resource::from(org_id).into(),
+                Topic::Hosts(host_id) => Resource::from(host_id).into(),
+                Topic::Nodes(node_id) => Resource::from(node_id).into(),
+                Topic::BvHostsStatus(host_id) => Resource::from(host_id).into(),
+                Topic::Wildcard(topic) => {
+                    return Err(Status::from(Error::WildcardTopic(topic)).into());
+                }
+            };
 
-    let resources: Resources = match req.topic {
-        Topic::Orgs(org_id) => Resource::from(org_id).into(),
-        Topic::Hosts(host_id) => Resource::from(host_id).into(),
-        Topic::Nodes(node_id) => Resource::from(node_id).into(),
-        Topic::BvHostsStatus(host_id) => Resource::from(host_id).into(),
-        Topic::Wildcard(topic) => return Err(Status::from(Error::WildcardTopic(topic)).into()),
-    };
-
-    ctx.auth
-        .authorize_token(&token, MqttPerm::Acl.into(), resources, &mut conn)
-        .await
-        .map(|_authz| response::ok())
-        .map_err(|err| Status::from(err).into())
+            ctx.auth
+                .authorize_token(&token, MqttPerm::Acl.into(), resources, &mut read)
+                .await
+                .map(|_authz| response::ok())
+                .map_err(|err| Status::from(err).into())
+        }
+        .scope_boxed()
+    })
+    .await
 }

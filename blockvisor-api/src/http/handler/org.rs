@@ -219,7 +219,7 @@ async fn set_address(
         org_id,
         address: Some(req.address),
     };
-    ctx.read(|read| grpc::org::set_address(req, headers.into(), read).scope_boxed())
+    ctx.write(|write| grpc::org::set_address(req, headers.into(), write).scope_boxed())
         .await
 }
 

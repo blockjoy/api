@@ -12,7 +12,7 @@ use crate::auth::rbac::{GrpcRole, HostAdminPerm, HostPerm};
 use crate::auth::resource::{HostId, OrgId, Resource};
 use crate::auth::token::refresh::Refresh;
 use crate::auth::{AuthZ, Authorize};
-use crate::database::{Conn, ReadConn, Transaction, WriteConn};
+use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::model::command::NewCommand;
 use crate::model::host::{
     Host, HostFilter, HostRequirements, HostSearch, HostSort, NewHost, UpdateHost,
@@ -713,7 +713,7 @@ impl api::Host {
     pub async fn from_host(
         host: Host,
         authz: Option<&AuthZ>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         let lookup = Lookup::from_host(&host, conn).await?;
         Self::from_model(host, &lookup, authz)
@@ -722,7 +722,7 @@ impl api::Host {
     pub async fn from_hosts(
         hosts: Vec<Host>,
         authz: &AuthZ,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         let lookup = Lookup::from_hosts(&hosts, conn).await?;
 
@@ -788,11 +788,11 @@ struct Lookup {
 }
 
 impl Lookup {
-    async fn from_host(host: &Host, conn: &mut Conn<'_>) -> Result<Lookup, Error> {
+    async fn from_host(host: &Host, conn: &mut ReadConn<'_, '_>) -> Result<Lookup, Error> {
         Self::from_hosts(std::slice::from_ref(host), conn).await
     }
 
-    async fn from_hosts(hosts: &[Host], conn: &mut Conn<'_>) -> Result<Lookup, Error> {
+    async fn from_hosts(hosts: &[Host], conn: &mut ReadConn<'_, '_>) -> Result<Lookup, Error> {
         let host_ids: HashSet<HostId> = hosts.iter().map(|host| host.id).collect();
 
         let org_ids = hosts.iter().filter_map(|host| host.org_id).collect();

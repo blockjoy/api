@@ -11,7 +11,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::auth::resource::HostId;
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::Status;
 use crate::model::sql::IpNetwork;
 
@@ -62,7 +62,7 @@ pub struct IpAddress {
 impl IpAddress {
     pub async fn for_hosts(
         host_ids: &HashSet<HostId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         ip_addresses::table
             .filter(ip_addresses::host_id.eq_any(host_ids))
@@ -73,7 +73,7 @@ impl IpAddress {
 
     pub async fn assigned_for_hosts(
         host_ids: &HashSet<HostId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         ip_addresses::table
             .left_join(nodes::table.on(ip_addresses::ip.eq(nodes::ip_address)))
@@ -88,7 +88,7 @@ impl IpAddress {
 
     pub async fn next_for_host(
         host_id: HostId,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Option<Self>, Error> {
         let ids_in_use: Vec<Uuid> = ip_addresses::table
             .left_join(nodes::table.on(ip_addresses::ip.eq(nodes::ip_address)))
@@ -117,7 +117,10 @@ impl IpAddress {
         }
     }
 
-    pub async fn delete_for_host(host_id: HostId, conn: &mut Conn<'_>) -> Result<(), Error> {
+    pub async fn delete_for_host(
+        host_id: HostId,
+        conn: &mut WriteConn<'_, '_>,
+    ) -> Result<(), Error> {
         diesel::delete(ip_addresses::table.filter(ip_addresses::host_id.eq(host_id)))
             .execute(conn)
             .await
@@ -138,7 +141,10 @@ impl NewIpAddress {
         Self { ip, host_id }
     }
 
-    pub async fn bulk_create(ips: Vec<Self>, conn: &mut Conn<'_>) -> Result<Vec<IpAddress>, Error> {
+    pub async fn bulk_create(
+        ips: Vec<Self>,
+        conn: &mut WriteConn<'_, '_>,
+    ) -> Result<Vec<IpAddress>, Error> {
         diesel::insert_into(ip_addresses::table)
             .values(ips)
             .get_results(conn)

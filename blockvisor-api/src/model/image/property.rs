@@ -10,7 +10,7 @@ use displaydoc::Display as DisplayDoc;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, api, common};
 use crate::model::schema::{image_properties, sql_types};
 use crate::util::LOWER_KEBAB_CASE;
@@ -115,7 +115,7 @@ pub struct ImageProperty {
 }
 
 impl ImageProperty {
-    pub async fn by_id(id: ImagePropertyId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: ImagePropertyId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         image_properties::table
             .find(id)
             .get_result(conn)
@@ -125,7 +125,7 @@ impl ImageProperty {
 
     pub async fn by_ids(
         ids: &HashSet<ImagePropertyId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         image_properties::table
             .filter(image_properties::id.eq_any(ids))
@@ -134,7 +134,10 @@ impl ImageProperty {
             .map_err(|err| Error::ByIds(ids.clone(), err))
     }
 
-    pub async fn by_image_id(image_id: ImageId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_image_id(
+        image_id: ImageId,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Vec<Self>, Error> {
         image_properties::table
             .filter(image_properties::image_id.eq(image_id))
             .get_results(conn)
@@ -144,7 +147,7 @@ impl ImageProperty {
 
     pub async fn by_image_ids(
         image_ids: &HashSet<ImageId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         image_properties::table
             .filter(image_properties::image_id.eq_any(image_ids))
@@ -241,7 +244,7 @@ impl NewProperty {
 
     pub async fn bulk_create(
         properties: Vec<Self>,
-        conn: &mut Conn<'_>,
+        conn: &mut WriteConn<'_, '_>,
     ) -> Result<Vec<ImageProperty>, Error> {
         let mut groups = HashSet::new();
         let mut defaults = HashSet::new();

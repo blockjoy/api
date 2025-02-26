@@ -2,8 +2,8 @@ use axum::response::{IntoResponse, Response};
 use hyper::StatusCode;
 use serde_json::Value;
 
-use crate::database;
 use crate::grpc::Status;
+use crate::{database, grpc};
 
 pub mod api_key;
 pub mod archive;
@@ -57,5 +57,13 @@ impl From<database::Error> for Error {
             inner: serde_json::json!({"message": err.to_string()}),
             status: StatusCode::INTERNAL_SERVER_ERROR,
         }
+    }
+}
+
+impl<T> grpc::ResponseMessage<T> for axum::response::Response<T> {
+    fn construct(message: T, meta: grpc::Metadata) -> Self {
+        let mut resp = axum::response::Response::new(message);
+        *resp.headers_mut() = meta.into();
+        resp
     }
 }

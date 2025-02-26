@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthZ;
 use crate::auth::resource::{OrgId, Resource, ResourceId, ResourceType};
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::{Status, common};
 use crate::model::image::Image;
 use crate::model::image::property::{ImageProperty, ImagePropertyKey};
@@ -146,7 +146,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub async fn by_id(id: ConfigId, conn: &mut Conn<'_>) -> Result<Self, Error> {
+    pub async fn by_id(id: ConfigId, conn: &mut ReadConn<'_, '_>) -> Result<Self, Error> {
         configs::table
             .filter(configs::id.eq(id))
             .get_result(conn)
@@ -154,7 +154,10 @@ impl Config {
             .map_err(|err| Error::ById(id, err))
     }
 
-    pub async fn by_ids(ids: &HashSet<ConfigId>, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_ids(
+        ids: &HashSet<ConfigId>,
+        conn: &mut ReadConn<'_, '_>,
+    ) -> Result<Vec<Self>, Error> {
         configs::table
             .filter(configs::id.eq_any(ids))
             .get_results(conn)
@@ -180,7 +183,11 @@ pub struct NewConfig {
 }
 
 impl NewConfig {
-    pub async fn create(self, authz: &AuthZ, conn: &mut Conn<'_>) -> Result<Config, Error> {
+    pub async fn create(
+        self,
+        authz: &AuthZ,
+        conn: &mut WriteConn<'_, '_>,
+    ) -> Result<Config, Error> {
         let created_by = Resource::from(authz);
         diesel::insert_into(configs::table)
             .values((
@@ -210,7 +217,7 @@ impl NodeConfig {
         org_id: Option<OrgId>,
         new_values: Vec<NewImagePropertyValue>,
         add_rules: Vec<FirewallRule>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         let properties = ImageProperty::by_image_id(image.id, conn).await?;
         let values = PropertyMap::new(properties).apply_overrides(new_values);
@@ -231,7 +238,7 @@ impl NodeConfig {
         self,
         image: Image,
         org_id: Option<OrgId>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         let old_properties = ImageProperty::by_image_id(self.image.image_id, conn).await?;
         let old_defaults = old_properties
@@ -288,7 +295,7 @@ impl NodeConfig {
         org_id: Option<OrgId>,
         values: Vec<PropertyValueConfig>,
         rules: Vec<FirewallRule>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         let changed_keys: HashSet<_> = values
             .iter()
@@ -352,7 +359,7 @@ impl NodeConfig {
         self,
         new_values: Vec<NewImagePropertyValue>,
         new_firewall: Option<FirewallConfig>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Self, Error> {
         let properties = ImageProperty::by_image_id(self.image.image_id, conn).await?;
         let property_map = PropertyMap::new(properties.clone());

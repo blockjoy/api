@@ -8,7 +8,7 @@ use tracing::error;
 use crate::auth::Authorize;
 use crate::auth::rbac::{InvitationAdminPerm, InvitationPerm, OrgRole};
 use crate::auth::resource::{OrgId, Resource};
-use crate::database::{Conn, ReadConn, Transaction, WriteConn};
+use crate::database::{ReadConn, Transaction, WriteConn};
 use crate::email::Recipient;
 use crate::model::invitation::{Invitation, InvitationFilter, NewInvitation};
 use crate::model::org::Org;
@@ -379,7 +379,7 @@ pub async fn revoke(
 impl api::Invitation {
     async fn from_models(
         invitations: Vec<Invitation>,
-        conn: &mut Conn<'_>,
+        conn: &mut ReadConn<'_, '_>,
     ) -> Result<Vec<Self>, Error> {
         let org_ids = invitations.iter().map(|inv| inv.org_id).collect();
         let orgs = Org::by_ids(&org_ids, conn)

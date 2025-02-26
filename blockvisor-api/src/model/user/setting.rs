@@ -7,7 +7,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::auth::resource::UserId;
-use crate::database::Conn;
+use crate::database::{ReadConn, WriteConn};
 use crate::grpc::Status;
 use crate::model::schema::user_settings;
 
@@ -46,7 +46,7 @@ pub struct UserSetting {
 }
 
 impl UserSetting {
-    pub async fn by_user(user_id: UserId, conn: &mut Conn<'_>) -> Result<Vec<Self>, Error> {
+    pub async fn by_user(user_id: UserId, conn: &mut ReadConn<'_, '_>) -> Result<Vec<Self>, Error> {
         user_settings::table
             .filter(user_settings::user_id.eq(user_id))
             .get_results(conn)
@@ -54,10 +54,10 @@ impl UserSetting {
             .map_err(|err| Error::ByUser(user_id, err))
     }
 
-    pub async fn delete(
+    pub async fn delete<'a, 't, 'c>(
         user_id: UserId,
-        key: &UserSettingKey,
-        conn: &mut Conn<'_>,
+        key: &'a UserSettingKey,
+        conn: &'a mut WriteConn<'t, 'c>,
     ) -> Result<(), Error> {
         let to_delete = user_settings::table
             .filter(user_settings::user_id.eq(user_id))
@@ -87,7 +87,10 @@ impl<'a> NewUserSetting<'a> {
         }
     }
 
-    pub async fn create_or_update(self, conn: &mut Conn<'_>) -> Result<UserSetting, Error> {
+    pub async fn create_or_update(
+        self,
+        conn: &mut WriteConn<'_, '_>,
+    ) -> Result<UserSetting, Error> {
         diesel::insert_into(user_settings::table)
             .values(&self)
             .on_conflict((user_settings::user_id, user_settings::key))
