@@ -480,6 +480,7 @@ pub async fn list_payment_methods(
     let methods = payment_methods
         .into_iter()
         .map(|pm| api::PaymentMethod {
+            id: pm.id.to_string(),
             org_id: Some(org_id.to_string()),
             user_id: pm.metadata.and_then(|meta| meta.get("user_id").cloned()),
             created_at: chrono::DateTime::from_timestamp(pm.created.0, 0)
