@@ -1,8 +1,8 @@
 Welcome to the blockvisor api architecture document! In this document we will go
 over the resources and concepts comprising the api. The goal of the API is to
 instrument several physical or virtual machines that are then able to run
-software for us. This software is called a `node` throughout the syste, owing to
-the history of blockvisor being used to run blockchain nodes. This is however
+software for us. This software is called a `node` throughout the system, owing
+to the history of blockvisor being used to run blockchain nodes. This is however
 not a hard requirement; any software may be ran using blockvisor. In order to
 fully manage software we need to first define two to download, start, stop,
 restart, upgrade and remove it.
@@ -32,6 +32,6 @@ and nodes.
 A [user](./proto/blockjoy/v1/user.proto:17) is an account for a person that is
 able to interact with the api. For a given organisation that they are a member
 of, they will have one or more `roles` assigned, each giving a set of
-permissions to interact with the resources of the that org.x
+permissions to interact with the resources of the that org.
 
 ### Commands

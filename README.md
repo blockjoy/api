@@ -6,6 +6,19 @@ the default action).
 Before running any other steps, run `make setup` to ensure all prerequisites are
 in place.
 
+For more information on how the API works, check `architecture.md`. For
+information on how to configure the API, see `configuration.md`.
+
+## Getting started
+
+```sh
+brew install make git protobuf
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+git clone git@github.com:blockjoy/blockvisor-api.git
+cd blockvisor-api
+make setup
+```
+
 ## Running integration tests
 
 First run `make up` to start the required docker-compose services.

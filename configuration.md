@@ -132,13 +132,6 @@ Toml path: `mqtt.password`
 The password that the service should use to authenticate itself at the MQTT
 server.
 
-### SECRETS_ROOT
-
-Toml path: <this parameter cannot be configured through the toml file>
-Denotes the path to the toml file that contains the config parameters. Since
-this is how we find the toml file, this parameter has to be set through a
-environment variable.
-
 ### CLOUDFLARE_CERT_KEY
 
 Toml path: `secret.cloudflare_cert_key`
