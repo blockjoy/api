@@ -35,6 +35,8 @@ pub enum Error {
     Node(#[from] crate::model::node::Error),
     /// Not JWT Token.
     NotJwt,
+    /// Requested to send an email, but no email service is configured.
+    NoEmail,
     /// No Refresh token in cookie or request body.
     NoRefresh,
     /// Org auth error: {0}
@@ -66,6 +68,7 @@ impl From<Error> for Status {
                 Status::unauthorized("Access denied.")
             }
             Diesel(_) | Email(_) => Status::internal("Internal error."),
+            NoEmail => Status::failed_precondition("No email configured."),
             ClaimsNotUser => Status::forbidden("Access denied."),
             NoRefresh => Status::invalid_argument("No refresh token."),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
@@ -248,8 +251,12 @@ pub async fn reset_password(
     // always return ok to caller to hide whether the user exists
     match User::by_email(&req.email, &mut write).await {
         Ok(user) => {
-            if let Err(err) = write.ctx.email.reset_password(&user).await {
-                warn!("Failed to reset password: {err}");
+            if let Some(email) = write.ctx.email.as_ref() {
+                if let Err(err) = email.reset_password(&user).await {
+                    warn!("Failed to reset password: {err}");
+                }
+            } else {
+                warn!("Can't send reset email, no email configured");
             }
         }
         Err(err) => warn!("Failed to find user to reset password: {err}"),
@@ -269,7 +276,13 @@ pub async fn update_password(
     let user = User::by_id(user_id, &mut write).await?;
     user.update_password(&req.password, &mut write).await?;
 
-    write.ctx.email.update_password(&user).await?;
+    write
+        .ctx
+        .email
+        .as_ref()
+        .ok_or(Error::NoEmail)?
+        .update_password(&user)
+        .await?;
 
     Ok(api::AuthServiceUpdatePasswordResponse {})
 }
@@ -288,7 +301,13 @@ pub async fn update_ui_password(
     user.verify_password(&req.old_password)?;
     user.update_password(&req.new_password, &mut write).await?;
 
-    write.ctx.email.update_password(&user).await?;
+    write
+        .ctx
+        .email
+        .as_ref()
+        .ok_or(Error::NoEmail)?
+        .update_password(&user)
+        .await?;
 
     Ok(api::AuthServiceUpdateUiPasswordResponse {})
 }

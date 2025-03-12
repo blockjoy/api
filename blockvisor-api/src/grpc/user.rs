@@ -2,7 +2,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
 use tonic::{Request, Response};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::auth::rbac::{UserAdminPerm, UserPerm, UserSettingsAdminPerm, UserSettingsPerm};
 use crate::auth::resource::{Resource, UserId};
@@ -163,11 +163,13 @@ pub async fn create(
     let new_user = NewUser::new(&req.email, &req.first_name, &req.last_name, &req.password)?;
     let user = new_user.create(&mut write).await?;
 
-    write
-        .ctx
-        .email
-        .registration_confirmation(&user, invitation_id)
-        .await?;
+    if let Some(email) = write.ctx.email.as_ref() {
+        email
+            .registration_confirmation(&user, invitation_id)
+            .await?;
+    } else {
+        warn!("Can't send registration confirmation email, not configured");
+    };
 
     Ok(api::UserServiceCreateResponse {
         user: Some(user.into()),

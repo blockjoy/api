@@ -179,7 +179,7 @@ mod test {
         let auth = Auth::new(&config.token);
         let email = Email {
             sender: Box::new(MockEmail {}),
-            templates: Templates::new(&config.email.template_dir).unwrap(),
+            templates: Templates::new(config.email.template_dir.as_ref().unwrap()).unwrap(),
             cipher: auth.cipher,
             base_url: config.email.ui_base_url.clone(),
             expires: config.token.expire,

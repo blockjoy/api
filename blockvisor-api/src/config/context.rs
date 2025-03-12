@@ -63,7 +63,7 @@ pub struct Context {
     pub auth: Arc<Auth>,
     pub config: Arc<Config>,
     pub dns: Arc<Box<dyn Dns + Send + Sync + 'static>>,
-    pub email: Arc<Email>,
+    pub email: Option<Arc<Email>>,
     pub log: Arc<Log>,
     pub notifier: Arc<Notifier>,
     pub pool: Pool,
@@ -99,17 +99,21 @@ impl Context {
         let store = Store::new(&config.store);
         let stripe = Stripe::new(config.stripe.clone()).map_err(Error::Stripe)?;
 
-        Ok(Builder::default()
+        let mut builder = Builder::default()
             .auth(auth)
             .dns(dns)
-            .email(email)
             .log(log)
             .notifier(notifier)
             .pool(pool)
             .secret(secret)
             .store(store)
             .stripe(stripe)
-            .config(config))
+            .config(config);
+
+        if let Some(email) = email {
+            builder = builder.email(email);
+        }
+        Ok(builder)
     }
 
     #[cfg(any(test, feature = "integration-test"))]
@@ -174,7 +178,7 @@ impl Builder {
             auth: self.auth.ok_or(Error::MissingAuth).map(Arc::new)?,
             config: self.config.ok_or(Error::MissingConfig).map(Arc::new)?,
             dns: self.dns.ok_or(Error::MissingDns).map(Arc::new)?,
-            email: self.email.ok_or(Error::MissingEmail).map(Arc::new)?,
+            email: self.email.map(Arc::new),
             log: self.log.ok_or(Error::MissingLog)?,
             notifier: self.notifier.ok_or(Error::MissingNotifier)?,
             pool: self.pool.ok_or(Error::MissingPool)?,

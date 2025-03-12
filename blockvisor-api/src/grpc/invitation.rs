@@ -3,7 +3,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use displaydoc::Display;
 use thiserror::Error;
 use tonic::{Request, Response};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::auth::Authorize;
 use crate::auth::rbac::{InvitationAdminPerm, InvitationPerm, OrgRole};
@@ -183,11 +183,13 @@ pub async fn create(
                 return Err(Error::AlreadyMember);
             }
 
-            write
-                .ctx
-                .email
-                .invitation_for_registered(&invitation, invitor, &invitee, "1 week")
-                .await?;
+            if let Some(email) = write.ctx.email.as_ref() {
+                email
+                    .invitation_for_registered(&invitation, invitor, &invitee, "1 week")
+                    .await?;
+            } else {
+                warn!("Unable to send invite email to user without email configured");
+            };
         }
 
         Err(crate::model::user::Error::FindByEmail(_, NotFound)) => {
@@ -198,11 +200,13 @@ pub async fn create(
                 preferred_language: None,
             };
 
-            write
-                .ctx
-                .email
-                .invitation(&invitation, invitor, recipient, "1 week")
-                .await?;
+            if let Some(email) = write.ctx.email.as_ref() {
+                email
+                    .invitation(&invitation, invitor, recipient, "1 week")
+                    .await?;
+            } else {
+                warn!("Unable to send invite email to user without email configured");
+            };
         }
 
         Err(err) => return Err(err.into()),

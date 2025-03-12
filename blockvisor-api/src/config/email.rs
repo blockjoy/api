@@ -13,6 +13,7 @@ const SENDGRID_API_KEY_VAR: &str = "SENDGRID_API_KEY";
 const SENDGRID_API_KEY_ENTRY: &str = "email.sendgrid_api_key";
 const UI_BASE_URL_VAR: &str = "UI_BASE_URL";
 const UI_BASE_URL_ENTRY: &str = "email.ui_base_url";
+const UI_BASE_URL_DEFAULT: &str = "example.com";
 
 #[derive(Debug, Display, Error)]
 pub enum Error {
@@ -29,8 +30,8 @@ pub struct SendgridApiKey(Redacted<String>);
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    pub template_dir: String,
-    pub sendgrid_api_key: SendgridApiKey,
+    pub template_dir: Option<String>,
+    pub sendgrid_api_key: Option<SendgridApiKey>,
     pub ui_base_url: Url,
 }
 
@@ -40,13 +41,17 @@ impl TryFrom<&Provider> for Config {
     fn try_from(provider: &Provider) -> Result<Self, Self::Error> {
         Ok(Config {
             template_dir: provider
-                .read_or_default(TEMPLATE_DIR_VAR, TEMPLATE_DIR_ENTRY)
+                .maybe_read(TEMPLATE_DIR_VAR, TEMPLATE_DIR_ENTRY)
                 .map_err(Error::ParseSendgridApiKey)?,
             sendgrid_api_key: provider
-                .read_or_default(SENDGRID_API_KEY_VAR, SENDGRID_API_KEY_ENTRY)
+                .maybe_read(SENDGRID_API_KEY_VAR, SENDGRID_API_KEY_ENTRY)
                 .map_err(Error::ParseSendgridApiKey)?,
             ui_base_url: provider
-                .read(UI_BASE_URL_VAR, UI_BASE_URL_ENTRY)
+                .read_or(
+                    Url::parse(UI_BASE_URL_DEFAULT).unwrap(),
+                    UI_BASE_URL_VAR,
+                    UI_BASE_URL_ENTRY,
+                )
                 .map_err(Error::ParseUiBaseUrl)?,
         })
     }

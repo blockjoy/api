@@ -61,20 +61,25 @@ Default value: 2m
 If a connection is idle for this duration, and the current number of connections
 is greater than `min_conns`, it is closed.
 
-### EMAIL_TEMPLATE_DIR
-
-Toml path: `email.template_dir`
-The directory containing the renderable templates of the emails that the backend
-sends.
-
 ### SENDGRID_API_KEY
 
 Toml path: `email.sendgrid_api_key`
-The API key used for interaction with sendgrid.
+Optional
+The API key used for interaction with sendgrid. If this value is omitted, emails
+will not be sent and users' email addresses cannot be confirmed. The same
+applies to `EMAIL_TEMPLATE_DIR`.
+
+### EMAIL_TEMPLATE_DIR
+
+Toml path: `email.template_dir`
+Optional
+The directory containing the renderable templates of the emails that the backend
+sends.
 
 ### UI_BASE_URL
 
 Toml path: `email.ui_base_url`
+Default value: `example.com`
 The url at which the frontend of the API is served. This is used for rendering
 clickable links in the emails, such as `https://{ui_base_url}/register`.
 

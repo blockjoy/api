@@ -45,25 +45,34 @@ pub struct Email {
 }
 
 impl Email {
-    pub fn new(config: &Config, cipher: Arc<Cipher>) -> Result<Self, Error> {
-        let sender = Box::new(v3::Sender::new(config.email.sendgrid_api_key.clone(), None));
-        let templates = Templates::new(&config.email.template_dir)?;
+    pub fn new(config: &Config, cipher: Arc<Cipher>) -> Result<Option<Self>, Error> {
+        let Some((sendgrid_api_key, template_dir)) = config
+            .email
+            .sendgrid_api_key
+            .as_deref()
+            .zip(config.email.template_dir.as_deref())
+        else {
+            return Ok(None);
+        };
+
+        let sender = Box::new(v3::Sender::new(sendgrid_api_key.clone(), None));
+        let templates = Templates::new(template_dir)?;
         let base_url = config.email.ui_base_url.clone();
         let expires = config.token.expire;
 
-        Ok(Email {
+        Ok(Some(Email {
             sender,
             templates,
             cipher,
             base_url,
             expires,
-        })
+        }))
     }
 
     #[cfg(any(test, feature = "integration-test"))]
     pub fn new_mocked(config: &Config, cipher: Arc<Cipher>) -> Result<Self, Error> {
         let sender = Box::new(tests::MockEmail {});
-        let templates = Templates::new(&config.email.template_dir)?;
+        let templates = Templates::new(config.email.template_dir.as_deref().unwrap())?;
         let base_url = config.email.ui_base_url.clone();
         let expires = config.token.expire;
 
