@@ -211,11 +211,15 @@ The bucket where we store our blockvisor bundles.
 ### STRIPE_SECRET
 
 Toml path: `stripe.secret`
-The stripe private key.
+Optional
+The stripe private key. If this value is not provided, then the service will
+make no attempt to contact stripe, and therefore it will not bill the users
+that create apps.
 
 ### STRIPE_URL
 
 Toml path: `stripe.url`
+Default value: `https://api.stripe.com/v1`
 The url to the stripe service api.
 
 ### JWT_SECRET

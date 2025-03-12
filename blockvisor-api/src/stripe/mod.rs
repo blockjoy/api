@@ -252,9 +252,12 @@ pub struct Stripe {
 }
 
 impl Stripe {
-    pub fn new(config: Arc<Config>) -> Result<Self, Error> {
-        let client = Client::new(&config.secret, &config.base_url).map_err(Error::CreateClient)?;
-        Ok(Stripe { config, client })
+    pub fn new(config: Arc<Config>) -> Result<Option<Self>, Error> {
+        let Some(secret) = config.secret.as_ref() else {
+            return Ok(None);
+        };
+        let client = Client::new(secret, &config.base_url).map_err(Error::CreateClient)?;
+        Ok(Some(Stripe { config, client }))
     }
 
     #[cfg(any(test, feature = "integration-test"))]
@@ -781,7 +784,7 @@ pub mod tests {
 
     fn mock_config(server: &ServerGuard) -> Config {
         Config {
-            secret: "stripe_fake_secret".to_owned().into(),
+            secret: Some("stripe_fake_secret".to_owned().into()),
             base_url: format!("{}/v1/", server.url()),
         }
     }

@@ -47,6 +47,8 @@ pub enum Error {
     MissingStatsFor,
     /// Missing version key.
     MissingVersionKey,
+    /// Stripe is not configured.
+    NoStripe,
     /// Protocol node error: {0}
     Node(#[from] crate::model::node::Error),
     /// Protocol node log error: {0}
@@ -100,6 +102,7 @@ impl From<Error> for Status {
             MissingProtocol => Status::invalid_argument("protocol"),
             MissingStatsFor => Status::invalid_argument("stats_for"),
             MissingVersionKey => Status::invalid_argument("version_key"),
+            NoStripe => Status::failed_precondition("Stripe is not configured."),
             ParseId(_) => Status::invalid_argument("protocol_id"),
             ParseOrgId(_) => Status::invalid_argument("org_id"),
             ParseRegionId(_) => Status::invalid_argument("region_id"),
@@ -347,7 +350,10 @@ pub async fn get_pricing(
     let sku = version
         .sku(&region)
         .ok_or(Error::RegionMissingPrice(region.id))?;
-    let price = match read.ctx.stripe.get_price(&sku).await {
+    let Some(stripe) = read.ctx.stripe.as_ref() else {
+        return Err(Error::NoStripe);
+    };
+    let price = match stripe.get_price(&sku).await {
         Ok(price) => Ok(price),
         Err(crate::stripe::Error::NoPrice(_)) => Err(Error::SkuMissingPrice(sku)),
         Err(err) => Err(err.into()),

@@ -29,16 +29,18 @@ pub enum Error {
     MissingOrgId,
     /// Org `{0}` has no owner.
     NoOwner(OrgId),
+    /// Stripe is not configured.
+    NoStripe,
     /// Stripe org: {0}
     Org(#[from] crate::model::org::Error),
     /// Stripe event has an unparsable org_id in its metadata.
     ParseOrgId(uuid::Error),
     /// Stripe handler: {0}
     Stripe(#[from] crate::stripe::Error),
-    /// Stripe user: {0}
-    User(#[from] crate::model::user::Error),
     /// Could not parse stripe body: {0}
     UnparseableStripeBody(serde_json::Error),
+    /// Stripe user: {0}
+    User(#[from] crate::model::user::Error),
 }
 
 impl From<Error> for Status {
@@ -50,6 +52,7 @@ impl From<Error> for Status {
             MissingMetadata => Status::invalid_argument("Metadata field not set"),
             MissingOrgId => Status::invalid_argument("Org id missing from metadata"),
             NoOwner(_) => Status::failed_precondition("Org has no owner"),
+            NoStripe => Status::failed_precondition("Stripe is not configured."),
             ParseOrgId(_) => Status::invalid_argument("Could not parse org id"),
             UnparseableStripeBody(_) => Status::invalid_argument("Unparseable request"),
         }
@@ -102,7 +105,9 @@ async fn setup_intent_succeeded_handler(
         .parse()
         .map_err(Error::ParseOrgId)?;
     let org = Org::by_id(org_id, &mut write).await?;
-    let stripe = &write.ctx.stripe;
+    let Some(stripe) = write.ctx.stripe.as_ref() else {
+        return Err(Error::NoStripe);
+    };
 
     if let Some(stripe_customer_id) = org.stripe_customer_id.as_ref() {
         stripe

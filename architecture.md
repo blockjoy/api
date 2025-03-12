@@ -7,8 +7,6 @@ not a hard requirement; any software may be ran using blockvisor. In order to
 fully manage software we need to first define two to download, start, stop,
 restart, upgrade and remove it.
 
-
-
 ### Hosts
 
 A [host](./proto/blockjoy/v1/host.proto:12) represents a machine that is able to

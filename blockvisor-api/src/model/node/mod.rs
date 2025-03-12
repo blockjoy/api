@@ -412,7 +412,9 @@ impl Node {
              */
 
         if let Some(ref item_id) = node.stripe_item_id {
-            write.ctx.stripe.remove_subscription(item_id).await?;
+            if let Some(stripe) = write.ctx.stripe.as_ref() {
+                stripe.remove_subscription(item_id).await?;
+            }
         }
 
         Ok(node)
@@ -687,21 +689,27 @@ impl NewNode {
             .ok_or_else(|| Error::HostFreeIp(host.id))?;
 
         // Users that have the billing-exempt permission or that are launching a node on their own
-        // host do not need billing.
+        // host do not need to be charged.
         let billing_exempt =
             authz.has_perm(BillingPerm::Exempt) || host.org_id == Some(self.org_id);
         let (stripe_item_id, price) = if billing_exempt {
             (None, None)
         } else {
             let region = Region::by_id(host.region_id, write).await?;
+
             if let Some(sku) = version.sku(&region) {
-                let item = write.ctx.stripe.add_subscription(org, &sku).await?;
-                let price = item
-                    .price
-                    .ok_or(Error::ItemWithoutPrice)?
-                    .unit_amount
-                    .ok_or(Error::PriceWithoutAmount)?;
-                (Some(item.id), Some(price))
+                if let Some(stripe) = write.ctx.stripe.as_ref() {
+                    let item = stripe.add_subscription(org, &sku).await?;
+                    let price = item
+                        .price
+                        .ok_or(Error::ItemWithoutPrice)?
+                        .unit_amount
+                        .ok_or(Error::PriceWithoutAmount)?;
+                    (Some(item.id), Some(price))
+                } else {
+                    warn!("Stripe not configured, cannot charge for node!");
+                    (None, None)
+                }
             } else {
                 (None, None)
             }

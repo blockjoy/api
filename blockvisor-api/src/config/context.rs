@@ -42,8 +42,6 @@ pub enum Error {
     MissingSecret,
     /// Builder is missing Store.
     MissingStore,
-    /// Builder is missing Stripe.
-    MissingStripe,
     /// Failed to create MQTT options: {0}
     Mqtt(#[from] super::mqtt::Error),
     /// Failed to create Notifier: {0}
@@ -70,7 +68,7 @@ pub struct Context {
     pub rng: Arc<Mutex<OsRng>>,
     pub secret: Arc<Secret>,
     pub store: Arc<Store>,
-    pub stripe: Arc<Box<dyn Subscription + Send + Sync + 'static>>,
+    pub stripe: Option<Arc<Box<dyn Subscription + Send + Sync + 'static>>>,
 }
 
 impl Context {
@@ -107,11 +105,13 @@ impl Context {
             .pool(pool)
             .secret(secret)
             .store(store)
-            .stripe(stripe)
             .config(config);
 
         if let Some(email) = email {
             builder = builder.email(email);
+        }
+        if let Some(stripe) = stripe {
+            builder = builder.stripe(stripe);
         }
         Ok(builder)
     }
@@ -185,7 +185,7 @@ impl Builder {
             rng: Arc::new(Mutex::new(self.rng.unwrap_or_default())),
             secret: self.secret.ok_or(Error::MissingSecret).map(Arc::new)?,
             store: self.store.ok_or(Error::MissingStore).map(Arc::new)?,
-            stripe: self.stripe.ok_or(Error::MissingStripe).map(Arc::new)?,
+            stripe: self.stripe.map(Arc::new),
         }))
     }
 

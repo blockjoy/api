@@ -45,6 +45,8 @@ pub enum Error {
     Invitation(#[from] crate::model::invitation::Error),
     /// The request is missing the `address` fields.
     MissingAddress,
+    /// Stripe is not configured.
+    NoStripe,
     /// No customer exists in stripe for org `{0}`.
     NoStripeCustomer(OrgId),
     /// No subscription exists in stripe for org `{0}`.
@@ -96,6 +98,7 @@ impl From<Error> for Status {
             FilterLimit(_) => Status::invalid_argument("limit"),
             FilterOffset(_) => Status::invalid_argument("offset"),
             MissingAddress => Status::failed_precondition("User has no address."),
+            NoStripe => Status::failed_precondition("Stripe is not configured."),
             NoStripeCustomer(_) => Status::failed_precondition("No customer for that org."),
             NoStripeSubscription(_) => Status::failed_precondition("No subscription for that org."),
             ParseId(_) => Status::invalid_argument("id"),
@@ -454,6 +457,8 @@ pub async fn init_card(
     let client_secret = write
         .ctx
         .stripe
+        .as_ref()
+        .ok_or(Error::NoStripe)?
         .create_setup_intent(org_id, user_id)
         .await?
         .client_secret;
@@ -472,7 +477,12 @@ pub async fn list_payment_methods(
 
     let org = Org::by_id(org_id, &mut read).await?;
     let payment_methods = if let Some(customer_id) = &org.stripe_customer_id {
-        read.ctx.stripe.list_payment_methods(customer_id).await?
+        read.ctx
+            .stripe
+            .as_ref()
+            .ok_or(Error::NoStripe)?
+            .list_payment_methods(customer_id)
+            .await?
     } else {
         vec![]
     };
@@ -520,6 +530,8 @@ pub async fn billing_details(
     let subscription = read
         .ctx
         .stripe
+        .as_ref()
+        .ok_or(Error::NoStripe)?
         .get_subscription_by_customer(customer_id)
         .await?
         .ok_or_else(|| Error::NoStripeSubscription(org_id))?;
@@ -565,7 +577,13 @@ pub async fn get_address(
     let Some(customer_id) = org.stripe_customer_id.as_ref() else {
         return Ok(Default::default());
     };
-    let address = read.ctx.stripe.get_address(customer_id).await?;
+    let address = read
+        .ctx
+        .stripe
+        .as_ref()
+        .ok_or(Error::NoStripe)?
+        .get_address(customer_id)
+        .await?;
 
     Ok(api::OrgServiceGetAddressResponse {
         address: address.map(Into::into),
@@ -580,26 +598,18 @@ pub async fn set_address(
     let org_id: OrgId = req.org_id.parse().map_err(Error::ParseOrgId)?;
     write.auth_for(&meta, OrgAddressPerm::Set, org_id).await?;
 
+    let stripe = write.ctx.stripe.as_ref().ok_or(Error::NoStripe)?;
     let org = Org::by_id(org_id, &mut write).await?;
     let address = req.address.ok_or(Error::MissingAddress)?;
     let (org, customer_id) = if let Some(customer_id) = org.stripe_customer_id.clone() {
         (org, customer_id)
     } else {
         let owner = User::owner(org_id, &mut write).await?;
-        let customer_id = write
-            .ctx
-            .stripe
-            .create_customer(&org, &owner, None)
-            .await?
-            .id;
+        let customer_id = stripe.create_customer(&org, &owner, None).await?.id;
         let org = org.set_customer_id(&customer_id, &mut write).await?;
         (org, customer_id)
     };
-    let address = write
-        .ctx
-        .stripe
-        .set_address(&customer_id, &address.into())
-        .await?;
+    let address = stripe.set_address(&customer_id, &address.into()).await?;
     let maybe_address = org.address_id.map(|a_id| Address::by_id(a_id, &mut write));
     match OptionFuture::from(maybe_address).await {
         Some(Ok(mut existing)) => {
@@ -650,7 +660,13 @@ pub async fn delete_address(
         .stripe_customer_id
         .as_deref()
         .ok_or(Error::NoStripeCustomer(org_id))?;
-    write.ctx.stripe.delete_address(customer_id).await?;
+    write
+        .ctx
+        .stripe
+        .as_ref()
+        .ok_or(Error::NoStripe)?
+        .delete_address(customer_id)
+        .await?;
 
     Ok(api::OrgServiceDeleteAddressResponse {})
 }
@@ -669,7 +685,13 @@ pub async fn get_invoices(
     let Some(customer_id) = org.stripe_customer_id.as_deref() else {
         return Ok(Default::default());
     };
-    let invoices = write.ctx.stripe.get_invoices(customer_id).await?;
+    let invoices = write
+        .ctx
+        .stripe
+        .as_ref()
+        .ok_or(Error::NoStripe)?
+        .get_invoices(customer_id)
+        .await?;
     let invoices = invoices
         .into_iter()
         .map(api::Invoice::try_from)
