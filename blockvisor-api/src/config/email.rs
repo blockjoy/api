@@ -48,7 +48,7 @@ impl TryFrom<&Provider> for Config {
                 .map_err(Error::ParseSendgridApiKey)?,
             ui_base_url: provider
                 .read_or(
-                    Url::parse(UI_BASE_URL_DEFAULT).unwrap(),
+                    Url::parse(UI_BASE_URL_DEFAULT).expect("UI_BASE_URL_DEFAULT not parseable"),
                     UI_BASE_URL_VAR,
                     UI_BASE_URL_ENTRY,
                 )

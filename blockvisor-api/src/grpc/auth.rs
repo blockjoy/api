@@ -301,13 +301,11 @@ pub async fn update_ui_password(
     user.verify_password(&req.old_password)?;
     user.update_password(&req.new_password, &mut write).await?;
 
-    write
-        .ctx
-        .email
-        .as_ref()
-        .ok_or(Error::NoEmail)?
-        .update_password(&user)
-        .await?;
+    if let Some(email) = write.ctx.email.as_ref() {
+        email.update_password(&user).await?;
+    } else {
+        warn!("Cannot send update password email without email configured");
+    }
 
     Ok(api::AuthServiceUpdateUiPasswordResponse {})
 }
