@@ -1,0 +1,12 @@
+.github
+.gitignore
+api.yaml
+Makefile
+blockvisor-api/tests
+deploy
+docker
+**/*.md
+**/*.jpg
+git-conventional-commits.yaml
+LICENSE
+rustfmt.toml
