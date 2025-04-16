@@ -41,3 +41,6 @@ test: ## Run cargo test (usage: `make test <name>`).
 test-out: res := $(call fetch_arg)
 test-out: ## Run cargo test with stdout (usage: `make test-out <name>`).
 	@cargo test --all-features $($@_arg) -- --nocapture
+
+new-release:
+	cargo release --execute $$(git-conventional-commits version)

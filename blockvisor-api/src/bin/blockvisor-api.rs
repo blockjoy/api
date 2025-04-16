@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     run_migrations(&context.config)?;
     setup_rbac(&context.pool).await?;
 
-    info!("Starting server...");
+    info!("Starting server {} ...", env!("CARGO_PKG_VERSION"));
     server::start(context.clone()).await?;
 
     context.log.shutdown()?;
