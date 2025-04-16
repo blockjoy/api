@@ -14,6 +14,7 @@ where
 {
     Router::new()
         .route("/", routing::get(services))
+        .route("/api-version", routing::get(api_version))
         .with_state(context)
 }
 
@@ -23,5 +24,14 @@ async fn services(
     Query(req): Query<api::DiscoveryServiceServicesRequest>,
 ) -> Result<axum::Json<api::DiscoveryServiceServicesResponse>, super::Error> {
     ctx.read(|read| grpc::discovery::services(req, headers.into(), read).scope_boxed())
+        .await
+}
+
+async fn api_version(
+    State(ctx): State<Arc<Context>>,
+    headers: axum::http::header::HeaderMap,
+    Query(req): Query<api::DiscoveryServiceApiVersionRequest>,
+) -> Result<axum::Json<api::DiscoveryServiceApiVersionResponse>, super::Error> {
+    ctx.read(|read| grpc::discovery::api_version(req, headers.into(), read).scope_boxed())
         .await
 }

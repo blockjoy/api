@@ -43,6 +43,14 @@ impl DiscoveryService for Grpc {
         self.read(|read| services(req, meta.into(), read).scope_boxed())
             .await
     }
+    async fn api_version(
+        &self,
+        req: Request<api::DiscoveryServiceApiVersionRequest>,
+    ) -> Result<Response<api::DiscoveryServiceApiVersionResponse>, tonic::Status> {
+        let (meta, _, req) = req.into_parts();
+        self.read(|read| api_version(req, meta.into(), read).scope_boxed())
+            .await
+    }
 }
 
 pub async fn services(
@@ -54,5 +62,17 @@ pub async fn services(
 
     Ok(api::DiscoveryServiceServicesResponse {
         notification_url: read.ctx.config.mqtt.notification_url(),
+    })
+}
+
+pub async fn api_version(
+    _: api::DiscoveryServiceApiVersionRequest,
+    meta: Metadata,
+    mut read: ReadConn<'_, '_>,
+) -> Result<api::DiscoveryServiceApiVersionResponse, Error> {
+    read.auth(&meta, DiscoveryPerm::ApiVersion).await?;
+
+    Ok(api::DiscoveryServiceApiVersionResponse {
+        version: env!("CARGO_PKG_VERSION").to_string(),
     })
 }
